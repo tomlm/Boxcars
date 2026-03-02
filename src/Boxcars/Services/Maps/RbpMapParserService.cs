@@ -98,7 +98,7 @@ public sealed class RbpMapParserService : IMapParserService
                 continue;
             }
 
-            if (line.StartsWith('"') || line.StartsWith('\''))
+            if (line.StartsWith('\''))
             {
                 continue;
             }
@@ -268,6 +268,7 @@ public sealed class RbpMapParserService : IMapParserService
             return;
         }
 
+        var mediumName = tokens.Count > 1 ? tokens[1].Trim() : null;
         var shortName = tokens.Count > 2 ? tokens[2].Trim() : null;
         var colorIndex = tokens.Count > 3 ? TryParseInt(tokens[3]) : null;
         var blue = tokens.Count > 6 ? TryParseInt(tokens[6]) : null;
@@ -278,6 +279,7 @@ public sealed class RbpMapParserService : IMapParserService
         {
             Index = map.Railroads.Count + 1,
             Name = name,
+            MediumName = string.IsNullOrWhiteSpace(mediumName) ? null : mediumName,
             ShortName = string.IsNullOrWhiteSpace(shortName) ? null : shortName,
             ColorIndex = colorIndex,
             Red = red,
@@ -318,20 +320,39 @@ public sealed class RbpMapParserService : IMapParserService
 
     private static void ParseRouteRailroadHeaderLine(string line, MapDefinition map, ref int currentRouteRailroadIndex)
     {
+        currentRouteRailroadIndex = 0;
+
         var sectionRailroadText = line.TrimStart('\'').Trim();
         if (string.IsNullOrWhiteSpace(sectionRailroadText))
         {
             return;
         }
 
+        var normalizedSectionRailroadText = NormalizeRailroadToken(sectionRailroadText);
+
         var railroad = map.Railroads.FirstOrDefault(rr =>
             sectionRailroadText.Equals(rr.ShortName, StringComparison.OrdinalIgnoreCase)
-            || sectionRailroadText.Equals(rr.Name, StringComparison.OrdinalIgnoreCase));
+            || sectionRailroadText.Equals(rr.MediumName, StringComparison.OrdinalIgnoreCase)
+            || sectionRailroadText.Equals(rr.Name, StringComparison.OrdinalIgnoreCase)
+            || normalizedSectionRailroadText.Equals(NormalizeRailroadToken(rr.ShortName), StringComparison.OrdinalIgnoreCase)
+            || normalizedSectionRailroadText.Equals(NormalizeRailroadToken(rr.MediumName), StringComparison.OrdinalIgnoreCase)
+            || normalizedSectionRailroadText.Equals(NormalizeRailroadToken(rr.Name), StringComparison.OrdinalIgnoreCase));
 
         if (railroad is not null)
         {
             currentRouteRailroadIndex = railroad.Index;
         }
+    }
+
+    private static string NormalizeRailroadToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var filtered = value.Where(char.IsLetterOrDigit);
+        return new string(filtered.ToArray());
     }
 
     private static void ParseRouteLine(string line, MapDefinition map, int railroadIndex)

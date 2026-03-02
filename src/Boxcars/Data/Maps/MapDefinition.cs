@@ -39,6 +39,7 @@ public sealed class RailroadDefinition
 {
     public required int Index { get; init; }
     public required string Name { get; init; }
+    public string? MediumName { get; init; }
     public string? ShortName { get; init; }
     public int? ColorIndex { get; init; }
     public int? Red { get; init; }
