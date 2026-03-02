@@ -1,0 +1,302 @@
+@using Boxcars.Data.Maps
+@using Boxcars.Services.Maps
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.JSInterop
+@inject IMapParserService MapParserService
+@inject MapBackgroundResolver BackgroundResolver
+@inject BoardProjectionService BoardProjectionService
+@inject BoardViewportService BoardViewportService
+@inject IJSRuntime JavaScriptRuntime
+
+<div class="map-board-shell">
+    <FluentCard class="map-board-controls">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
+            <FluentLabel Typo="Typography.H5">Map Board</FluentLabel>
+            <FluentLabel Typo="Typography.Body">Load an RBP/RB3 map and optional background image.</FluentLabel>
+
+            <div class="map-board-input-row">
+                <FluentLabel Typo="Typography.Body">Map File (.rbp/.rb3)</FluentLabel>
+                <InputFile OnChange="LoadMapAsync" accept=".rbp,.rb3" />
+            </div>
+
+            <div class="map-board-input-row">
+                <FluentLabel Typo="Typography.Body">Background (optional image upload)</FluentLabel>
+                <InputFile OnChange="LoadBackgroundOverrideAsync" accept=".jpg,.jpeg,.png,.gif,.webp" />
+            </div>
+
+            <div class="map-board-zoom-row">
+                <FluentLabel Typo="Typography.Body">Zoom (@_viewport.ZoomPercent.ToString("F0")%)</FluentLabel>
+                <input type="range"
+                       min="25"
+                       max="300"
+                       step="1"
+                       value="@_viewport.ZoomPercent"
+                       @oninput="OnZoomSliderInput"
+                       class="map-board-zoom-slider" />
+                <FluentButton Appearance="Appearance.Neutral" OnClick="ResetZoom">Fit to board</FluentButton>
+            </div>
+        </FluentStack>
+    </FluentCard>
+
+    @if (_errors.Count > 0)
+    {
+        <FluentCard class="map-board-message map-board-error">
+            <FluentLabel Typo="Typography.H6">Unable to render map</FluentLabel>
+            @foreach (var error in _errors)
+            {
+                <FluentLabel Typo="Typography.Body">@error</FluentLabel>
+            }
+        </FluentCard>
+    }
+
+    @if (_warnings.Count > 0)
+    {
+        <FluentCard class="map-board-message map-board-warning">
+            <FluentLabel Typo="Typography.H6">Map Warnings</FluentLabel>
+            @foreach (var warning in _warnings)
+            {
+                <FluentLabel Typo="Typography.Body">@warning</FluentLabel>
+            }
+        </FluentCard>
+    }
+
+    <div class="map-board-viewport"
+         @ref="_boardViewportElement"
+         @onwheel:preventDefault="true"
+         @onwheel="HandleWheelZoomAsync">
+        @if (_mapDefinition is null || _renderModel is null)
+        {
+            <FluentCard class="map-board-placeholder">
+                <FluentLabel Typo="Typography.Body">No map loaded yet.</FluentLabel>
+            </FluentCard>
+        }
+        else
+        {
+            <svg class="map-board-svg"
+                 viewBox="@GetViewBoxValue()"
+                 preserveAspectRatio="xMidYMid meet"
+                 aria-label="Rail Baron game board">
+                @if (!string.IsNullOrWhiteSpace(_backgroundDataUrl))
+                {
+                    <image href="@_backgroundDataUrl"
+                           x="@_mapDefinition.ScaleLeft"
+                           y="@_mapDefinition.ScaleTop"
+                           width="@_mapDefinition.ScaleWidth"
+                           height="@_mapDefinition.ScaleHeight"
+                           preserveAspectRatio="none" />
+                }
+
+                <g class="map-board-lines">
+                    @foreach (var line in _renderModel.MapLines)
+                    {
+                        <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
+                    }
+                </g>
+
+                <g class="map-board-separators">
+                    @foreach (var separator in _renderModel.Separators)
+                    {
+                        <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
+                    }
+                </g>
+
+                <g class="map-board-train-dots">
+                    @foreach (var dot in _renderModel.TrainDots)
+                    {
+                        <circle cx="@dot.X" cy="@dot.Y" r="0.9" />
+                    }
+                </g>
+
+                <g class="map-board-cities">
+                    @foreach (var city in _renderModel.Cities)
+                    {
+                        <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
+                    }
+                </g>
+            </svg>
+
+            <div class="map-board-label-overlay">
+                @foreach (var city in _renderModel.Cities)
+                {
+                    var style = GetLabelStyle(city);
+                    if (!string.IsNullOrEmpty(style))
+                    {
+                        <div class="map-board-city-label" style="@style">@city.Name</div>
+                    }
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly List<string> _errors = new();
+    private readonly List<string> _warnings = new();
+
+    private ElementReference _boardViewportElement;
+    private MapDefinition? _mapDefinition;
+    private BoardRenderModel? _renderModel;
+    private BoardViewport _viewport = new()
+    {
+        ZoomPercent = 100,
+        CenterX = 0,
+        CenterY = 0,
+        ZoomAnchor = ZoomAnchor.ViewportCenter
+    };
+
+    private string? _backgroundDataUrl;
+    private string? _backgroundOverrideDataUrl;
+
+    private async Task LoadMapAsync(InputFileChangeEventArgs args)
+    {
+        _errors.Clear();
+        _warnings.Clear();
+
+        var file = args.File;
+        if (file is null)
+        {
+            _errors.Add("No map file was selected.");
+            return;
+        }
+
+        await using var stream = file.OpenReadStream(25 * 1024 * 1024);
+        var parseResult = await MapParserService.ParseAsync(file.Name, stream, CancellationToken.None);
+
+        if (!parseResult.Succeeded || parseResult.Definition is null)
+        {
+            _mapDefinition = null;
+            _renderModel = null;
+            _backgroundDataUrl = null;
+            _errors.AddRange(parseResult.Errors);
+            _warnings.AddRange(parseResult.Warnings);
+            return;
+        }
+
+        _mapDefinition = parseResult.Definition;
+        _warnings.AddRange(parseResult.Warnings);
+
+        var projectionResult = BoardProjectionService.Project(_mapDefinition);
+        _renderModel = projectionResult.Model;
+        _warnings.AddRange(projectionResult.Warnings);
+
+        var backgroundResult = await BackgroundResolver.ResolveAsync(_mapDefinition, _backgroundOverrideDataUrl, CancellationToken.None);
+        if (backgroundResult.Succeeded)
+        {
+            _backgroundDataUrl = backgroundResult.DataUrl;
+        }
+        else if (backgroundResult.Error is not null)
+        {
+            _errors.Add(backgroundResult.Error);
+        }
+
+        _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+    }
+
+    private async Task LoadBackgroundOverrideAsync(InputFileChangeEventArgs args)
+    {
+        _errors.Clear();
+
+        var file = args.File;
+        if (file is null)
+        {
+            return;
+        }
+
+        await using var stream = file.OpenReadStream(25 * 1024 * 1024);
+        await using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory);
+
+        var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+        _backgroundOverrideDataUrl = $"data:{contentType};base64,{Convert.ToBase64String(memory.ToArray())}";
+
+        if (_mapDefinition is not null)
+        {
+            var backgroundResult = await BackgroundResolver.ResolveAsync(_mapDefinition, _backgroundOverrideDataUrl, CancellationToken.None);
+            if (backgroundResult.Succeeded)
+            {
+                _backgroundDataUrl = backgroundResult.DataUrl;
+            }
+        }
+    }
+
+    private void OnZoomSliderInput(ChangeEventArgs args)
+    {
+        if (_mapDefinition is null)
+        {
+            return;
+        }
+
+        if (!double.TryParse(args.Value?.ToString(), out var requestedZoom))
+        {
+            return;
+        }
+
+        _viewport = BoardViewportService.UpdateViewportCentered(_viewport, requestedZoom);
+    }
+
+    private void ResetZoom()
+    {
+        if (_mapDefinition is null)
+        {
+            return;
+        }
+
+        _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+    }
+
+    private async Task HandleWheelZoomAsync(WheelEventArgs args)
+    {
+        if (_mapDefinition is null)
+        {
+            return;
+        }
+
+        var delta = args.DeltaY < 0 ? 10 : -10;
+        var requestedZoom = _viewport.ZoomPercent + delta;
+
+        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _boardViewportElement,
+            args.ClientX,
+            args.ClientY);
+
+        _viewport = BoardViewportService.UpdateCursorAnchored(_viewport, requestedZoom, relativePoint, _mapDefinition);
+    }
+
+    private string GetViewBoxValue()
+    {
+        if (_mapDefinition is null)
+        {
+            return "0 0 1 1";
+        }
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        return viewBox.ToSvgValue();
+    }
+
+    private string GetLabelStyle(CityRenderItem city)
+    {
+        if (_mapDefinition is null)
+        {
+            return string.Empty;
+        }
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        if (viewBox.Width <= 0 || viewBox.Height <= 0)
+        {
+            return string.Empty;
+        }
+
+        var xPercent = ((city.X - viewBox.X) / viewBox.Width) * 100.0;
+        var yPercent = ((city.Y - viewBox.Y) / viewBox.Height) * 100.0;
+
+        if (xPercent < 0 || xPercent > 100 || yPercent < 0 || yPercent > 100)
+        {
+            return string.Empty;
+        }
+
+        return $"left: {xPercent:F4}%; top: {yPercent:F4}%;";
+    }
+}

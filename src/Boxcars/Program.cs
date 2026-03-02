@@ -5,6 +5,7 @@ using Boxcars.Data;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
+using Boxcars.Services.Maps;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.FluentUI.AspNetCore.Components;
@@ -57,6 +58,10 @@ public class Program
         // Application services
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
+        builder.Services.AddScoped<IMapParserService, RbpMapParserService>();
+        builder.Services.AddScoped<MapBackgroundResolver>();
+        builder.Services.AddScoped<BoardProjectionService>();
+        builder.Services.AddScoped<BoardViewportService>();
 
         var app = builder.Build();
 

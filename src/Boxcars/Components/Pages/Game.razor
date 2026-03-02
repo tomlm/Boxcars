@@ -6,21 +6,21 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
-<div style="display: flex; justify-content: center; align-items: center; min-height: 60vh;">
-    <FluentCard Style="max-width: 500px; text-align: center; padding: 2rem;">
-        <FluentLabel Typo="Typography.H4" Style="margin-bottom: 0.5rem;">Game In Progress</FluentLabel>
-        <FluentLabel Typo="Typography.Body" Style="margin-bottom: 0.5rem; opacity: 0.7;">
-            Game ID: @GameId
-        </FluentLabel>
-        <FluentLabel Typo="Typography.Body" Style="margin-bottom: 2rem; opacity: 0.6;">
-            Gameplay coming soon — this is a placeholder page.
-        </FluentLabel>
-        <FluentButton Appearance="Appearance.Accent"
-                      OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
-            Back to Dashboard
-        </FluentButton>
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 1rem;">
+    <FluentCard Style="padding: 1rem;">
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.2rem;">
+                <FluentLabel Typo="Typography.H4">Game Board</FluentLabel>
+                <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">Game ID: @GameId</FluentLabel>
+            </FluentStack>
+            <FluentButton Appearance="Appearance.Accent" OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
+                Back to Dashboard
+            </FluentButton>
+        </FluentStack>
     </FluentCard>
-</div>
+
+    <MapBoard />
+</FluentStack>
 
 @code {
     [Parameter]
