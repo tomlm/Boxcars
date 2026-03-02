@@ -23,7 +23,9 @@
         </FluentStack>
     </FluentCard>
 
-    <MapBoard ShowEndGameButton="true" EndGameRequested="EndGameAsync" MapFileName="@_mapFileName" />
+    <div class="map-board-edge-wrap">
+        <MapBoard ShowEndGameButton="true" EndGameRequested="EndGameAsync" MapFileName="@_mapFileName" />
+    </div>
 </FluentStack>
 
 @code {
