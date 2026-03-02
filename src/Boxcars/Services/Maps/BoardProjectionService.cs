@@ -11,6 +11,14 @@ public sealed class BoardProjectionService
         var warnings = new List<string>();
         var cities = new List<CityRenderItem>();
         var railroadSegments = BuildRailroadSegments(mapDefinition, warnings);
+        var regionLabels = mapDefinition.RegionLabels
+            .Select(label => new RegionLabelRenderItem
+            {
+                Text = label.Text,
+                X = label.X,
+                Y = label.Y
+            })
+            .ToList();
 
         var regionCodeToIndex = mapDefinition.Regions
             .Select((region, index) => new { region.Code, RegionIndex = index + 1 })
@@ -49,6 +57,7 @@ public sealed class BoardProjectionService
             Cities = cities,
             TrainDots = mapDefinition.TrainDots,
             RailroadSegments = railroadSegments,
+            RegionLabels = regionLabels,
             MapLines = mapDefinition.MapLines,
             Separators = mapDefinition.Separators
         };

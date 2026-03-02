@@ -69,7 +69,7 @@
         {
             <svg class="map-board-svg"
                  viewBox="@GetViewBoxValue()"
-                 preserveAspectRatio="xMidYMid meet"
+                 preserveAspectRatio="none"
                  aria-label="Rail Baron game board">
                 @if (!string.IsNullOrWhiteSpace(_backgroundDataUrl))
                 {
@@ -118,6 +118,13 @@
                     @foreach (var city in _renderModel.Cities)
                     {
                         <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
+                    }
+                </g>
+
+                <g class="map-board-region-labels">
+                    @foreach (var label in _renderModel.RegionLabels)
+                    {
+                        <svg:text x="@label.X" y="@label.Y">@label.Text</svg:text>
                     }
                 </g>
 

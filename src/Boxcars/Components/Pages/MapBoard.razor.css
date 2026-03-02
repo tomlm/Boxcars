@@ -99,3 +99,15 @@
     stroke-width: 0.7;
     white-space: nowrap;
 }
+
+.map-board-region-labels text {
+    fill: #c00000;
+    font-size: 12px;
+    font-weight: 700;
+    paint-order: stroke;
+    stroke: #000000;
+    stroke-width: 0.8;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    white-space: nowrap;
+}

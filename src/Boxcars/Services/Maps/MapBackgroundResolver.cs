@@ -5,7 +5,7 @@ namespace Boxcars.Services.Maps;
 
 public sealed class MapBackgroundResolver
 {
-    private const string DefaultBackgroundImage = "USABGND2.JPG";
+    private const string DefaultBackgroundImage = "USABGND.JPG";
     private readonly IWebHostEnvironment _environment;
 
     public MapBackgroundResolver(IWebHostEnvironment environment)

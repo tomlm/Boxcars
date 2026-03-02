@@ -130,6 +130,9 @@ public sealed class RbpMapParserService : IMapParserService
                 case "rout":
                     ParseRouteLine(line, map, currentRouteRailroadIndex);
                     break;
+                case "label":
+                    ParseLabelLine(line, map);
+                    break;
                 default:
                     if (currentSection.StartsWith("re", StringComparison.OrdinalIgnoreCase))
                     {
@@ -267,9 +270,9 @@ public sealed class RbpMapParserService : IMapParserService
 
         var shortName = tokens.Count > 2 ? tokens[2].Trim() : null;
         var colorIndex = tokens.Count > 3 ? TryParseInt(tokens[3]) : null;
-        var red = tokens.Count > 6 ? TryParseInt(tokens[6]) : null;
+        var blue = tokens.Count > 6 ? TryParseInt(tokens[6]) : null;
         var green = tokens.Count > 7 ? TryParseInt(tokens[7]) : null;
-        var blue = tokens.Count > 8 ? TryParseInt(tokens[8]) : null;
+        var red = tokens.Count > 8 ? TryParseInt(tokens[8]) : null;
 
         map.Railroads.Add(new RailroadDefinition
         {
@@ -280,6 +283,36 @@ public sealed class RbpMapParserService : IMapParserService
             Red = red,
             Green = green,
             Blue = blue
+        });
+    }
+
+    private static void ParseLabelLine(string line, MapDefinition map)
+    {
+        if (!line.Contains(',') || int.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        {
+            return;
+        }
+
+        var tokens = ParseCsvLine(line);
+        if (tokens.Count < 3)
+        {
+            return;
+        }
+
+        var text = tokens[0].Trim();
+        var x = TryParseDouble(tokens[1]);
+        var y = TryParseDouble(tokens[2]);
+
+        if (string.IsNullOrWhiteSpace(text) || x is null || y is null)
+        {
+            return;
+        }
+
+        map.RegionLabels.Add(new RegionLabelDefinition
+        {
+            Text = text,
+            X = x.Value,
+            Y = y.Value
         });
     }
 

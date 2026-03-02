@@ -16,6 +16,7 @@ public sealed class MapDefinition
     public List<RailroadRouteSegmentDefinition> RailroadRouteSegments { get; } = new();
     public List<LineSegment> MapLines { get; } = new();
     public List<LineSegment> Separators { get; } = new();
+    public List<RegionLabelDefinition> RegionLabels { get; } = new();
 }
 
 public sealed class RegionDefinition
@@ -52,4 +53,11 @@ public sealed class RailroadRouteSegmentDefinition
     public required int StartDotIndex { get; init; }
     public required int EndRegionIndex { get; init; }
     public required int EndDotIndex { get; init; }
+}
+
+public sealed class RegionLabelDefinition
+{
+    public required string Text { get; init; }
+    public required double X { get; init; }
+    public required double Y { get; init; }
 }
