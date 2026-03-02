@@ -84,16 +84,16 @@
 }
 
 .map-board-train-dots circle {
-    fill: var(--neutral-foreground-rest);
+    fill: #000000;
 }
 
 .map-board-cities rect {
-    fill: var(--neutral-foreground-rest);
+    fill: #000000;
 }
 
 .map-board-city-labels text {
     fill: var(--neutral-foreground-rest);
-    font-size: 5px;
+    font-size: 2.5px;
     paint-order: stroke;
     stroke: var(--neutral-fill-layer-rest);
     stroke-width: 0.7;

@@ -1,5 +1,6 @@
 @using Boxcars.Data.Maps
 @using Boxcars.Services.Maps
+@using System.Globalization
 @using Microsoft.AspNetCore.Components
 @using Microsoft.FluentUI.AspNetCore.Components
 @using Microsoft.JSInterop
@@ -124,14 +125,18 @@
                 <g class="map-board-region-labels">
                     @foreach (var label in _renderModel.RegionLabels)
                     {
-                        <svg:text x="@label.X" y="@label.Y">@label.Text</svg:text>
+                        <svg:text x="@label.X"
+                                  y="@label.Y"
+                                  transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
                     }
                 </g>
 
                 <g class="map-board-city-labels">
                     @foreach (var city in _renderModel.Cities)
                     {
-                        <svg:text x="@(city.X + 2.2)" y="@(city.Y - 2.2)">@city.Name</svg:text>
+                        <svg:text x="@(city.X + 2.2)"
+                                  y="@(city.Y - 2.2)"
+                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 2.2)">@city.Name</svg:text>
                     }
                 </g>
             </svg>
@@ -189,6 +194,8 @@
     private double _panStartViewBoxHeight;
     private double _panViewportWidth;
     private double _panViewportHeight;
+    private double _viewportRenderWidth = 1;
+    private double _viewportRenderHeight = 1;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -202,6 +209,20 @@
         }
 
         await LoadConfiguredMapAsync(configuredMapFile);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _boardViewportElement,
+            0,
+            0);
+
+        if (UpdateViewportRenderSize(relativePoint))
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task LoadConfiguredMapAsync(string configuredMapFile)
@@ -313,6 +334,8 @@
             args.ClientX,
             args.ClientY);
 
+        UpdateViewportRenderSize(relativePoint);
+
         _viewport = BoardViewportService.UpdateCursorAnchored(_viewport, requestedZoom, relativePoint, _mapDefinition);
     }
 
@@ -328,6 +351,8 @@
             _boardViewportElement,
             args.ClientX,
             args.ClientY);
+
+        UpdateViewportRenderSize(relativePoint);
 
         var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
 
@@ -378,6 +403,48 @@
 
         var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
         return viewBox.ToSvgValue();
+    }
+
+    private bool UpdateViewportRenderSize(RelativePoint relativePoint)
+    {
+        var width = Math.Max(1, relativePoint.Width);
+        var height = Math.Max(1, relativePoint.Height);
+
+        if (Math.Abs(width - _viewportRenderWidth) < 0.5
+            && Math.Abs(height - _viewportRenderHeight) < 0.5)
+        {
+            return false;
+        }
+
+        _viewportRenderWidth = width;
+        _viewportRenderHeight = height;
+        return true;
+    }
+
+    private string? GetTextUnstretchTransform(double x, double y)
+    {
+        if (_mapDefinition is null)
+        {
+            return null;
+        }
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        var scaleX = _viewportRenderWidth / Math.Max(0.0001, viewBox.Width);
+        var scaleY = _viewportRenderHeight / Math.Max(0.0001, viewBox.Height);
+
+        if (scaleX <= 0 || scaleY <= 0)
+        {
+            return null;
+        }
+
+        var compensationScaleX = scaleY / scaleX;
+        if (Math.Abs(compensationScaleX - 1) < 0.0001)
+        {
+            return null;
+        }
+
+        return FormattableString.Invariant(
+            $"translate({x:F4} {y:F4}) scale({compensationScaleX:F6} 1) translate({-x:F4} {-y:F4})");
     }
 
     private async Task OnEndGameClickedAsync()
