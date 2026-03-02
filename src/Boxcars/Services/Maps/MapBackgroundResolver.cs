@@ -5,6 +5,7 @@ namespace Boxcars.Services.Maps;
 
 public sealed class MapBackgroundResolver
 {
+    private const string DefaultBackgroundImage = "USABGND2.JPG";
     private readonly IWebHostEnvironment _environment;
 
     public MapBackgroundResolver(IWebHostEnvironment environment)
@@ -24,12 +25,11 @@ public sealed class MapBackgroundResolver
             return BackgroundResolutionResult.Success(uploadedBackgroundDataUrl);
         }
 
-        if (string.IsNullOrWhiteSpace(mapDefinition.BackgroundKey))
-        {
-            return BackgroundResolutionResult.Failure("Background asset is required but no map background key was provided.");
-        }
+        var backgroundKey = string.IsNullOrWhiteSpace(mapDefinition.BackgroundKey)
+            ? DefaultBackgroundImage
+            : mapDefinition.BackgroundKey;
 
-        var candidates = BuildCandidatePaths(mapDefinition.BackgroundKey);
+        var candidates = BuildCandidatePaths(backgroundKey);
         foreach (var candidate in candidates)
         {
             if (!File.Exists(candidate))
@@ -47,7 +47,7 @@ public sealed class MapBackgroundResolver
         }
 
         return BackgroundResolutionResult.Failure(
-            $"Background image for key '{mapDefinition.BackgroundKey}' was not found. Upload a background image or place one in wwwroot/maps.");
+            $"Background image for key '{backgroundKey}' was not found. Upload a background image or place one in wwwroot/maps.");
     }
 
     private string[] BuildCandidatePaths(string backgroundKey)
@@ -55,6 +55,15 @@ public sealed class MapBackgroundResolver
         var key = backgroundKey.Trim();
         var webRoot = _environment.WebRootPath;
         var mapRoot = Path.Combine(webRoot, "maps");
+
+        if (Path.HasExtension(key))
+        {
+            return new[]
+            {
+                Path.Combine(mapRoot, key),
+                Path.Combine(webRoot, key)
+            };
+        }
 
         return new[]
         {

@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="USABGND.JPG" />
+    <None Remove="USABGND2.JPG" />
+    <None Remove="USARRS.JPG" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Azure.Data.Tables" Version="12.*" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.MicrosoftAccount" Version="8.*" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.*" />
