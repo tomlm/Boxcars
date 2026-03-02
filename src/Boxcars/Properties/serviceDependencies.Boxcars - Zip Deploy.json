@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "storage1": {
+      "serviceConnectorResourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('serviceConnectorResourceGroupName')]/providers/Microsoft.Web/sites/boxcars/providers/Microsoft.ServiceLinker/linkers/AzureTableStorageConnectionString_B43999513A, /subscriptions/2e289b4e-e914-4433-8ae9-84d13f5399e1/resourceGroups/MiscSites/providers/Microsoft.Web/sites/boxcars/providers/Microsoft.ServiceLinker/linkers/AzureTableStorageConnectionString_073B867414",
+      "secretStore": "AzureAppSettings",
+      "resourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/Microsoft.Storage/storageAccounts/boxcars",
+      "type": "storage.azure",
+      "connectionId": "AzureTableStorage:ConnectionString",
+      "dynamicId": null
+    }
+  }
+}
