@@ -104,7 +104,15 @@
                               x2="@railroadSegment.X2"
                               y2="@railroadSegment.Y2"
                               stroke="@railroadSegment.StrokeColor"
-                              class="@(railroadSegment.IsOwned ? "owned" : "unowned")" />
+                              class="@GetRailroadSegmentClass(railroadSegment)" />
+                        <line x1="@railroadSegment.X1"
+                              y1="@railroadSegment.Y1"
+                              x2="@railroadSegment.X2"
+                              y2="@railroadSegment.Y2"
+                              class="map-board-railroad-hitbox"
+                              @onmousedown:stopPropagation="true"
+                              @onclick="@(() => SelectRailroad(railroadSegment.RailroadIndex))"
+                              @onclick:stopPropagation="true" />
                     }
                 </g>
 
@@ -186,6 +194,7 @@
     private string? _backgroundDataUrl = null;
     private string? _loadedMapFileName;
     private bool _isPanning;
+    private int? _selectedRailroadIndex;
     private double _panStartClientX;
     private double _panStartClientY;
     private double _panStartCenterX;
@@ -229,6 +238,7 @@
     {
         _errors.Clear();
         _warnings.Clear();
+        _selectedRailroadIndex = null;
         _loadedMapFileName = null;
 
         var resolvedPath = ResolveMapPath(configuredMapFile);
@@ -455,6 +465,24 @@
         }
 
         await EndGameRequested.InvokeAsync();
+    }
+
+    private void SelectRailroad(int railroadIndex)
+    {
+        if (railroadIndex <= 0)
+        {
+            return;
+        }
+
+        _selectedRailroadIndex = railroadIndex;
+    }
+
+    private string GetRailroadSegmentClass(RailroadRenderSegment segment)
+    {
+        var ownershipClass = segment.IsOwned ? "owned" : "unowned";
+        return _selectedRailroadIndex == segment.RailroadIndex
+            ? $"{ownershipClass} selected"
+            : ownershipClass;
     }
 
 }

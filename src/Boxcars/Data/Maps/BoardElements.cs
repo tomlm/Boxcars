@@ -29,6 +29,7 @@ public sealed class CityRenderItem
 
 public sealed class RailroadRenderSegment
 {
+    public required int RailroadIndex { get; init; }
     public required double X1 { get; init; }
     public required double Y1 { get; init; }
     public required double X2 { get; init; }

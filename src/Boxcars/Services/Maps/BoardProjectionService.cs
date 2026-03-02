@@ -127,6 +127,7 @@ public sealed class BoardProjectionService
         {
             return new RailroadRenderSegment
             {
+                RailroadIndex = segment.RailroadIndex,
                 X1 = segment.X1,
                 Y1 = segment.Y1,
                 X2 = segment.X2,
@@ -141,6 +142,7 @@ public sealed class BoardProjectionService
 
         return new RailroadRenderSegment
         {
+            RailroadIndex = segment.RailroadIndex,
             X1 = segment.X1 + offsetX,
             Y1 = segment.Y1 + offsetY,
             X2 = segment.X2 + offsetX,
