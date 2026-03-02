@@ -20,9 +20,9 @@
             <div class="map-board-zoom-row">
                 <FluentLabel Typo="Typography.Body">Zoom (@_viewport.ZoomPercent.ToString("F0")%)</FluentLabel>
                 <input type="range"
-                       min="25"
+                       min="100"
                        max="500"
-                       step="1"
+                       step="50"
                        value="@_viewport.ZoomPercent"
                        @oninput="OnZoomSliderInput"
                        class="map-board-zoom-slider" />
@@ -325,7 +325,7 @@
             return;
         }
 
-        var delta = args.DeltaY < 0 ? 10 : -10;
+        var delta = args.DeltaY < 0 ? 50 : -50;
         var requestedZoom = _viewport.ZoomPercent + delta;
 
         var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(

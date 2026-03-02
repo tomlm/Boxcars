@@ -4,7 +4,7 @@ namespace Boxcars.Services.Maps;
 
 public sealed class BoardViewportService
 {
-    public const double MinZoom = 25;
+    public const double MinZoom = 100;
     public const double MaxZoom = 500;
 
     public BoardViewport InitializeFitToBoard(MapDefinition mapDefinition)
