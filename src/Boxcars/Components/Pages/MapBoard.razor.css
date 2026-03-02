@@ -8,12 +8,6 @@
     padding: 1rem;
 }
 
-.map-board-input-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-}
-
 .map-board-zoom-row {
     display: flex;
     flex-wrap: wrap;
@@ -44,23 +38,14 @@
     border: 1px solid var(--neutral-stroke-rest);
     border-radius: 0.5rem;
     overflow: hidden;
+    overscroll-behavior: contain;
     background-color: var(--neutral-fill-layer-rest);
     position: relative;
+    cursor: grab;
 }
 
-.map-board-label-overlay {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-}
-
-.map-board-city-label {
-    position: absolute;
-    transform: translate(6px, -10px);
-    font-size: 0.75rem;
-    color: var(--neutral-foreground-rest);
-    text-shadow: 0 0 2px var(--neutral-fill-layer-rest), 0 0 4px var(--neutral-fill-layer-rest);
-    white-space: nowrap;
+.map-board-viewport.panning {
+    cursor: grabbing;
 }
 
 .map-board-placeholder {
@@ -85,10 +70,32 @@
     stroke-dasharray: 0.8 0.8;
 }
 
+.map-board-railroads line {
+    stroke-width: 0.95;
+    stroke-linecap: round;
+}
+
+.map-board-railroads line.unowned {
+    stroke-dasharray: 1.5 0.8;
+}
+
+.map-board-railroads line.owned {
+    stroke-dasharray: none;
+}
+
 .map-board-train-dots circle {
     fill: var(--neutral-foreground-rest);
 }
 
 .map-board-cities rect {
     fill: var(--neutral-foreground-rest);
+}
+
+.map-board-city-labels text {
+    fill: var(--neutral-foreground-rest);
+    font-size: 5px;
+    paint-order: stroke;
+    stroke: var(--neutral-fill-layer-rest);
+    stroke-width: 0.7;
+    white-space: nowrap;
 }

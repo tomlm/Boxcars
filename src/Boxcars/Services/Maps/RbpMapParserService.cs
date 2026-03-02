@@ -60,6 +60,7 @@ public sealed class RbpMapParserService : IMapParserService
         var warnings = new List<string>();
         var map = new MapDefinition();
         var headerValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var currentRouteRailroadIndex = 0;
 
         var regionIndexByCode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var currentSection = string.Empty;
@@ -77,6 +78,23 @@ public sealed class RbpMapParserService : IMapParserService
             if (TryGetSection(line, out var sectionName))
             {
                 currentSection = sectionName;
+                continue;
+            }
+
+            if (currentSection.Equals("rout", StringComparison.OrdinalIgnoreCase) && line.StartsWith('\''))
+            {
+                ParseRouteRailroadHeaderLine(line, map, ref currentRouteRailroadIndex);
+                continue;
+            }
+
+            if (currentSection.StartsWith("re", StringComparison.OrdinalIgnoreCase) && line.StartsWith('\''))
+            {
+                var potentialDotLine = line.TrimStart('\'').TrimStart();
+                if (potentialDotLine.StartsWith("s,", StringComparison.OrdinalIgnoreCase))
+                {
+                    ParseRegionDotLine(currentSection, potentialDotLine, map.TrainDots);
+                }
+
                 continue;
             }
 
@@ -108,6 +126,9 @@ public sealed class RbpMapParserService : IMapParserService
                     break;
                 case "sep":
                     ParseLineSegmentLine(line, map.Separators);
+                    break;
+                case "rout":
+                    ParseRouteLine(line, map, currentRouteRailroadIndex);
                     break;
                 default:
                     if (currentSection.StartsWith("re", StringComparison.OrdinalIgnoreCase))
@@ -245,12 +266,128 @@ public sealed class RbpMapParserService : IMapParserService
         }
 
         var shortName = tokens.Count > 2 ? tokens[2].Trim() : null;
+        var colorIndex = tokens.Count > 3 ? TryParseInt(tokens[3]) : null;
+        var red = tokens.Count > 6 ? TryParseInt(tokens[6]) : null;
+        var green = tokens.Count > 7 ? TryParseInt(tokens[7]) : null;
+        var blue = tokens.Count > 8 ? TryParseInt(tokens[8]) : null;
+
         map.Railroads.Add(new RailroadDefinition
         {
+            Index = map.Railroads.Count + 1,
             Name = name,
-            ShortName = string.IsNullOrWhiteSpace(shortName) ? null : shortName
+            ShortName = string.IsNullOrWhiteSpace(shortName) ? null : shortName,
+            ColorIndex = colorIndex,
+            Red = red,
+            Green = green,
+            Blue = blue
         });
     }
+
+    private static void ParseRouteRailroadHeaderLine(string line, MapDefinition map, ref int currentRouteRailroadIndex)
+    {
+        var sectionRailroadText = line.TrimStart('\'').Trim();
+        if (string.IsNullOrWhiteSpace(sectionRailroadText))
+        {
+            return;
+        }
+
+        var railroad = map.Railroads.FirstOrDefault(rr =>
+            sectionRailroadText.Equals(rr.ShortName, StringComparison.OrdinalIgnoreCase)
+            || sectionRailroadText.Equals(rr.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (railroad is not null)
+        {
+            currentRouteRailroadIndex = railroad.Index;
+        }
+    }
+
+    private static void ParseRouteLine(string line, MapDefinition map, int railroadIndex)
+    {
+        if (railroadIndex <= 0)
+        {
+            return;
+        }
+
+        var tokens = ParseCsvLine(line)
+            .Select(TryParseInt)
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .ToList();
+
+        if (tokens.Count < 2)
+        {
+            return;
+        }
+
+        var points = new List<RouteDotRef>();
+        var currentRegion = 0;
+
+        for (var tokenIndex = 0; tokenIndex < tokens.Count;)
+        {
+            if (tokenIndex + 1 < tokens.Count
+                && ((tokens[tokenIndex] == 0 && tokens[tokenIndex + 1] == 0)
+                    || (tokens[tokenIndex] == -1 && tokens[tokenIndex + 1] == -1)))
+            {
+                break;
+            }
+
+            var token = tokens[tokenIndex];
+            if (token <= 0)
+            {
+                tokenIndex++;
+                continue;
+            }
+
+            if (token >= 1 && token <= map.Regions.Count && tokenIndex + 1 < tokens.Count)
+            {
+                var dotToken = tokens[tokenIndex + 1];
+                if (dotToken > 0)
+                {
+                    currentRegion = token;
+                    var decodedDotToken = dotToken >= 1000 ? dotToken % 1000 : dotToken;
+                    points.Add(new RouteDotRef(currentRegion, decodedDotToken));
+
+                    tokenIndex += 2;
+                    continue;
+                }
+            }
+
+            if (currentRegion > 0)
+            {
+                var decodedToken = token >= 1000 ? token % 1000 : token;
+                points.Add(new RouteDotRef(currentRegion, decodedToken));
+            }
+
+            tokenIndex++;
+        }
+
+        if (points.Count < 2)
+        {
+            return;
+        }
+
+        for (var i = 0; i < points.Count - 1; i++)
+        {
+            var start = points[i];
+            var end = points[i + 1];
+
+            if (start.RegionIndex <= 0 || start.DotIndex <= 0 || end.RegionIndex <= 0 || end.DotIndex <= 0)
+            {
+                continue;
+            }
+
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroadIndex,
+                StartRegionIndex = start.RegionIndex,
+                StartDotIndex = start.DotIndex,
+                EndRegionIndex = end.RegionIndex,
+                EndDotIndex = end.DotIndex
+            });
+        }
+    }
+
+    private readonly record struct RouteDotRef(int RegionIndex, int DotIndex);
 
     private static void ParseRegionDotLine(string section, string line, List<TrainDot> trainDots)
     {

@@ -9,6 +9,8 @@ namespace Boxcars.Services;
 
 public class GameService
 {
+    public const string DefaultMapFileName = "U21MAP.RB3";
+
     private readonly TableClient _gamesTable;
     private readonly TableClient _gamePlayersTable;
     private readonly TableClient _activeGameIndexTable;
@@ -82,6 +84,7 @@ public class GameService
             PartitionKey = "ACTIVE",
             RowKey = gameId,
             CreatorId = creatorId,
+            MapFileName = DefaultMapFileName,
             MaxPlayers = maxPlayers,
             CurrentPlayerCount = 1,
             CreatedAt = DateTime.UtcNow
@@ -182,6 +185,75 @@ public class GameService
         }
 
         // Broadcast dashboard refresh
+        await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
+
+        return new GameActionResult { Success = true, GameId = gameId };
+    }
+
+    public async Task<GameEntity?> GetGameAsync(string gameId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _gamesTable.GetEntityAsync<GameEntity>("ACTIVE", gameId, cancellationToken: cancellationToken);
+            return response.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    public async Task<GameActionResult> EndGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
+    {
+        GameEntity game;
+        try
+        {
+            var response = await _gamesTable.GetEntityAsync<GameEntity>("ACTIVE", gameId, cancellationToken: cancellationToken);
+            game = response.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return new GameActionResult { Success = false, Reason = "Game is no longer active." };
+        }
+
+        if (!string.Equals(game.CreatorId, playerId, StringComparison.Ordinal))
+        {
+            return new GameActionResult { Success = false, Reason = "Only the game creator can end this game." };
+        }
+
+        var gamePlayers = new List<GamePlayerEntity>();
+        var gamePlayersQuery = _gamePlayersTable.QueryAsync<GamePlayerEntity>(
+            player => player.PartitionKey == gameId,
+            cancellationToken: cancellationToken);
+
+        await foreach (var gamePlayer in gamePlayersQuery)
+        {
+            gamePlayers.Add(gamePlayer);
+        }
+
+        foreach (var gamePlayer in gamePlayers)
+        {
+            try
+            {
+                await _activeGameIndexTable.DeleteEntityAsync("ACTIVE_GAME", gamePlayer.RowKey, cancellationToken: cancellationToken);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Ignore missing index rows.
+            }
+
+            try
+            {
+                await _gamePlayersTable.DeleteEntityAsync(gameId, gamePlayer.RowKey, cancellationToken: cancellationToken);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Ignore missing player rows.
+            }
+        }
+
+        await _gamesTable.DeleteEntityAsync("ACTIVE", gameId, game.ETag, cancellationToken: cancellationToken);
+
         await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
 
         return new GameActionResult { Success = true, GameId = gameId };

@@ -1,41 +1,38 @@
 @using Boxcars.Data.Maps
 @using Boxcars.Services.Maps
 @using Microsoft.AspNetCore.Components
-@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.FluentUI.AspNetCore.Components
 @using Microsoft.JSInterop
 @inject IMapParserService MapParserService
 @inject MapBackgroundResolver BackgroundResolver
 @inject BoardProjectionService BoardProjectionService
 @inject BoardViewportService BoardViewportService
+@inject IWebHostEnvironment HostEnvironment
 @inject IJSRuntime JavaScriptRuntime
 
 <div class="map-board-shell">
     <FluentCard class="map-board-controls">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
             <FluentLabel Typo="Typography.H5">Map Board</FluentLabel>
-            <FluentLabel Typo="Typography.Body">Load an RBP/RB3 map and optional background image.</FluentLabel>
-
-            <div class="map-board-input-row">
-                <FluentLabel Typo="Typography.Body">Map File (.rbp/.rb3)</FluentLabel>
-                <InputFile OnChange="LoadMapAsync" accept=".rbp,.rb3" />
-            </div>
-
-            <div class="map-board-input-row">
-                <FluentLabel Typo="Typography.Body">Background (optional image upload)</FluentLabel>
-                <InputFile OnChange="LoadBackgroundOverrideAsync" accept=".jpg,.jpeg,.png,.gif,.webp" />
-            </div>
+            <FluentLabel Typo="Typography.Body">Map selection is provided by game setup.</FluentLabel>
 
             <div class="map-board-zoom-row">
                 <FluentLabel Typo="Typography.Body">Zoom (@_viewport.ZoomPercent.ToString("F0")%)</FluentLabel>
                 <input type="range"
                        min="25"
-                       max="300"
+                       max="500"
                        step="1"
                        value="@_viewport.ZoomPercent"
                        @oninput="OnZoomSliderInput"
                        class="map-board-zoom-slider" />
                 <FluentButton Appearance="Appearance.Neutral" OnClick="ResetZoom">Fit to board</FluentButton>
+
+                @if (ShowEndGameButton)
+                {
+                    <FluentButton Appearance="Appearance.Lightweight" OnClick="OnEndGameClickedAsync" Disabled="@(!EndGameRequested.HasDelegate)">
+                        End Game
+                    </FluentButton>
+                }
             </div>
         </FluentStack>
     </FluentCard>
@@ -51,20 +48,16 @@
         </FluentCard>
     }
 
-    @if (_warnings.Count > 0)
-    {
-        <FluentCard class="map-board-message map-board-warning">
-            <FluentLabel Typo="Typography.H6">Map Warnings</FluentLabel>
-            @foreach (var warning in _warnings)
-            {
-                <FluentLabel Typo="Typography.Body">@warning</FluentLabel>
-            }
-        </FluentCard>
-    }
-
-    <div class="map-board-viewport"
+    <div class="map-board-viewport @(_isPanning ? "panning" : string.Empty)"
          @ref="_boardViewportElement"
+         tabindex="0"
+         @onmousedown="StartPanAsync"
+         @onmousedown:preventDefault="true"
+         @onmousemove="ContinuePan"
+         @onmouseup="EndPan"
+         @onmouseleave="EndPan"
          @onwheel:preventDefault="true"
+         @onwheel:stopPropagation="true"
          @onwheel="HandleWheelZoomAsync">
         @if (_mapDefinition is null || _renderModel is null)
         {
@@ -102,6 +95,18 @@
                     }
                 </g>
 
+                <g class="map-board-railroads">
+                    @foreach (var railroadSegment in _renderModel.RailroadSegments)
+                    {
+                        <line x1="@railroadSegment.X1"
+                              y1="@railroadSegment.Y1"
+                              x2="@railroadSegment.X2"
+                              y2="@railroadSegment.Y2"
+                              stroke="@railroadSegment.StrokeColor"
+                              class="@(railroadSegment.IsOwned ? "owned" : "unowned")" />
+                    }
+                </g>
+
                 <g class="map-board-train-dots">
                     @foreach (var dot in _renderModel.TrainDots)
                     {
@@ -115,29 +120,49 @@
                         <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
                     }
                 </g>
-            </svg>
 
-            <div class="map-board-label-overlay">
-                @foreach (var city in _renderModel.Cities)
-                {
-                    var style = GetLabelStyle(city);
-                    if (!string.IsNullOrEmpty(style))
+                <g class="map-board-city-labels">
+                    @foreach (var city in _renderModel.Cities)
                     {
-                        <div class="map-board-city-label" style="@style">@city.Name</div>
+                        <svg:text x="@(city.X + 2.2)" y="@(city.Y - 2.2)">@city.Name</svg:text>
                     }
-                }
-            </div>
+                </g>
+            </svg>
         }
     </div>
+
+    @if (_warnings.Count > 0)
+    {
+        <FluentCard class="map-board-message map-board-warning map-board-warning-panel">
+            <details open>
+                <summary>Map Warnings (@_warnings.Count)</summary>
+                <div class="map-board-warning-list">
+                    @foreach (var warning in _warnings)
+                    {
+                        <FluentLabel Typo="Typography.Body">@warning</FluentLabel>
+                    }
+                </div>
+            </details>
+        </FluentCard>
+    }
 </div>
 
 @code {
+    [Parameter]
+    public bool ShowEndGameButton { get; set; }
+
+    [Parameter]
+    public EventCallback EndGameRequested { get; set; }
+
+    [Parameter]
+    public string MapFileName { get; set; } = "U21MAP.RB3";
+
     private readonly List<string> _errors = new();
     private readonly List<string> _warnings = new();
 
     private ElementReference _boardViewportElement;
-    private MapDefinition? _mapDefinition;
-    private BoardRenderModel? _renderModel;
+    private MapDefinition? _mapDefinition = null;
+    private BoardRenderModel? _renderModel = null;
     private BoardViewport _viewport = new()
     {
         ZoomPercent = 100,
@@ -146,23 +171,50 @@
         ZoomAnchor = ZoomAnchor.ViewportCenter
     };
 
-    private string? _backgroundDataUrl;
-    private string? _backgroundOverrideDataUrl;
+    private string? _backgroundDataUrl = null;
+    private string? _loadedMapFileName;
+    private bool _isPanning;
+    private double _panStartClientX;
+    private double _panStartClientY;
+    private double _panStartCenterX;
+    private double _panStartCenterY;
+    private double _panStartViewBoxWidth;
+    private double _panStartViewBoxHeight;
+    private double _panViewportWidth;
+    private double _panViewportHeight;
 
-    private async Task LoadMapAsync(InputFileChangeEventArgs args)
+    protected override async Task OnParametersSetAsync()
     {
-        _errors.Clear();
-        _warnings.Clear();
+        var configuredMapFile = string.IsNullOrWhiteSpace(MapFileName)
+            ? "U21MAP.RB3"
+            : MapFileName.Trim();
 
-        var file = args.File;
-        if (file is null)
+        if (string.Equals(_loadedMapFileName, configuredMapFile, StringComparison.OrdinalIgnoreCase))
         {
-            _errors.Add("No map file was selected.");
             return;
         }
 
-        await using var stream = file.OpenReadStream(25 * 1024 * 1024);
-        var parseResult = await MapParserService.ParseAsync(file.Name, stream, CancellationToken.None);
+        await LoadConfiguredMapAsync(configuredMapFile);
+    }
+
+    private async Task LoadConfiguredMapAsync(string configuredMapFile)
+    {
+        _errors.Clear();
+        _warnings.Clear();
+        _loadedMapFileName = null;
+
+        var resolvedPath = ResolveMapPath(configuredMapFile);
+        if (resolvedPath is null)
+        {
+            _mapDefinition = null;
+            _renderModel = null;
+            _backgroundDataUrl = null;
+            _errors.Add($"Configured map file '{configuredMapFile}' was not found.");
+            return;
+        }
+
+        await using var stream = File.OpenRead(resolvedPath);
+        var parseResult = await MapParserService.ParseAsync(Path.GetFileName(resolvedPath), stream, CancellationToken.None);
 
         if (!parseResult.Succeeded || parseResult.Definition is null)
         {
@@ -181,7 +233,7 @@
         _renderModel = projectionResult.Model;
         _warnings.AddRange(projectionResult.Warnings);
 
-        var backgroundResult = await BackgroundResolver.ResolveAsync(_mapDefinition, _backgroundOverrideDataUrl, CancellationToken.None);
+        var backgroundResult = await BackgroundResolver.ResolveAsync(_mapDefinition, uploadedBackgroundDataUrl: null, CancellationToken.None);
         if (backgroundResult.Succeeded)
         {
             _backgroundDataUrl = backgroundResult.DataUrl;
@@ -192,33 +244,25 @@
         }
 
         _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+        _loadedMapFileName = configuredMapFile;
     }
 
-    private async Task LoadBackgroundOverrideAsync(InputFileChangeEventArgs args)
+    private string? ResolveMapPath(string configuredMapFile)
     {
-        _errors.Clear();
-
-        var file = args.File;
-        if (file is null)
+        if (Path.IsPathRooted(configuredMapFile) && File.Exists(configuredMapFile))
         {
-            return;
+            return configuredMapFile;
         }
 
-        await using var stream = file.OpenReadStream(25 * 1024 * 1024);
-        await using var memory = new MemoryStream();
-        await stream.CopyToAsync(memory);
-
-        var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
-        _backgroundOverrideDataUrl = $"data:{contentType};base64,{Convert.ToBase64String(memory.ToArray())}";
-
-        if (_mapDefinition is not null)
+        var candidates = new[]
         {
-            var backgroundResult = await BackgroundResolver.ResolveAsync(_mapDefinition, _backgroundOverrideDataUrl, CancellationToken.None);
-            if (backgroundResult.Succeeded)
-            {
-                _backgroundDataUrl = backgroundResult.DataUrl;
-            }
-        }
+            Path.Combine(HostEnvironment.ContentRootPath, configuredMapFile),
+            Path.Combine(HostEnvironment.ContentRootPath, "maps", configuredMapFile),
+            Path.Combine(AppContext.BaseDirectory, configuredMapFile),
+            Path.Combine(AppContext.BaseDirectory, "maps", configuredMapFile)
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     private void OnZoomSliderInput(ChangeEventArgs args)
@@ -265,6 +309,59 @@
         _viewport = BoardViewportService.UpdateCursorAnchored(_viewport, requestedZoom, relativePoint, _mapDefinition);
     }
 
+    private async Task StartPanAsync(MouseEventArgs args)
+    {
+        if (_mapDefinition is null || args.Button != 0)
+        {
+            return;
+        }
+
+        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _boardViewportElement,
+            args.ClientX,
+            args.ClientY);
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+
+        _isPanning = true;
+        _panStartClientX = args.ClientX;
+        _panStartClientY = args.ClientY;
+        _panStartCenterX = _viewport.CenterX;
+        _panStartCenterY = _viewport.CenterY;
+        _panStartViewBoxWidth = viewBox.Width;
+        _panStartViewBoxHeight = viewBox.Height;
+        _panViewportWidth = Math.Max(1, relativePoint.Width);
+        _panViewportHeight = Math.Max(1, relativePoint.Height);
+    }
+
+    private void ContinuePan(MouseEventArgs args)
+    {
+        if (!_isPanning || _mapDefinition is null)
+        {
+            return;
+        }
+
+        var deltaX = args.ClientX - _panStartClientX;
+        var deltaY = args.ClientY - _panStartClientY;
+
+        var boardDeltaX = deltaX * (_panStartViewBoxWidth / _panViewportWidth);
+        var boardDeltaY = deltaY * (_panStartViewBoxHeight / _panViewportHeight);
+
+        _viewport = new BoardViewport
+        {
+            ZoomPercent = _viewport.ZoomPercent,
+            CenterX = _panStartCenterX - boardDeltaX,
+            CenterY = _panStartCenterY - boardDeltaY,
+            ZoomAnchor = ZoomAnchor.ViewportCenter
+        };
+    }
+
+    private void EndPan(MouseEventArgs _)
+    {
+        _isPanning = false;
+    }
+
     private string GetViewBoxValue()
     {
         if (_mapDefinition is null)
@@ -276,27 +373,14 @@
         return viewBox.ToSvgValue();
     }
 
-    private string GetLabelStyle(CityRenderItem city)
+    private async Task OnEndGameClickedAsync()
     {
-        if (_mapDefinition is null)
+        if (!EndGameRequested.HasDelegate)
         {
-            return string.Empty;
+            return;
         }
 
-        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
-        if (viewBox.Width <= 0 || viewBox.Height <= 0)
-        {
-            return string.Empty;
-        }
-
-        var xPercent = ((city.X - viewBox.X) / viewBox.Width) * 100.0;
-        var yPercent = ((city.Y - viewBox.Y) / viewBox.Height) * 100.0;
-
-        if (xPercent < 0 || xPercent > 100 || yPercent < 0 || yPercent > 100)
-        {
-            return string.Empty;
-        }
-
-        return $"left: {xPercent:F4}%; top: {yPercent:F4}%;";
+        await EndGameRequested.InvokeAsync();
     }
+
 }

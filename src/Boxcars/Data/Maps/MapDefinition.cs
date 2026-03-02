@@ -13,6 +13,7 @@ public sealed class MapDefinition
     public List<CityDefinition> Cities { get; } = new();
     public List<RailroadDefinition> Railroads { get; } = new();
     public List<TrainDot> TrainDots { get; } = new();
+    public List<RailroadRouteSegmentDefinition> RailroadRouteSegments { get; } = new();
     public List<LineSegment> MapLines { get; } = new();
     public List<LineSegment> Separators { get; } = new();
 }
@@ -35,6 +36,20 @@ public sealed class CityDefinition
 
 public sealed class RailroadDefinition
 {
+    public required int Index { get; init; }
     public required string Name { get; init; }
     public string? ShortName { get; init; }
+    public int? ColorIndex { get; init; }
+    public int? Red { get; init; }
+    public int? Green { get; init; }
+    public int? Blue { get; init; }
+}
+
+public sealed class RailroadRouteSegmentDefinition
+{
+    public required int RailroadIndex { get; init; }
+    public required int StartRegionIndex { get; init; }
+    public required int StartDotIndex { get; init; }
+    public required int EndRegionIndex { get; init; }
+    public required int EndDotIndex { get; init; }
 }

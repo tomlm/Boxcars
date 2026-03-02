@@ -15,4 +15,10 @@
     <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components.Icons" Version="4.*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="U21MAP.RB3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

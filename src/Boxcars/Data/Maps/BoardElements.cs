@@ -27,10 +27,21 @@ public sealed class CityRenderItem
     public required double Y { get; init; }
 }
 
+public sealed class RailroadRenderSegment
+{
+    public required double X1 { get; init; }
+    public required double Y1 { get; init; }
+    public required double X2 { get; init; }
+    public required double Y2 { get; init; }
+    public required string StrokeColor { get; init; }
+    public bool IsOwned { get; init; }
+}
+
 public sealed class BoardRenderModel
 {
     public required IReadOnlyList<CityRenderItem> Cities { get; init; }
     public required IReadOnlyList<TrainDot> TrainDots { get; init; }
+    public required IReadOnlyList<RailroadRenderSegment> RailroadSegments { get; init; }
     public required IReadOnlyList<LineSegment> MapLines { get; init; }
     public required IReadOnlyList<LineSegment> Separators { get; init; }
 }
