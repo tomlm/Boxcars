@@ -1,0 +1,28 @@
+@page "/game/{GameId}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Navigation
+
+<PageTitle>Game - BoxCars</PageTitle>
+
+<div style="display: flex; justify-content: center; align-items: center; min-height: 60vh;">
+    <FluentCard Style="max-width: 500px; text-align: center; padding: 2rem;">
+        <FluentLabel Typo="Typography.H4" Style="margin-bottom: 0.5rem;">Game In Progress</FluentLabel>
+        <FluentLabel Typo="Typography.Body" Style="margin-bottom: 0.5rem; opacity: 0.7;">
+            Game ID: @GameId
+        </FluentLabel>
+        <FluentLabel Typo="Typography.Body" Style="margin-bottom: 2rem; opacity: 0.6;">
+            Gameplay coming soon — this is a placeholder page.
+        </FluentLabel>
+        <FluentButton Appearance="Appearance.Accent"
+                      OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
+            Back to Dashboard
+        </FluentButton>
+    </FluentCard>
+</div>
+
+@code {
+    [Parameter]
+    public string GameId { get; set; } = string.Empty;
+}

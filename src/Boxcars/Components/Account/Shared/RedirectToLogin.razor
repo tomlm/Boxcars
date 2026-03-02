@@ -1,0 +1,17 @@
+@inject NavigationManager NavigationManager
+
+@code {
+    protected override void OnInitialized()
+    {
+        var relativePathWithQuery = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        var pathOnly = relativePathWithQuery.Split('?', 2)[0];
+
+        if (pathOnly.Equals("Account/Login", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var returnUrl = "/" + relativePathWithQuery;
+        NavigationManager.NavigateTo($"/Account/Login?returnUrl={Uri.EscapeDataString(returnUrl)}");
+    }
+}

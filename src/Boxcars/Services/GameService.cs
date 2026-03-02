@@ -1,0 +1,203 @@
+using Azure;
+using Azure.Data.Tables;
+using Boxcars.Data;
+using Boxcars.Hubs;
+using Boxcars.Identity;
+using Microsoft.AspNetCore.SignalR;
+
+namespace Boxcars.Services;
+
+public class GameService
+{
+    private readonly TableClient _gamesTable;
+    private readonly TableClient _gamePlayersTable;
+    private readonly TableClient _activeGameIndexTable;
+    private readonly IHubContext<BoxCarsHub> _hubContext;
+
+    public GameService(TableServiceClient tableServiceClient, IHubContext<BoxCarsHub> hubContext)
+    {
+        _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
+        _gamePlayersTable = tableServiceClient.GetTableClient(TableNames.GamePlayersTable);
+        _activeGameIndexTable = tableServiceClient.GetTableClient(TableNames.PlayerActiveGameIndexTable);
+        _hubContext = hubContext;
+    }
+
+    public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
+    {
+        // Check if player has an active game
+        try
+        {
+            var indexResponse = await _activeGameIndexTable.GetEntityAsync<IndexEntity>(
+                "ACTIVE_GAME", playerId, cancellationToken: cancellationToken);
+
+            return new DashboardState
+            {
+                HasActiveGame = true,
+                ActiveGameId = indexResponse.Value.GameId
+            };
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            // No active game — query for joinable games
+        }
+
+        var joinableGames = new List<GameEntity>();
+        var query = _gamesTable.QueryAsync<GameEntity>(
+            e => e.PartitionKey == "ACTIVE",
+            cancellationToken: cancellationToken);
+
+        await foreach (var game in query)
+        {
+            if (game.CurrentPlayerCount < game.MaxPlayers)
+            {
+                joinableGames.Add(game);
+            }
+        }
+
+        return new DashboardState
+        {
+            HasActiveGame = false,
+            JoinableGames = joinableGames
+        };
+    }
+
+    public async Task<GameActionResult> CreateGameAsync(string creatorId, int maxPlayers, CancellationToken cancellationToken)
+    {
+        // Check if player already has an active game
+        try
+        {
+            await _activeGameIndexTable.GetEntityAsync<IndexEntity>("ACTIVE_GAME", creatorId, cancellationToken: cancellationToken);
+            return new GameActionResult { Success = false, Reason = "You already have an active game." };
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            // Good — no active game
+        }
+
+        var gameId = Guid.NewGuid().ToString();
+
+        // Create game entity
+        var game = new GameEntity
+        {
+            PartitionKey = "ACTIVE",
+            RowKey = gameId,
+            CreatorId = creatorId,
+            MaxPlayers = maxPlayers,
+            CurrentPlayerCount = 1,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _gamesTable.AddEntityAsync(game, cancellationToken);
+
+        // Add creator as first player
+        await _gamePlayersTable.AddEntityAsync(new GamePlayerEntity
+        {
+            PartitionKey = gameId,
+            RowKey = creatorId,
+            JoinedAt = DateTime.UtcNow
+        }, cancellationToken);
+
+        // Add active game index for creator
+        await _activeGameIndexTable.AddEntityAsync(new IndexEntity
+        {
+            PartitionKey = "ACTIVE_GAME",
+            RowKey = creatorId,
+            GameId = gameId
+        }, cancellationToken);
+
+        // Broadcast dashboard refresh
+        await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
+
+        return new GameActionResult { Success = true, GameId = gameId };
+    }
+
+    public async Task<GameActionResult> JoinGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
+    {
+        // Check if player already has an active game
+        try
+        {
+            await _activeGameIndexTable.GetEntityAsync<IndexEntity>("ACTIVE_GAME", playerId, cancellationToken: cancellationToken);
+            return new GameActionResult { Success = false, Reason = "You already have an active game." };
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            // Good — no active game
+        }
+
+        // Read game entity
+        GameEntity game;
+        try
+        {
+            var response = await _gamesTable.GetEntityAsync<GameEntity>("ACTIVE", gameId, cancellationToken: cancellationToken);
+            game = response.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            await _hubContext.Clients.User(playerId).SendAsync("JoinConflict",
+                new { gameId, reason = "Game is no longer available." }, cancellationToken);
+            return new GameActionResult { Success = false, Reason = "Game is no longer available." };
+        }
+
+        if (game.CurrentPlayerCount >= game.MaxPlayers)
+        {
+            await _hubContext.Clients.User(playerId).SendAsync("JoinConflict",
+                new { gameId, reason = "Game is full." }, cancellationToken);
+            return new GameActionResult { Success = false, Reason = "Game is full." };
+        }
+
+        // Insert player into game
+        await _gamePlayersTable.AddEntityAsync(new GamePlayerEntity
+        {
+            PartitionKey = gameId,
+            RowKey = playerId,
+            JoinedAt = DateTime.UtcNow
+        }, cancellationToken);
+
+        // Insert active game index
+        await _activeGameIndexTable.AddEntityAsync(new IndexEntity
+        {
+            PartitionKey = "ACTIVE_GAME",
+            RowKey = playerId,
+            GameId = gameId
+        }, cancellationToken);
+
+        // Increment player count with ETag concurrency
+        game.CurrentPlayerCount++;
+        try
+        {
+            await _gamesTable.UpdateEntityAsync(game, game.ETag, TableUpdateMode.Replace, cancellationToken);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 412)
+        {
+            // ETag conflict — rollback inserted rows
+            try { await _gamePlayersTable.DeleteEntityAsync(gameId, playerId, cancellationToken: cancellationToken); }
+            catch (RequestFailedException) { /* best-effort */ }
+
+            try { await _activeGameIndexTable.DeleteEntityAsync("ACTIVE_GAME", playerId, cancellationToken: cancellationToken); }
+            catch (RequestFailedException) { /* best-effort */ }
+
+            await _hubContext.Clients.User(playerId).SendAsync("JoinConflict",
+                new { gameId, reason = "Game state changed. Please try again." }, cancellationToken);
+            return new GameActionResult { Success = false, Reason = "Game state changed. Please try again." };
+        }
+
+        // Broadcast dashboard refresh
+        await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
+
+        return new GameActionResult { Success = true, GameId = gameId };
+    }
+}
+
+public class DashboardState
+{
+    public bool HasActiveGame { get; set; }
+    public string? ActiveGameId { get; set; }
+    public List<GameEntity> JoinableGames { get; set; } = new();
+}
+
+public class GameActionResult
+{
+    public bool Success { get; set; }
+    public string? GameId { get; set; }
+    public string? Reason { get; set; }
+}

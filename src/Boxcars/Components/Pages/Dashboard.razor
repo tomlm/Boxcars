@@ -1,0 +1,304 @@
+@page "/dashboard"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@using Boxcars.Data
+@using Boxcars.Services
+@attribute [Authorize]
+@inject PlayerProfileService ProfileService
+@inject GameService GameService
+@inject NavigationManager Navigation
+@inject IMessageService MessageService
+@implements IAsyncDisposable
+
+<PageTitle>Dashboard - BoxCars</PageTitle>
+
+@if (_loading)
+{
+    <FluentProgressRing />
+}
+else if (_loadError)
+{
+    <FluentCard Style="max-width: 600px; margin: 2rem auto; text-align: center; padding: 2rem;">
+        <FluentLabel Typo="Typography.H4">Something went wrong</FluentLabel>
+        <FluentLabel Typo="Typography.Body" Style="margin: 1rem 0;">Unable to load your dashboard. Please try again.</FluentLabel>
+        <FluentButton Appearance="Appearance.Accent" OnClick="@LoadDataAsync">Retry</FluentButton>
+    </FluentCard>
+}
+else if (_needsNickname)
+{
+    <FluentCard Style="max-width: 500px; margin: 2rem auto; padding: 2rem;">
+        <FluentLabel Typo="Typography.H4" Style="margin-bottom: 1rem;">Choose Your Nickname</FluentLabel>
+        <FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem;">
+            Your nickname couldn't be auto-set during registration. Please choose one to continue.
+        </FluentLabel>
+        <FluentTextField @bind-Value="_newNickname"
+                         Label="Nickname"
+                         Placeholder="Enter a unique nickname"
+                         Style="width: 100%; margin-bottom: 1rem;" />
+        @if (!string.IsNullOrEmpty(_nicknameError))
+        {
+            <FluentLabel Typo="Typography.Body" Style="color: var(--error); margin-bottom: 1rem;">@_nicknameError</FluentLabel>
+        }
+        <FluentButton Appearance="Appearance.Accent"
+                      OnClick="@SaveNicknameAsync"
+                      Disabled="@(string.IsNullOrWhiteSpace(_newNickname))">
+            Save Nickname
+        </FluentButton>
+    </FluentCard>
+}
+else
+{
+    @* Player Identity Section *@
+    <FluentStack Orientation="Orientation.Vertical" Style="gap: 1.5rem;">
+        <FluentCard Style="padding: 1.5rem;">
+            <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1rem;">
+                <FluentPersona Name="@_profile!.Nickname"
+                               ImageSize="48px"
+                               Image="@_profile.ThumbnailUrl" />
+                <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.25rem;">
+                    <FluentLabel Typo="Typography.H5">@_profile.Nickname</FluentLabel>
+                    <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">@_profile.Email</FluentLabel>
+                </FluentStack>
+            </FluentStack>
+        </FluentCard>
+
+        @* Stats Section (Stub) *@
+        <FluentCard Style="padding: 1.5rem;">
+            <FluentLabel Typo="Typography.H5" Style="margin-bottom: 0.5rem;">Your Stats</FluentLabel>
+            <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">
+                Welcome to BoxCars! Start your first game to begin tracking your stats.
+            </FluentLabel>
+        </FluentCard>
+
+        @* Game Availability Section *@
+        <FluentCard Style="padding: 1.5rem;">
+            <FluentLabel Typo="Typography.H5" Style="margin-bottom: 1rem;">Games</FluentLabel>
+
+            @if (_dashboardState!.HasActiveGame)
+            {
+                <FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem;">You have an active game.</FluentLabel>
+                <FluentButton Appearance="Appearance.Accent"
+                              OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
+                    Resume Game
+                </FluentButton>
+            }
+            else
+            {
+                @if (_dashboardState.JoinableGames.Any())
+                {
+                    <FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem;">Available games to join:</FluentLabel>
+                    <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem; margin-bottom: 1.5rem;">
+                        @foreach (var game in _dashboardState.JoinableGames)
+                        {
+                            <FluentCard Style="padding: 1rem;">
+                                <FluentStack Orientation="Orientation.Horizontal"
+                                             HorizontalAlignment="HorizontalAlignment.SpaceBetween"
+                                             VerticalAlignment="VerticalAlignment.Center">
+                                    <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.25rem;">
+                                        <FluentLabel Typo="Typography.Body">
+                                            Game @game.RowKey[..8]...
+                                        </FluentLabel>
+                                        <FluentLabel Typo="Typography.Body" Style="opacity: 0.7; font-size: 0.85rem;">
+                                            @game.CurrentPlayerCount / @game.MaxPlayers players
+                                        </FluentLabel>
+                                    </FluentStack>
+                                    <FluentButton Appearance="Appearance.Accent"
+                                                  OnClick="@(() => JoinGameAsync(game.RowKey))">
+                                        Join Game
+                                    </FluentButton>
+                                </FluentStack>
+                            </FluentCard>
+                        }
+                    </FluentStack>
+                }
+
+                <FluentLabel Typo="Typography.H6" Style="margin-bottom: 0.75rem;">Create a New Game</FluentLabel>
+                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1rem;">
+                    <FluentButton Appearance="Appearance.Accent"
+                                  OnClick="@CreateGameAsync">
+                        Create Game
+                    </FluentButton>
+                </FluentStack>
+            }
+        </FluentCard>
+    </FluentStack>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _loadError;
+    private bool _needsNickname;
+    private string _newNickname = string.Empty;
+    private string? _nicknameError;
+    private string? _currentUserId;
+
+    private ApplicationUser? _profile;
+    private DashboardState? _dashboardState;
+    private HubConnection? _hubConnection;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState != null)
+        {
+            var state = await AuthState;
+            _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        }
+
+        await LoadDataAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _currentUserId != null)
+        {
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/boxcars"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On("DashboardStateRefreshed", async () =>
+            {
+                await RefreshDashboardStateAsync();
+                await InvokeAsync(StateHasChanged);
+            });
+
+            _hubConnection.On<object>("JoinConflict", async (conflict) =>
+            {
+                await MessageService.ShowMessageBarAsync("Game is no longer available. The list has been refreshed.", MessageIntent.Error, "DASHBOARD");
+                await RefreshDashboardStateAsync();
+                await InvokeAsync(StateHasChanged);
+            });
+
+            try
+            {
+                await _hubConnection.StartAsync();
+            }
+            catch
+            {
+                // SignalR connection failure — dashboard still works, just no real-time updates
+            }
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _loadError = false;
+        StateHasChanged();
+
+        try
+        {
+            if (_currentUserId == null) return;
+
+            _profile = await ProfileService.GetProfileAsync(_currentUserId, CancellationToken.None);
+            if (_profile == null)
+            {
+                _loadError = true;
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_profile.Nickname))
+            {
+                _needsNickname = true;
+                _loading = false;
+                return;
+            }
+
+            _dashboardState = await GameService.GetDashboardStateAsync(_currentUserId, CancellationToken.None);
+        }
+        catch
+        {
+            _loadError = true;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshDashboardStateAsync()
+    {
+        if (_currentUserId == null) return;
+        try
+        {
+            _dashboardState = await GameService.GetDashboardStateAsync(_currentUserId, CancellationToken.None);
+        }
+        catch
+        {
+            // Silently fail — user can manually refresh
+        }
+    }
+
+    private async Task SaveNicknameAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newNickname) || _currentUserId == null) return;
+
+        _nicknameError = null;
+        var result = await ProfileService.UpdateNicknameAsync(_currentUserId, _newNickname.Trim(), CancellationToken.None);
+
+        switch (result)
+        {
+            case NicknameResult.Success:
+                _needsNickname = false;
+                await LoadDataAsync();
+                break;
+            case NicknameResult.Conflict:
+                _nicknameError = "That nickname is already taken. Please choose another.";
+                break;
+            default:
+                _nicknameError = "Failed to save nickname. Please try again.";
+                break;
+        }
+    }
+
+    private async Task CreateGameAsync()
+    {
+        if (_currentUserId == null) return;
+
+        const int maxPlayers = 6;
+        var result = await GameService.CreateGameAsync(_currentUserId, maxPlayers, CancellationToken.None);
+
+        if (result.Success)
+        {
+            Navigation.NavigateTo($"/game/{result.GameId}");
+        }
+        else
+        {
+            await MessageService.ShowMessageBarAsync(result.Reason ?? "Failed to create game.", MessageIntent.Error, "DASHBOARD");
+            await RefreshDashboardStateAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task JoinGameAsync(string gameId)
+    {
+        if (_currentUserId == null) return;
+
+        var result = await GameService.JoinGameAsync(_currentUserId, gameId, CancellationToken.None);
+
+        if (result.Success)
+        {
+            Navigation.NavigateTo($"/game/{result.GameId}");
+        }
+        else
+        {
+            await MessageService.ShowMessageBarAsync(result.Reason ?? "Failed to join game.", MessageIntent.Error, "DASHBOARD");
+            await RefreshDashboardStateAsync();
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection != null)
+        {
+            await _hubConnection.DisposeAsync();
+        }
+    }
+}

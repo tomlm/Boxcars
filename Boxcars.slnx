@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Boxcars/Boxcars.csproj" Id="d0d5ca36-dd0f-4daa-8655-8367fa2fe154" />
+  </Folder>
+  <Project Path="Specs.csproj" Id="3af3fd5f-096f-4306-9d61-38dcc27dd906" />
+</Solution>

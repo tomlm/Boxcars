@@ -1,0 +1,77 @@
+@rendermode InteractiveServer
+@using Boxcars.Data
+@using Boxcars.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+@inject PlayerProfileService ProfileService
+
+<AuthorizeView>
+    <Authorized>
+        <FluentProfileMenu Initials="@_initials"
+                           HeaderLabel="BoxCars"
+                           HeaderButton="Sign out"
+                           OnHeaderButtonClick="@SignOut"
+                           FullName="@_fullName"
+                           EMail="@_email"
+                           FooterLink="View account"
+                           OnFooterLinkClick="@NavigateToProfile"
+                           PopoverStyle="min-width: 340px;" />
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private string _initials = "?";
+    private string _fullName = "Player";
+    private string _email = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState != null)
+        {
+            var state = await AuthState;
+            if (state.User.Identity?.IsAuthenticated == true)
+            {
+                var displayName = state.User.Identity.Name
+                    ?? state.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                    ?? "Player";
+                _fullName = displayName;
+                _email = state.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? string.Empty;
+                _initials = GetInitials(displayName);
+
+                var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (userId != null)
+                {
+                    var profile = await ProfileService.GetProfileAsync(userId, CancellationToken.None);
+                    if (profile != null)
+                    {
+                        var nickname = !string.IsNullOrEmpty(profile.Nickname) ? profile.Nickname : "Player";
+                        _fullName = nickname;
+                        _initials = GetInitials(nickname);
+                    }
+                }
+            }
+        }
+    }
+
+    private void NavigateToProfile()
+    {
+        Navigation.NavigateTo("/profile-settings");
+    }
+
+    private void SignOut()
+    {
+        Navigation.NavigateTo("/Account/Logout", forceLoad: true);
+    }
+
+    private static string GetInitials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant()
+            : name[..Math.Min(2, name.Length)].ToUpperInvariant();
+    }
+}

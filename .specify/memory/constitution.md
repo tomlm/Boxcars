@@ -1,0 +1,196 @@
+<!--
+Sync Impact Report
+===================
+Version change: N/A → 1.0.0
+Modified principles: N/A (initial ratification)
+Added sections:
+  - Core Principles (3 principles: Gameplay Fidelity, Real-Time
+    Multiplayer First, Simplicity & Ship Fast)
+  - Technology Stack & Constraints
+  - Development Workflow
+  - Governance
+Removed sections: N/A
+Templates requiring updates:
+  - .specify/templates/plan-template.md ✅ no updates needed
+    (generic template, constitution check is dynamic)
+  - .specify/templates/spec-template.md ✅ no updates needed
+    (generic template, compatible with principles)
+  - .specify/templates/tasks-template.md ✅ no updates needed
+    (generic template, test-encouraged aligns with optional
+    test tasks)
+Follow-up TODOs: None
+-->
+
+# Boxcars Constitution
+
+Boxcars is an online multiplayer web adaptation of the classic
+board game Rail Baron (also known as Box Cars). This constitution
+defines the non-negotiable principles, constraints, and governance
+rules that guide all development on the project.
+
+## Core Principles
+
+### I. Gameplay Fidelity
+
+The game MUST faithfully reproduce the rules, mechanics, and
+strategic experience of the original Rail Baron board game.
+
+- All dice rolls, route calculations, payoff tables, railroad
+  purchases, and destination logic MUST match the original
+  game's published rules.
+- Deviations from the original rules are permitted ONLY when
+  adapting physical-world mechanics to a digital interface
+  (e.g., automated payoff lookups, digital dice). Such
+  adaptations MUST NOT alter outcomes or strategy.
+- Rule accuracy MUST be verified against the official Rail Baron
+  rulebook. When ambiguity exists in the original rules, the
+  chosen interpretation MUST be documented and applied
+  consistently.
+- New "house rule" variants or quality-of-life features (e.g.,
+  game speed options, undo) MUST be clearly separated from
+  the core rule engine and MUST NOT modify base game behavior.
+
+**Rationale**: Players choosing an online Rail Baron experience
+expect the same strategic depth and fairness as the physical
+game. Rule drift erodes trust and replayability.
+
+### II. Real-Time Multiplayer First
+
+Every feature MUST be designed for concurrent multiplayer play
+from the start. Single-player or hot-seat modes are secondary
+concerns.
+
+- Game state MUST be authoritative on the server. Clients
+  render state but MUST NOT determine game outcomes.
+- All player-facing state changes MUST propagate to connected
+  clients in real time via SignalR (or equivalent push
+  mechanism).
+- The game MUST handle player disconnection and reconnection
+  gracefully — a disconnected player's game MUST be resumable
+  without data loss.
+- Turn management, input validation, and rule enforcement MUST
+  occur server-side to prevent cheating or desynchronization.
+- Latency and network failures MUST be handled with clear user
+  feedback (e.g., connection status indicators, retry logic).
+
+**Rationale**: Rail Baron is inherently a multiplayer game.
+Designing for single-player first and retrofitting multiplayer
+leads to architectural debt, race conditions, and poor UX.
+
+### III. Simplicity & Ship Fast
+
+Favor the simplest implementation that correctly solves the
+problem. Avoid speculative abstractions and premature
+optimization.
+
+- Apply YAGNI: do not build features, abstractions, or
+  infrastructure until there is a concrete, immediate need.
+- Prefer fewer projects and layers. Every additional project,
+  interface, or abstraction layer MUST be justified by a
+  specific problem it solves today.
+- Start with Blazor's built-in patterns and .NET conventions
+  before introducing third-party libraries or custom
+  frameworks.
+- Complexity MUST be justified: if a reviewer questions whether
+  something is over-engineered, the author MUST demonstrate
+  the concrete problem that necessitates the complexity.
+- Refactor when pain is felt, not in anticipation of pain.
+
+**Rationale**: A shipped game with simple code is infinitely
+more valuable than an elegantly architected game that is never
+finished. Rail Baron has well-defined, bounded scope — the
+architecture should reflect that simplicity.
+
+## Technology Stack & Constraints
+
+- **Language**: C# / .NET (latest LTS)
+- **Web Framework**: Blazor Server 
+- **Real-Time Communication**: ASP.NET Core SignalR
+- **Target Platform**: Modern web browsers (desktop and mobile)
+- **Data Storage**: Azure Table storage
+- **Testing**: Tests are encouraged for game rule logic,
+  multiplayer state management, and integration points. Tests
+  are NOT mandated for every change but SHOULD accompany any
+  non-trivial game logic or state synchronization code.
+- **CI/CD**: Automated build and test on pull requests. The
+  main branch MUST always be in a deployable state.
+
+## Naming Conventions
+
+- **Collections**: When a symbol represents a collection of a
+  single object type, it MUST use the plural form of that
+  object type.
+  - Example: collection of `User` objects → `Users`.
+- **Mono tables**: A storage table containing one object type
+  MUST be named `<PluralObjectName>Table`.
+  - Example: table of `User` records → `UsersTable`.
+- **Hetero tables**: Tables intentionally containing multiple
+  object types are exempt from the mono-table naming rule and
+  may use a domain-oriented name.
+- **Applies to**: Specifications, plans, data models, contracts,
+  code, and schema definitions unless a documented exception is
+  approved in review.
+
+## Coding Conventions
+
+- **.NET style guidance**: Contributors MUST follow Microsoft
+  recommended .NET coding style guidelines and framework design
+  guidelines for C# code.
+- **LINQ style**: When manipulating data with LINQ in C#,
+  contributors SHOULD use extension-method syntax as the default
+  style.
+  - Preferred: `users.Where(...).Select(...).OrderBy(...)`
+  - Avoid query-expression syntax unless it is materially clearer
+    for a specific case and justified in review.
+- **Consistency**: Within a file or feature, use one LINQ style
+  consistently to keep code readable and maintainable.
+- **I/O methods**: Any method that performs I/O (network,
+  database, filesystem, external service, or stream operations)
+  MUST use the async pattern.
+- **Cancellation**: I/O methods MUST accept a `CancellationToken`
+  and propagate it to downstream async APIs whenever supported.
+- **API shape**: Async methods SHOULD use the `Async` suffix and
+  return `Task`/`Task<T>` (or `ValueTask`/`ValueTask<T>` when
+  justified by performance and usage patterns).
+- **Blocking calls**: Avoid blocking on async work (`.Result`,
+  `.Wait()`, `GetAwaiter().GetResult()`) in application code.
+
+## Development Workflow
+
+- Features are developed on feature branches and merged to
+  main via pull request.
+- Each pull request SHOULD include a brief description of what
+  changed and why.
+- Code reviews SHOULD verify compliance with this constitution,
+  particularly Gameplay Fidelity (Principle I) and server-
+  authoritative state (Principle II).
+- Game rule changes MUST reference the specific rule from the
+  original Rail Baron rulebook being implemented or clarified.
+- User stories SHOULD be scoped to independently deliverable,
+  testable slices of functionality.
+
+## Governance
+
+This constitution is the highest-authority document for the
+Boxcars project. All development practices, code reviews, and
+architectural decisions MUST align with these principles.
+
+- **Amendments**: Any change to this constitution MUST be
+  documented with a rationale, reviewed, and merged via pull
+  request. The version MUST be incremented per the versioning
+  policy below.
+- **Versioning**: Constitution versions follow semantic
+  versioning (MAJOR.MINOR.PATCH):
+  - MAJOR: Removal or incompatible redefinition of a principle.
+  - MINOR: New principle, section, or materially expanded
+    guidance.
+  - PATCH: Clarifications, wording, typo fixes.
+- **Compliance**: All pull requests and code reviews MUST verify
+  that changes do not violate constitution principles.
+  Violations MUST be resolved before merge.
+- **Conflict Resolution**: When principles conflict (e.g.,
+  Simplicity vs. Fidelity), Gameplay Fidelity (Principle I)
+  takes precedence. If Principle I is not involved, prefer
+  Simplicity (Principle III).
+
+**Version**: 1.3.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-02-26

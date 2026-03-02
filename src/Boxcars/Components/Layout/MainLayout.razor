@@ -1,0 +1,33 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<FluentLayout>
+    <FluentHeader Style="overflow: visible;">
+        <FluentStack Orientation="Orientation.Horizontal"
+                     HorizontalAlignment="HorizontalAlignment.SpaceBetween"
+                     VerticalAlignment="VerticalAlignment.Center"
+                     Style="width: 100%; overflow: visible;">
+            <a href="/" style="text-decoration: none; color: inherit;">
+                <FluentLabel Typo="Typography.H4">BoxCars</FluentLabel>
+            </a>
+            <UserMenu />
+        </FluentStack>
+    </FluentHeader>
+    <FluentBodyContent>
+        <div class="content-area">
+            @Body
+        </div>
+    </FluentBodyContent>
+</FluentLayout>
+
+<FluentToastProvider />
+<FluentDialogProvider />
+<FluentTooltipProvider />
+<FluentMenuProvider />
+<FluentMessageBarProvider />
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
