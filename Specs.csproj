@@ -10,4 +10,8 @@
     <None Include="**\specs\**\*.md" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include=".github\copilot-instructions.md" />
+  </ItemGroup>
+
 </Project>

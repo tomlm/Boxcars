@@ -96,6 +96,40 @@
     pointer-events: all;
     cursor: default;
 }
+
+.map-board-route-node-menu {
+    position: fixed;
+    z-index: 20;
+    min-width: 11rem;
+    max-width: 16rem;
+    padding: 0.5rem;
+    border: 1px solid var(--neutral-stroke-rest);
+    border-radius: 0.35rem;
+    background: var(--neutral-fill-layer-rest);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+}
+
+.map-board-route-node-menu-items {
+    margin-top: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.map-board-route-node-menu-item {
+    text-align: left;
+    border: 1px solid var(--neutral-stroke-rest);
+    border-radius: 0.25rem;
+    background: var(--neutral-fill-input-rest);
+    color: var(--neutral-foreground-rest);
+    padding: 0.3rem 0.45rem;
+    font: inherit;
+    cursor: pointer;
+}
+
+.map-board-route-node-menu-item:hover {
+    background: var(--neutral-fill-input-hover);
+}
 .map-board-railroads line.map-board-railroad-hitbox {
     stroke: #000000;
     stroke-opacity: 0;
@@ -115,11 +149,16 @@
 
 .map-board-railroads line.selected {
     stroke-dasharray: none;
-    stroke-width: 2;
+    stroke-width: 1.5;
+}
+
+.map-board-railroads line.route-selected {
+    stroke-dasharray: none;
+    stroke-width: 1.2;
 }
 
 .map-board-route-overlay line {
-    stroke-width: 1.2;
+    stroke-width: 1.5;
     stroke-dasharray: none;
     stroke-linecap: round;
     stroke-linejoin: round;
