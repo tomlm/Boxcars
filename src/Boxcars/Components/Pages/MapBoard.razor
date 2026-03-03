@@ -132,7 +132,8 @@
                                 <line x1="@routeSegment.X1"
                                       y1="@routeSegment.Y1"
                                       x2="@routeSegment.X2"
-                                      y2="@routeSegment.Y2" />
+                                      y2="@routeSegment.Y2"
+                                      stroke="@GetRouteSegmentStrokeColor(routeSegment)" />
                             }
                         </g>
                     }
@@ -241,6 +242,7 @@
     private readonly List<RouteNodeRenderItem> _routeNodes = new();
     private readonly List<RouteGraphEdge> _selectedRouteSegments = new();
     private readonly List<string> _selectedRouteNodeIds = new();
+    private readonly Dictionary<int, string> _railroadStrokeColors = new();
     private MapRouteContext? _routeContext;
     private string? _routeStartNodeId;
     private string? _routeStartNodeName;
@@ -314,6 +316,7 @@
         _routeNodes.Clear();
         _selectedRouteSegments.Clear();
         _selectedRouteNodeIds.Clear();
+        _railroadStrokeColors.Clear();
         _routeContext = null;
         _routeStartNodeId = null;
         _routeStartNodeName = null;
@@ -349,6 +352,7 @@
         var projectionResult = BoardProjectionService.Project(_mapDefinition);
         _renderModel = projectionResult.Model;
         _warnings.AddRange(projectionResult.Warnings);
+        PopulateRailroadStrokeColors();
 
         _routeNodes.AddRange(_renderModel.RouteNodes);
         _routeContext = MapRouteService.BuildContext(_mapDefinition);
@@ -553,6 +557,7 @@
 
         if (string.Equals(routeNode.NodeId, currentEndpoint, StringComparison.OrdinalIgnoreCase))
         {
+            CycleEndpointRailroadSelection();
             return;
         }
 
@@ -632,6 +637,68 @@
         _selectedRouteNodeIds.Clear();
         _selectedRouteNodeIds.Add(chicagoNode.NodeId);
         _selectedRouteSegments.Clear();
+    }
+
+    private void CycleEndpointRailroadSelection()
+    {
+        if (_routeContext is null
+            || _selectedRouteNodeIds.Count < 2
+            || _selectedRouteSegments.Count == 0)
+        {
+            return;
+        }
+
+        var previousNodeId = _selectedRouteNodeIds[^2];
+        var currentNodeId = _selectedRouteNodeIds[^1];
+
+        if (!_routeContext.Adjacency.TryGetValue(previousNodeId, out var adjacentEdges))
+        {
+            return;
+        }
+
+        var candidates = adjacentEdges
+            .Where(edge => string.Equals(edge.ToNodeId, currentNodeId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(edge => edge.RailroadIndex)
+            .ToList();
+
+        if (candidates.Count <= 1)
+        {
+            return;
+        }
+
+        var currentSegment = _selectedRouteSegments[^1];
+        var currentIndex = candidates.FindIndex(candidate =>
+            candidate.RailroadIndex == currentSegment.RailroadIndex
+            && string.Equals(candidate.FromNodeId, currentSegment.FromNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(candidate.ToNodeId, currentSegment.ToNodeId, StringComparison.OrdinalIgnoreCase));
+
+        var nextIndex = currentIndex < 0
+            ? 0
+            : (currentIndex + 1) % candidates.Count;
+
+        _selectedRouteSegments[^1] = candidates[nextIndex];
+    }
+
+    private void PopulateRailroadStrokeColors()
+    {
+        _railroadStrokeColors.Clear();
+
+        if (_renderModel is null)
+        {
+            return;
+        }
+
+        foreach (var segment in _renderModel.RailroadSegments)
+        {
+            _railroadStrokeColors.TryAdd(segment.RailroadIndex, segment.StrokeColor);
+        }
+    }
+
+    private string GetRouteSegmentStrokeColor(RouteGraphEdge routeSegment)
+    {
+        return _railroadStrokeColors.TryGetValue(routeSegment.RailroadIndex, out var strokeColor)
+            ? strokeColor
+            : "#000000";
     }
 
     private void SetInteractionMode(MapInteractionMode mode)
