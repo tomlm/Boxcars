@@ -580,7 +580,7 @@
             return;
         }
 
-        var extension = MapRouteService.FindShortestSelection(_routeContext, currentEndpoint, routeNode.NodeId);
+        var extension = TryFindRouteExtension(currentEndpoint, routeNode);
         if (extension is null)
         {
             return;
@@ -595,6 +595,56 @@
         {
             _selectedRouteNodeIds.Add(extensionNodeId);
         }
+    }
+
+    private RouteSelection? TryFindRouteExtension(string currentEndpoint, RouteNodeRenderItem clickedNode)
+    {
+        if (_routeContext is null)
+        {
+            return null;
+        }
+
+        var directExtension = MapRouteService.FindShortestSelection(_routeContext, currentEndpoint, clickedNode.NodeId);
+        if (directExtension is not null)
+        {
+            return directExtension;
+        }
+
+        var coLocatedNodes = _routeNodes
+            .Where(node => !string.Equals(node.NodeId, clickedNode.NodeId, StringComparison.OrdinalIgnoreCase)
+                && AreCoLocated(node, clickedNode))
+            .OrderBy(node => IsGeneratedDotName(node.Name));
+
+        foreach (var candidateNode in coLocatedNodes)
+        {
+            var candidateExtension = MapRouteService.FindShortestSelection(_routeContext, currentEndpoint, candidateNode.NodeId);
+            if (candidateExtension is not null)
+            {
+                return candidateExtension;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool AreCoLocated(RouteNodeRenderItem left, RouteNodeRenderItem right)
+    {
+        const double epsilon = 0.0001;
+        return Math.Abs(left.X - right.X) < epsilon
+            && Math.Abs(left.Y - right.Y) < epsilon;
+    }
+
+    private static bool IsGeneratedDotName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        var parts = name.Split('-', 2, StringSplitOptions.TrimEntries);
+        return parts.Length == 2
+            && int.TryParse(parts[0], out _)
+            && int.TryParse(parts[1], out _);
     }
 
     private double GetRouteNodeHitboxWidth()
