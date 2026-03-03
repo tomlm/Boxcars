@@ -243,7 +243,7 @@
     private BoardRenderModel? _renderModel = null;
     private BoardViewport _viewport = new()
     {
-        ZoomPercent = 100,
+        ZoomPercent = 50,
         CenterX = 0,
         CenterY = 0,
         ZoomAnchor = ZoomAnchor.ViewportCenter
@@ -682,10 +682,10 @@
             : null;
 
         var preferred = currentRailroadIndex.HasValue
-            ? candidates.FirstOrDefault(edge => edge.RailroadIndex == currentRailroadIndex.Value && CanAppendRailroad(edge.RailroadIndex))
+            ? candidates.FirstOrDefault(edge => edge.RailroadIndex == currentRailroadIndex.Value && CanAppendSegment(edge))
             : null;
         var selectedEdge = preferred
-            ?? candidates.FirstOrDefault(edge => CanAppendRailroad(edge.RailroadIndex));
+            ?? candidates.FirstOrDefault(CanAppendSegment);
 
         if (selectedEdge is null)
         {
@@ -697,37 +697,39 @@
         return true;
     }
 
-    private bool CanAppendRailroad(int railroadIndex)
+    private bool CanAppendSegment(RouteGraphEdge segment)
     {
-        return CanUseRailroadForState(_selectedRouteSegments, railroadIndex, replacingLastSegment: false);
+        return CanUseSegmentForState(_selectedRouteSegments, segment, replacingLastSegment: false);
     }
 
-    private static bool CanUseRailroadForState(
+    private static bool CanUseSegmentForState(
         IReadOnlyList<RouteGraphEdge> segments,
-        int railroadIndex,
+        RouteGraphEdge segment,
         bool replacingLastSegment)
     {
-        if (segments.Count == 0)
-        {
-            return true;
-        }
-
         var usableSegments = replacingLastSegment
             ? segments.Take(Math.Max(0, segments.Count - 1)).ToList()
             : segments.ToList();
 
-        var currentRailroadIndex = usableSegments.Count > 0
-            ? (int?)usableSegments[^1].RailroadIndex
-            : null;
-        if (currentRailroadIndex.HasValue && currentRailroadIndex.Value == railroadIndex)
+        return !usableSegments.Any(traveled => IsSameRailroadSegment(traveled, segment));
+    }
+
+    private static bool IsSameRailroadSegment(RouteGraphEdge left, RouteGraphEdge right)
+    {
+        if (left.RailroadIndex != right.RailroadIndex)
+        {
+            return false;
+        }
+
+        var sameDirection = string.Equals(left.FromNodeId, right.FromNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.ToNodeId, right.ToNodeId, StringComparison.OrdinalIgnoreCase);
+        if (sameDirection)
         {
             return true;
         }
 
-        var traveledRailroads = usableSegments
-            .Select(segment => segment.RailroadIndex)
-            .ToHashSet();
-        return !traveledRailroads.Contains(railroadIndex);
+        return string.Equals(left.FromNodeId, right.ToNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.ToNodeId, right.FromNodeId, StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsLegalRouteExtension(IReadOnlyList<RouteGraphEdge> extensionSegments)
@@ -735,7 +737,7 @@
         var simulatedSegments = _selectedRouteSegments.ToList();
         foreach (var extensionSegment in extensionSegments)
         {
-            if (!CanUseRailroadForState(simulatedSegments, extensionSegment.RailroadIndex, replacingLastSegment: false))
+            if (!CanUseSegmentForState(simulatedSegments, extensionSegment, replacingLastSegment: false))
             {
                 return false;
             }
@@ -774,7 +776,7 @@
         var alternateSegments = adjacentEdges
             .Where(edge => string.Equals(edge.ToNodeId, currentNodeId, StringComparison.OrdinalIgnoreCase)
                 && edge.RailroadIndex != defaultSegment.RailroadIndex)
-            .Where(edge => CanUseRailroadForState(_selectedRouteSegments, edge.RailroadIndex, replacingLastSegment: true))
+            .Where(edge => CanUseSegmentForState(_selectedRouteSegments, edge, replacingLastSegment: true))
             .GroupBy(edge => edge.RailroadIndex)
             .Select(group => group.First())
             .OrderBy(edge => edge.RailroadIndex)
@@ -853,7 +855,7 @@
         {
             var appendCandidates = endpointEdges
                 .Where(edge => string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase))
-                .Where(edge => CanAppendRailroad(edge.RailroadIndex))
+                .Where(CanAppendSegment)
                 .GroupBy(edge => edge.RailroadIndex)
                 .Select(group => group.First())
                 .OrderBy(edge => edge.RailroadIndex)
@@ -911,7 +913,7 @@
 
         var candidates = adjacentEdges
             .Where(edge => string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase))
-            .Where(edge => CanUseRailroadForState(routeSegments, edge.RailroadIndex, replacingLastSegment))
+            .Where(edge => CanUseSegmentForState(routeSegments, edge, replacingLastSegment))
             .GroupBy(edge => edge.RailroadIndex)
             .Select(group => group.First())
             .OrderBy(edge => edge.RailroadIndex)
@@ -949,7 +951,7 @@
             var appendEdge = endpointEdges.FirstOrDefault(edge =>
                 string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase)
                 && edge.RailroadIndex == option.RailroadIndex
-                && CanAppendRailroad(edge.RailroadIndex));
+                && CanAppendSegment(edge));
 
             if (appendEdge is not null)
             {
@@ -999,7 +1001,7 @@
         {
             if (_selectedRouteSegments.Count > 0)
             {
-                if (!CanUseRailroadForState(_selectedRouteSegments, selectedEdge.RailroadIndex, replacingLastSegment: true))
+                if (!CanUseSegmentForState(_selectedRouteSegments, selectedEdge, replacingLastSegment: true))
                 {
                     DismissRouteNodeRailMenu();
                     return;
@@ -1010,7 +1012,7 @@
         }
         else if (string.Equals(endpointNodeId, previousNodeId, StringComparison.OrdinalIgnoreCase))
         {
-            if (!CanAppendRailroad(selectedEdge.RailroadIndex))
+            if (!CanAppendSegment(selectedEdge))
             {
                 DismissRouteNodeRailMenu();
                 return;
