@@ -14,6 +14,7 @@ public sealed class BoardProjectionService
         var regionFills = BuildRegionFills(mapDefinition, warnings);
         var cities = new List<CityRenderItem>();
         var railroadSegments = BuildRailroadSegments(mapDefinition, warnings);
+        var routeNodes = BuildRouteNodes(mapDefinition, warnings);
         var regionLabels = mapDefinition.RegionLabels
             .Select(label => new RegionLabelRenderItem
             {
@@ -61,6 +62,7 @@ public sealed class BoardProjectionService
             Cities = cities,
             TrainDots = mapDefinition.TrainDots,
             RailroadSegments = railroadSegments,
+            RouteNodes = routeNodes,
             RegionLabels = regionLabels,
             MapLines = mapDefinition.MapLines,
             Separators = mapDefinition.Separators
@@ -568,6 +570,77 @@ public sealed class BoardProjectionService
 
     private sealed record ClosedFace(IReadOnlyList<Point> Vertices, double Area);
 
+    private static List<RouteNodeRenderItem> BuildRouteNodes(MapDefinition mapDefinition, List<string> warnings)
+    {
+        var regionCodeToIndex = mapDefinition.Regions
+            .Select((region, index) => new { region.Code, RegionIndex = index + 1 })
+            .ToDictionary(entry => entry.Code, entry => entry.RegionIndex, StringComparer.OrdinalIgnoreCase);
+
+        var dotLookup = mapDefinition.TrainDots.ToDictionary(dot => (dot.RegionIndex, dot.DotIndex));
+
+        var routeNodes = mapDefinition.TrainDots
+            .Select(dot => new RouteNodeRenderItem
+            {
+                NodeId = MapRouteService.NodeKey(dot.RegionIndex, dot.DotIndex),
+                Name = dot.Id,
+                RegionIndex = dot.RegionIndex,
+                DotIndex = dot.DotIndex,
+                X = dot.X,
+                Y = dot.Y
+            })
+            .ToDictionary(node => node.NodeId, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var city in mapDefinition.Cities)
+        {
+            if (!city.MapDotIndex.HasValue)
+            {
+                continue;
+            }
+
+            if (!regionCodeToIndex.TryGetValue(city.RegionCode, out var regionIndex))
+            {
+                continue;
+            }
+
+            var dotIndex = city.MapDotIndex.Value;
+            if (!dotLookup.TryGetValue((regionIndex, dotIndex), out var dot))
+            {
+                warnings.Add($"Route node city '{city.Name}' references missing map dot '{dotIndex}' in region '{city.RegionCode}'.");
+                continue;
+            }
+
+            var nodeId = MapRouteService.NodeKey(regionIndex, dotIndex);
+            if (!routeNodes.TryGetValue(nodeId, out var existingNode))
+            {
+                routeNodes[nodeId] = new RouteNodeRenderItem
+                {
+                    NodeId = nodeId,
+                    Name = city.Name,
+                    RegionIndex = regionIndex,
+                    DotIndex = dotIndex,
+                    X = dot.X,
+                    Y = dot.Y
+                };
+                continue;
+            }
+
+            routeNodes[nodeId] = new RouteNodeRenderItem
+            {
+                NodeId = nodeId,
+                Name = city.Name,
+                RegionIndex = regionIndex,
+                DotIndex = dotIndex,
+                X = existingNode.X,
+                Y = existingNode.Y
+            };
+        }
+
+        return routeNodes.Values
+            .OrderBy(node => node.RegionIndex)
+            .ThenBy(node => node.DotIndex)
+            .ToList();
+    }
+
     private static List<RailroadRenderSegment> BuildRailroadSegments(MapDefinition mapDefinition, List<string> warnings)
     {
         var dotLookup = mapDefinition.TrainDots
@@ -590,6 +663,10 @@ public sealed class BoardProjectionService
             rawSegments.Add(new RawRailroadSegment
             {
                 RailroadIndex = route.RailroadIndex,
+                StartRegionIndex = route.StartRegionIndex,
+                StartDotIndex = route.StartDotIndex,
+                EndRegionIndex = route.EndRegionIndex,
+                EndDotIndex = route.EndDotIndex,
                 X1 = startDot.X,
                 Y1 = startDot.Y,
                 X2 = endDot.X,
@@ -627,6 +704,10 @@ public sealed class BoardProjectionService
             return new RailroadRenderSegment
             {
                 RailroadIndex = segment.RailroadIndex,
+                StartRegionIndex = segment.StartRegionIndex,
+                StartDotIndex = segment.StartDotIndex,
+                EndRegionIndex = segment.EndRegionIndex,
+                EndDotIndex = segment.EndDotIndex,
                 X1 = segment.X1,
                 Y1 = segment.Y1,
                 X2 = segment.X2,
@@ -642,6 +723,10 @@ public sealed class BoardProjectionService
         return new RailroadRenderSegment
         {
             RailroadIndex = segment.RailroadIndex,
+            StartRegionIndex = segment.StartRegionIndex,
+            StartDotIndex = segment.StartDotIndex,
+            EndRegionIndex = segment.EndRegionIndex,
+            EndDotIndex = segment.EndDotIndex,
             X1 = segment.X1 + offsetX,
             Y1 = segment.Y1 + offsetY,
             X2 = segment.X2 + offsetX,
@@ -678,6 +763,10 @@ public sealed class BoardProjectionService
     private sealed class RawRailroadSegment
     {
         public required int RailroadIndex { get; init; }
+        public required int StartRegionIndex { get; init; }
+        public required int StartDotIndex { get; init; }
+        public required int EndRegionIndex { get; init; }
+        public required int EndDotIndex { get; init; }
         public required double X1 { get; init; }
         public required double Y1 { get; init; }
         public required double X2 { get; init; }

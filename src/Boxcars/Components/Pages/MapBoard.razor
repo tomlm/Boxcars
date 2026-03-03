@@ -7,6 +7,7 @@
 @inject IMapParserService MapParserService
 @inject BoardProjectionService BoardProjectionService
 @inject BoardViewportService BoardViewportService
+@inject MapRouteService MapRouteService
 @inject IWebHostEnvironment HostEnvironment
 @inject IJSRuntime JavaScriptRuntime
 
@@ -15,6 +16,22 @@
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
             <FluentLabel Typo="Typography.H5">Map Board</FluentLabel>
             <FluentLabel Typo="Typography.Body">Map selection is provided by game setup.</FluentLabel>
+
+            <div class="map-board-mode-row">
+                <FluentLabel Typo="Typography.Body">Mode</FluentLabel>
+                <FluentButton Appearance="@GetModeButtonAppearance(MapInteractionMode.Rail)"
+                              OnClick="() => SetInteractionMode(MapInteractionMode.Rail)">
+                    Rail mode
+                </FluentButton>
+                <FluentButton Appearance="@GetModeButtonAppearance(MapInteractionMode.Route)"
+                              OnClick="() => SetInteractionMode(MapInteractionMode.Route)">
+                    Movement mode
+                </FluentButton>
+                @if (!string.IsNullOrWhiteSpace(_routeStartNodeName))
+                {
+                    <FluentLabel Typo="Typography.Body">Start: @_routeStartNodeName</FluentLabel>
+                }
+            </div>
 
             <div class="map-board-zoom-row">
                 <FluentLabel Typo="Typography.Body">Zoom (@_viewport.ZoomPercent.ToString("F0")%)</FluentLabel>
@@ -122,10 +139,23 @@
                                   y2="@railroadSegment.Y2"
                                   class="map-board-railroad-hitbox"
                                   @onmousedown:stopPropagation="true"
-                                  @onclick="@(() => SelectRailroad(railroadSegment.RailroadIndex))"
-                                  @onclick:stopPropagation="true" />
+                                  @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
+                                    @onclick:stopPropagation="@(_interactionMode == MapInteractionMode.Rail)" />
                         }
                     </g>
+
+                    @if (_interactionMode == MapInteractionMode.Route && _selectedRouteSegments.Count > 0)
+                    {
+                        <g class="map-board-route-overlay">
+                            @foreach (var routeSegment in _selectedRouteSegments)
+                            {
+                                <line x1="@routeSegment.X1"
+                                      y1="@routeSegment.Y1"
+                                      x2="@routeSegment.X2"
+                                      y2="@routeSegment.Y2" />
+                            }
+                        </g>
+                    }
 
                     <g class="map-board-train-dots">
                         @foreach (var dot in _renderModel.TrainDots)
@@ -140,6 +170,26 @@
                             <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
                         }
                     </g>
+
+                    @if (_interactionMode == MapInteractionMode.Route)
+                    {
+                        var routeNodeHitboxWidth = GetRouteNodeHitboxWidth();
+                        var routeNodeHitboxHeight = GetRouteNodeHitboxHeight();
+
+                        <g class="map-board-route-node-hitboxes">
+                            @foreach (var routeNode in _routeNodes)
+                            {
+                                <rect x="@(routeNode.X - (routeNodeHitboxWidth / 2))"
+                                      y="@(routeNode.Y - (routeNodeHitboxHeight / 2))"
+                                      width="@routeNodeHitboxWidth"
+                                      height="@routeNodeHitboxHeight"
+                                      class="map-board-route-node-hitbox"
+                                      @onmousedown:stopPropagation="true"
+                                      @onclick="@(() => OnRouteNodeClicked(routeNode))"
+                                      @onclick:stopPropagation="true" />
+                            }
+                        </g>
+                    }
 
                     <g class="map-board-region-labels">
                         @foreach (var label in _renderModel.RegionLabels)
@@ -206,6 +256,14 @@
     private string? _loadedMapFileName;
     private bool _isPanning;
     private int? _selectedRailroadIndex;
+    private MapInteractionMode _interactionMode = MapInteractionMode.Rail;
+    private readonly List<RouteNodeRenderItem> _routeNodes = new();
+    private readonly List<RouteGraphEdge> _selectedRouteSegments = new();
+    private readonly List<string> _selectedRouteNodeIds = new();
+    private MapRouteContext? _routeContext;
+    private string? _routeStartNodeId;
+    private string? _routeStartNodeName;
+    private const double RouteClickRegionSizePixels = 18;
     private double _panStartClientX;
     private double _panStartClientY;
     private double _panStartCenterX;
@@ -252,6 +310,12 @@
         _errors.Clear();
         _warnings.Clear();
         _selectedRailroadIndex = null;
+        _routeNodes.Clear();
+        _selectedRouteSegments.Clear();
+        _selectedRouteNodeIds.Clear();
+        _routeContext = null;
+        _routeStartNodeId = null;
+        _routeStartNodeName = null;
         _loadedMapFileName = null;
 
         var resolvedPath = ResolveMapPath(configuredMapFile);
@@ -281,6 +345,10 @@
         var projectionResult = BoardProjectionService.Project(_mapDefinition);
         _renderModel = projectionResult.Model;
         _warnings.AddRange(projectionResult.Warnings);
+
+        _routeNodes.AddRange(_renderModel.RouteNodes);
+        _routeContext = MapRouteService.BuildContext(_mapDefinition);
+        InitializeChicagoStartNode();
 
         _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
         _loadedMapFileName = configuredMapFile;
@@ -500,8 +568,13 @@
         await EndGameRequested.InvokeAsync();
     }
 
-    private void SelectRailroad(int railroadIndex)
+    private void OnRailroadSegmentClicked(int railroadIndex)
     {
+        if (_interactionMode != MapInteractionMode.Rail)
+        {
+            return;
+        }
+
         if (railroadIndex <= 0)
         {
             return;
@@ -510,12 +583,131 @@
         _selectedRailroadIndex = railroadIndex;
     }
 
+    private void OnRouteNodeClicked(RouteNodeRenderItem routeNode)
+    {
+        if (_interactionMode != MapInteractionMode.Route
+            || _routeContext is null
+            || string.IsNullOrWhiteSpace(_routeStartNodeId))
+        {
+            return;
+        }
+
+        if (_selectedRouteNodeIds.Count == 0)
+        {
+            _selectedRouteNodeIds.Add(_routeStartNodeId);
+        }
+
+        var currentEndpoint = _selectedRouteNodeIds[^1];
+
+        if (string.Equals(routeNode.NodeId, currentEndpoint, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var existingIndex = _selectedRouteNodeIds.FindIndex(nodeId =>
+            string.Equals(nodeId, routeNode.NodeId, StringComparison.OrdinalIgnoreCase));
+
+        if (existingIndex >= 0)
+        {
+            var currentSelection = new RouteSelection
+            {
+                NodeIds = _selectedRouteNodeIds.ToList(),
+                Segments = _selectedRouteSegments.ToList()
+            };
+
+            var truncated = MapRouteService.TruncateToNode(currentSelection, routeNode.NodeId);
+            _selectedRouteNodeIds.Clear();
+            _selectedRouteNodeIds.AddRange(truncated.NodeIds);
+            _selectedRouteSegments.Clear();
+            _selectedRouteSegments.AddRange(truncated.Segments);
+            return;
+        }
+
+        var extension = MapRouteService.FindShortestSelection(_routeContext, currentEndpoint, routeNode.NodeId);
+        if (extension is null)
+        {
+            return;
+        }
+
+        foreach (var segment in extension.Segments)
+        {
+            _selectedRouteSegments.Add(segment);
+        }
+
+        foreach (var extensionNodeId in extension.NodeIds.Skip(1))
+        {
+            _selectedRouteNodeIds.Add(extensionNodeId);
+        }
+    }
+
+    private double GetRouteNodeHitboxWidth()
+    {
+        if (_mapDefinition is null)
+        {
+            return 0;
+        }
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        var mapUnitsPerPixelX = viewBox.Width / Math.Max(1, _viewportRenderWidth);
+        return RouteClickRegionSizePixels * mapUnitsPerPixelX;
+    }
+
+    private double GetRouteNodeHitboxHeight()
+    {
+        if (_mapDefinition is null)
+        {
+            return 0;
+        }
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        var mapUnitsPerPixelY = viewBox.Height / Math.Max(1, _viewportRenderHeight);
+        return RouteClickRegionSizePixels * mapUnitsPerPixelY;
+    }
+
+    private void InitializeChicagoStartNode()
+    {
+        var chicagoNode = _routeNodes.FirstOrDefault(node =>
+            string.Equals(node.Name, "Chicago", StringComparison.OrdinalIgnoreCase));
+
+        if (chicagoNode is null)
+        {
+            _warnings.Add("Route mode is unavailable: Chicago was not found on the loaded map.");
+            return;
+        }
+
+        _routeStartNodeId = chicagoNode.NodeId;
+        _routeStartNodeName = chicagoNode.Name;
+        _selectedRouteNodeIds.Clear();
+        _selectedRouteNodeIds.Add(chicagoNode.NodeId);
+        _selectedRouteSegments.Clear();
+    }
+
+    private void SetInteractionMode(MapInteractionMode mode)
+    {
+        _interactionMode = mode;
+        if (mode == MapInteractionMode.Route)
+        {
+            _selectedRailroadIndex = null;
+        }
+    }
+
+    private Appearance GetModeButtonAppearance(MapInteractionMode mode)
+    {
+        return _interactionMode == mode ? Appearance.Accent : Appearance.Neutral;
+    }
+
     private string GetRailroadSegmentClass(RailroadRenderSegment segment)
     {
         var ownershipClass = segment.IsOwned ? "owned" : "unowned";
         return _selectedRailroadIndex == segment.RailroadIndex
             ? $"{ownershipClass} selected"
             : ownershipClass;
+    }
+
+    private enum MapInteractionMode
+    {
+        Rail,
+        Route
     }
 
 }

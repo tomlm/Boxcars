@@ -62,6 +62,7 @@ public class Program
         builder.Services.AddScoped<MapBackgroundResolver>();
         builder.Services.AddScoped<BoardProjectionService>();
         builder.Services.AddScoped<BoardViewportService>();
+        builder.Services.AddScoped<MapRouteService>();
 
         var app = builder.Build();
 

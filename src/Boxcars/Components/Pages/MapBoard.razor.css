@@ -15,6 +15,13 @@
     align-items: center;
 }
 
+.map-board-mode-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+}
+
 .map-board-zoom-slider {
     width: 20rem;
     max-width: 100%;
@@ -87,7 +94,7 @@
     stroke-width: 2;
     stroke-linecap: round;
     pointer-events: all;
-    cursor: pointer;
+    cursor: default;
 }
 .map-board-railroads line.map-board-railroad-hitbox {
     stroke: #000000;
@@ -95,7 +102,7 @@
     stroke-width: 4;
     stroke-linecap: round;
     pointer-events: stroke;
-    cursor: pointer;
+    cursor: default;
 }
 
 .map-board-railroads line.unowned {
@@ -109,6 +116,22 @@
 .map-board-railroads line.selected {
     stroke-dasharray: none;
     stroke-width: 2;
+}
+
+.map-board-route-overlay line {
+    stroke: #000000;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.map-board-route-node-hitbox {
+    fill: transparent;
+    fill-opacity: 0;
+    stroke: none;
+    opacity: 0;
+    pointer-events: all;
+    cursor: default;
 }
 
 .map-board-train-dots circle {
