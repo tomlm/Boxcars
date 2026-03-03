@@ -604,7 +604,20 @@
             return null;
         }
 
-        var directExtension = MapRouteService.FindShortestSelection(_routeContext, currentEndpoint, clickedNode.NodeId);
+        var preferredStartingRailroadIndex = _selectedRouteSegments.Count > 0
+            ? (int?)_selectedRouteSegments[^1].RailroadIndex
+            : null;
+        var selectedRailroadIndices = _selectedRouteSegments
+            .Select(segment => segment.RailroadIndex)
+            .ToHashSet();
+
+        var directExtension = MapRouteService.FindShortestSelection(
+            _routeContext,
+            currentEndpoint,
+            clickedNode.NodeId,
+            preferredStartingRailroadIndex,
+            selectedRailroadIndices,
+            IsRailroadOwnedByPlayer);
         if (directExtension is not null)
         {
             return directExtension;
@@ -617,7 +630,13 @@
 
         foreach (var candidateNode in coLocatedNodes)
         {
-            var candidateExtension = MapRouteService.FindShortestSelection(_routeContext, currentEndpoint, candidateNode.NodeId);
+            var candidateExtension = MapRouteService.FindShortestSelection(
+                _routeContext,
+                currentEndpoint,
+                candidateNode.NodeId,
+                preferredStartingRailroadIndex,
+                selectedRailroadIndices,
+                IsRailroadOwnedByPlayer);
             if (candidateExtension is not null)
             {
                 return candidateExtension;
@@ -625,6 +644,12 @@
         }
 
         return null;
+    }
+
+    private static bool IsRailroadOwnedByPlayer(int railroadIndex)
+    {
+        _ = railroadIndex;
+        return false;
     }
 
     private static bool AreCoLocated(RouteNodeRenderItem left, RouteNodeRenderItem right)
