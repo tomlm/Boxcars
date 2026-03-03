@@ -22,6 +22,29 @@
     align-items: center;
 }
 
+.map-board-route-picker-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: end;
+}
+
+.map-board-route-picker-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 12rem;
+}
+
+.map-board-route-picker-select {
+    border: 1px solid var(--neutral-stroke-rest);
+    border-radius: 0.25rem;
+    padding: 0.35rem 0.45rem;
+    background: var(--neutral-fill-input-rest);
+    color: var(--neutral-foreground-rest);
+    font: inherit;
+}
+
 .map-board-zoom-slider {
     width: 20rem;
     max-width: 100%;
@@ -171,6 +194,22 @@
     opacity: 0;
     pointer-events: all;
     cursor: default;
+}
+
+.map-board-city-hitbox {
+    fill: transparent;
+    fill-opacity: 0;
+    stroke: none;
+    opacity: 0;
+    pointer-events: all;
+    cursor: default;
+}
+
+.map-board-route-suggestion-circle {
+    stroke-width: 0.9;
+    stroke-dasharray: none;
+    stroke-linecap: round;
+    pointer-events: none;
 }
 
 .map-board-train-dots circle {

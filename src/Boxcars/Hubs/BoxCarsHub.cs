@@ -7,3 +7,8 @@ namespace Boxcars.Hubs;
 public class BoxCarsHub : Hub
 {
 }
+
+public static class BoxCarsHubEvents
+{
+	public const string RouteSuggestionUpdated = "RouteSuggestionUpdated";
+}
