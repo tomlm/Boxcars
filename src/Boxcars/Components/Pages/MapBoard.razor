@@ -384,6 +384,12 @@
             return;
         }
 
+        if (BoardViewportService.ClampZoom(requestedZoom) <= BoardViewportService.MinZoom)
+        {
+            _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+            return;
+        }
+
         _viewport = BoardViewportService.UpdateViewportCentered(_viewport, requestedZoom);
     }
 
@@ -404,8 +410,14 @@
             return;
         }
 
-        var delta = args.DeltaY < 0 ? 50 : -50;
+        var delta = args.DeltaY < 0 ? 100 : -100;
         var requestedZoom = _viewport.ZoomPercent + delta;
+
+        if (BoardViewportService.ClampZoom(requestedZoom) <= BoardViewportService.MinZoom)
+        {
+            _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+            return;
+        }
 
         var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
             "mapBoard.getRelativePoint",
