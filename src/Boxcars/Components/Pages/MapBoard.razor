@@ -10,6 +10,7 @@
 @inject MapRouteService MapRouteService
 @inject IWebHostEnvironment HostEnvironment
 @inject IJSRuntime JavaScriptRuntime
+@implements IAsyncDisposable
 
 <div class="map-board-shell">
     <FluentCard class="map-board-controls">
@@ -65,17 +66,9 @@
         </FluentCard>
     }
 
-    <div class="map-board-viewport @(_isPanning ? "panning" : string.Empty)"
+    <div class="map-board-viewport"
          @ref="_boardViewportElement"
-         tabindex="0"
-         @onmousedown="StartPanAsync"
-         @onmousedown:preventDefault="true"
-         @onmousemove="ContinuePan"
-         @onmouseup="EndPan"
-         @onmouseleave="EndPan"
-         @onwheel:preventDefault="true"
-         @onwheel:stopPropagation="true"
-         @onwheel="HandleWheelZoomAsync">
+         tabindex="0">
         @if (_mapDefinition is null || _renderModel is null)
         {
             <FluentCard class="map-board-placeholder">
@@ -85,24 +78,10 @@
         else
         {
             <svg class="map-board-svg"
-                 viewBox="@GetViewBoxValue()"
+                 viewBox="@GetMapViewBoxValue()"
                  preserveAspectRatio="none"
                  aria-label="Rail Baron game board">
-                @if (_isPanning)
-                {
-                    <g class="map-board-drag-placeholder" transform="@GetPanPreviewTransform()">
-                        @foreach (var line in _renderModel.MapLines)
-                        {
-                            <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
-                        }
-                        @foreach (var separator in _renderModel.Separators)
-                        {
-                            <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
-                        }
-                    </g>
-                }
-                else
-                {
+                <g class="map-board-camera" transform="@GetCameraTransform()">
                     <g class="map-board-regions">
                         @foreach (var regionFill in _renderModel.RegionFills)
                         {
@@ -138,6 +117,7 @@
                                   x2="@railroadSegment.X2"
                                   y2="@railroadSegment.Y2"
                                   class="map-board-railroad-hitbox"
+                                  data-mapboard-pan-ignore="true"
                                   @onmousedown:stopPropagation="true"
                                   @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
                                     @onclick:stopPropagation="@(_interactionMode == MapInteractionMode.Rail)" />
@@ -184,6 +164,7 @@
                                       width="@routeNodeHitboxWidth"
                                       height="@routeNodeHitboxHeight"
                                       class="map-board-route-node-hitbox"
+                                      data-mapboard-pan-ignore="true"
                                       @onmousedown:stopPropagation="true"
                                       @onclick="@(() => OnRouteNodeClicked(routeNode))"
                                       @onclick:stopPropagation="true" />
@@ -208,7 +189,7 @@
                                       transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 2.2)">@city.Name</svg:text>
                         }
                     </g>
-                }
+                </g>
             </svg>
         }
     </div>
@@ -243,6 +224,7 @@
     private readonly List<string> _warnings = new();
 
     private ElementReference _boardViewportElement;
+    private DotNetObjectReference<MapBoard>? _mapBoardReference;
     private MapDefinition? _mapDefinition = null;
     private BoardRenderModel? _renderModel = null;
     private BoardViewport _viewport = new()
@@ -254,7 +236,6 @@
     };
 
     private string? _loadedMapFileName;
-    private bool _isPanning;
     private int? _selectedRailroadIndex;
     private MapInteractionMode _interactionMode = MapInteractionMode.Rail;
     private readonly List<RouteNodeRenderItem> _routeNodes = new();
@@ -263,19 +244,13 @@
     private MapRouteContext? _routeContext;
     private string? _routeStartNodeId;
     private string? _routeStartNodeName;
+    private bool _cameraUnavailable;
+    private bool _cameraInitialized;
+    private bool _suspendCameraPush;
     private const double RouteClickRegionSizePixels = 18;
-    private double _panStartClientX;
-    private double _panStartClientY;
-    private double _panStartCenterX;
-    private double _panStartCenterY;
-    private double _panStartViewBoxWidth;
-    private double _panStartViewBoxHeight;
-    private double _panViewportWidth;
-    private double _panViewportHeight;
+    private long _lastClientViewportSequence;
     private double _viewportRenderWidth = 1;
     private double _viewportRenderHeight = 1;
-    private double _panPreviewTranslateX;
-    private double _panPreviewTranslateY;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -293,13 +268,39 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_mapDefinition is null || _renderModel is null)
+        {
+            if (_cameraInitialized)
+            {
+                await JavaScriptRuntime.InvokeVoidAsync("mapBoard.disposeCamera", _boardViewportElement);
+                _cameraInitialized = false;
+            }
+
+            return;
+        }
+
         var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
             "mapBoard.getRelativePoint",
             _boardViewportElement,
             0,
             0);
 
-        if (UpdateViewportRenderSize(relativePoint))
+        var renderSizeChanged = UpdateViewportRenderSize(relativePoint);
+
+        if (!_cameraUnavailable)
+        {
+            try
+            {
+                await InitializeCameraInteropAsync();
+            }
+            catch (JSException)
+            {
+                _cameraUnavailable = true;
+                _cameraInitialized = false;
+            }
+        }
+
+        if (renderSizeChanged)
         {
             StateHasChanged();
         }
@@ -316,6 +317,9 @@
         _routeContext = null;
         _routeStartNodeId = null;
         _routeStartNodeName = null;
+        _cameraUnavailable = false;
+        _cameraInitialized = false;
+        _lastClientViewportSequence = 0;
         _loadedMapFileName = null;
 
         var resolvedPath = ResolveMapPath(configuredMapFile);
@@ -403,129 +407,66 @@
         _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
     }
 
-    private async Task HandleWheelZoomAsync(WheelEventArgs args)
+
+    private async Task InitializeCameraInteropAsync()
     {
-        if (_mapDefinition is null)
+        if (_mapDefinition is null || _renderModel is null)
         {
             return;
         }
 
-        var delta = args.DeltaY < 0 ? 100 : -100;
-        var requestedZoom = _viewport.ZoomPercent + delta;
-
-        if (BoardViewportService.ClampZoom(requestedZoom) <= BoardViewportService.MinZoom)
+        if (_suspendCameraPush)
         {
-            _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+            _suspendCameraPush = false;
             return;
         }
 
-        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
-            "mapBoard.getRelativePoint",
+        _mapBoardReference ??= DotNetObjectReference.Create(this);
+
+        await JavaScriptRuntime.InvokeVoidAsync(
+            "mapBoard.initializeCamera",
             _boardViewportElement,
-            args.ClientX,
-            args.ClientY);
+            new
+            {
+                mapLeft = _mapDefinition.ScaleLeft,
+                mapTop = _mapDefinition.ScaleTop,
+                mapWidth = _mapDefinition.ScaleWidth,
+                mapHeight = _mapDefinition.ScaleHeight,
+                zoomPercent = _viewport.ZoomPercent,
+                centerX = _viewport.CenterX,
+                centerY = _viewport.CenterY,
+                minZoom = BoardViewportService.MinZoom,
+                maxZoom = BoardViewportService.MaxZoom
+            },
+            _mapBoardReference);
 
-        UpdateViewportRenderSize(relativePoint);
-
-        _viewport = BoardViewportService.UpdateCursorAnchored(_viewport, requestedZoom, relativePoint, _mapDefinition);
+        _cameraInitialized = true;
     }
 
-    private async Task StartPanAsync(MouseEventArgs args)
-    {
-        if (_mapDefinition is null || args.Button != 0)
-        {
-            return;
-        }
-
-        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
-            "mapBoard.getRelativePoint",
-            _boardViewportElement,
-            args.ClientX,
-            args.ClientY);
-
-        UpdateViewportRenderSize(relativePoint);
-
-        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
-
-        _isPanning = true;
-        _panStartClientX = args.ClientX;
-        _panStartClientY = args.ClientY;
-        _panStartCenterX = _viewport.CenterX;
-        _panStartCenterY = _viewport.CenterY;
-        _panStartViewBoxWidth = viewBox.Width;
-        _panStartViewBoxHeight = viewBox.Height;
-        _panViewportWidth = Math.Max(1, relativePoint.Width);
-        _panViewportHeight = Math.Max(1, relativePoint.Height);
-        _panPreviewTranslateX = 0;
-        _panPreviewTranslateY = 0;
-    }
-
-    private void ContinuePan(MouseEventArgs args)
-    {
-        if (!_isPanning || _mapDefinition is null)
-        {
-            return;
-        }
-
-        var deltaX = args.ClientX - _panStartClientX;
-        var deltaY = args.ClientY - _panStartClientY;
-
-        var boardDeltaX = deltaX * (_panStartViewBoxWidth / _panViewportWidth);
-        var boardDeltaY = deltaY * (_panStartViewBoxHeight / _panViewportHeight);
-
-        _panPreviewTranslateX = boardDeltaX;
-        _panPreviewTranslateY = boardDeltaY;
-
-        _viewport = new BoardViewport
-        {
-            ZoomPercent = _viewport.ZoomPercent,
-            CenterX = _panStartCenterX - boardDeltaX,
-            CenterY = _panStartCenterY - boardDeltaY,
-            ZoomAnchor = ZoomAnchor.ViewportCenter
-        };
-    }
-
-    private void EndPan(MouseEventArgs args)
-    {
-        if (_isPanning && _mapDefinition is not null)
-        {
-            ContinuePan(args);
-        }
-
-        _isPanning = false;
-        _panPreviewTranslateX = 0;
-        _panPreviewTranslateY = 0;
-    }
-
-    private string? GetPanPreviewTransform()
-    {
-        if (!_isPanning)
-        {
-            return null;
-        }
-
-        return FormattableString.Invariant($"translate({_panPreviewTranslateX:F4} {_panPreviewTranslateY:F4})");
-    }
-
-    private string GetViewBoxValue()
+    private string GetMapViewBoxValue()
     {
         if (_mapDefinition is null)
         {
             return "0 0 1 1";
         }
 
-        var viewport = _isPanning
-            ? new BoardViewport
-            {
-                ZoomPercent = _viewport.ZoomPercent,
-                CenterX = _panStartCenterX,
-                CenterY = _panStartCenterY,
-                ZoomAnchor = ZoomAnchor.ViewportCenter
-            }
-            : _viewport;
+        return FormattableString.Invariant(
+            $"{_mapDefinition.ScaleLeft:F4} {_mapDefinition.ScaleTop:F4} {_mapDefinition.ScaleWidth:F4} {_mapDefinition.ScaleHeight:F4}");
+    }
 
-        var viewBox = BoardViewportService.GetViewBox(viewport, _mapDefinition);
-        return viewBox.ToSvgValue();
+    private string? GetCameraTransform()
+    {
+        if (_mapDefinition is null)
+        {
+            return null;
+        }
+
+        var zoomScale = _viewport.ZoomPercent / 100.0;
+        var mapCenterX = _mapDefinition.ScaleLeft + (_mapDefinition.ScaleWidth / 2.0);
+        var mapCenterY = _mapDefinition.ScaleTop + (_mapDefinition.ScaleHeight / 2.0);
+
+        return FormattableString.Invariant(
+            $"translate({mapCenterX:F4} {mapCenterY:F4}) scale({zoomScale:F6}) translate({-_viewport.CenterX:F4} {-_viewport.CenterY:F4})");
     }
 
     private bool UpdateViewportRenderSize(RelativePoint relativePoint)
@@ -551,9 +492,8 @@
             return null;
         }
 
-        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
-        var scaleX = _viewportRenderWidth / Math.Max(0.0001, viewBox.Width);
-        var scaleY = _viewportRenderHeight / Math.Max(0.0001, viewBox.Height);
+        var scaleX = _viewportRenderWidth / Math.Max(0.0001, _mapDefinition.ScaleWidth);
+        var scaleY = _viewportRenderHeight / Math.Max(0.0001, _mapDefinition.ScaleHeight);
 
         if (scaleX <= 0 || scaleY <= 0)
         {
@@ -703,6 +643,41 @@
         }
     }
 
+    [JSInvokable]
+    public Task OnClientViewportChanged(long sequence, double zoomPercent, double centerX, double centerY, double width, double height)
+    {
+        if (sequence <= _lastClientViewportSequence)
+        {
+            return Task.CompletedTask;
+        }
+
+        _lastClientViewportSequence = sequence;
+
+        var nextZoom = BoardViewportService.ClampZoom(zoomPercent);
+        var changed = Math.Abs(_viewport.ZoomPercent - nextZoom) > 0.01
+            || Math.Abs(_viewport.CenterX - centerX) > 0.01
+            || Math.Abs(_viewport.CenterY - centerY) > 0.01;
+
+        _viewport = new BoardViewport
+        {
+            ZoomPercent = nextZoom,
+            CenterX = centerX,
+            CenterY = centerY,
+            ZoomAnchor = ZoomAnchor.ViewportCenter
+        };
+
+        _suspendCameraPush = true;
+
+        var sizeChanged = UpdateViewportRenderSize(new RelativePoint(0, 0, width, height));
+
+        if (!changed && !sizeChanged)
+        {
+            return Task.CompletedTask;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
     private Appearance GetModeButtonAppearance(MapInteractionMode mode)
     {
         return _interactionMode == mode ? Appearance.Accent : Appearance.Neutral;
@@ -714,6 +689,23 @@
         return _selectedRailroadIndex == segment.RailroadIndex
             ? $"{ownershipClass} selected"
             : ownershipClass;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_cameraInitialized)
+        {
+            try
+            {
+                await JavaScriptRuntime.InvokeVoidAsync("mapBoard.disposeCamera", _boardViewportElement);
+            }
+            catch (JSDisconnectedException)
+            {
+                // ignored during teardown
+            }
+        }
+
+        _mapBoardReference?.Dispose();
     }
 
     private enum MapInteractionMode
