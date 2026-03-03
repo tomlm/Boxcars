@@ -71,78 +71,94 @@
                  viewBox="@GetViewBoxValue()"
                  preserveAspectRatio="none"
                  aria-label="Rail Baron game board">
-                <g class="map-board-regions">
-                    @foreach (var regionFill in _renderModel.RegionFills)
-                    {
-                        <path d="@regionFill.PathData" fill="@regionFill.FillColor" />
-                    }
-                </g>
+                @if (_isPanning)
+                {
+                    <g class="map-board-drag-placeholder" transform="@GetPanPreviewTransform()">
+                        @foreach (var line in _renderModel.MapLines)
+                        {
+                            <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
+                        }
+                        @foreach (var separator in _renderModel.Separators)
+                        {
+                            <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
+                        }
+                    </g>
+                }
+                else
+                {
+                    <g class="map-board-regions">
+                        @foreach (var regionFill in _renderModel.RegionFills)
+                        {
+                            <path d="@regionFill.PathData" fill="@regionFill.FillColor" />
+                        }
+                    </g>
 
-                <g class="map-board-lines">
-                    @foreach (var line in _renderModel.MapLines)
-                    {
-                        <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
-                    }
-                </g>
+                    <g class="map-board-lines">
+                        @foreach (var line in _renderModel.MapLines)
+                        {
+                            <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
+                        }
+                    </g>
 
-                <g class="map-board-separators">
-                    @foreach (var separator in _renderModel.Separators)
-                    {
-                        <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
-                    }
-                </g>
+                    <g class="map-board-separators">
+                        @foreach (var separator in _renderModel.Separators)
+                        {
+                            <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
+                        }
+                    </g>
 
-                <g class="map-board-railroads">
-                    @foreach (var railroadSegment in _renderModel.RailroadSegments)
-                    {
-                        <line x1="@railroadSegment.X1"
-                              y1="@railroadSegment.Y1"
-                              x2="@railroadSegment.X2"
-                              y2="@railroadSegment.Y2"
-                              stroke="@railroadSegment.StrokeColor"
-                              class="@GetRailroadSegmentClass(railroadSegment)" />
-                        <line x1="@railroadSegment.X1"
-                              y1="@railroadSegment.Y1"
-                              x2="@railroadSegment.X2"
-                              y2="@railroadSegment.Y2"
-                              class="map-board-railroad-hitbox"
-                              @onmousedown:stopPropagation="true"
-                              @onclick="@(() => SelectRailroad(railroadSegment.RailroadIndex))"
-                              @onclick:stopPropagation="true" />
-                    }
-                </g>
+                    <g class="map-board-railroads">
+                        @foreach (var railroadSegment in _renderModel.RailroadSegments)
+                        {
+                            <line x1="@railroadSegment.X1"
+                                  y1="@railroadSegment.Y1"
+                                  x2="@railroadSegment.X2"
+                                  y2="@railroadSegment.Y2"
+                                  stroke="@railroadSegment.StrokeColor"
+                                  class="@GetRailroadSegmentClass(railroadSegment)" />
+                            <line x1="@railroadSegment.X1"
+                                  y1="@railroadSegment.Y1"
+                                  x2="@railroadSegment.X2"
+                                  y2="@railroadSegment.Y2"
+                                  class="map-board-railroad-hitbox"
+                                  @onmousedown:stopPropagation="true"
+                                  @onclick="@(() => SelectRailroad(railroadSegment.RailroadIndex))"
+                                  @onclick:stopPropagation="true" />
+                        }
+                    </g>
 
-                <g class="map-board-train-dots">
-                    @foreach (var dot in _renderModel.TrainDots)
-                    {
-                        <circle cx="@dot.X" cy="@dot.Y" r="0.9" />
-                    }
-                </g>
+                    <g class="map-board-train-dots">
+                        @foreach (var dot in _renderModel.TrainDots)
+                        {
+                            <circle cx="@dot.X" cy="@dot.Y" r="0.9" />
+                        }
+                    </g>
 
-                <g class="map-board-cities">
-                    @foreach (var city in _renderModel.Cities)
-                    {
-                        <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
-                    }
-                </g>
+                    <g class="map-board-cities">
+                        @foreach (var city in _renderModel.Cities)
+                        {
+                            <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
+                        }
+                    </g>
 
-                <g class="map-board-region-labels">
-                    @foreach (var label in _renderModel.RegionLabels)
-                    {
-                        <svg:text x="@label.X"
-                                  y="@label.Y"
-                                  transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
-                    }
-                </g>
+                    <g class="map-board-region-labels">
+                        @foreach (var label in _renderModel.RegionLabels)
+                        {
+                            <svg:text x="@label.X"
+                                      y="@label.Y"
+                                      transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
+                        }
+                    </g>
 
-                <g class="map-board-city-labels">
-                    @foreach (var city in _renderModel.Cities)
-                    {
-                        <svg:text x="@(city.X + 2.2)"
-                                  y="@(city.Y - 2.2)"
-                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 2.2)">@city.Name</svg:text>
-                    }
-                </g>
+                    <g class="map-board-city-labels">
+                        @foreach (var city in _renderModel.Cities)
+                        {
+                            <svg:text x="@(city.X + 2.2)"
+                                      y="@(city.Y - 2.2)"
+                                      transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 2.2)">@city.Name</svg:text>
+                        }
+                    </g>
+                }
             </svg>
         }
     </div>
@@ -200,6 +216,8 @@
     private double _panViewportHeight;
     private double _viewportRenderWidth = 1;
     private double _viewportRenderHeight = 1;
+    private double _panPreviewTranslateX;
+    private double _panPreviewTranslateY;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -358,6 +376,8 @@
         _panStartViewBoxHeight = viewBox.Height;
         _panViewportWidth = Math.Max(1, relativePoint.Width);
         _panViewportHeight = Math.Max(1, relativePoint.Height);
+        _panPreviewTranslateX = 0;
+        _panPreviewTranslateY = 0;
     }
 
     private void ContinuePan(MouseEventArgs args)
@@ -373,6 +393,9 @@
         var boardDeltaX = deltaX * (_panStartViewBoxWidth / _panViewportWidth);
         var boardDeltaY = deltaY * (_panStartViewBoxHeight / _panViewportHeight);
 
+        _panPreviewTranslateX = boardDeltaX;
+        _panPreviewTranslateY = boardDeltaY;
+
         _viewport = new BoardViewport
         {
             ZoomPercent = _viewport.ZoomPercent,
@@ -382,9 +405,26 @@
         };
     }
 
-    private void EndPan(MouseEventArgs _)
+    private void EndPan(MouseEventArgs args)
     {
+        if (_isPanning && _mapDefinition is not null)
+        {
+            ContinuePan(args);
+        }
+
         _isPanning = false;
+        _panPreviewTranslateX = 0;
+        _panPreviewTranslateY = 0;
+    }
+
+    private string? GetPanPreviewTransform()
+    {
+        if (!_isPanning)
+        {
+            return null;
+        }
+
+        return FormattableString.Invariant($"translate({_panPreviewTranslateX:F4} {_panPreviewTranslateY:F4})");
     }
 
     private string GetViewBoxValue()
@@ -394,7 +434,17 @@
             return "0 0 1 1";
         }
 
-        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        var viewport = _isPanning
+            ? new BoardViewport
+            {
+                ZoomPercent = _viewport.ZoomPercent,
+                CenterX = _panStartCenterX,
+                CenterY = _panStartCenterY,
+                ZoomAnchor = ZoomAnchor.ViewportCenter
+            }
+            : _viewport;
+
+        var viewBox = BoardViewportService.GetViewBox(viewport, _mapDefinition);
         return viewBox.ToSvgValue();
     }
 

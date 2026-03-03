@@ -59,6 +59,12 @@
     display: block;
 }
 
+.map-board-drag-placeholder line {
+    stroke: var(--accent-fill-rest);
+    stroke-width: 0.8;
+    stroke-linecap: round;
+}
+
 .map-board-regions path {
     stroke: none;
 }
