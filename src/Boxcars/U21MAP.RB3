@@ -954,8 +954,8 @@ thickdots= 0
 radius= 0 
 legendcols= 4 
 legendpage= 6 
-legendheader=Rail Baron® - 21st Century Map
-legendfooter=© Copyright 2012 Intersystem Concepts, Inc. - Rail Baron is a Registered Trademark of Intersystem Concepts, Inc.
+legendheader=Rail BaronÂ® - 21st Century Map
+legendfooter=Â© Copyright 2012 Intersystem Concepts, Inc. - Rail Baron is a Registered Trademark of Intersystem Concepts, Inc.
 citynames= 1 
 fontindex= 11 
 size= 0 
@@ -1337,7 +1337,8 @@ l,0,0,0,0,7
 
 '[sep]
 8/#75/RBPEdit/E
-l,507,39,515,57,8
+l,506,38,512,52,8
+l,512,52,515,57,8
 l,515,57,527,56,8
 l,527,56,527,58,8
 l,527,58,530,57,8
@@ -1346,7 +1347,7 @@ l,535,55,541,55,8
 l,541,55,545,57,8
 l,545,57,550,58,8
 l,550,58,555,60,8
-l,555,60,559,63,8
+l,555,60,560,63,8
 l,512,52,511,57,8
 l,511,57,508,60,8
 l,508,60,505,63,8

@@ -45,8 +45,17 @@ public sealed class RegionLabelRenderItem
     public required double Y { get; init; }
 }
 
+public sealed class RegionFillRenderItem
+{
+    public required int RegionIndex { get; init; }
+    public required string RegionCode { get; init; }
+    public required string PathData { get; init; }
+    public required string FillColor { get; init; }
+}
+
 public sealed class BoardRenderModel
 {
+    public required IReadOnlyList<RegionFillRenderItem> RegionFills { get; init; }
     public required IReadOnlyList<CityRenderItem> Cities { get; init; }
     public required IReadOnlyList<TrainDot> TrainDots { get; init; }
     public required IReadOnlyList<RailroadRenderSegment> RailroadSegments { get; init; }

@@ -59,15 +59,16 @@
     display: block;
 }
 
+.map-board-regions path {
+    stroke: none;
+}
+
 .map-board-lines line {
-    stroke: var(--neutral-foreground-rest);
-    stroke-width: 0.25;
+    stroke: none;
 }
 
 .map-board-separators line {
-    stroke: var(--neutral-stroke-rest);
-    stroke-width: 0.2;
-    stroke-dasharray: 0.8 0.8;
+    stroke: none;
 }
 
 .map-board-railroads line {

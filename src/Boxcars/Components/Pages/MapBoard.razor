@@ -5,7 +5,6 @@
 @using Microsoft.FluentUI.AspNetCore.Components
 @using Microsoft.JSInterop
 @inject IMapParserService MapParserService
-@inject MapBackgroundResolver BackgroundResolver
 @inject BoardProjectionService BoardProjectionService
 @inject BoardViewportService BoardViewportService
 @inject IWebHostEnvironment HostEnvironment
@@ -72,15 +71,12 @@
                  viewBox="@GetViewBoxValue()"
                  preserveAspectRatio="none"
                  aria-label="Rail Baron game board">
-                @if (!string.IsNullOrWhiteSpace(_backgroundDataUrl))
-                {
-                    <image href="@_backgroundDataUrl"
-                           x="@_mapDefinition.ScaleLeft"
-                           y="@_mapDefinition.ScaleTop"
-                           width="@_mapDefinition.ScaleWidth"
-                           height="@_mapDefinition.ScaleHeight"
-                           preserveAspectRatio="none" />
-                }
+                <g class="map-board-regions">
+                    @foreach (var regionFill in _renderModel.RegionFills)
+                    {
+                        <path d="@regionFill.PathData" fill="@regionFill.FillColor" />
+                    }
+                </g>
 
                 <g class="map-board-lines">
                     @foreach (var line in _renderModel.MapLines)
@@ -191,7 +187,6 @@
         ZoomAnchor = ZoomAnchor.ViewportCenter
     };
 
-    private string? _backgroundDataUrl = null;
     private string? _loadedMapFileName;
     private bool _isPanning;
     private int? _selectedRailroadIndex;
@@ -246,7 +241,6 @@
         {
             _mapDefinition = null;
             _renderModel = null;
-            _backgroundDataUrl = null;
             _errors.Add($"Configured map file '{configuredMapFile}' was not found.");
             return;
         }
@@ -258,7 +252,6 @@
         {
             _mapDefinition = null;
             _renderModel = null;
-            _backgroundDataUrl = null;
             _errors.AddRange(parseResult.Errors);
             _warnings.AddRange(parseResult.Warnings);
             return;
@@ -270,16 +263,6 @@
         var projectionResult = BoardProjectionService.Project(_mapDefinition);
         _renderModel = projectionResult.Model;
         _warnings.AddRange(projectionResult.Warnings);
-
-        var backgroundResult = await BackgroundResolver.ResolveAsync(_mapDefinition, uploadedBackgroundDataUrl: null, CancellationToken.None);
-        if (backgroundResult.Succeeded)
-        {
-            _backgroundDataUrl = backgroundResult.DataUrl;
-        }
-        else if (backgroundResult.Error is not null)
-        {
-            _errors.Add(backgroundResult.Error);
-        }
 
         _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
         _loadedMapFileName = configuredMapFile;
