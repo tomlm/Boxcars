@@ -283,7 +283,7 @@
     private BoardRenderModel? _renderModel = null;
     private BoardViewport _viewport = new()
     {
-        ZoomPercent = 50,
+        ZoomPercent = 100,
         CenterX = 0,
         CenterY = 0,
         ZoomAnchor = ZoomAnchor.ViewportCenter
@@ -1607,6 +1607,14 @@
         _lastClientViewportSequence = sequence;
 
         var nextZoom = BoardViewportService.ClampZoom(zoomPercent);
+
+        if (nextZoom <= BoardViewportService.MinZoom && _mapDefinition is not null)
+        {
+            var fitViewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+            centerX = fitViewport.CenterX;
+            centerY = fitViewport.CenterY;
+        }
+
         var changed = Math.Abs(_viewport.ZoomPercent - nextZoom) > 0.01
             || Math.Abs(_viewport.CenterX - centerX) > 0.01
             || Math.Abs(_viewport.CenterY - centerY) > 0.01;

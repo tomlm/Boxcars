@@ -1,12 +1,20 @@
+@page "/game/{GameId}"
+@rendermode InteractiveServer
 @using Boxcars.Components.Map
 @using Boxcars.Data.Maps
 @using Boxcars.Engine.Data.Maps
+@using Boxcars.Services
 @using Boxcars.Services.Maps
-@using System.Globalization
-@using Microsoft.AspNetCore.Components
-@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.FluentUI.AspNetCore.Components
-@using Microsoft.JSInterop
+@using System.Globalization
+@attribute [Authorize]
+@inject NavigationManager Navigation
+@inject GameService GameService
+@inject IMessageService MessageService
+
+<PageTitle>Game - BoxCars</PageTitle>
 
 <div class="map-board-shell">
     <FluentCard class="map-board-controls">
@@ -92,12 +100,9 @@
                        class="map-board-zoom-slider" />
                 <FluentButton Appearance="Appearance.Neutral" OnClick="OnResetZoomAsync">Fit to board</FluentButton>
 
-                @if (ShowEndGameButton)
-                {
-                    <FluentButton Appearance="Appearance.Lightweight" OnClick="OnEndGameClickedAsync" Disabled="@(!EndGameRequested.HasDelegate)">
-                        End Game
-                    </FluentButton>
-                }
+                <FluentButton Appearance="Appearance.Lightweight" OnClick="EndGameAsync">
+                    End Game
+                </FluentButton>
             </div>
         </FluentStack>
     </FluentCard>
@@ -114,13 +119,8 @@
     }
 
     <MapComponent @ref="_gameMap"
-                   MapFileName="@MapFileName"
+                   MapFileName="@_mapFileName"
                    SelectionMode="@_selectionMode"
-                   PlayerId="@PlayerId"
-                   PlayerColor="@PlayerColor"
-                   MovementType="@MovementType"
-                   PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
-                   OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
                    ZoomPercentChanged="OnZoomPercentChanged" />
 
     @if (_gameMap?.Warnings.Count > 0)
@@ -140,33 +140,57 @@
 </div>
 
 @code {
-    [Parameter]
-    public bool ShowEndGameButton { get; set; }
-
-    [Parameter]
-    public EventCallback EndGameRequested { get; set; }
-
-    [Parameter]
-    public string MapFileName { get; set; } = "U21MAP.RB3";
-
-    [Parameter]
-    public string PlayerId { get; set; } = "mock-player";
-
-    [Parameter]
-    public string PlayerColor { get; set; } = "var(--accent-fill-rest)";
-
-    [Parameter]
-    public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
-
-    [Parameter]
-    public IReadOnlyCollection<int>? PlayerOwnedRailroadIndices { get; set; }
-
-    [Parameter]
-    public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
-
+    private string? _currentUserId;
+    private string _mapFileName = GameService.DefaultMapFileName;
     private MapComponent? _gameMap;
     private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
     private double _zoomPercent = 100;
+
+    [Parameter]
+    public string GameId { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null)
+        {
+            return;
+        }
+
+        var state = await AuthState;
+        _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        var game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+        if (!string.IsNullOrWhiteSpace(game?.MapFileName))
+        {
+            _mapFileName = game.MapFileName;
+        }
+    }
+
+    private async Task EndGameAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentUserId) || string.IsNullOrWhiteSpace(GameId))
+        {
+            await MessageService.ShowMessageBarAsync("Unable to end game: missing user or game context.", MessageIntent.Error, "GAME");
+            return;
+        }
+
+        var result = await GameService.EndGameAsync(_currentUserId, GameId, CancellationToken.None);
+        if (!result.Success)
+        {
+            await MessageService.ShowMessageBarAsync(result.Reason ?? "Unable to end game.", MessageIntent.Error, "GAME");
+            return;
+        }
+
+        Navigation.NavigateTo("/dashboard");
+    }
 
     private void SetSelectionMode(MapSelectionMode mode)
     {
@@ -234,16 +258,6 @@
         }
 
         await _gameMap.SuggestRouteAsync();
-    }
-
-    private async Task OnEndGameClickedAsync()
-    {
-        if (!EndGameRequested.HasDelegate)
-        {
-            return;
-        }
-
-        await EndGameRequested.InvokeAsync();
     }
 
     private Appearance GetModeButtonAppearance(MapSelectionMode mode)

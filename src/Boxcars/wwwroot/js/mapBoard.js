@@ -71,6 +71,15 @@
 
     function updateCursorAnchoredZoom(state, requestedZoom, relativeX, relativeY, width, height) {
         const nextZoom = clamp(requestedZoom, state.minZoom, state.maxZoom);
+
+        if (nextZoom <= state.minZoom) {
+            state.zoomPercent = nextZoom;
+            const center = getMapCenter(state);
+            state.centerX = center.x;
+            state.centerY = center.y;
+            return;
+        }
+
         const clampedX = clamp(relativeX, 0, width);
         const clampedY = clamp(relativeY, 0, height);
 
@@ -107,7 +116,7 @@
             event.preventDefault();
             event.stopPropagation();
 
-            const delta = event.deltaY < 0 ? 100 : -100;
+            const delta = event.deltaY < 0 ? 50 : -50;
             const relativePoint = getRelativePoint(element, event.clientX, event.clientY);
             updateCursorAnchoredZoom(
                 state,
@@ -127,6 +136,10 @@
             }
 
             if (event.target && event.target.closest("[data-mapboard-pan-ignore='true']")) {
+                return;
+            }
+
+            if (state.zoomPercent <= state.minZoom) {
                 return;
             }
 
