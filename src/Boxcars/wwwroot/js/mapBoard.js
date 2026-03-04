@@ -230,7 +230,7 @@
             return;
         }
 
-        const cameraGroup = element.querySelector(".map-board-camera");
+        const cameraGroup = element.querySelector(".game-map-camera") || element.querySelector(".map-board-camera");
         if (!cameraGroup) {
             return;
         }

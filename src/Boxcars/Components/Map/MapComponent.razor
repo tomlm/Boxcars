@@ -1,0 +1,1705 @@
+@using Boxcars.Data.Maps
+@using Boxcars.Engine.Data.Maps
+@using Boxcars.Hubs
+@using Boxcars.Services.Maps
+@using System.Globalization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.SignalR
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.JSInterop
+@inject BoardProjectionService BoardProjectionService
+@inject BoardViewportService BoardViewportService
+@inject MapRouteService MapRouteService
+@inject IHubContext<BoxCarsHub> HubContext
+@inject IWebHostEnvironment HostEnvironment
+@inject IJSRuntime JavaScriptRuntime
+@implements IAsyncDisposable
+
+<div class="game-map-viewport"
+     @ref="_boardViewportElement"
+     tabindex="0">
+    @if (_mapDefinition is null || _renderModel is null)
+    {
+        <FluentCard class="game-map-placeholder">
+            <FluentLabel Typo="Typography.Body">No map loaded yet.</FluentLabel>
+        </FluentCard>
+    }
+    else
+    {
+        <svg class="game-map-svg"
+             viewBox="@GetMapViewBoxValue()"
+             preserveAspectRatio="none"
+             aria-label="Rail Baron game board">
+            <g class="game-map-camera" transform="@GetCameraTransform()">
+                <g class="game-map-regions">
+                    @foreach (var regionFill in _renderModel.RegionFills)
+                    {
+                        <path d="@regionFill.PathData" fill="@regionFill.FillColor" />
+                    }
+                </g>
+
+                <g class="game-map-lines">
+                    @foreach (var line in _renderModel.MapLines)
+                    {
+                        <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
+                    }
+                </g>
+
+                <g class="game-map-separators">
+                    @foreach (var separator in _renderModel.Separators)
+                    {
+                        <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
+                    }
+                </g>
+
+                <g class="game-map-railroads">
+                    @foreach (var railroadSegment in _renderModel.RailroadSegments)
+                    {
+                        <line x1="@railroadSegment.X1"
+                              y1="@railroadSegment.Y1"
+                              x2="@railroadSegment.X2"
+                              y2="@railroadSegment.Y2"
+                              stroke="@railroadSegment.StrokeColor"
+                              class="@GetRailroadSegmentClass(railroadSegment)" />
+                        <line x1="@railroadSegment.X1"
+                              y1="@railroadSegment.Y1"
+                              x2="@railroadSegment.X2"
+                              y2="@railroadSegment.Y2"
+                              class="game-map-railroad-hitbox"
+                              data-mapboard-pan-ignore="true"
+                              @onmousedown:stopPropagation="true"
+                              @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
+                                @onclick:stopPropagation="@(SelectionMode == MapSelectionMode.Rail)" />
+                    }
+                </g>
+
+                <g class="game-map-train-dots">
+                    @foreach (var dot in _renderModel.TrainDots)
+                    {
+                        <circle cx="@dot.X" cy="@dot.Y" r="0.9" />
+                    }
+                </g>
+
+                <g class="game-map-cities">
+                    @foreach (var city in _renderModel.Cities)
+                    {
+                        <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
+                    }
+                </g>
+
+                @if (SelectionMode == MapSelectionMode.Route)
+                {
+                    <g class="game-map-city-hitboxes">
+                        @foreach (var city in _renderModel.Cities)
+                        {
+                            <rect x="@(city.X - 3.5)"
+                                  y="@(city.Y - 3.5)"
+                                  width="7"
+                                  height="7"
+                                  class="game-map-city-hitbox"
+                                  data-mapboard-pan-ignore="true"
+                                  @onmousedown:stopPropagation="true"
+                                  @oncontextmenu="@((MouseEventArgs args) => OnCityRightClicked(city, args))"
+                                  @oncontextmenu:preventDefault="true"
+                                  @oncontextmenu:stopPropagation="true" />
+                        }
+                    </g>
+                }
+
+                @if (_routeSuggestionHighlights.Count > 0)
+                {
+                    <g class="game-map-route-suggestion-highlights">
+                        @foreach (var highlight in _routeSuggestionHighlights)
+                        {
+                            <circle cx="@highlight.X"
+                                    cy="@highlight.Y"
+                                    r="@highlight.Radius"
+                                    fill="none"
+                                    stroke="@highlight.Color"
+                                    class="game-map-route-suggestion-circle" />
+                        }
+                    </g>
+                }
+
+                @if (SelectionMode == MapSelectionMode.Route)
+                {
+                    var routeNodeHitboxWidth = GetRouteNodeHitboxWidth();
+                    var routeNodeHitboxHeight = GetRouteNodeHitboxHeight();
+
+                    <g class="game-map-route-node-hitboxes">
+                        @foreach (var routeNode in _routeNodes)
+                        {
+                            <rect x="@(routeNode.X - (routeNodeHitboxWidth / 2))"
+                                  y="@(routeNode.Y - (routeNodeHitboxHeight / 2))"
+                                  width="@routeNodeHitboxWidth"
+                                  height="@routeNodeHitboxHeight"
+                                  class="game-map-route-node-hitbox"
+                                  data-mapboard-pan-ignore="true"
+                                  @onmousedown:stopPropagation="true"
+                                  @onclick="@(() => OnRouteNodeClicked(routeNode))"
+                                  @ondblclick="@(() => OnRouteNodeDoubleClicked(routeNode))"
+                                  @ondblclick:stopPropagation="true"
+                                  @oncontextmenu="@((MouseEventArgs args) => OnRouteNodeRightClicked(routeNode, args))"
+                                  @oncontextmenu:preventDefault="true"
+                                  @oncontextmenu:stopPropagation="true"
+                                  @onclick:stopPropagation="true" />
+                        }
+                    </g>
+                }
+
+                <g class="game-map-region-labels">
+                    @foreach (var label in _renderModel.RegionLabels)
+                    {
+                        <svg:text x="@label.X"
+                                  y="@label.Y"
+                                  transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
+                    }
+                </g>
+
+                <g class="game-map-city-labels">
+                    @foreach (var city in _renderModel.Cities)
+                    {
+                        <svg:text x="@(city.X + 2.2)"
+                                  y="@(city.Y - 2.2)"
+                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 2.2)">@city.Name</svg:text>
+                    }
+                </g>
+            </g>
+        </svg>
+    }
+</div>
+
+@if (_routeNodeRailMenuVisible && _routeNodeRailMenuOptions.Count > 0)
+{
+    <div class="game-map-route-node-menu"
+         style="@GetRouteNodeRailMenuStyle()"
+         data-mapboard-pan-ignore="true"
+         @onmousedown:stopPropagation="true"
+         @onclick:stopPropagation="true">
+        <FluentLabel Typo="Typography.Body">Select railroad</FluentLabel>
+        <div class="game-map-route-node-menu-items">
+            @foreach (var option in _routeNodeRailMenuOptions)
+            {
+                <button type="button"
+                        class="game-map-route-node-menu-item"
+                        @onclick="() => OnRouteNodeRailOptionSelected(option)">
+                    @option.DisplayName
+                </button>
+            }
+        </div>
+    </div>
+}
+
+@if (_destinationMenuVisible && !string.IsNullOrWhiteSpace(_destinationMenuCityName))
+{
+    <div class="game-map-route-node-menu"
+         style="@GetDestinationMenuStyle()"
+         data-mapboard-pan-ignore="true"
+         @onmousedown:stopPropagation="true"
+         @onclick:stopPropagation="true">
+        <FluentLabel Typo="Typography.Body">City actions</FluentLabel>
+        <div class="game-map-route-node-menu-items">
+            <button type="button"
+                    class="game-map-route-node-menu-item"
+                    @onclick="OnDestinationMenuSelectedAsync">
+                Set as destination (@_destinationMenuCityName)
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string MapFileName { get; set; } = "U21MAP.RB3";
+
+    [Parameter]
+    public MapSelectionMode SelectionMode { get; set; } = MapSelectionMode.Rail;
+
+    [Parameter]
+    public EventCallback<MapSelectionMode> SelectionModeChanged { get; set; }
+
+    [Parameter]
+    public double ZoomPercent { get; set; } = 100;
+
+    [Parameter]
+    public EventCallback<double> ZoomPercentChanged { get; set; }
+
+    [Parameter]
+    public double PanCenterX { get; set; }
+
+    [Parameter]
+    public EventCallback<double> PanCenterXChanged { get; set; }
+
+    [Parameter]
+    public double PanCenterY { get; set; }
+
+    [Parameter]
+    public EventCallback<double> PanCenterYChanged { get; set; }
+
+    [Parameter]
+    public string PlayerId { get; set; } = "mock-player";
+
+    [Parameter]
+    public string PlayerColor { get; set; } = "var(--accent-fill-rest)";
+
+    [Parameter]
+    public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
+
+    [Parameter]
+    public IReadOnlyCollection<int>? PlayerOwnedRailroadIndices { get; set; }
+
+    [Parameter]
+    public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
+
+    [Parameter]
+    public EventCallback<int> RailroadSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<string> DestinationCityChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<string> StartCityChanged { get; set; }
+
+    public MapDefinition? MapDefinition => _mapDefinition;
+    public IReadOnlyList<string> Errors => _errors;
+    public IReadOnlyList<string> Warnings => _warnings;
+    public string? RouteStartNodeName => _routeStartNodeName;
+    public string? DestinationCityName => _destinationCityName;
+    public RouteSuggestionResult? RouteSuggestion => _routeSuggestion;
+    public IReadOnlyList<RouteCityOption> RouteCityOptions => _routeCityOptions;
+    public string? RouteStartNodeId => _routeStartNodeId;
+    public string? DestinationNodeId => _destinationNodeId;
+
+    private readonly List<string> _errors = new();
+    private readonly List<string> _warnings = new();
+
+    private ElementReference _boardViewportElement;
+    private DotNetObjectReference<MapComponent>? _mapBoardReference;
+    private MapDefinition? _mapDefinition = null;
+    private BoardRenderModel? _renderModel = null;
+    private BoardViewport _viewport = new()
+    {
+        ZoomPercent = 50,
+        CenterX = 0,
+        CenterY = 0,
+        ZoomAnchor = ZoomAnchor.ViewportCenter
+    };
+
+    private string? _loadedMapFileName;
+    private int? _selectedRailroadIndex;
+    private MapSelectionMode _previousSelectionMode = MapSelectionMode.Rail;
+    private readonly List<RouteNodeRenderItem> _routeNodes = new();
+    private readonly List<RouteGraphEdge> _selectedRouteSegments = new();
+    private readonly List<string> _selectedRouteNodeIds = new();
+    private readonly List<RouteCityOption> _routeCityOptions = new();
+    private readonly Dictionary<int, string> _railroadStrokeColors = new();
+    private readonly List<RouteSuggestionHighlight> _routeSuggestionHighlights = new();
+    private MapRouteContext? _routeContext;
+    private RouteSuggestionResult? _routeSuggestion;
+    private string? _routeStartNodeId;
+    private string? _routeStartNodeName;
+    private string? _destinationCityName;
+    private string? _destinationNodeId;
+    private bool _destinationMenuVisible;
+    private string? _destinationMenuCityName;
+    private string? _destinationMenuNodeId;
+    private double _destinationMenuClientX;
+    private double _destinationMenuClientY;
+    private string? _routeCycleNodeId;
+    private string? _routeCyclePreviousNodeId;
+    private RouteGraphEdge? _routeCycleDefaultSegment;
+    private int _routeCycleIndex;
+    private readonly List<RouteRailMenuOption> _routeNodeRailMenuOptions = new();
+    private bool _routeNodeRailMenuVisible;
+    private double _routeNodeRailMenuClientX;
+    private double _routeNodeRailMenuClientY;
+    private string? _routeNodeRailMenuTargetNodeId;
+    private string? _routeNodeRailMenuPreviousNodeId;
+    private bool _cameraUnavailable;
+    private bool _cameraInitialized;
+    private bool _suspendCameraPush;
+    private const double RouteClickRegionSizePixels = 18;
+    private long _lastClientViewportSequence;
+    private double _viewportRenderWidth = 1;
+    private double _viewportRenderHeight = 1;
+
+    public bool CanSuggestRoute => SelectionMode == MapSelectionMode.Route
+        && _routeContext is not null
+        && !string.IsNullOrWhiteSpace(_routeStartNodeId)
+        && !string.IsNullOrWhiteSpace(_destinationNodeId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_previousSelectionMode != SelectionMode)
+        {
+            ResetSelectionState(_previousSelectionMode);
+            _previousSelectionMode = SelectionMode;
+        }
+
+        var configuredMapFile = string.IsNullOrWhiteSpace(MapFileName)
+            ? "U21MAP.RB3"
+            : MapFileName.Trim();
+
+        if (string.Equals(_loadedMapFileName, configuredMapFile, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await LoadConfiguredMapAsync(configuredMapFile);
+    }
+
+    private void ResetSelectionState(MapSelectionMode previousMode)
+    {
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+
+        if (previousMode == MapSelectionMode.Rail)
+        {
+            _selectedRailroadIndex = null;
+        }
+        else if (previousMode == MapSelectionMode.Route)
+        {
+            _selectedRouteSegments.Clear();
+            _selectedRouteNodeIds.Clear();
+            _routeSuggestion = null;
+            _routeSuggestionHighlights.Clear();
+            ResetRouteCycleState();
+
+            if (!string.IsNullOrWhiteSpace(_routeStartNodeId))
+            {
+                _selectedRouteNodeIds.Add(_routeStartNodeId);
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_mapDefinition is null || _renderModel is null)
+        {
+            if (_cameraInitialized)
+            {
+                await JavaScriptRuntime.InvokeVoidAsync("mapBoard.disposeCamera", _boardViewportElement);
+                _cameraInitialized = false;
+            }
+
+            return;
+        }
+
+        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _boardViewportElement,
+            0,
+            0);
+
+        var renderSizeChanged = UpdateViewportRenderSize(relativePoint);
+
+        if (!_cameraUnavailable)
+        {
+            try
+            {
+                await InitializeCameraInteropAsync();
+            }
+            catch (JSException)
+            {
+                _cameraUnavailable = true;
+                _cameraInitialized = false;
+            }
+        }
+
+        if (renderSizeChanged)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadConfiguredMapAsync(string configuredMapFile)
+    {
+        _errors.Clear();
+        _warnings.Clear();
+        _selectedRailroadIndex = null;
+        _routeNodes.Clear();
+        _selectedRouteSegments.Clear();
+        _selectedRouteNodeIds.Clear();
+        _routeCityOptions.Clear();
+        _railroadStrokeColors.Clear();
+        _routeContext = null;
+        _routeStartNodeId = null;
+        _routeStartNodeName = null;
+        _destinationCityName = null;
+        _destinationNodeId = null;
+        _routeSuggestion = null;
+        _routeSuggestionHighlights.Clear();
+        ResetRouteCycleState();
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+        _cameraUnavailable = false;
+        _cameraInitialized = false;
+        _lastClientViewportSequence = 0;
+        _loadedMapFileName = null;
+
+        var resolvedPath = ResolveMapPath(configuredMapFile);
+        if (resolvedPath is null)
+        {
+            _mapDefinition = null;
+            _renderModel = null;
+            _errors.Add($"Configured map file '{configuredMapFile}' was not found.");
+            return;
+        }
+
+        await using var stream = File.OpenRead(resolvedPath);
+        var parseResult = await MapDefinition.LoadAsync(Path.GetFileName(resolvedPath), stream);
+
+        if (!parseResult.Succeeded || parseResult.Definition is null)
+        {
+            _mapDefinition = null;
+            _renderModel = null;
+            _errors.AddRange(parseResult.Errors);
+            _warnings.AddRange(parseResult.Warnings);
+            return;
+        }
+
+        _mapDefinition = parseResult.Definition;
+        _warnings.AddRange(parseResult.Warnings);
+
+        var projectionResult = BoardProjectionService.Project(_mapDefinition);
+        _renderModel = projectionResult.Model;
+        _warnings.AddRange(projectionResult.Warnings);
+        PopulateRailroadStrokeColors();
+
+        _routeNodes.AddRange(_renderModel.RouteNodes);
+        _routeContext = MapRouteService.BuildContext(_mapDefinition);
+        BuildRouteCityOptions();
+        InitializeChicagoStartNode();
+
+        _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+        _loadedMapFileName = configuredMapFile;
+
+        await NotifyViewportChanged();
+    }
+
+    private string? ResolveMapPath(string configuredMapFile)
+    {
+        if (Path.IsPathRooted(configuredMapFile) && File.Exists(configuredMapFile))
+        {
+            return configuredMapFile;
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(HostEnvironment.ContentRootPath, configuredMapFile),
+            Path.Combine(HostEnvironment.ContentRootPath, "maps", configuredMapFile),
+            Path.Combine(AppContext.BaseDirectory, configuredMapFile),
+            Path.Combine(AppContext.BaseDirectory, "maps", configuredMapFile)
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    public async Task SetZoom(double zoomPercent)
+    {
+        if (_mapDefinition is null)
+        {
+            return;
+        }
+
+        if (BoardViewportService.ClampZoom(zoomPercent) <= BoardViewportService.MinZoom)
+        {
+            _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+        }
+        else
+        {
+            _viewport = BoardViewportService.UpdateViewportCentered(_viewport, zoomPercent);
+        }
+
+        await NotifyViewportChanged();
+        StateHasChanged();
+    }
+
+    public async Task ResetZoom()
+    {
+        if (_mapDefinition is null)
+        {
+            return;
+        }
+
+        _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+        await NotifyViewportChanged();
+        StateHasChanged();
+    }
+
+    public void SetStartCity(string nodeId)
+    {
+        SetRouteStartNode(nodeId);
+    }
+
+    public void SetDestinationCity(string nodeId)
+    {
+        var selectedOption = _routeCityOptions.FirstOrDefault(option =>
+            string.Equals(option.NodeId, nodeId, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(selectedOption.NodeId))
+        {
+            return;
+        }
+
+        _destinationNodeId = selectedOption.NodeId;
+        _destinationCityName = selectedOption.CityName;
+    }
+
+    public async Task SuggestRouteAsync()
+    {
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+
+        if (!CanSuggestRoute)
+        {
+            return;
+        }
+
+        await RecalculateRouteSuggestionAsync();
+    }
+
+    private async Task NotifyViewportChanged()
+    {
+        if (ZoomPercentChanged.HasDelegate)
+        {
+            await ZoomPercentChanged.InvokeAsync(_viewport.ZoomPercent);
+        }
+
+        if (PanCenterXChanged.HasDelegate)
+        {
+            await PanCenterXChanged.InvokeAsync(_viewport.CenterX);
+        }
+
+        if (PanCenterYChanged.HasDelegate)
+        {
+            await PanCenterYChanged.InvokeAsync(_viewport.CenterY);
+        }
+    }
+
+    private async Task InitializeCameraInteropAsync()
+    {
+        if (_mapDefinition is null || _renderModel is null)
+        {
+            return;
+        }
+
+        if (_suspendCameraPush)
+        {
+            _suspendCameraPush = false;
+            return;
+        }
+
+        _mapBoardReference ??= DotNetObjectReference.Create(this);
+
+        await JavaScriptRuntime.InvokeVoidAsync(
+            "mapBoard.initializeCamera",
+            _boardViewportElement,
+            new
+            {
+                mapLeft = _mapDefinition.ScaleLeft,
+                mapTop = _mapDefinition.ScaleTop,
+                mapWidth = _mapDefinition.ScaleWidth,
+                mapHeight = _mapDefinition.ScaleHeight,
+                zoomPercent = _viewport.ZoomPercent,
+                centerX = _viewport.CenterX,
+                centerY = _viewport.CenterY,
+                minZoom = BoardViewportService.MinZoom,
+                maxZoom = BoardViewportService.MaxZoom
+            },
+            _mapBoardReference);
+
+        _cameraInitialized = true;
+    }
+
+    private string GetMapViewBoxValue()
+    {
+        if (_mapDefinition is null)
+        {
+            return "0 0 1 1";
+        }
+
+        return FormattableString.Invariant(
+            $"{_mapDefinition.ScaleLeft:F4} {_mapDefinition.ScaleTop:F4} {_mapDefinition.ScaleWidth:F4} {_mapDefinition.ScaleHeight:F4}");
+    }
+
+    private string? GetCameraTransform()
+    {
+        if (_mapDefinition is null)
+        {
+            return null;
+        }
+
+        var zoomScale = _viewport.ZoomPercent / 100.0;
+        var mapCenterX = _mapDefinition.ScaleLeft + (_mapDefinition.ScaleWidth / 2.0);
+        var mapCenterY = _mapDefinition.ScaleTop + (_mapDefinition.ScaleHeight / 2.0);
+
+        return FormattableString.Invariant(
+            $"translate({mapCenterX:F4} {mapCenterY:F4}) scale({zoomScale:F6}) translate({-_viewport.CenterX:F4} {-_viewport.CenterY:F4})");
+    }
+
+    private bool UpdateViewportRenderSize(RelativePoint relativePoint)
+    {
+        var width = Math.Max(1, relativePoint.Width);
+        var height = Math.Max(1, relativePoint.Height);
+
+        if (Math.Abs(width - _viewportRenderWidth) < 0.5
+            && Math.Abs(height - _viewportRenderHeight) < 0.5)
+        {
+            return false;
+        }
+
+        _viewportRenderWidth = width;
+        _viewportRenderHeight = height;
+        return true;
+    }
+
+    private string? GetTextUnstretchTransform(double x, double y)
+    {
+        if (_mapDefinition is null)
+        {
+            return null;
+        }
+
+        var scaleX = _viewportRenderWidth / Math.Max(0.0001, _mapDefinition.ScaleWidth);
+        var scaleY = _viewportRenderHeight / Math.Max(0.0001, _mapDefinition.ScaleHeight);
+
+        if (scaleX <= 0 || scaleY <= 0)
+        {
+            return null;
+        }
+
+        var compensationScaleX = scaleY / scaleX;
+        if (Math.Abs(compensationScaleX - 1) < 0.0001)
+        {
+            return null;
+        }
+
+        return FormattableString.Invariant(
+            $"translate({x:F4} {y:F4}) scale({compensationScaleX:F6} 1) translate({-x:F4} {-y:F4})");
+    }
+
+    private void OnRailroadSegmentClicked(int railroadIndex)
+    {
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+
+        if (SelectionMode != MapSelectionMode.Rail)
+        {
+            return;
+        }
+
+        if (railroadIndex <= 0)
+        {
+            return;
+        }
+
+        _selectedRailroadIndex = railroadIndex;
+
+        if (RailroadSelected.HasDelegate)
+        {
+            _ = RailroadSelected.InvokeAsync(railroadIndex);
+        }
+    }
+
+    private void OnRouteNodeClicked(RouteNodeRenderItem routeNode)
+    {
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+
+        if (SelectionMode != MapSelectionMode.Route
+            || _routeContext is null
+            || string.IsNullOrWhiteSpace(_routeStartNodeId))
+        {
+            return;
+        }
+
+        if (_selectedRouteNodeIds.Count == 0)
+        {
+            _selectedRouteNodeIds.Add(_routeStartNodeId);
+        }
+
+        var currentEndpoint = _selectedRouteNodeIds[^1];
+        if (TryAppendDirectRouteSegment(currentEndpoint, routeNode.NodeId))
+        {
+            ResetRouteCycleState();
+            return;
+        }
+
+        var existingIndex = _selectedRouteNodeIds.FindIndex(nodeId =>
+            string.Equals(nodeId, routeNode.NodeId, StringComparison.OrdinalIgnoreCase));
+
+        if (existingIndex >= 0)
+        {
+            HandleExistingRouteNodeSelection(routeNode.NodeId, existingIndex);
+            return;
+        }
+
+        ResetRouteCycleState();
+
+        var extension = TryFindRouteExtension(currentEndpoint, routeNode);
+        if (extension is null)
+        {
+            return;
+        }
+
+        foreach (var segment in extension.Segments)
+        {
+            _selectedRouteSegments.Add(segment);
+        }
+
+        foreach (var extensionNodeId in extension.NodeIds.Skip(1))
+        {
+            _selectedRouteNodeIds.Add(extensionNodeId);
+        }
+    }
+
+    private void OnRouteNodeDoubleClicked(RouteNodeRenderItem routeNode)
+    {
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+
+        if (SelectionMode != MapSelectionMode.Route
+            || string.IsNullOrWhiteSpace(routeNode.NodeId))
+        {
+            return;
+        }
+
+        if (!TruncateRouteToNode(routeNode.NodeId))
+        {
+            return;
+        }
+
+        ResetRouteCycleState();
+    }
+
+    private bool TruncateRouteToNode(string nodeId)
+    {
+        var existingIndex = _selectedRouteNodeIds.FindIndex(existing =>
+            string.Equals(existing, nodeId, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex < 0)
+        {
+            return false;
+        }
+
+        var truncated = MapRouteService.TruncateToNode(new RouteSelection
+        {
+            NodeIds = _selectedRouteNodeIds.ToList(),
+            Segments = _selectedRouteSegments.ToList()
+        }, nodeId);
+
+        _selectedRouteNodeIds.Clear();
+        _selectedRouteNodeIds.AddRange(truncated.NodeIds);
+        _selectedRouteSegments.Clear();
+        _selectedRouteSegments.AddRange(truncated.Segments);
+        return true;
+    }
+
+    private bool TryAppendDirectRouteSegment(string currentEndpoint, string targetNodeId)
+    {
+        if (_routeContext is null
+            || string.Equals(currentEndpoint, targetNodeId, StringComparison.OrdinalIgnoreCase)
+            || !_routeContext.Adjacency.TryGetValue(currentEndpoint, out var adjacentEdges))
+        {
+            return false;
+        }
+
+        var candidates = adjacentEdges
+            .Where(edge => string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(edge => edge.RailroadIndex)
+            .Select(group => group.First())
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        var currentRailroadIndex = _selectedRouteSegments.Count > 0
+            ? (int?)_selectedRouteSegments[^1].RailroadIndex
+            : null;
+
+        var preferred = currentRailroadIndex.HasValue
+            ? candidates.FirstOrDefault(edge => edge.RailroadIndex == currentRailroadIndex.Value && CanAppendSegment(edge))
+            : null;
+        var selectedEdge = preferred
+            ?? candidates.FirstOrDefault(CanAppendSegment);
+
+        if (selectedEdge is null)
+        {
+            return false;
+        }
+
+        _selectedRouteSegments.Add(selectedEdge);
+        _selectedRouteNodeIds.Add(selectedEdge.ToNodeId);
+        return true;
+    }
+
+    private bool CanAppendSegment(RouteGraphEdge segment)
+    {
+        return CanUseSegmentForState(_selectedRouteSegments, segment, replacingLastSegment: false);
+    }
+
+    private static bool CanUseSegmentForState(
+        IReadOnlyList<RouteGraphEdge> segments,
+        RouteGraphEdge segment,
+        bool replacingLastSegment)
+    {
+        var usableSegments = replacingLastSegment
+            ? segments.Take(Math.Max(0, segments.Count - 1)).ToList()
+            : segments.ToList();
+
+        return !usableSegments.Any(traveled => IsSameRailroadSegment(traveled, segment));
+    }
+
+    private static bool IsSameRailroadSegment(RouteGraphEdge left, RouteGraphEdge right)
+    {
+        if (left.RailroadIndex != right.RailroadIndex)
+        {
+            return false;
+        }
+
+        var sameDirection = string.Equals(left.FromNodeId, right.FromNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.ToNodeId, right.ToNodeId, StringComparison.OrdinalIgnoreCase);
+        if (sameDirection)
+        {
+            return true;
+        }
+
+        return string.Equals(left.FromNodeId, right.ToNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.ToNodeId, right.FromNodeId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsLegalRouteExtension(IReadOnlyList<RouteGraphEdge> extensionSegments)
+    {
+        var simulatedSegments = _selectedRouteSegments.ToList();
+        foreach (var extensionSegment in extensionSegments)
+        {
+            if (!CanUseSegmentForState(simulatedSegments, extensionSegment, replacingLastSegment: false))
+            {
+                return false;
+            }
+
+            simulatedSegments.Add(extensionSegment);
+        }
+
+        return true;
+    }
+
+    private void HandleExistingRouteNodeSelection(string nodeId, int existingIndex)
+    {
+        var wasEndpointBeforeSelection = existingIndex == _selectedRouteNodeIds.Count - 1;
+
+        if (!wasEndpointBeforeSelection)
+        {
+            TruncateRouteToNode(nodeId);
+        }
+
+        if (_routeContext is null || _selectedRouteNodeIds.Count < 2 || _selectedRouteSegments.Count == 0)
+        {
+            ResetRouteCycleState();
+            return;
+        }
+
+        var previousNodeId = _selectedRouteNodeIds[^2];
+        var currentNodeId = _selectedRouteNodeIds[^1];
+        var defaultSegment = _selectedRouteSegments[^1];
+
+        if (!_routeContext.Adjacency.TryGetValue(previousNodeId, out var adjacentEdges))
+        {
+            ResetRouteCycleState();
+            return;
+        }
+
+        var alternateSegments = adjacentEdges
+            .Where(edge => string.Equals(edge.ToNodeId, currentNodeId, StringComparison.OrdinalIgnoreCase)
+                && edge.RailroadIndex != defaultSegment.RailroadIndex)
+            .Where(edge => CanUseSegmentForState(_selectedRouteSegments, edge, replacingLastSegment: true))
+            .GroupBy(edge => edge.RailroadIndex)
+            .Select(group => group.First())
+            .OrderBy(edge => edge.RailroadIndex)
+            .ToList();
+
+        if (alternateSegments.Count == 0)
+        {
+            ResetRouteCycleState();
+            return;
+        }
+
+        var canContinueCycle = string.Equals(_routeCycleNodeId, currentNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(_routeCyclePreviousNodeId, previousNodeId, StringComparison.OrdinalIgnoreCase)
+            && _routeCycleDefaultSegment is not null
+            && wasEndpointBeforeSelection;
+
+        if (!canContinueCycle)
+        {
+            _routeCycleNodeId = currentNodeId;
+            _routeCyclePreviousNodeId = previousNodeId;
+            _routeCycleDefaultSegment = defaultSegment;
+            _routeCycleIndex = 0;
+        }
+
+        var cycleLength = alternateSegments.Count + 1;
+        _routeCycleIndex = (_routeCycleIndex + 1) % cycleLength;
+        _selectedRouteSegments[^1] = _routeCycleIndex == 0
+            ? _routeCycleDefaultSegment!
+            : alternateSegments[_routeCycleIndex - 1];
+    }
+
+    private void OnRouteNodeRightClicked(RouteNodeRenderItem routeNode, MouseEventArgs args)
+    {
+        DismissDestinationMenu();
+
+        if (SelectionMode != MapSelectionMode.Route
+            || _routeContext is null
+            || _selectedRouteNodeIds.Count == 0)
+        {
+            DismissRouteNodeRailMenu();
+            return;
+        }
+
+        if (!TryBuildRouteNodeRailMenu(routeNode.NodeId, out var previousNodeId, out var options))
+        {
+            DismissRouteNodeRailMenu();
+            return;
+        }
+
+        _routeNodeRailMenuOptions.Clear();
+        _routeNodeRailMenuOptions.AddRange(options);
+        _routeNodeRailMenuTargetNodeId = routeNode.NodeId;
+        _routeNodeRailMenuPreviousNodeId = previousNodeId;
+        _routeNodeRailMenuClientX = args.ClientX;
+        _routeNodeRailMenuClientY = args.ClientY;
+        _routeNodeRailMenuVisible = true;
+    }
+
+    private bool TryBuildRouteNodeRailMenu(
+        string targetNodeId,
+        out string previousNodeId,
+        out List<RouteRailMenuOption> options)
+    {
+        previousNodeId = string.Empty;
+        options = [];
+
+        if (_routeContext is null || _selectedRouteNodeIds.Count == 0)
+        {
+            return false;
+        }
+
+        var routeNodeIds = _selectedRouteNodeIds.ToList();
+        var routeSegments = _selectedRouteSegments.ToList();
+        var currentEndpointNodeId = routeNodeIds[^1];
+
+        if (!string.Equals(currentEndpointNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase)
+            && _routeContext.Adjacency.TryGetValue(currentEndpointNodeId, out var endpointEdges))
+        {
+            var appendCandidates = endpointEdges
+                .Where(edge => string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase))
+                .Where(CanAppendSegment)
+                .GroupBy(edge => edge.RailroadIndex)
+                .Select(group => group.First())
+                .OrderBy(edge => edge.RailroadIndex)
+                .ToList();
+
+            if (appendCandidates.Count > 0)
+            {
+                previousNodeId = currentEndpointNodeId;
+                options = appendCandidates
+                    .Select(edge => new RouteRailMenuOption(edge.RailroadIndex, GetRailroadMenuLabel(edge.RailroadIndex)))
+                    .ToList();
+                return true;
+            }
+        }
+
+        var targetIndex = routeNodeIds.FindIndex(nodeId => string.Equals(nodeId, targetNodeId, StringComparison.OrdinalIgnoreCase));
+        var replacingLastSegment = targetIndex >= 0;
+
+        if (targetIndex >= 0)
+        {
+            if (targetIndex == 0)
+            {
+                return false;
+            }
+
+            if (targetIndex < routeNodeIds.Count - 1)
+            {
+                var truncated = MapRouteService.TruncateToNode(new RouteSelection
+                {
+                    NodeIds = routeNodeIds,
+                    Segments = routeSegments
+                }, targetNodeId);
+
+                routeNodeIds = truncated.NodeIds;
+                routeSegments = truncated.Segments;
+            }
+
+            if (routeNodeIds.Count < 2)
+            {
+                return false;
+            }
+
+            previousNodeId = routeNodeIds[^2];
+            targetNodeId = routeNodeIds[^1];
+        }
+        else
+        {
+            previousNodeId = routeNodeIds[^1];
+        }
+
+        if (!_routeContext.Adjacency.TryGetValue(previousNodeId, out var adjacentEdges))
+        {
+            return false;
+        }
+
+        var candidates = adjacentEdges
+            .Where(edge => string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase))
+            .Where(edge => CanUseSegmentForState(routeSegments, edge, replacingLastSegment))
+            .GroupBy(edge => edge.RailroadIndex)
+            .Select(group => group.First())
+            .OrderBy(edge => edge.RailroadIndex)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        options = candidates
+            .Select(edge => new RouteRailMenuOption(edge.RailroadIndex, GetRailroadMenuLabel(edge.RailroadIndex)))
+            .ToList();
+        return true;
+    }
+
+    private void OnRouteNodeRailOptionSelected(RouteRailMenuOption option)
+    {
+        if (_routeContext is null
+            || string.IsNullOrWhiteSpace(_routeNodeRailMenuTargetNodeId)
+            || string.IsNullOrWhiteSpace(_routeNodeRailMenuPreviousNodeId)
+            || _selectedRouteNodeIds.Count == 0)
+        {
+            DismissRouteNodeRailMenu();
+            return;
+        }
+
+        var targetNodeId = _routeNodeRailMenuTargetNodeId;
+        var previousNodeId = _routeNodeRailMenuPreviousNodeId;
+        var endpointNodeId = _selectedRouteNodeIds[^1];
+
+        if (!string.Equals(endpointNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase)
+            && _routeContext.Adjacency.TryGetValue(endpointNodeId, out var endpointEdges))
+        {
+            var appendEdge = endpointEdges.FirstOrDefault(edge =>
+                string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase)
+                && edge.RailroadIndex == option.RailroadIndex
+                && CanAppendSegment(edge));
+
+            if (appendEdge is not null)
+            {
+                _selectedRouteSegments.Add(appendEdge);
+                _selectedRouteNodeIds.Add(targetNodeId);
+                ResetRouteCycleState();
+                DismissRouteNodeRailMenu();
+                return;
+            }
+        }
+
+        var existingIndex = _selectedRouteNodeIds.FindIndex(nodeId =>
+            string.Equals(nodeId, targetNodeId, StringComparison.OrdinalIgnoreCase));
+
+        if (existingIndex >= 0)
+        {
+            var truncated = MapRouteService.TruncateToNode(new RouteSelection
+            {
+                NodeIds = _selectedRouteNodeIds.ToList(),
+                Segments = _selectedRouteSegments.ToList()
+            }, targetNodeId);
+
+            _selectedRouteNodeIds.Clear();
+            _selectedRouteNodeIds.AddRange(truncated.NodeIds);
+            _selectedRouteSegments.Clear();
+            _selectedRouteSegments.AddRange(truncated.Segments);
+        }
+
+        if (!_routeContext.Adjacency.TryGetValue(previousNodeId, out var adjacentEdges))
+        {
+            DismissRouteNodeRailMenu();
+            return;
+        }
+
+        var selectedEdge = adjacentEdges.FirstOrDefault(edge =>
+            string.Equals(edge.ToNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase)
+            && edge.RailroadIndex == option.RailroadIndex);
+
+        if (selectedEdge is null)
+        {
+            DismissRouteNodeRailMenu();
+            return;
+        }
+
+        endpointNodeId = _selectedRouteNodeIds[^1];
+        if (string.Equals(endpointNodeId, targetNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (_selectedRouteSegments.Count > 0)
+            {
+                if (!CanUseSegmentForState(_selectedRouteSegments, selectedEdge, replacingLastSegment: true))
+                {
+                    DismissRouteNodeRailMenu();
+                    return;
+                }
+
+                _selectedRouteSegments[^1] = selectedEdge;
+            }
+        }
+        else if (string.Equals(endpointNodeId, previousNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!CanAppendSegment(selectedEdge))
+            {
+                DismissRouteNodeRailMenu();
+                return;
+            }
+
+            _selectedRouteSegments.Add(selectedEdge);
+            _selectedRouteNodeIds.Add(targetNodeId);
+        }
+
+        ResetRouteCycleState();
+        DismissRouteNodeRailMenu();
+    }
+
+    private string GetRailroadMenuLabel(int railroadIndex)
+    {
+        var railroad = _mapDefinition?.Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
+        var name = railroad?.ShortName
+            ?? railroad?.MediumName
+            ?? railroad?.Name
+            ?? $"Railroad {railroadIndex}";
+        return $"{name} ({railroadIndex})";
+    }
+
+    private string GetRouteNodeRailMenuStyle()
+    {
+        return FormattableString.Invariant($"left:{_routeNodeRailMenuClientX:F0}px;top:{_routeNodeRailMenuClientY:F0}px;");
+    }
+
+    private void DismissRouteNodeRailMenu()
+    {
+        _routeNodeRailMenuVisible = false;
+        _routeNodeRailMenuTargetNodeId = null;
+        _routeNodeRailMenuPreviousNodeId = null;
+        _routeNodeRailMenuOptions.Clear();
+    }
+
+    private void OnCityRightClicked(CityRenderItem city, MouseEventArgs args)
+    {
+        DismissRouteNodeRailMenu();
+
+        if (SelectionMode != MapSelectionMode.Route || _routeContext is null)
+        {
+            DismissDestinationMenu();
+            return;
+        }
+
+        var destinationNode = ResolveRouteNodeForCity(city);
+        if (destinationNode is null)
+        {
+            DismissDestinationMenu();
+            return;
+        }
+
+        _destinationMenuCityName = city.Name;
+        _destinationMenuNodeId = destinationNode.NodeId;
+        _destinationMenuClientX = args.ClientX;
+        _destinationMenuClientY = args.ClientY;
+        _destinationMenuVisible = true;
+    }
+
+    private RouteNodeRenderItem? ResolveRouteNodeForCity(CityRenderItem city)
+    {
+        var exactNameMatch = _routeNodes.FirstOrDefault(node =>
+            string.Equals(node.Name, city.Name, StringComparison.OrdinalIgnoreCase));
+        if (exactNameMatch is not null)
+        {
+            return exactNameMatch;
+        }
+
+        return _routeNodes
+            .OrderBy(node => Math.Abs(node.X - city.X) + Math.Abs(node.Y - city.Y))
+            .FirstOrDefault();
+    }
+
+    private void BuildRouteCityOptions()
+    {
+        _routeCityOptions.Clear();
+
+        if (_renderModel is null || _routeNodes.Count == 0)
+        {
+            return;
+        }
+
+        var seenNodeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var city in _renderModel.Cities.OrderBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var routeNode = ResolveRouteNodeForCity(city);
+            if (routeNode is null || !seenNodeIds.Add(routeNode.NodeId))
+            {
+                continue;
+            }
+
+            _routeCityOptions.Add(new RouteCityOption(city.Name, routeNode.NodeId));
+        }
+    }
+
+    private Task OnDestinationMenuSelectedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_destinationMenuCityName) || string.IsNullOrWhiteSpace(_destinationMenuNodeId))
+        {
+            DismissDestinationMenu();
+            return Task.CompletedTask;
+        }
+
+        _destinationCityName = _destinationMenuCityName;
+        _destinationNodeId = _destinationMenuNodeId;
+        DismissDestinationMenu();
+
+        if (DestinationCityChanged.HasDelegate)
+        {
+            return DestinationCityChanged.InvokeAsync(_destinationCityName);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task RecalculateRouteSuggestionAsync()
+    {
+        if (_routeContext is null || string.IsNullOrWhiteSpace(_destinationNodeId))
+        {
+            return;
+        }
+
+        var startNodeId = ResolveCurrentPlayerNodeId();
+        if (string.IsNullOrWhiteSpace(startNodeId))
+        {
+            return;
+        }
+
+        var suggestion = MapRouteService.FindCheapestSuggestion(
+            _routeContext,
+            new RouteSuggestionRequest
+            {
+                PlayerId = string.IsNullOrWhiteSpace(PlayerId) ? "mock-player" : PlayerId,
+                StartNodeId = startNodeId,
+                DestinationNodeId = _destinationNodeId,
+                MovementType = MovementType,
+                PlayerColor = PlayerColor,
+                ResolveRailroadOwnership = ResolveRailroadOwnershipCategory
+            });
+
+        _routeSuggestion = suggestion;
+        ApplySuggestionToSelection(suggestion);
+        BuildSuggestionHighlights(suggestion);
+        await PublishRouteSuggestionUpdateAsync(suggestion);
+
+        if (RouteSuggestionChanged.HasDelegate)
+        {
+            await RouteSuggestionChanged.InvokeAsync(suggestion);
+        }
+    }
+
+    private string GetDestinationMenuStyle()
+    {
+        return FormattableString.Invariant($"left:{_destinationMenuClientX:F0}px;top:{_destinationMenuClientY:F0}px;");
+    }
+
+    private void DismissDestinationMenu()
+    {
+        _destinationMenuVisible = false;
+        _destinationMenuCityName = null;
+        _destinationMenuNodeId = null;
+    }
+
+    private RailroadOwnershipCategory ResolveRailroadOwnershipCategory(int railroadIndex)
+    {
+        if (OtherOwnedRailroadIndices?.Contains(railroadIndex) == true)
+        {
+            return RailroadOwnershipCategory.OwnedByOtherPlayer;
+        }
+
+        if (PlayerOwnedRailroadIndices?.Contains(railroadIndex) == true)
+        {
+            return RailroadOwnershipCategory.OwnedByPlayer;
+        }
+
+        var hasOwnedSegment = _renderModel?.RailroadSegments.Any(segment =>
+            segment.RailroadIndex == railroadIndex && segment.IsOwned) == true;
+        return hasOwnedSegment ? RailroadOwnershipCategory.OwnedByPlayer : RailroadOwnershipCategory.Unowned;
+    }
+
+    private string ResolveCurrentPlayerNodeId()
+    {
+        if (_selectedRouteNodeIds.Count > 0)
+        {
+            return _selectedRouteNodeIds[^1];
+        }
+
+        return _routeStartNodeId ?? string.Empty;
+    }
+
+    private void ApplySuggestionToSelection(RouteSuggestionResult suggestion)
+    {
+        if (_routeContext is null || suggestion.Status != RouteSuggestionStatus.Success)
+        {
+            _selectedRouteSegments.Clear();
+            _selectedRouteNodeIds.Clear();
+
+            if (!string.IsNullOrWhiteSpace(_routeStartNodeId))
+            {
+                _selectedRouteNodeIds.Add(_routeStartNodeId);
+            }
+
+            return;
+        }
+
+        _selectedRouteNodeIds.Clear();
+        _selectedRouteNodeIds.AddRange(suggestion.NodeIds);
+        _selectedRouteSegments.Clear();
+
+        for (var index = 0; index < suggestion.NodeIds.Count - 1; index++)
+        {
+            var fromNodeId = suggestion.NodeIds[index];
+            var toNodeId = suggestion.NodeIds[index + 1];
+            var routeSegment = _routeContext.Adjacency[fromNodeId]
+                .FirstOrDefault(edge => string.Equals(edge.ToNodeId, toNodeId, StringComparison.OrdinalIgnoreCase));
+            if (routeSegment is not null)
+            {
+                _selectedRouteSegments.Add(routeSegment);
+            }
+        }
+    }
+
+    private void BuildSuggestionHighlights(RouteSuggestionResult suggestion)
+    {
+        _routeSuggestionHighlights.Clear();
+
+        if (_routeContext is null || suggestion.Status != RouteSuggestionStatus.Success)
+        {
+            return;
+        }
+
+        foreach (var nodeId in suggestion.NodeIds)
+        {
+            if (!_routeContext.DotLookup.TryGetValue(nodeId, out var dot))
+            {
+                continue;
+            }
+
+            _routeSuggestionHighlights.Add(new RouteSuggestionHighlight
+            {
+                NodeId = nodeId,
+                X = dot.X,
+                Y = dot.Y,
+                Color = PlayerColor,
+                Radius = 1.8
+            });
+        }
+    }
+
+    private async Task PublishRouteSuggestionUpdateAsync(RouteSuggestionResult suggestion)
+    {
+        try
+        {
+            await HubContext.Clients.All.SendAsync(
+                BoxCarsHubEvents.RouteSuggestionUpdated,
+                new
+                {
+                    PlayerId = string.IsNullOrWhiteSpace(PlayerId) ? "mock-player" : PlayerId,
+                    suggestion.Status,
+                    suggestion.StartNodeId,
+                    suggestion.DestinationNodeId,
+                    suggestion.TotalTurns,
+                    suggestion.TotalCost,
+                    NodeIds = suggestion.NodeIds
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+        }
+    }
+
+    private RouteSelection? TryFindRouteExtension(string currentEndpoint, RouteNodeRenderItem clickedNode)
+    {
+        if (_routeContext is null)
+        {
+            return null;
+        }
+
+        var preferredStartingRailroadIndex = _selectedRouteSegments.Count > 0
+            ? (int?)_selectedRouteSegments[^1].RailroadIndex
+            : null;
+        var selectedRailroadIndices = _selectedRouteSegments
+            .Select(segment => segment.RailroadIndex)
+            .ToHashSet();
+
+        var directExtension = MapRouteService.FindShortestSelection(
+            _routeContext,
+            currentEndpoint,
+            clickedNode.NodeId,
+            preferredStartingRailroadIndex,
+            selectedRailroadIndices,
+            IsRailroadOwnedByPlayer);
+        if (directExtension is not null && IsLegalRouteExtension(directExtension.Segments))
+        {
+            return directExtension;
+        }
+
+        var coLocatedNodes = _routeNodes
+            .Where(node => !string.Equals(node.NodeId, clickedNode.NodeId, StringComparison.OrdinalIgnoreCase)
+                && AreCoLocated(node, clickedNode))
+            .OrderBy(node => IsGeneratedDotName(node.Name));
+
+        foreach (var candidateNode in coLocatedNodes)
+        {
+            var candidateExtension = MapRouteService.FindShortestSelection(
+                _routeContext,
+                currentEndpoint,
+                candidateNode.NodeId,
+                preferredStartingRailroadIndex,
+                selectedRailroadIndices,
+                IsRailroadOwnedByPlayer);
+            if (candidateExtension is not null && IsLegalRouteExtension(candidateExtension.Segments))
+            {
+                return candidateExtension;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsRailroadOwnedByPlayer(int railroadIndex)
+    {
+        _ = railroadIndex;
+        return false;
+    }
+
+    private static bool AreCoLocated(RouteNodeRenderItem left, RouteNodeRenderItem right)
+    {
+        const double epsilon = 0.0001;
+        return Math.Abs(left.X - right.X) < epsilon
+            && Math.Abs(left.Y - right.Y) < epsilon;
+    }
+
+    private static bool IsGeneratedDotName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        var parts = name.Split('-', 2, StringSplitOptions.TrimEntries);
+        return parts.Length == 2
+            && int.TryParse(parts[0], out _)
+            && int.TryParse(parts[1], out _);
+    }
+
+    private double GetRouteNodeHitboxWidth()
+    {
+        if (_mapDefinition is null)
+        {
+            return 0;
+        }
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        var mapUnitsPerPixelX = viewBox.Width / Math.Max(1, _viewportRenderWidth);
+        return RouteClickRegionSizePixels * mapUnitsPerPixelX;
+    }
+
+    private double GetRouteNodeHitboxHeight()
+    {
+        if (_mapDefinition is null)
+        {
+            return 0;
+        }
+
+        var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
+        var mapUnitsPerPixelY = viewBox.Height / Math.Max(1, _viewportRenderHeight);
+        return RouteClickRegionSizePixels * mapUnitsPerPixelY;
+    }
+
+    private void InitializeChicagoStartNode()
+    {
+        var chicagoNode = _routeNodes.FirstOrDefault(node =>
+            string.Equals(node.Name, "Chicago", StringComparison.OrdinalIgnoreCase));
+
+        if (chicagoNode is null)
+        {
+            _warnings.Add("Route mode is unavailable: Chicago was not found on the loaded map.");
+            return;
+        }
+
+        SetRouteStartNode(chicagoNode.NodeId);
+    }
+
+    private void SetRouteStartNode(string nodeId)
+    {
+        var routeNode = _routeNodes.FirstOrDefault(candidate =>
+            string.Equals(candidate.NodeId, nodeId, StringComparison.OrdinalIgnoreCase));
+        if (routeNode is null)
+        {
+            return;
+        }
+
+        _routeStartNodeId = routeNode.NodeId;
+        _routeStartNodeName = routeNode.Name;
+        _selectedRouteNodeIds.Clear();
+        _selectedRouteNodeIds.Add(routeNode.NodeId);
+        _selectedRouteSegments.Clear();
+        _routeSuggestion = null;
+        _routeSuggestionHighlights.Clear();
+        ResetRouteCycleState();
+
+        if (StartCityChanged.HasDelegate)
+        {
+            _ = StartCityChanged.InvokeAsync(routeNode.Name);
+        }
+    }
+
+    private void ResetRouteCycleState()
+    {
+        _routeCycleNodeId = null;
+        _routeCyclePreviousNodeId = null;
+        _routeCycleDefaultSegment = null;
+        _routeCycleIndex = 0;
+    }
+
+    private void PopulateRailroadStrokeColors()
+    {
+        _railroadStrokeColors.Clear();
+
+        if (_renderModel is null)
+        {
+            return;
+        }
+
+        foreach (var segment in _renderModel.RailroadSegments)
+        {
+            _railroadStrokeColors.TryAdd(segment.RailroadIndex, segment.StrokeColor);
+        }
+    }
+
+    private string GetRouteSegmentStrokeColor(RouteGraphEdge routeSegment)
+    {
+        return _railroadStrokeColors.TryGetValue(routeSegment.RailroadIndex, out var strokeColor)
+            ? strokeColor
+            : "#000000";
+    }
+
+    [JSInvokable]
+    public async Task OnClientViewportChanged(long sequence, double zoomPercent, double centerX, double centerY, double width, double height)
+    {
+        if (sequence <= _lastClientViewportSequence)
+        {
+            return;
+        }
+
+        _lastClientViewportSequence = sequence;
+
+        var nextZoom = BoardViewportService.ClampZoom(zoomPercent);
+        var changed = Math.Abs(_viewport.ZoomPercent - nextZoom) > 0.01
+            || Math.Abs(_viewport.CenterX - centerX) > 0.01
+            || Math.Abs(_viewport.CenterY - centerY) > 0.01;
+
+        _viewport = new BoardViewport
+        {
+            ZoomPercent = nextZoom,
+            CenterX = centerX,
+            CenterY = centerY,
+            ZoomAnchor = ZoomAnchor.ViewportCenter
+        };
+
+        _suspendCameraPush = true;
+
+        var sizeChanged = UpdateViewportRenderSize(new RelativePoint(0, 0, width, height));
+
+        if (changed)
+        {
+            await NotifyViewportChanged();
+        }
+
+        if (!changed && !sizeChanged)
+        {
+            return;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string GetRailroadSegmentClass(RailroadRenderSegment segment)
+    {
+        var ownershipClass = segment.IsOwned ? "owned" : "unowned";
+        var classes = new List<string> { ownershipClass };
+
+        if (_selectedRailroadIndex == segment.RailroadIndex)
+        {
+            classes.Add("selected");
+        }
+
+        if (SelectionMode == MapSelectionMode.Route && IsRailroadSegmentInSelectedRoute(segment))
+        {
+            classes.Add("route-selected");
+        }
+
+        return string.Join(' ', classes);
+    }
+
+    private bool IsRailroadSegmentInSelectedRoute(RailroadRenderSegment segment)
+    {
+        var startNodeId = MapRouteService.NodeKey(segment.StartRegionIndex, segment.StartDotIndex);
+        var endNodeId = MapRouteService.NodeKey(segment.EndRegionIndex, segment.EndDotIndex);
+
+        foreach (var routeSegment in _selectedRouteSegments)
+        {
+            if (routeSegment.RailroadIndex != segment.RailroadIndex)
+            {
+                continue;
+            }
+
+            var forwardMatch = string.Equals(routeSegment.FromNodeId, startNodeId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(routeSegment.ToNodeId, endNodeId, StringComparison.OrdinalIgnoreCase);
+            if (forwardMatch)
+            {
+                return true;
+            }
+
+            var reverseMatch = string.Equals(routeSegment.FromNodeId, endNodeId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(routeSegment.ToNodeId, startNodeId, StringComparison.OrdinalIgnoreCase);
+            if (reverseMatch)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_cameraInitialized)
+        {
+            try
+            {
+                await JavaScriptRuntime.InvokeVoidAsync("mapBoard.disposeCamera", _boardViewportElement);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        _mapBoardReference?.Dispose();
+    }
+
+    public readonly record struct RouteRailMenuOption(int RailroadIndex, string DisplayName);
+    public readonly record struct RouteCityOption(string CityName, string NodeId);
+}
