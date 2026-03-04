@@ -1,6 +1,7 @@
 @page "/game/{GameId}"
 @rendermode InteractiveServer
 @using Boxcars.Components.Map
+@using Boxcars.Data
 @using Boxcars.Data.Maps
 @using Boxcars.Engine.Data.Maps
 @using Boxcars.Services
@@ -119,8 +120,9 @@
     }
 
     <MapComponent @ref="_gameMap"
-                   MapFileName="@_mapFileName"
+                   MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                    SelectionMode="@_selectionMode"
+                   PlayerId="@(_currentUserId ?? string.Empty)"
                    ZoomPercentChanged="OnZoomPercentChanged" />
 
     @if (_gameMap?.Warnings.Count > 0)
@@ -141,7 +143,7 @@
 
 @code {
     private string? _currentUserId;
-    private string _mapFileName = GameService.DefaultMapFileName;
+    private GameEntity? _game;
     private MapComponent? _gameMap;
     private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
     private double _zoomPercent = 100;
@@ -167,11 +169,7 @@
             return;
         }
 
-        var game = await GameService.GetGameAsync(GameId, CancellationToken.None);
-        if (!string.IsNullOrWhiteSpace(game?.MapFileName))
-        {
-            _mapFileName = game.MapFileName;
-        }
+        _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
     }
 
     private async Task EndGameAsync()
