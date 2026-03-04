@@ -1,4 +1,5 @@
 @using Boxcars.Data.Maps
+@using Boxcars.Engine.Data.Maps
 @using Boxcars.Hubs
 @using Boxcars.Services.Maps
 @using System.Globalization
@@ -7,7 +8,6 @@
 @using Microsoft.AspNetCore.SignalR
 @using Microsoft.FluentUI.AspNetCore.Components
 @using Microsoft.JSInterop
-@inject IMapParserService MapParserService
 @inject BoardProjectionService BoardProjectionService
 @inject BoardViewportService BoardViewportService
 @inject MapRouteService MapRouteService
@@ -501,7 +501,7 @@
         }
 
         await using var stream = File.OpenRead(resolvedPath);
-        var parseResult = await MapParserService.ParseAsync(Path.GetFileName(resolvedPath), stream, CancellationToken.None);
+        var parseResult = await MapDefinition.LoadAsync(Path.GetFileName(resolvedPath), stream);
 
         if (!parseResult.Succeeded || parseResult.Definition is null)
         {

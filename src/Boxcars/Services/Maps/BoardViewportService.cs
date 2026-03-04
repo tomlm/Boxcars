@@ -1,4 +1,5 @@
 using Boxcars.Data.Maps;
+using Boxcars.Engine.Data.Maps;
 
 namespace Boxcars.Services.Maps;
 

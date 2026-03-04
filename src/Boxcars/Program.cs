@@ -58,7 +58,6 @@ public class Program
         // Application services
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
-        builder.Services.AddScoped<IMapParserService, RbpMapParserService>();
         builder.Services.AddScoped<MapBackgroundResolver>();
         builder.Services.AddScoped<BoardProjectionService>();
         builder.Services.AddScoped<BoardViewportService>();
