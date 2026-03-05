@@ -18,127 +18,116 @@
 <PageTitle>Game - BoxCars</PageTitle>
 
 <div class="map-board-shell">
-    <FluentCard class="map-board-controls">
-        <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
-            <FluentLabel Typo="Typography.H5">Map Board</FluentLabel>
-            <FluentLabel Typo="Typography.Body">Map selection is provided by game setup.</FluentLabel>
+    @* ── Left sidebar: player board ── *@
+    <aside class="map-board-sidebar">
+        <PlayerBoard Players="_players" />
+    </aside>
 
-            <div class="map-board-mode-row">
-                <FluentLabel Typo="Typography.Body">Mode</FluentLabel>
-                <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Rail)"
-                              OnClick="() => SetSelectionMode(MapSelectionMode.Rail)">
-                    Rail mode
-                </FluentButton>
-                <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Route)"
-                              OnClick="() => SetSelectionMode(MapSelectionMode.Route)">
-                    Movement mode
-                </FluentButton>
-                @if (!string.IsNullOrWhiteSpace(_gameMap?.RouteStartNodeName))
+    @* ── Main area: map + status bar + bottom bar ── *@
+    <div class="map-board-main">
+        @if (_gameMap?.Errors.Count > 0)
+        {
+            <div class="map-board-message map-board-error">
+                <FluentLabel Typo="Typography.H6">Unable to render map</FluentLabel>
+                @foreach (var error in _gameMap.Errors)
                 {
-                    <FluentLabel Typo="Typography.Body">Start: @_gameMap.RouteStartNodeName</FluentLabel>
-                }
-                @if (!string.IsNullOrWhiteSpace(_gameMap?.DestinationCityName))
-                {
-                    <FluentLabel Typo="Typography.Body">Destination: @_gameMap.DestinationCityName</FluentLabel>
-                }
-                @if (_gameMap?.RouteSuggestion is not null)
-                {
-                    if (_gameMap.RouteSuggestion.Status == RouteSuggestionStatus.Success)
-                    {
-                        <FluentLabel Typo="Typography.Body">Suggested Cost: @_gameMap.RouteSuggestion.TotalCost.ToString("C0", CultureInfo.CurrentCulture)</FluentLabel>
-                    }
-                    else if (_gameMap.RouteSuggestion.Status == RouteSuggestionStatus.NoRoute)
-                    {
-                        <FluentLabel Typo="Typography.Body">No route available</FluentLabel>
-                    }
+                    <FluentLabel Typo="Typography.Body">@error</FluentLabel>
                 }
             </div>
+        }
+
+        <div class="map-board-map-area">
+            <MapComponent @ref="_gameMap"
+                          MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
+                          SelectionMode="@_selectionMode"
+                          PlayerId="@(_currentUserId ?? string.Empty)"
+                          ZoomPercentChanged="OnZoomPercentChanged" />
+        </div>
+
+        @* ── Status line below map ── *@
+        <div class="map-board-status-bar">
+            @if (_players.Count > 0)
+            {
+                var active = _players.FirstOrDefault(p => p.IsActiveTurn);
+                if (active is not null)
+                {
+                    <FluentLabel Typo="Typography.Body" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</FluentLabel>
+                }
+            }
 
             @if (_selectionMode == MapSelectionMode.Route && _gameMap?.RouteCityOptions.Count > 0)
             {
-                <div class="map-board-route-picker-row">
-                    <div class="map-board-route-picker-group">
-                        <FluentLabel Typo="Typography.Body">Start city</FluentLabel>
-                        <select class="map-board-route-picker-select"
-                                value="@(_gameMap?.RouteStartNodeId ?? string.Empty)"
-                                @onchange="OnStartCityChanged">
-                            @foreach (var option in _gameMap!.RouteCityOptions)
-                            {
-                                <option value="@option.NodeId">@option.CityName</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="map-board-route-picker-group">
-                        <FluentLabel Typo="Typography.Body">Destination city</FluentLabel>
-                        <select class="map-board-route-picker-select"
-                                value="@(_gameMap?.DestinationNodeId ?? string.Empty)"
-                                @onchange="OnDestinationCityChanged">
-                            <option value="">Select destination</option>
-                            @foreach (var option in _gameMap!.RouteCityOptions)
-                            {
-                                <option value="@option.NodeId">@option.CityName</option>
-                            }
-                        </select>
-                    </div>
-
+                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-route-picker-row">
+                    <FluentSelect TOption="string"
+                                  Value="@(_gameMap?.RouteStartNodeId ?? string.Empty)"
+                                  ValueChanged="OnStartCitySelected"
+                                  Class="map-board-route-picker-select">
+                        @foreach (var option in _gameMap!.RouteCityOptions)
+                        {
+                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                        }
+                    </FluentSelect>
+                    <FluentSelect TOption="string"
+                                  Value="@(_gameMap?.DestinationNodeId ?? string.Empty)"
+                                  ValueChanged="OnDestinationCitySelected"
+                                  Class="map-board-route-picker-select">
+                        <FluentOption Value="">Destination</FluentOption>
+                        @foreach (var option in _gameMap!.RouteCityOptions)
+                        {
+                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                        }
+                    </FluentSelect>
                     <FluentButton Appearance="Appearance.Accent"
                                   OnClick="OnSuggestRouteClickedAsync"
                                   Disabled="@(_gameMap?.CanSuggestRoute != true)">
-                        Suggest route
+                        Suggest
                     </FluentButton>
-                </div>
+                </FluentStack>
             }
+        </div>
 
-            <div class="map-board-zoom-row">
-                <FluentLabel Typo="Typography.Body">Zoom (@_zoomPercent.ToString("F0")%)</FluentLabel>
-                <input type="range"
-                       min="100"
-                       max="500"
-                       step="50"
-                       value="@_zoomPercent"
-                       @oninput="OnZoomSliderInput"
-                       class="map-board-zoom-slider" />
-                <FluentButton Appearance="Appearance.Neutral" OnClick="OnResetZoomAsync">Fit to board</FluentButton>
+        @* ── Bottom bar: action log + zoom/OK controls ── *@
+        <div class="map-board-bottom-bar">
+            <div class="map-board-action-log">
+                @foreach (var entry in _actionLog)
+                {
+                    <FluentLabel Typo="Typography.Body" Class="action-log-entry">@entry</FluentLabel>
+                }
+            </div>
+
+            <FluentStack Orientation="Orientation.Vertical" Class="map-board-controls">
+                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-mode-row">
+                    <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Rail)"
+                                  OnClick="() => SetSelectionMode(MapSelectionMode.Rail)">
+                        Rail
+                    </FluentButton>
+                    <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Route)"
+                                  OnClick="() => SetSelectionMode(MapSelectionMode.Route)">
+                        Move
+                    </FluentButton>
+                </FluentStack>
+
+                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-zoom-row">
+                    <FluentLabel Typo="Typography.Body">Zoom:</FluentLabel>
+                    <FluentSlider TValue="int"
+                                  Min="100"
+                                  Max="500"
+                                  Step="50"
+                                  @bind-Value="@_zoomPercent"
+                                  @bind-Value:after="OnZoomSliderChangedAsync"
+                                  Class="map-board-zoom-slider" />
+                </FluentStack>
+
+                <FluentButton Appearance="Appearance.Accent" OnClick="OnResetZoomAsync">
+                    OK (done)
+                </FluentButton>
 
                 <FluentButton Appearance="Appearance.Lightweight" OnClick="EndGameAsync">
                     End Game
                 </FluentButton>
-            </div>
-        </FluentStack>
-    </FluentCard>
-
-    @if (_gameMap?.Errors.Count > 0)
-    {
-        <FluentCard class="map-board-message map-board-error">
-            <FluentLabel Typo="Typography.H6">Unable to render map</FluentLabel>
-            @foreach (var error in _gameMap.Errors)
-            {
-                <FluentLabel Typo="Typography.Body">@error</FluentLabel>
-            }
-        </FluentCard>
-    }
-
-    <MapComponent @ref="_gameMap"
-                   MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
-                   SelectionMode="@_selectionMode"
-                   PlayerId="@(_currentUserId ?? string.Empty)"
-                   ZoomPercentChanged="OnZoomPercentChanged" />
-
-    @if (_gameMap?.Warnings.Count > 0)
-    {
-        <FluentCard class="map-board-message map-board-warning map-board-warning-panel">
-            <details open>
-                <summary>Map Warnings (@_gameMap.Warnings.Count)</summary>
-                <div class="map-board-warning-list">
-                    @foreach (var warning in _gameMap.Warnings)
-                    {
-                        <FluentLabel Typo="Typography.Body">@warning</FluentLabel>
-                    }
-                </div>
-            </details>
-        </FluentCard>
-    }
+            </FluentStack>
+        </div>
+    </div>
 </div>
 
 @code {
@@ -146,7 +135,9 @@
     private GameEntity? _game;
     private MapComponent? _gameMap;
     private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
-    private double _zoomPercent = 100;
+    private int _zoomPercent = 100;
+    private List<PlayerBoardModel> _players = new();
+    private List<string> _actionLog = new();
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -170,6 +161,10 @@
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+
+        // TODO: Replace with real player data from GameEngine once wired up
+        _players = GetPlaceholderPlayers();
+        _actionLog = GetPlaceholderActionLog();
     }
 
     private async Task EndGameAsync()
@@ -197,23 +192,18 @@
 
     private void OnZoomPercentChanged(double zoomPercent)
     {
-        _zoomPercent = zoomPercent;
+        _zoomPercent = (int)zoomPercent;
         StateHasChanged();
     }
 
-    private async Task OnZoomSliderInput(ChangeEventArgs args)
+    private async Task OnZoomSliderChangedAsync()
     {
         if (_gameMap is null)
         {
             return;
         }
 
-        if (!double.TryParse(args.Value?.ToString(), out var requestedZoom))
-        {
-            return;
-        }
-
-        await _gameMap.SetZoom(requestedZoom);
+        await _gameMap.SetZoom(_zoomPercent);
     }
 
     private async Task OnResetZoomAsync()
@@ -226,9 +216,8 @@
         await _gameMap.ResetZoom();
     }
 
-    private void OnStartCityChanged(ChangeEventArgs args)
+    private void OnStartCitySelected(string? selectedNodeId)
     {
-        var selectedNodeId = args.Value?.ToString();
         if (string.IsNullOrWhiteSpace(selectedNodeId) || _gameMap is null)
         {
             return;
@@ -237,9 +226,8 @@
         _gameMap.SetStartCity(selectedNodeId);
     }
 
-    private void OnDestinationCityChanged(ChangeEventArgs args)
+    private void OnDestinationCitySelected(string? selectedNodeId)
     {
-        var selectedNodeId = args.Value?.ToString();
         if (string.IsNullOrWhiteSpace(selectedNodeId) || _gameMap is null)
         {
             return;
@@ -261,5 +249,33 @@
     private Appearance GetModeButtonAppearance(MapSelectionMode mode)
     {
         return _selectionMode == mode ? Appearance.Accent : Appearance.Neutral;
+    }
+
+    private List<PlayerBoardModel> GetPlaceholderPlayers()
+    {
+        // Placeholder data — replace with actual GameEngine player state
+        return new List<PlayerBoardModel>
+        {
+            new() { Index = 0, Name = "Player 1", Color = "#00c000", IsAtDestination = true, LocationLabel = "Salt Lake City", Payoff = 25000, Cash = 85000, IsCurrentUser = true, HomeCity = "Chicago", IsActiveTurn = true, LocomotiveLabel = "Superchief" },
+            new() { Index = 1, Name = "Player 2", Color = "#ff0000", IsAtDestination = false, LocationLabel = "Knoxville", DistanceToDestination = 1, Payoff = 5500, Cash = 42000, HomeCity = "Kansas City" },
+            new() { Index = 2, Name = "Player 3", Color = "#00e0e0", IsAtDestination = false, LocationLabel = "Philadelphia", DistanceToDestination = 1, Payoff = 6500, Cash = 115000, HomeCity = "Chicago" },
+            new() { Index = 3, Name = "Player 4", Color = "#000080", IsAtDestination = false, LocationLabel = "Kansas City", DistanceToDestination = 1, Payoff = 6500, Cash = 72000, HomeCity = "Atlanta" },
+        };
+    }
+
+    private List<string> GetPlaceholderActionLog()
+    {
+        // Placeholder log — replace with real game engine events
+        return new List<string>
+        {
+            "Player 4 paid Player 1 $10,000 in use fees",
+            "Player 1 rolled 10; moved SW55,SW59,SW58,SW53,SW52,NW62,NW61",
+            "Player 1 arrived in Salt Lake City; gets $25,000",
+            "Player 1 upgrades to a Superchief",
+            "Player 1 paid Player 4 $10,000 in use fees",
+            "ROUND 47, elapsed mins=75.1",
+            "Player 4's next destination is Knoxville",
+            "Player 4 rolled 10 (6 + 4 bonus); moved NC52,NC54,NC57,SC36,SC94,SC41,SC22,SC21,SC19,SC15,SE42,SE85,SE41",
+        };
     }
 }
