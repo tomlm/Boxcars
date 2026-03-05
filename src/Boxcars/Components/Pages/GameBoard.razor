@@ -87,13 +87,12 @@
         </FluentStack>
 
         @* ── Bottom bar: action log + zoom/OK controls ── *@
-        <FluentStack Orientation="Orientation.Horizontal" Class="map-board-bottom-bar">
-            <div class="map-board-action-log">
-                @foreach (var entry in _actionLog)
-                {
-                    <FluentLabel Typo="Typography.Body" Class="action-log-entry">@entry</FluentLabel>
-                }
-            </div>
+        <div class="map-board-bottom-bar">
+            <FluentListbox TOption="string" Class="map-board-history-listbox">
+                <Virtualize Items="@_gameEngineEvents" Context="gameEvent">
+                    <FluentOption Value="@gameEvent.EventId" Class="map-board-history-item">@gameEvent.Description</FluentOption>
+                </Virtualize>
+            </FluentListbox>
 
             <FluentStack Orientation="Orientation.Vertical" Class="map-board-controls">
                 <FluentStack Orientation="Orientation.Horizontal" Class="map-board-mode-row">
@@ -126,7 +125,7 @@
                     End Game
                 </FluentButton>
             </FluentStack>
-        </FluentStack>
+        </div>
     </div>
 </div>
 
@@ -137,7 +136,7 @@
     private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
     private int _zoomPercent = 100;
     private List<PlayerBoardModel> _players = new();
-    private List<string> _actionLog = new();
+    private List<GameEngineEventEntry> _gameEngineEvents = new();
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -164,7 +163,7 @@
 
         // TODO: Replace with real player data from GameEngine once wired up
         _players = GetPlaceholderPlayers();
-        _actionLog = GetPlaceholderActionLog();
+        _gameEngineEvents = GetPlaceholderGameEngineEvents();
     }
 
     private async Task EndGameAsync()
@@ -263,19 +262,25 @@
         };
     }
 
-    private List<string> GetPlaceholderActionLog()
+    private List<GameEngineEventEntry> GetPlaceholderGameEngineEvents()
     {
-        // Placeholder log — replace with real game engine events
-        return new List<string>
+        // Placeholder event stream — replace with real game engine event feed
+        return new List<GameEngineEventEntry>
         {
-            "Player 4 paid Player 1 $10,000 in use fees",
-            "Player 1 rolled 10; moved SW55,SW59,SW58,SW53,SW52,NW62,NW61",
-            "Player 1 arrived in Salt Lake City; gets $25,000",
-            "Player 1 upgrades to a Superchief",
-            "Player 1 paid Player 4 $10,000 in use fees",
-            "ROUND 47, elapsed mins=75.1",
-            "Player 4's next destination is Knoxville",
-            "Player 4 rolled 10 (6 + 4 bonus); moved NC52,NC54,NC57,SC36,SC94,SC41,SC22,SC21,SC19,SC15,SE42,SE85,SE41",
+            new() { EventId = "event-1", Description = "Player 4 paid Player 1 $10,000 in use fees" },
+            new() { EventId = "event-2", Description = "Player 1 rolled 10; moved SW55,SW59,SW58,SW53,SW52,NW62,NW61" },
+            new() { EventId = "event-3", Description = "Player 1 arrived in Salt Lake City; gets $25,000" },
+            new() { EventId = "event-4", Description = "Player 1 upgrades to a Superchief" },
+            new() { EventId = "event-5", Description = "Player 1 paid Player 4 $10,000 in use fees" },
+            new() { EventId = "event-6", Description = "ROUND 47, elapsed mins=75.1" },
+            new() { EventId = "event-7", Description = "Player 4's next destination is Knoxville" },
+            new() { EventId = "event-8", Description = "Player 4 rolled 10 (6 + 4 bonus); moved NC52,NC54,NC57,SC36,SC94,SC41,SC22,SC21,SC19,SC15,SE42,SE85,SE41" },
         };
+    }
+
+    private sealed class GameEngineEventEntry
+    {
+        public required string EventId { get; init; }
+        public required string Description { get; init; }
     }
 }

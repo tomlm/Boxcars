@@ -60,32 +60,54 @@
 
 /* ── Bottom bar: log left, controls right ── */
 ::deep .map-board-bottom-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    column-gap: 0;
     flex-shrink: 0;
+    width: 100%;
     background: #1a1a1a;
     border-top: 1px solid #444;
     min-height: 120px;
     max-height: 180px;
 }
 
-/* ── Action log ── */
-.map-board-action-log {
-    flex: 1;
+/* ── History listbox ── */
+::deep .map-board-history-listbox {
+    display: block;
     min-width: 0;
-    overflow-y: auto;
+    width: 100%;
+    max-width: 100%;
+    --listbox-width: 100%;
     padding: 0.35rem 0.5rem;
     font-family: "Consolas", "Courier New", monospace;
     font-size: 0.8rem;
     color: #ccc;
     line-height: 1.35;
+    height: 100%;
 }
 
-.action-log-entry {
+::deep .map-board-history-listbox fluent-option {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+::deep .map-board-history-listbox .map-board-history-item {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* ── Right-side controls in bottom bar ── */
 ::deep .map-board-controls {
+    display: flex;
     align-items: flex-end;
+    flex-shrink: 0;
+    justify-content: center;
     gap: 0.35rem;
     padding: 0.5rem 0.75rem;
     border-left: 1px solid #444;
@@ -103,7 +125,15 @@
 }
 
 .map-board-zoom-slider {
-    width: 8rem;
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
+}
+
+::deep .map-board-zoom-slider {
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
 }
 
 /* ── Route picker (inline in status bar) ── */
