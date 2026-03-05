@@ -1,7 +1,6 @@
 ::deep .player-board {
     gap: 0 !important;
     width: 100%;
-    background-color: blue;
 }
 
 ::deep fluent-card.player-card {
@@ -9,25 +8,23 @@
     flex-direction: column;
     min-height: 92px;
     overflow: hidden;
-    padding: 0;
     border-radius: 0;
 }
 
-::deep fluent-card.player-card::part(control) {
-    border-color: var(--player-color, #888) !important;
-    border-width: 2px;
-    border-style: solid;
-    border-radius: 0;
-    padding: 0;
-}
+    ::deep fluent-card.player-card::part(control) {
+        border-color: var(--player-color, #888) !important;
+        border-width: 2px;
+        border-style: solid;
+        border-radius: 0;
+    }
 
 ::deep fluent-card.player-card-active {
     box-shadow: 0 0 6px var(--player-color, #888);
 }
 
-::deep fluent-card.player-card-active::part(control) {
-    border-width: 3px;
-}
+    ::deep fluent-card.player-card-active::part(control) {
+        border-width: 3px;
+    }
 
 ::deep .player-card-portrait {
     display: flex;
@@ -42,34 +39,9 @@
     width: 100%;
 }
 
-::deep .player-persona::part(control) {
-    width: 100% !important;
-    max-width: none !important;
+    ::deep .player-persona::part(control) {
+        width: 100% !important;
+        max-width: none !important;
+    }
+
 }
-
-::deep .player-card-info {
-    gap: 0 !important;
-    padding: 0 2px 1px; /* was 0 6px 4px */
-}
-
-::deep .player-card-info fluent-label {
-    margin: 0;
-    padding: 0;
-    line-height: 1.0;
-}
-
-::deep .player-location,
-::deep .player-payoff,
-::deep .player-money,
-::deep .player-home,
-::deep .player-engine {
-    margin: 0 !important;
-    padding: 0 !important;
-    line-height: 1.0;
-}
-
-::deep .player-money {
-    letter-spacing: 0.05em;
-}
-
-
