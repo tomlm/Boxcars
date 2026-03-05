@@ -10,6 +10,8 @@
                                Style="@GetPersonaStyle(player)"
                                Image="@(string.IsNullOrWhiteSpace(player.ThumbnailUrl) ? null : player.ThumbnailUrl)"
                                ImageSize="60px"
+                               Status="@player.Status"
+                               StatusSize="PresenceBadgeSize.Large"
                                Initials="@GetInitial(player.Name)" />
             </FluentStack>
 

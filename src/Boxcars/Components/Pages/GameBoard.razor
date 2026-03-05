@@ -255,10 +255,10 @@
         // Placeholder data — replace with actual GameEngine player state
         return new List<PlayerBoardModel>
         {
-            new() { Index = 0, Name = "Player 1", Color = "blue", IsAtDestination = true, LocationLabel = "Salt Lake City", Payoff = 25000, Cash = 85000, IsCurrentUser = true, HomeCity = "Chicago", IsActiveTurn = true, LocomotiveLabel = "Superchief" },
-            new() { Index = 1, Name = "Player 2", Color = "red", IsAtDestination = false, LocationLabel = "Knoxville", DistanceToDestination = 1, Payoff = 5500, Cash = 42000, HomeCity = "Kansas City" },
-            new() { Index = 2, Name = "Player 3", Color = "green", IsAtDestination = false, LocationLabel = "Philadelphia", DistanceToDestination = 1, Payoff = 6500, Cash = 115000, HomeCity = "Chicago" },
-            new() { Index = 3, Name = "Player 4", Color = "cyan", IsAtDestination = false, LocationLabel = "Kansas City", DistanceToDestination = 1, Payoff = 6500, Cash = 72000, HomeCity = "Atlanta" },
+            new() { Index = 0, Name = "Thermous", Color = "blue", IsAtDestination = true, LocationLabel = "Salt Lake City", Payoff = 25000, Cash = 85000, IsCurrentUser = true, HomeCity = "Chicago", IsConnected=true, IsActiveTurn = true, LocomotiveLabel = "Superchief" },
+            new() { Index = 1, Name = "B'umpus", Color = "red", IsAtDestination = false, LocationLabel = "Knoxville", DistanceToDestination = 1, Payoff = 5500, Cash = 42000, HomeCity = "Kansas City", IsConnected=false},
+            new() { Index = 2, Name = "B'Jerr", Color = "green", IsAtDestination = false, LocationLabel = "Philadelphia", DistanceToDestination = 1, Payoff = 6500, Cash = 115000, HomeCity = "Chicago", IsConnected=true},
+            new() { Index = 3, Name = "B'John", Color = "cyan", IsAtDestination = false, LocationLabel = "Kansas City", DistanceToDestination = 1, Payoff = 6500, Cash = 72000, HomeCity = "Atlanta", IsConnected=true},
         };
     }
 

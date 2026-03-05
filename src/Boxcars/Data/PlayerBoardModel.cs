@@ -1,3 +1,5 @@
+using Microsoft.FluentUI.AspNetCore.Components;
+
 namespace Boxcars.Data;
 
 /// <summary>
@@ -44,6 +46,12 @@ public sealed class PlayerBoardModel
 
     /// <summary>True if the player's turn is active.</summary>
     public bool IsActiveTurn { get; init; }
+
+    /// <summary>True when the player is currently connected to the game session.</summary>
+    public bool IsConnected { get; init; } = true;
+
+    /// <summary>Visual presence status derived from connection state.</summary>
+    public PresenceStatus Status => IsConnected ? PresenceStatus.Available : PresenceStatus.Offline;
 
     /// <summary>Locomotive type label (e.g. "Freight", "Express", "Superchief").</summary>
     public string LocomotiveLabel { get; init; } = "Freight";
