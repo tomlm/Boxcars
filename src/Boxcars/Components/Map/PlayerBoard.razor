@@ -1,6 +1,6 @@
 @using Boxcars.Data
 
-<FluentStack Orientation="Orientation.Vertical" Class="player-board">
+<FluentStack Orientation="Orientation.Vertical" Class="player-board" VerticalGap="2">
     @foreach (var player in Players)
     {
         <FluentCard Class="@GetCardClass(player)" Style="@GetCardStyle(player)">
@@ -13,16 +13,16 @@
                                Initials="@GetInitial(player.Name)" />
             </FluentStack>
 
-            <FluentStack Orientation="Orientation.Vertical" Class="player-card-info">
+            <FluentStack Orientation="Orientation.Vertical" Class="player-card-info" VerticalGap="0">
                 @if (player.IsAtDestination)
                 {
-                    <FluentLabel Typo="Typography.Body" Class="player-location">At: @player.LocationLabel</FluentLabel>
+                    <FluentLabel Typo="Typography.Body" >At: @player.LocationLabel</FluentLabel>
                 }
                 else if (!string.IsNullOrWhiteSpace(player.LocationLabel))
                 {
-                    <FluentLabel Typo="Typography.Body" Class="player-location">@player.DistanceToDestination to @player.LocationLabel</FluentLabel>
+                    <FluentLabel Typo="Typography.Body" >@player.DistanceToDestination to @player.LocationLabel</FluentLabel>
                 }
-                <FluentLabel Typo="Typography.Body" Class="player-payoff">
+                <FluentLabel Typo="Typography.Body" >
                     @if (player.IsAtDestination)
                     {
                         @($"Payoff: ${player.Payoff:N0}")
@@ -32,9 +32,9 @@
                         @($"Get: ${player.Payoff:N0}")
                     }
                 </FluentLabel>
-                <FluentLabel Typo="Typography.Body" Class="player-money">@player.GetMoneyDisplay()</FluentLabel>
-                <FluentLabel Typo="Typography.Body" Class="player-home">Home: @player.HomeCity</FluentLabel>
-                <FluentLabel Typo="Typography.Body" Class="player-engine">Engine: @player.LocomotiveLabel</FluentLabel>
+                <FluentLabel Typo="Typography.Body">@player.GetMoneyDisplay()</FluentLabel>
+                <FluentLabel Typo="Typography.Body">Home: @player.HomeCity</FluentLabel>
+                <FluentLabel Typo="Typography.Body" >Engine: @player.LocomotiveLabel</FluentLabel>
             </FluentStack>
         </FluentCard>
     }
