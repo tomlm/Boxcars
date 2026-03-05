@@ -27,7 +27,7 @@
     }
     else
     {
-        <svg class="game-map-svg"
+        <svg class="@GetMapSvgClass()"
              viewBox="@GetMapViewBoxValue()"
              preserveAspectRatio="none"
              aria-label="Rail Baron game board">
@@ -71,6 +71,15 @@
                               @onmousedown:stopPropagation="true"
                               @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
                                 @onclick:stopPropagation="@(SelectionMode == MapSelectionMode.Rail)" />
+                    }
+                </g>
+
+                <g class="game-map-city-labels">
+                    @foreach (var city in _renderModel.Cities)
+                    {
+                        <svg:text x="@(city.X + 2.2)"
+                                  y="@(city.Y - 1.2)"
+                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 1.2)">@city.Name</svg:text>
                     }
                 </g>
 
@@ -154,15 +163,6 @@
                         <svg:text x="@label.X"
                                   y="@label.Y"
                                   transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
-                    }
-                </g>
-
-                <g class="game-map-city-labels">
-                    @foreach (var city in _renderModel.Cities)
-                    {
-                        <svg:text x="@(city.X + 2.2)"
-                                  y="@(city.Y - 2.2)"
-                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 2.2)">@city.Name</svg:text>
                     }
                 </g>
             </g>
@@ -624,6 +624,13 @@
 
         return FormattableString.Invariant(
             $"{_mapDefinition.ScaleLeft:F4} {_mapDefinition.ScaleTop:F4} {_mapDefinition.ScaleWidth:F4} {_mapDefinition.ScaleHeight:F4}");
+    }
+
+    private string GetMapSvgClass()
+    {
+        return Math.Abs(_viewport.ZoomPercent - 100) < 0.001
+            ? "game-map-svg game-map-svg-default-zoom"
+            : "game-map-svg";
     }
 
     private string? GetCameraTransform()

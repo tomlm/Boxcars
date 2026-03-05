@@ -4,6 +4,12 @@
     margin: 0 auto;
 }
 
+.content-area--full {
+    padding: 0;
+    max-width: none;
+    margin: 0;
+}
+
 #blazor-error-ui {
     background: lightyellow;
     bottom: 0;

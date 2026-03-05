@@ -26,6 +26,12 @@
     display: block;
 }
 
+.game-map-svg-default-zoom {
+    margin: 5px;
+    width: calc(100% - 10px);
+    height: calc(100% - 10px);
+}
+
 .game-map-regions path {
     stroke: none;
 }
@@ -99,6 +105,7 @@
     paint-order: stroke;
     stroke: var(--neutral-fill-layer-rest);
     stroke-width: 0.7;
+    dominant-baseline: hanging;
     white-space: nowrap;
 }
 

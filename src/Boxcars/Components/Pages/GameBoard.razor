@@ -19,21 +19,21 @@
 
 <div class="map-board-shell">
     @* ── Left sidebar: player board ── *@
-    <aside class="map-board-sidebar">
+    <div class="map-board-sidebar">
         <PlayerBoard Players="_players" />
-    </aside>
+    </div>
 
     @* ── Main area: map + status bar + bottom bar ── *@
     <div class="map-board-main">
         @if (_gameMap?.Errors.Count > 0)
         {
-            <div class="map-board-message map-board-error">
+            <FluentStack Orientation="Orientation.Vertical" Class="map-board-message map-board-error">
                 <FluentLabel Typo="Typography.H6">Unable to render map</FluentLabel>
                 @foreach (var error in _gameMap.Errors)
                 {
                     <FluentLabel Typo="Typography.Body">@error</FluentLabel>
                 }
-            </div>
+            </FluentStack>
         }
 
         <div class="map-board-map-area">
@@ -45,7 +45,7 @@
         </div>
 
         @* ── Status line below map ── *@
-        <div class="map-board-status-bar">
+        <FluentStack Orientation="Orientation.Horizontal" Wrap="true" VerticalAlignment="VerticalAlignment.Center" Class="map-board-status-bar">
             @if (_players.Count > 0)
             {
                 var active = _players.FirstOrDefault(p => p.IsActiveTurn);
@@ -84,10 +84,10 @@
                     </FluentButton>
                 </FluentStack>
             }
-        </div>
+        </FluentStack>
 
         @* ── Bottom bar: action log + zoom/OK controls ── *@
-        <div class="map-board-bottom-bar">
+        <FluentStack Orientation="Orientation.Horizontal" Class="map-board-bottom-bar">
             <div class="map-board-action-log">
                 @foreach (var entry in _actionLog)
                 {
@@ -126,7 +126,7 @@
                     End Game
                 </FluentButton>
             </FluentStack>
-        </div>
+        </FluentStack>
     </div>
 </div>
 
