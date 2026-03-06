@@ -2,6 +2,7 @@ using Azure.Data.Tables;
 using Boxcars.Components;
 using Boxcars.Components.Account;
 using Boxcars.Data;
+using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
@@ -55,6 +56,12 @@ public class Program
         // SignalR
         builder.Services.AddSignalR();
 
+        // Shared authoritative game engine
+        builder.Services.AddSingleton<GameEngineService>();
+        builder.Services.AddSingleton<IGameEngine>(serviceProvider => serviceProvider.GetRequiredService<GameEngineService>());
+        builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<GameEngineService>());
+        builder.Services.AddHostedService<GameStateBroadcastService>();
+
         // Application services
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
@@ -75,7 +82,8 @@ public class Program
             TableNames.NicknameIndexTable,
             TableNames.GamesTable,
             TableNames.GamePlayersTable,
-            TableNames.PlayerActiveGameIndexTable
+            TableNames.PlayerActiveGameIndexTable,
+            TableNames.GameSnapshotsTable
         };
         foreach (var tableName in tableNames)
         {
@@ -98,7 +106,8 @@ public class Program
             .AddInteractiveServerRenderMode();
 
         // SignalR hub
-        app.MapHub<BoxCarsHub>("/hubs/boxcars");
+        app.MapHub<DashboardHub>("/hubs/dashboard");
+        app.MapHub<GameHub>("/hubs/game");
 
         // Add additional endpoints required by the Identity /Account Razor components.
         app.MapAdditionalIdentityEndpoints();

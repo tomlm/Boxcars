@@ -9,4 +9,5 @@ public static class TableNames
     public const string GamesTable = "GamesTable";
     public const string GamePlayersTable = "GamePlayersTable";
     public const string PlayerActiveGameIndexTable = "PlayerActiveGameIndexTable";
+    public const string GameSnapshotsTable = "GameSnapshotsTable";
 }

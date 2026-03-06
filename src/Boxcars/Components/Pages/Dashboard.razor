@@ -79,10 +79,16 @@ else
             @if (_dashboardState!.HasActiveGame)
             {
                 <FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem;">You have an active game.</FluentLabel>
-                <FluentButton Appearance="Appearance.Accent"
-                              OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
-                    Resume Game
-                </FluentButton>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.75rem;">
+                    <FluentButton Appearance="Appearance.Accent"
+                                  OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
+                        Resume Game
+                    </FluentButton>
+                    <FluentButton Appearance="Appearance.Outline"
+                                  OnClick="OpenDeleteGameDialog">
+                        Delete Game
+                    </FluentButton>
+                </FluentStack>
             }
             else
             {
@@ -126,6 +132,44 @@ else
     </FluentStack>
 }
 
+@if (_dashboardState?.HasActiveGame == true && _showDeleteGameDialog)
+{
+    <FluentDialog @bind-Visible="_showDeleteGameDialog"
+                  TrapFocus="true"
+                  Modal="true">
+        <FluentDialogHeader>
+            <FluentLabel Typo="Typography.H5">Delete current game?</FluentLabel>
+        </FluentDialogHeader>
+        <FluentDialogBody>
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
+                <FluentLabel Typo="Typography.Body">
+                    This action cannot be undone here. Type "i am sure" to confirm.
+                </FluentLabel>
+                <FluentTextField Value="@_deleteConfirmationInput"
+                                 ValueChanged="OnDeleteConfirmationChanged"
+                                 Label="Confirmation"
+                                 Placeholder="i am sure" />
+                @if (!string.IsNullOrWhiteSpace(_deleteGameError))
+                {
+                    <FluentLabel Typo="Typography.Body" Style="color: var(--error);">@_deleteGameError</FluentLabel>
+                }
+            </FluentStack>
+        </FluentDialogBody>
+        <FluentDialogFooter>
+            <FluentButton Appearance="Appearance.Neutral"
+                          OnClick="CancelDeleteGameDialog"
+                          Disabled="_deleteGameInProgress">
+                Cancel
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Accent"
+                          OnClick="ConfirmDeleteGameAsync"
+                          Disabled="@(!CanConfirmDeleteGame || _deleteGameInProgress)">
+                Delete Game
+            </FluentButton>
+        </FluentDialogFooter>
+    </FluentDialog>
+}
+
 @code {
     private bool _loading = true;
     private bool _loadError;
@@ -137,6 +181,15 @@ else
     private ApplicationUser? _profile;
     private DashboardState? _dashboardState;
     private HubConnection? _hubConnection;
+    private bool _showDeleteGameDialog;
+    private bool _deleteGameInProgress;
+    private string _deleteConfirmationInput = string.Empty;
+    private string? _deleteGameError;
+
+    private bool CanConfirmDeleteGame => string.Equals(
+        _deleteConfirmationInput.Trim(),
+        "i am sure",
+        StringComparison.OrdinalIgnoreCase);
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -157,7 +210,7 @@ else
         if (firstRender && _currentUserId != null)
         {
             _hubConnection = new HubConnectionBuilder()
-                .WithUrl(Navigation.ToAbsoluteUri("/hubs/boxcars"))
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/dashboard"))
                 .WithAutomaticReconnect()
                 .Build();
 
@@ -185,6 +238,68 @@ else
         }
     }
 
+    private void OpenDeleteGameDialog()
+    {
+        _deleteConfirmationInput = string.Empty;
+        _deleteGameError = null;
+        _showDeleteGameDialog = true;
+    }
+
+    private void CancelDeleteGameDialog()
+    {
+        if (_deleteGameInProgress)
+        {
+            return;
+        }
+
+        _showDeleteGameDialog = false;
+        _deleteConfirmationInput = string.Empty;
+        _deleteGameError = null;
+    }
+
+    private void OnDeleteConfirmationChanged(string? value)
+    {
+        _deleteConfirmationInput = value ?? string.Empty;
+        _deleteGameError = null;
+    }
+
+    private async Task ConfirmDeleteGameAsync()
+    {
+        if (!CanConfirmDeleteGame)
+        {
+            _deleteGameError = "Type 'i am sure' to delete this game.";
+            return;
+        }
+
+        if (_currentUserId is null || string.IsNullOrWhiteSpace(_dashboardState?.ActiveGameId))
+        {
+            _deleteGameError = "Unable to identify the active game.";
+            return;
+        }
+
+        _deleteGameInProgress = true;
+        _deleteGameError = null;
+
+        try
+        {
+            var result = await GameService.EndGameAsync(_currentUserId, _dashboardState.ActiveGameId, CancellationToken.None);
+            if (!result.Success)
+            {
+                _deleteGameError = result.Reason ?? "Failed to delete game.";
+                return;
+            }
+
+            _showDeleteGameDialog = false;
+            _deleteConfirmationInput = string.Empty;
+            await RefreshDashboardStateAsync();
+            StateHasChanged();
+        }
+        finally
+        {
+            _deleteGameInProgress = false;
+        }
+    }
+
     private async Task LoadDataAsync()
     {
         _loading = true;
@@ -209,7 +324,18 @@ else
                 return;
             }
 
-            _dashboardState = await GameService.GetDashboardStateAsync(_currentUserId, CancellationToken.None);
+            try
+            {
+                _dashboardState = await GameService.GetDashboardStateAsync(_currentUserId, CancellationToken.None);
+            }
+            catch
+            {
+                _dashboardState = new DashboardState
+                {
+                    HasActiveGame = false,
+                    JoinableGames = []
+                };
+            }
         }
         catch
         {

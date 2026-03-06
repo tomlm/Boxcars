@@ -11,7 +11,7 @@
 @inject BoardProjectionService BoardProjectionService
 @inject BoardViewportService BoardViewportService
 @inject MapRouteService MapRouteService
-@inject IHubContext<BoxCarsHub> HubContext
+@inject IHubContext<DashboardHub> HubContext
 @inject IWebHostEnvironment HostEnvironment
 @inject IJSRuntime JavaScriptRuntime
 @implements IAsyncDisposable
@@ -1418,7 +1418,7 @@
         try
         {
             await HubContext.Clients.All.SendAsync(
-                BoxCarsHubEvents.RouteSuggestionUpdated,
+                DashboardHubEvents.RouteSuggestionUpdated,
                 new
                 {
                     PlayerId = string.IsNullOrWhiteSpace(PlayerId) ? "mock-player" : PlayerId,

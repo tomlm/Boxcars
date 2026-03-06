@@ -1,6 +1,7 @@
 using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
+using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Microsoft.AspNetCore.SignalR;
@@ -14,33 +15,35 @@ public class GameService
     private readonly TableClient _gamesTable;
     private readonly TableClient _gamePlayersTable;
     private readonly TableClient _activeGameIndexTable;
-    private readonly IHubContext<BoxCarsHub> _hubContext;
+    private readonly IHubContext<DashboardHub> _hubContext;
+    private readonly IGameEngine _gameEngine;
 
-    public GameService(TableServiceClient tableServiceClient, IHubContext<BoxCarsHub> hubContext)
+    public GameService(TableServiceClient tableServiceClient, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
     {
         _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
         _gamePlayersTable = tableServiceClient.GetTableClient(TableNames.GamePlayersTable);
         _activeGameIndexTable = tableServiceClient.GetTableClient(TableNames.PlayerActiveGameIndexTable);
         _hubContext = hubContext;
+        _gameEngine = gameEngine;
     }
 
     public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
     {
         // Check if player has an active game
-        try
-        {
-            var indexResponse = await _activeGameIndexTable.GetEntityAsync<IndexEntity>(
-                "ACTIVE_GAME", playerId, cancellationToken: cancellationToken);
+        var activeGameIndex = await _activeGameIndexTable.GetEntityIfExistsAsync<IndexEntity>(
+            "ACTIVE_GAME",
+            playerId,
+            cancellationToken: cancellationToken);
 
+        if (activeGameIndex.HasValue
+            && activeGameIndex.Value is { } activeGame
+            && !string.IsNullOrWhiteSpace(activeGame.GameId))
+        {
             return new DashboardState
             {
                 HasActiveGame = true,
-                ActiveGameId = indexResponse.Value.GameId
+                ActiveGameId = activeGame.GameId
             };
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            // No active game — query for joinable games
         }
 
         var joinableGames = new List<GameEntity>();
@@ -66,14 +69,14 @@ public class GameService
     public async Task<GameActionResult> CreateGameAsync(string creatorId, int maxPlayers, CancellationToken cancellationToken)
     {
         // Check if player already has an active game
-        try
+        var existingActiveGame = await _activeGameIndexTable.GetEntityIfExistsAsync<IndexEntity>(
+            "ACTIVE_GAME",
+            creatorId,
+            cancellationToken: cancellationToken);
+
+        if (existingActiveGame.HasValue)
         {
-            await _activeGameIndexTable.GetEntityAsync<IndexEntity>("ACTIVE_GAME", creatorId, cancellationToken: cancellationToken);
             return new GameActionResult { Success = false, Reason = "You already have an active game." };
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            // Good — no active game
         }
 
         var gameId = Guid.NewGuid().ToString();
@@ -108,6 +111,21 @@ public class GameService
             GameId = gameId
         }, cancellationToken);
 
+        try
+        {
+            await _gameEngine.CreateGameAsync(
+                [creatorId],
+                new GameCreationOptions { PreferredGameId = gameId },
+                cancellationToken);
+        }
+        catch
+        {
+            await _activeGameIndexTable.DeleteEntityAsync("ACTIVE_GAME", creatorId, cancellationToken: cancellationToken);
+            await _gamePlayersTable.DeleteEntityAsync(gameId, creatorId, cancellationToken: cancellationToken);
+            await _gamesTable.DeleteEntityAsync("ACTIVE", gameId, cancellationToken: cancellationToken);
+            throw;
+        }
+
         // Broadcast dashboard refresh
         await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
 
@@ -117,14 +135,14 @@ public class GameService
     public async Task<GameActionResult> JoinGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
     {
         // Check if player already has an active game
-        try
+        var existingActiveGame = await _activeGameIndexTable.GetEntityIfExistsAsync<IndexEntity>(
+            "ACTIVE_GAME",
+            playerId,
+            cancellationToken: cancellationToken);
+
+        if (existingActiveGame.HasValue)
         {
-            await _activeGameIndexTable.GetEntityAsync<IndexEntity>("ACTIVE_GAME", playerId, cancellationToken: cancellationToken);
             return new GameActionResult { Success = false, Reason = "You already have an active game." };
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            // Good — no active game
         }
 
         // Read game entity

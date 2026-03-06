@@ -4,15 +4,21 @@
 @using Boxcars.Data
 @using Boxcars.Data.Maps
 @using Boxcars.Engine.Data.Maps
+@using Boxcars.GameEngine
+@using Boxcars.Hubs
 @using Boxcars.Services
 @using Boxcars.Services.Maps
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.FluentUI.AspNetCore.Components
 @using System.Globalization
+@using RailBaronGameState = Boxcars.Engine.Persistence.GameState
 @attribute [Authorize]
+@implements IAsyncDisposable
 @inject NavigationManager Navigation
 @inject GameService GameService
+@inject IGameEngine SharedGameEngine
 @inject IMessageService MessageService
 
 <PageTitle>Game - BoxCars</PageTitle>
@@ -130,9 +136,14 @@
 </div>
 
 @code {
+    private static readonly string[] PlayerColors = ["blue", "red", "green", "cyan", "orange", "purple"];
+
     private string? _currentUserId;
     private GameEntity? _game;
     private MapComponent? _gameMap;
+    private HubConnection? _hubConnection;
+    private bool _hubConnectionInitialized;
+    private RailBaronGameState? _gameState;
     private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
     private int _zoomPercent = 100;
     private List<PlayerBoardModel> _players = new();
@@ -160,10 +171,26 @@
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+        await LoadGameStateAsync();
+    }
 
-        // TODO: Replace with real player data from GameEngine once wired up
-        _players = GetPlaceholderPlayers();
-        _gameEngineEvents = GetPlaceholderGameEngineEvents();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _hubConnectionInitialized || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        _hubConnectionInitialized = true;
+
+        try
+        {
+            await ConnectToGameHubAsync();
+        }
+        catch
+        {
+            // Game board can still render from loaded state without live hub updates.
+        }
     }
 
     private async Task EndGameAsync()
@@ -250,32 +277,75 @@
         return _selectionMode == mode ? Appearance.Accent : Appearance.Neutral;
     }
 
-    private List<PlayerBoardModel> GetPlaceholderPlayers()
+    private async Task LoadGameStateAsync()
     {
-        // Placeholder data — replace with actual GameEngine player state
-        return new List<PlayerBoardModel>
-        {
-            new() { Index = 0, Name = "Thermous", Color = "blue", IsAtDestination = true, LocationLabel = "Salt Lake City", Payoff = 25000, Cash = 85000, IsCurrentUser = true, HomeCity = "Chicago", IsConnected=true, IsActiveTurn = true, LocomotiveLabel = "Superchief" },
-            new() { Index = 1, Name = "B'umpus", Color = "red", IsAtDestination = false, LocationLabel = "Knoxville", DistanceToDestination = 1, Payoff = 5500, Cash = 42000, HomeCity = "Kansas City", IsConnected=false},
-            new() { Index = 2, Name = "B'Jerr", Color = "green", IsAtDestination = false, LocationLabel = "Philadelphia", DistanceToDestination = 1, Payoff = 6500, Cash = 115000, HomeCity = "Chicago", IsConnected=true},
-            new() { Index = 3, Name = "B'John", Color = "cyan", IsAtDestination = false, LocationLabel = "Kansas City", DistanceToDestination = 1, Payoff = 6500, Cash = 72000, HomeCity = "Atlanta", IsConnected=true},
-        };
+        _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+        ApplyGameState(_gameState);
     }
 
-    private List<GameEngineEventEntry> GetPlaceholderGameEngineEvents()
+    private async Task ConnectToGameHubAsync()
     {
-        // Placeholder event stream — replace with real game engine event feed
-        return new List<GameEngineEventEntry>
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/game"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hubConnection.On<RailBaronGameState>(GameHubEvents.StateUpdated, state =>
         {
-            new() { EventId = "event-1", Description = "Player 4 paid Player 1 $10,000 in use fees" },
-            new() { EventId = "event-2", Description = "Player 1 rolled 10; moved SW55,SW59,SW58,SW53,SW52,NW62,NW61" },
-            new() { EventId = "event-3", Description = "Player 1 arrived in Salt Lake City; gets $25,000" },
-            new() { EventId = "event-4", Description = "Player 1 upgrades to a Superchief" },
-            new() { EventId = "event-5", Description = "Player 1 paid Player 4 $10,000 in use fees" },
-            new() { EventId = "event-6", Description = "ROUND 47, elapsed mins=75.1" },
-            new() { EventId = "event-7", Description = "Player 4's next destination is Knoxville" },
-            new() { EventId = "event-8", Description = "Player 4 rolled 10 (6 + 4 bonus); moved NC52,NC54,NC57,SC36,SC94,SC41,SC22,SC21,SC19,SC15,SE42,SE85,SE41" },
-        };
+            ApplyGameState(state);
+            return InvokeAsync(StateHasChanged);
+        });
+
+        await _hubConnection.StartAsync();
+        await _hubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
+    }
+
+    private void ApplyGameState(RailBaronGameState state)
+    {
+        _gameState = state;
+
+        _players = state.Players
+            .Select((player, index) => new PlayerBoardModel
+            {
+                Index = index,
+                Name = player.Name,
+                Color = PlayerColors[index % PlayerColors.Length],
+                IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
+                LocationLabel = player.DestinationCityName ?? player.CurrentCityName,
+                DistanceToDestination = 0,
+                Payoff = 0,
+                Cash = player.Cash,
+                IsCurrentUser = false,
+                HomeCity = player.HomeCityName,
+                IsActiveTurn = index == state.ActivePlayerIndex,
+                IsConnected = player.IsActive,
+                LocomotiveLabel = player.LocomotiveType
+            })
+            .ToList();
+
+        _gameEngineEvents.Insert(0, new GameEngineEventEntry
+        {
+            EventId = Guid.NewGuid().ToString("N"),
+            Description = $"Turn {state.TurnNumber}: phase {state.Turn.Phase}"
+        });
+
+        if (_gameEngineEvents.Count > 100)
+        {
+            _gameEngineEvents = _gameEngineEvents.Take(100).ToList();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection is not null)
+        {
+            if (_hubConnection.State == HubConnectionState.Connected)
+            {
+                await _hubConnection.InvokeAsync(GameHubEvents.LeaveGame, GameId);
+            }
+
+            await _hubConnection.DisposeAsync();
+        }
     }
 
     private sealed class GameEngineEventEntry
