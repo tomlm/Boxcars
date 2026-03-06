@@ -97,6 +97,61 @@
                     }
                 </g>
 
+                @if (_playerStartCityMarkers.Count > 0
+                    || _playerDestinationCityMarkers.Count > 0
+                    || _playerCurrentLocationMarkers.Count > 0
+                    || _playerTraveledSegmentMarkers.Count > 0)
+                {
+                    <g class="game-map-player-overlays">
+                        @foreach (var marker in _playerStartCityMarkers)
+                        {
+                            <circle cx="@marker.X"
+                                    cy="@marker.Y"
+                                    r="2.2"
+                                    fill="none"
+                                    stroke="@marker.Color"
+                                    class="game-map-player-start-city" />
+                        }
+
+                        @foreach (var marker in _playerDestinationCityMarkers)
+                        {
+                            <circle cx="@marker.X"
+                                    cy="@marker.Y"
+                                    r="2.4"
+                                    fill="none"
+                                    stroke="@marker.Color"
+                                    class="game-map-player-destination-city" />
+                        }
+
+                        @foreach (var marker in _playerCurrentLocationMarkers)
+                        {
+                            <rect x="@(marker.X - 2.2)"
+                                  y="@(marker.Y - 2.2)"
+                                  width="4.4"
+                                  height="4.4"
+                                  fill="none"
+                                  stroke="@marker.Color"
+                                  class="game-map-player-current-location" />
+                        }
+
+                        @foreach (var marker in _playerTraveledSegmentMarkers)
+                        {
+                            <line x1="@(marker.X - 1.4)"
+                                  y1="@(marker.Y - 1.4)"
+                                  x2="@(marker.X + 1.4)"
+                                  y2="@(marker.Y + 1.4)"
+                                  stroke="@marker.Color"
+                                  class="game-map-player-traveled-segment" />
+                            <line x1="@(marker.X - 1.4)"
+                                  y1="@(marker.Y + 1.4)"
+                                  x2="@(marker.X + 1.4)"
+                                  y2="@(marker.Y - 1.4)"
+                                  stroke="@marker.Color"
+                                  class="game-map-player-traveled-segment" />
+                        }
+                    </g>
+                }
+
                 @if (SelectionMode == MapSelectionMode.Route)
                 {
                     <g class="game-map-city-hitboxes">
@@ -126,7 +181,7 @@
                                     r="@highlight.Radius"
                                     fill="none"
                                     stroke="@highlight.Color"
-                                    class="game-map-route-suggestion-circle" />
+                                    class="@GetRouteSuggestionCircleClass(highlight)" />
                         }
                     </g>
                 }
@@ -244,6 +299,15 @@
     public string PlayerColor { get; set; } = "var(--accent-fill-rest)";
 
     [Parameter]
+    public IReadOnlyList<PlayerMapState>? PlayerStates { get; set; }
+
+    [Parameter]
+    public int CurrentTurnMovementRemaining { get; set; }
+
+    [Parameter]
+    public bool IsCurrentUserActivePlayer { get; set; }
+
+    [Parameter]
     public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
 
     [Parameter]
@@ -298,6 +362,10 @@
     private readonly List<RouteCityOption> _routeCityOptions = new();
     private readonly Dictionary<int, string> _railroadStrokeColors = new();
     private readonly List<RouteSuggestionHighlight> _routeSuggestionHighlights = new();
+    private readonly List<PlayerNodeMarker> _playerStartCityMarkers = new();
+    private readonly List<PlayerNodeMarker> _playerDestinationCityMarkers = new();
+    private readonly List<PlayerNodeMarker> _playerCurrentLocationMarkers = new();
+    private readonly List<PlayerNodeMarker> _playerTraveledSegmentMarkers = new();
     private MapRouteContext? _routeContext;
     private RouteSuggestionResult? _routeSuggestion;
     private string? _routeStartNodeId;
@@ -346,6 +414,12 @@
 
         if (string.Equals(_loadedMapFileName, configuredMapFile, StringComparison.OrdinalIgnoreCase))
         {
+            BuildPlayerOverlays();
+            if (_routeSuggestion is not null)
+            {
+                BuildSuggestionHighlights(_routeSuggestion);
+            }
+
             return;
         }
 
@@ -474,6 +548,7 @@
         _routeContext = MapRouteService.BuildContext(_mapDefinition);
         BuildRouteCityOptions();
         InitializeChicagoStartNode();
+        BuildPlayerOverlays();
 
         _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
         _loadedMapFileName = configuredMapFile;
@@ -1395,8 +1470,11 @@
             return;
         }
 
-        foreach (var nodeId in suggestion.NodeIds)
+        var movementRemaining = Math.Max(0, CurrentTurnMovementRemaining);
+
+        for (var index = 0; index < suggestion.NodeIds.Count; index++)
         {
+            var nodeId = suggestion.NodeIds[index];
             if (!_routeContext.DotLookup.TryGetValue(nodeId, out var dot))
             {
                 continue;
@@ -1408,9 +1486,139 @@
                 X = dot.X,
                 Y = dot.Y,
                 Color = PlayerColor,
-                Radius = 1.8
+                Radius = 1.8,
+                IsDashed = index > movementRemaining
             });
         }
+    }
+
+    private void BuildPlayerOverlays()
+    {
+        _playerStartCityMarkers.Clear();
+        _playerDestinationCityMarkers.Clear();
+        _playerCurrentLocationMarkers.Clear();
+        _playerTraveledSegmentMarkers.Clear();
+
+        if (_routeContext is null || PlayerStates is null || PlayerStates.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var playerState in PlayerStates)
+        {
+            var color = string.IsNullOrWhiteSpace(playerState.Color)
+                ? "var(--accent-fill-rest)"
+                : playerState.Color;
+
+            var startNodeId = ResolveNodeIdForPlayerStart(playerState);
+            if (!string.IsNullOrWhiteSpace(startNodeId)
+                && _routeContext.DotLookup.TryGetValue(startNodeId, out var startDot))
+            {
+                _playerStartCityMarkers.Add(new PlayerNodeMarker(startDot.X, startDot.Y, color));
+            }
+
+            var destinationNodeId = ResolveNodeIdForCityName(playerState.DestinationCityName);
+            if (!string.IsNullOrWhiteSpace(destinationNodeId)
+                && _routeContext.DotLookup.TryGetValue(destinationNodeId, out var destinationDot))
+            {
+                _playerDestinationCityMarkers.Add(new PlayerNodeMarker(destinationDot.X, destinationDot.Y, color));
+            }
+
+            var currentNodeId = ResolveNodeIdForCurrentLocation(playerState);
+            if (!string.IsNullOrWhiteSpace(currentNodeId)
+                && _routeContext.DotLookup.TryGetValue(currentNodeId, out var currentDot))
+            {
+                _playerCurrentLocationMarkers.Add(new PlayerNodeMarker(currentDot.X, currentDot.Y, color));
+            }
+
+            foreach (var segmentKey in playerState.TraveledSegmentKeys)
+            {
+                if (!TryResolveSegmentMidpoint(segmentKey, out var midpointX, out var midpointY))
+                {
+                    continue;
+                }
+
+                _playerTraveledSegmentMarkers.Add(new PlayerNodeMarker(midpointX, midpointY, color));
+            }
+        }
+    }
+
+    private string? ResolveNodeIdForPlayerStart(PlayerMapState playerState)
+    {
+        var homeNodeId = ResolveNodeIdForCityName(playerState.HomeCityName);
+        if (!string.IsNullOrWhiteSpace(homeNodeId))
+        {
+            return homeNodeId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(playerState.StartNodeId))
+        {
+            return playerState.StartNodeId;
+        }
+
+        return ResolveNodeIdForCurrentLocation(playerState);
+    }
+
+    private string? ResolveNodeIdForCurrentLocation(PlayerMapState playerState)
+    {
+        if (!string.IsNullOrWhiteSpace(playerState.CurrentNodeId))
+        {
+            return playerState.CurrentNodeId;
+        }
+
+        var currentCityNodeId = ResolveNodeIdForCityName(playerState.CurrentCityName);
+        if (!string.IsNullOrWhiteSpace(currentCityNodeId))
+        {
+            return currentCityNodeId;
+        }
+
+        return ResolveNodeIdForCityName(playerState.HomeCityName);
+    }
+
+    private string? ResolveNodeIdForCityName(string? cityName)
+    {
+        if (string.IsNullOrWhiteSpace(cityName))
+        {
+            return null;
+        }
+
+        var cityOption = _routeCityOptions.FirstOrDefault(option =>
+            string.Equals(option.CityName, cityName, StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(cityOption.NodeId) ? null : cityOption.NodeId;
+    }
+
+    private bool TryResolveSegmentMidpoint(string segmentKey, out double midpointX, out double midpointY)
+    {
+        midpointX = 0;
+        midpointY = 0;
+
+        if (string.IsNullOrWhiteSpace(segmentKey))
+        {
+            return false;
+        }
+
+        var parts = segmentKey.Split('-', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            return false;
+        }
+
+        if (!_routeContext!.Adjacency.TryGetValue(parts[0], out var edges))
+        {
+            return false;
+        }
+
+        var edge = edges.FirstOrDefault(candidate =>
+            string.Equals(candidate.ToNodeId, parts[1], StringComparison.OrdinalIgnoreCase));
+        if (edge is null)
+        {
+            return false;
+        }
+
+        midpointX = (edge.X1 + edge.X2) / 2.0;
+        midpointY = (edge.Y1 + edge.Y2) / 2.0;
+        return true;
     }
 
     private async Task PublishRouteSuggestionUpdateAsync(RouteSuggestionResult suggestion)
@@ -1663,10 +1871,17 @@
 
         if (SelectionMode == MapSelectionMode.Route && IsRailroadSegmentInSelectedRoute(segment))
         {
-            classes.Add("route-selected");
+            classes.Add(IsCurrentUserActivePlayer ? "route-selected-active" : "route-selected-inactive");
         }
 
         return string.Join(' ', classes);
+    }
+
+    private static string GetRouteSuggestionCircleClass(RouteSuggestionHighlight highlight)
+    {
+        return highlight.IsDashed
+            ? "game-map-route-suggestion-circle game-map-route-suggestion-circle-dashed"
+            : "game-map-route-suggestion-circle game-map-route-suggestion-circle-solid";
     }
 
     private bool IsRailroadSegmentInSelectedRoute(RailroadRenderSegment segment)
@@ -1760,4 +1975,5 @@
 
     public readonly record struct RouteRailMenuOption(int RailroadIndex, string DisplayName);
     public readonly record struct RouteCityOption(string CityName, string NodeId);
+    private readonly record struct PlayerNodeMarker(double X, double Y, string Color);
 }

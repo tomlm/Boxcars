@@ -14,7 +14,7 @@
         </FluentStack>
     </FluentHeader>
     <FluentBodyContent>
-        <div class="@(IsGameRoute ? "content-area content-area--full" : "content-area")">
+        <div class="@ContentAreaClass">
             @Body
         </div>
     </FluentBodyContent>
@@ -33,5 +33,23 @@
 </div>
 
 @code {
-    private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
+    private string ContentAreaClass
+    {
+        get
+        {
+            var route = Navigation.ToBaseRelativePath(Navigation.Uri);
+
+            if (route.StartsWith("game/", StringComparison.OrdinalIgnoreCase))
+            {
+                return "content-area content-area--full";
+            }
+
+            if (string.Equals(route, "create-game", StringComparison.OrdinalIgnoreCase))
+            {
+                return "content-area content-area--create-game";
+            }
+
+            return "content-area";
+        }
+    }
 }

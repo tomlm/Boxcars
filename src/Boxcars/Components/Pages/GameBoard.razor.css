@@ -8,7 +8,7 @@
 }
 
 /* ── Left sidebar ── */
-::deep .map-board-sidebar {
+.map-board-sidebar {
     width: 270px;
     flex-shrink: 0;
     overflow-y: auto;
@@ -17,9 +17,9 @@
 }
 
 /* ── Main right area: map + status + bottom bar ── */
-::deep .map-board-main {
-    display: flex;
-    flex-direction: column;
+.map-board-main {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto 180px;
     flex: 1;
     height: 100%;
     min-height: 0;
@@ -30,8 +30,7 @@
 /* ── Map fills available space ── */
 .map-board-map-area {
     display: flex;
-    flex: 1;
-    flex-basis: 0;
+    grid-row: 1;
     overflow: hidden;
     position: relative;
     min-height: 0;
@@ -43,8 +42,9 @@
 }
 
 /* ── Status bar below map ── */
-::deep .map-board-status-bar {
+.map-board-status-bar {
     flex-shrink: 0;
+    grid-row: 2;
     gap: 0.75rem;
     padding: 0.25rem 0.5rem;
     background: #222;
@@ -59,35 +59,29 @@
 }
 
 /* ── Bottom bar: log left, controls right ── */
-::deep .map-board-bottom-bar {
+.map-board-bottom-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
+    grid-row: 3;
     align-items: stretch;
     column-gap: 0;
     flex-shrink: 0;
     width: 100%;
     background: #1a1a1a;
     border-top: 1px solid #444;
-    min-height: 120px;
+    height: 180px;
+    min-height: 180px;
     max-height: 180px;
 }
 
-::deep .map-board-history-panel {
+.map-board-history-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
     min-width: 0;
     height: 100%;
+    min-height: 0;
     gap: 0;
-}
-
-::deep .map-board-turn-status {
-    flex-shrink: 0;
-    padding: 0.2rem 0.5rem;
-    border-bottom: 1px solid #2f2f2f;
-    color: #d8d8d8;
-    font-family: "Consolas", "Courier New", monospace;
-    font-size: 0.82rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 /* ── History listbox ── */
@@ -103,7 +97,9 @@
     color: #ccc;
     line-height: 1.35;
     height: 100%;
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 ::deep .map-board-history-listbox fluent-option {
@@ -122,8 +118,9 @@
 }
 
 /* ── Right-side controls in bottom bar ── */
-::deep .map-board-controls {
+.map-board-controls {
     display: flex;
+    flex-direction: column;
     align-items: flex-end;
     flex-shrink: 0;
     justify-content: center;

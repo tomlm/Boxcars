@@ -13,7 +13,8 @@ public class ApplicationUser : ITableEntity
     // Computed property for Identity compatibility
     public string Id => RowKey;
 
-    // Identity properties
+    // Identity/profile properties
+    public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string NormalizedEmail { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;
