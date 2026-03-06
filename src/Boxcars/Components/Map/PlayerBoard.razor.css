@@ -12,9 +12,9 @@
 }
 
     ::deep fluent-card.player-card::part(control) {
-        border-color: var(--player-color, #888) !important;
-        border-width: 2px;
-        border-style: solid;
+        border-color: transparent !important;
+        border-width: 0;
+        border-style: none;
         border-radius: 0;
     }
 
@@ -23,7 +23,9 @@
 }
 
     ::deep fluent-card.player-card-active::part(control) {
-        border-width: 3px;
+        border-color: var(--player-color, #888) !important;
+        border-width: 4px;
+        border-style: solid;
     }
 
 ::deep .player-card-portrait {

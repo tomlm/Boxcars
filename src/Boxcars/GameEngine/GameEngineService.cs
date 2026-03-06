@@ -1,17 +1,17 @@
-using System.Threading.Channels;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using System.Threading.Channels;
 using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Engine;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
 using Boxcars.Identity;
-using RailBaronGameEngine = global::Boxcars.Engine.Domain.GameEngine;
-using RailBaronGameState = global::Boxcars.Engine.Persistence.GameState;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using RailBaronGameEngine = global::Boxcars.Engine.Domain.GameEngine;
+using RailBaronGameState = global::Boxcars.Engine.Persistence.GameState;
 
 namespace Boxcars.GameEngine;
 
@@ -27,22 +27,23 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private static readonly IReadOnlyList<string> DefaultPlayers = ["Player 1", "Player 2", "Player 3"];
 
     private readonly IWebHostEnvironment _webHostEnvironment;
-    private readonly TableClient _gameSnapshotsTable;
+    private readonly TableClient _gamesTable;
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private long _eventSequence;
     private MapDefinition? _mapDefinition;
 
     public GameEngineService(IWebHostEnvironment webHostEnvironment, TableServiceClient tableServiceClient)
     {
         _webHostEnvironment = webHostEnvironment;
-        _gameSnapshotsTable = tableServiceClient.GetTableClient(TableNames.GameSnapshotsTable);
+        _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
     }
 
     public event Action<string, RailBaronGameState>? OnStateChanged;
 
-    public async Task<string> CreateGameAsync(IReadOnlyList<string> players, GameCreationOptions? options = null, CancellationToken cancellationToken = default)
+    public async Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(request);
 
         await _mapReady.Task.WaitAsync(cancellationToken);
 
@@ -57,14 +58,43 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
+        var players = request.Players
+            .Select(player => string.IsNullOrWhiteSpace(player.DisplayName) ? player.UserId : player.DisplayName)
+            .ToList();
+
         var createdGameEngine = CreateGameEngine(players);
         if (!_gameEngines.TryAdd(gameId, createdGameEngine))
         {
             throw new InvalidOperationException($"A game with id '{gameId}' already exists.");
         }
 
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = gameId,
+            RowKey = "GAME",
+            GameId = gameId,
+            CreatorId = request.CreatorUserId,
+            MapFileName = request.MapFileName,
+            MaxPlayers = request.MaxPlayers,
+            CurrentPlayerCount = request.MaxPlayers,
+            CreatedAt = DateTimeOffset.UtcNow,
+            SettingsJson = JsonSerializer.Serialize(new
+            {
+                request.MapFileName,
+                request.MaxPlayers
+            }),
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(request.Players)
+        };
+
+        await _gamesTable.AddEntityAsync(gameEntity, cancellationToken);
+
         var snapshot = createdGameEngine.ToSnapshot();
-        await PersistSnapshotAsync(gameId, snapshot, "Game created.", "CreateGame", cancellationToken);
+        await PersistEventAsync(gameId, snapshot, "CreateGame", "Game created.", request.CreatorUserId, new
+        {
+            request.MapFileName,
+            request.Players
+        }, cancellationToken);
+
         OnStateChanged?.Invoke(gameId, snapshot);
         return gameId;
     }
@@ -89,23 +119,25 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         ValidateGameId(gameId);
         await _mapReady.Task.WaitAsync(cancellationToken);
 
-        var snapshots = await GetSnapshotsOrderedAsync(gameId, cancellationToken);
-        if (snapshots.Count < 2)
+        var events = await GetEventsOrderedAsync(gameId, cancellationToken);
+        if (events.Count < 2)
         {
             return false;
         }
 
-        var previousSnapshotEntity = snapshots[^2];
-        var restoredSnapshot = DeserializeSnapshot(previousSnapshotEntity.SnapshotJson);
+        var previousEvent = events[^2];
+        var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(previousEvent.SerializedGameState);
         var restoredEngine = RestoreGameEngine(restoredSnapshot);
 
         _gameEngines[gameId] = restoredEngine;
 
-        await PersistSnapshotAsync(
+        await PersistEventAsync(
             gameId,
             restoredSnapshot,
-            $"Undo applied. Reverted action '{snapshots[^1].ActionType}'.",
             "Undo",
+            $"Undo applied. Reverted action '{events[^1].EventKind}'.",
+            previousEvent.CreatedBy,
+            new { RevertedEvent = events[^1].RowKey },
             cancellationToken);
 
         OnStateChanged?.Invoke(gameId, restoredSnapshot);
@@ -126,12 +158,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     var gameEngine = await GetOrCreateGameEngineAsync(queuedAction.GameId, stoppingToken);
                     ProcessTurn(gameEngine, queuedAction.Action);
                     var snapshot = gameEngine.ToSnapshot();
-                    await PersistSnapshotAsync(
+
+                    await PersistEventAsync(
                         queuedAction.GameId,
                         snapshot,
-                        DescribeAction(queuedAction.Action),
                         queuedAction.Action.Kind.ToString(),
+                        DescribeAction(queuedAction.Action),
+                        queuedAction.Action.PlayerId,
+                        queuedAction.Action,
                         stoppingToken);
+
                     OnStateChanged?.Invoke(queuedAction.GameId, snapshot);
                 }
                 catch (Exception)
@@ -256,20 +292,45 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken);
+        if (gameEntity is null)
+        {
+            _gameEngines.TryRemove(gameId, out _);
+            throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+        }
+
         if (_gameEngines.TryGetValue(gameId, out var inMemoryGameEngine))
         {
             return inMemoryGameEngine;
         }
 
-        var persistedSnapshotEntity = await GetLatestSnapshotAsync(gameId, cancellationToken);
-        if (persistedSnapshotEntity is not null)
+        var players = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson)
+            .Select(player => string.IsNullOrWhiteSpace(player.DisplayName) ? player.UserId : player.DisplayName)
+            .ToList();
+
+        var initializedGameEngine = CreateGameEngine(players);
+
+        var persistedEvent = await GetLatestEventAsync(gameId, cancellationToken);
+        if (persistedEvent is not null && !string.IsNullOrWhiteSpace(persistedEvent.SerializedGameState))
         {
-            var restoredSnapshot = DeserializeSnapshot(persistedSnapshotEntity.SnapshotJson);
-            var restoredGameEngine = RestoreGameEngine(restoredSnapshot);
-            return _gameEngines.GetOrAdd(gameId, restoredGameEngine);
+            var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(persistedEvent.SerializedGameState);
+            initializedGameEngine = RestoreGameEngine(restoredSnapshot);
         }
 
-        return _gameEngines.GetOrAdd(gameId, _ => CreateGameEngine(DefaultPlayers));
+        return _gameEngines.GetOrAdd(gameId, initializedGameEngine);
+    }
+
+    private async Task<GameEntity?> GetGameEntityAsync(string gameId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _gamesTable.GetEntityAsync<GameEntity>(gameId, "GAME", cancellationToken: cancellationToken);
+            return response.Value;
+        }
+        catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
     }
 
     private RailBaronGameEngine CreateGameEngine(IReadOnlyList<string> players)
@@ -303,74 +364,71 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider());
     }
 
-    private async Task PersistSnapshotAsync(
+    private async Task PersistEventAsync(
         string gameId,
         RailBaronGameState snapshot,
+        string eventKind,
         string changeSummary,
-        string actionType,
+        string createdBy,
+        object eventData,
         CancellationToken cancellationToken)
     {
-        var sequenceNumber = await GetNextSequenceNumberAsync(gameId, cancellationToken);
-        var entity = new GameSnapshotEntity
+        var tick = DateTime.UtcNow.Ticks;
+        var sequence = Interlocked.Increment(ref _eventSequence);
+        var rowKey = $"Event_{tick:D20}_{sequence:D8}";
+
+        var entity = new GameEventEntity
         {
             PartitionKey = gameId,
-            RowKey = sequenceNumber.ToString("D20", CultureInfo.InvariantCulture),
-            ActionType = actionType,
+            RowKey = rowKey,
+            GameId = gameId,
+            EventKind = eventKind,
+            EventData = GameEventSerialization.SerializeEventData(eventData),
+            SerializedGameState = GameEventSerialization.SerializeSnapshot(snapshot),
             ChangeSummary = changeSummary,
-            SnapshotJson = JsonSerializer.Serialize(snapshot),
-            AppliedAtUtc = DateTime.UtcNow
+            OccurredUtc = DateTimeOffset.UtcNow,
+            CreatedBy = createdBy
         };
 
-        await _gameSnapshotsTable.AddEntityAsync(entity, cancellationToken);
+        await _gamesTable.AddEntityAsync(entity, cancellationToken);
     }
 
-    private async Task<long> GetNextSequenceNumberAsync(string gameId, CancellationToken cancellationToken)
+    private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
     {
-        var latest = await GetLatestSnapshotAsync(gameId, cancellationToken);
-        if (latest is null)
-        {
-            return 1;
-        }
-
-        return long.TryParse(latest.RowKey, out var latestSequenceNumber)
-            ? latestSequenceNumber + 1
-            : 1;
-    }
-
-    private async Task<GameSnapshotEntity?> GetLatestSnapshotAsync(string gameId, CancellationToken cancellationToken)
-    {
-        GameSnapshotEntity? latest = null;
-        await foreach (var snapshot in _gameSnapshotsTable.QueryAsync<GameSnapshotEntity>(
+        GameEventEntity? latest = null;
+        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
                            entity => entity.PartitionKey == gameId,
                            cancellationToken: cancellationToken))
         {
-            if (latest is null || string.CompareOrdinal(snapshot.RowKey, latest.RowKey) > 0)
+            if (!gameEvent.RowKey.StartsWith("Event_", StringComparison.Ordinal))
             {
-                latest = snapshot;
+                continue;
+            }
+
+            if (latest is null || string.CompareOrdinal(gameEvent.RowKey, latest.RowKey) > 0)
+            {
+                latest = gameEvent;
             }
         }
 
         return latest;
     }
 
-    private async Task<List<GameSnapshotEntity>> GetSnapshotsOrderedAsync(string gameId, CancellationToken cancellationToken)
+    private async Task<List<GameEventEntity>> GetEventsOrderedAsync(string gameId, CancellationToken cancellationToken)
     {
-        var snapshots = new List<GameSnapshotEntity>();
-        await foreach (var snapshot in _gameSnapshotsTable.QueryAsync<GameSnapshotEntity>(
+        var events = new List<GameEventEntity>();
+        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
                            entity => entity.PartitionKey == gameId,
                            cancellationToken: cancellationToken))
         {
-            snapshots.Add(snapshot);
+            if (gameEvent.RowKey.StartsWith("Event_", StringComparison.Ordinal))
+            {
+                events.Add(gameEvent);
+            }
         }
 
-        snapshots.Sort(static (left, right) => string.CompareOrdinal(left.RowKey, right.RowKey));
-        return snapshots;
-    }
-
-    private static RailBaronGameState DeserializeSnapshot(string snapshotJson)
-    {
-        var snapshot = JsonSerializer.Deserialize<RailBaronGameState>(snapshotJson);
-        return snapshot ?? throw new InvalidOperationException("Snapshot payload could not be deserialized.");
+        events.Sort(static (left, right) => string.CompareOrdinal(left.RowKey, right.RowKey));
+        return events;
     }
 
     private static string DescribeAction(PlayerAction action)

@@ -23,13 +23,11 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
-<div class="map-board-shell">
-    @* ── Left sidebar: player board ── *@
+<FluentStack Orientation="Orientation.Horizontal" Class="map-board-shell">
     <div class="map-board-sidebar">
         <PlayerBoard Players="_players" />
     </div>
 
-    @* ── Main area: map + status bar + bottom bar ── *@
     <div class="map-board-main">
         @if (_gameMap?.Errors.Count > 0)
         {
@@ -47,66 +45,70 @@
                           MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                           SelectionMode="@_selectionMode"
                           PlayerId="@(_currentUserId ?? string.Empty)"
+                          PlayerColor="@CurrentUserPlayerColor"
+                          PlayerStates="_mapPlayerStates"
+                          CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+                          IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                           ZoomPercentChanged="OnZoomPercentChanged"
                           RouteSuggestionChanged="OnRouteSuggestionChangedAsync" />
         </div>
 
-        @* ── Status line below map ── *@
-        <FluentStack Orientation="Orientation.Horizontal" Wrap="true" VerticalAlignment="VerticalAlignment.Center" Class="map-board-status-bar">
-            @if (_players.Count > 0)
-            {
-                var active = _players.FirstOrDefault(p => p.IsActiveTurn);
-                if (active is not null)
+        <div class="map-board-status-bar">
+            <FluentStack Orientation="Orientation.Horizontal" Wrap="true" VerticalAlignment="VerticalAlignment.Center">
+                @if (_players.Count > 0)
                 {
-                    <FluentLabel Typo="Typography.Body" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</FluentLabel>
+                    var active = _players.FirstOrDefault(p => p.IsActiveTurn);
+                    if (active is not null)
+                    {
+                        <FluentLabel Typo="Typography.Body" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</FluentLabel>
+                    }
                 }
-            }
 
-            @if (_selectionMode == MapSelectionMode.Route && _gameMap?.RouteCityOptions.Count > 0)
-            {
-                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-route-picker-row">
-                    <FluentSelect TOption="string"
-                                  Value="@(_gameMap?.RouteStartNodeId ?? string.Empty)"
-                                  ValueChanged="OnStartCitySelected"
-                                  Class="map-board-route-picker-select">
-                        @foreach (var option in _gameMap!.RouteCityOptions)
-                        {
-                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
-                        }
-                    </FluentSelect>
-                    <FluentSelect TOption="string"
-                                  Value="@(_gameMap?.DestinationNodeId ?? string.Empty)"
-                                  ValueChanged="OnDestinationCitySelected"
-                                  Class="map-board-route-picker-select">
-                        <FluentOption Value="">Destination</FluentOption>
-                        @foreach (var option in _gameMap!.RouteCityOptions)
-                        {
-                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
-                        }
-                    </FluentSelect>
-                    <FluentButton Appearance="Appearance.Accent"
-                                  OnClick="OnSuggestRouteClickedAsync"
-                                  Disabled="@(_gameMap?.CanSuggestRoute != true)">
-                        Suggest
-                    </FluentButton>
-                </FluentStack>
-            }
-        </FluentStack>
+                <FluentLabel Typo="Typography.Body" Class="status-bar-text">@TurnStatusText</FluentLabel>
 
-        @* ── Bottom bar: action log + zoom/OK controls ── *@
-        <div class="map-board-bottom-bar">
-            <FluentStack Orientation="Orientation.Vertical" Class="map-board-history-panel">
-                <FluentLabel Typo="Typography.Body" Class="map-board-turn-status">@TurnStatusText</FluentLabel>
+                @if (_selectionMode == MapSelectionMode.Route && _gameMap?.RouteCityOptions.Count > 0)
+                {
+                    <FluentStack Orientation="Orientation.Horizontal" Class="map-board-route-picker-row">
+                        <FluentSelect TOption="string"
+                                      Value="@(_gameMap?.RouteStartNodeId ?? string.Empty)"
+                                      ValueChanged="OnStartCitySelected"
+                                      Class="map-board-route-picker-select">
+                            @foreach (var option in _gameMap!.RouteCityOptions)
+                            {
+                                <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                            }
+                        </FluentSelect>
+                        <FluentSelect TOption="string"
+                                      Value="@(_gameMap?.DestinationNodeId ?? string.Empty)"
+                                      ValueChanged="OnDestinationCitySelected"
+                                      Class="map-board-route-picker-select">
+                            <FluentOption Value="">Destination</FluentOption>
+                            @foreach (var option in _gameMap!.RouteCityOptions)
+                            {
+                                <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                            }
+                        </FluentSelect>
+                        <FluentButton Appearance="Appearance.Accent"
+                                      OnClick="OnSuggestRouteClickedAsync"
+                                      Disabled="@(_gameMap?.CanSuggestRoute != true)">
+                            Suggest
+                        </FluentButton>
+                    </FluentStack>
+                }
+            </FluentStack>
+        </div>
 
+        <div class="map-board-bottom-row">
+            <div class="map-board-history-panel">
                 <FluentListbox TOption="string" Class="map-board-history-listbox">
                     <Virtualize Items="@_gameEngineEvents" Context="gameEvent">
                         <FluentOption Value="@gameEvent.EventId" Class="map-board-history-item">@gameEvent.Description</FluentOption>
                     </Virtualize>
                 </FluentListbox>
-            </FluentStack>
+            </div>
 
-            <FluentStack Orientation="Orientation.Vertical" Class="map-board-controls">
-                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-mode-row">
+            <div class="map-board-controls">
+                <FluentStack Orientation="Orientation.Horizontal">
                     <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Rail)"
                                   OnClick="() => SetSelectionMode(MapSelectionMode.Rail)">
                         Rail
@@ -117,7 +119,7 @@
                     </FluentButton>
                 </FluentStack>
 
-                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-zoom-row">
+                <FluentStack Orientation="Orientation.Horizontal">
                     <FluentLabel Typo="Typography.Body">Zoom:</FluentLabel>
                     <FluentSlider TValue="int"
                                   Min="100"
@@ -135,10 +137,10 @@
                 <FluentButton Appearance="Appearance.Lightweight" OnClick="EndGameAsync">
                     End Game
                 </FluentButton>
-            </FluentStack>
+            </div>
         </div>
     </div>
-</div>
+</FluentStack>
 
 @code {
     private static readonly string[] PlayerColors = ["blue", "red", "green", "cyan", "orange", "purple"];
@@ -154,6 +156,8 @@
     private int _zoomPercent = 100;
     private List<PlayerBoardModel> _players = new();
     private List<GameEngineEventEntry> _gameEngineEvents = new();
+    private List<PlayerMapState> _mapPlayerStates = new();
+    private int _currentUserPlayerIndex = -1;
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -365,6 +369,7 @@
         _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
         ApplyGameState(_gameState);
         SyncRouteSelectionToActivePlayer();
+        await RefreshTimelineAsync();
     }
 
     private async Task ConnectToGameHubAsync()
@@ -377,7 +382,11 @@
         _hubConnection.On<RailBaronGameState>(GameHubEvents.StateUpdated, state =>
         {
             ApplyGameState(state);
-            return InvokeAsync(StateHasChanged);
+            return InvokeAsync(async () =>
+            {
+                await RefreshTimelineAsync();
+                StateHasChanged();
+            });
         });
 
         await _hubConnection.StartAsync();
@@ -387,38 +396,122 @@
     private void ApplyGameState(RailBaronGameState state)
     {
         _gameState = state;
+        _currentUserPlayerIndex = -1;
+
+        var playerSelections = string.IsNullOrWhiteSpace(_game?.PlayersJson)
+            ? []
+            : GamePlayerSelectionSerialization.Deserialize(_game.PlayersJson);
+
+        var playerUserIdsByDisplayName = playerSelections
+            .Where(selection => !string.IsNullOrWhiteSpace(selection.DisplayName) && !string.IsNullOrWhiteSpace(selection.UserId))
+            .GroupBy(selection => selection.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().UserId, StringComparer.OrdinalIgnoreCase);
 
         _players = state.Players
-            .Select((player, index) => new PlayerBoardModel
+            .Select((player, index) =>
             {
-                Index = index,
-                Name = player.Name,
-                Color = PlayerColors[index % PlayerColors.Length],
-                IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
-                LocationLabel = player.DestinationCityName ?? player.CurrentCityName,
-                DistanceToDestination = 0,
-                Payoff = 0,
-                Cash = player.Cash,
-                IsCurrentUser = false,
-                HomeCity = player.HomeCityName,
-                IsActiveTurn = index == state.ActivePlayerIndex,
-                IsConnected = player.IsActive,
-                LocomotiveLabel = player.LocomotiveType
+                var selection = index < playerSelections.Count ? playerSelections[index] : null;
+                var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
+                var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
+                    && !string.IsNullOrWhiteSpace(resolvedUserId)
+                    && string.Equals(_currentUserId, resolvedUserId, StringComparison.OrdinalIgnoreCase);
+
+                if (isCurrentUser)
+                {
+                    _currentUserPlayerIndex = index;
+                }
+
+                var playerColor = ResolvePlayerColor(selection, index);
+
+                return new PlayerBoardModel
+                {
+                    Index = index,
+                    Name = player.Name,
+                    Color = playerColor,
+                    IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
+                    LocationLabel = player.DestinationCityName ?? player.CurrentCityName,
+                    DistanceToDestination = 0,
+                    Payoff = 0,
+                    Cash = player.Cash,
+                    IsCurrentUser = isCurrentUser,
+                    HomeCity = player.HomeCityName,
+                    IsActiveTurn = index == state.ActivePlayerIndex,
+                    IsConnected = player.IsActive,
+                    LocomotiveLabel = player.LocomotiveType
+                };
             })
             .ToList();
 
-        _gameEngineEvents.Insert(0, new GameEngineEventEntry
-        {
-            EventId = Guid.NewGuid().ToString("N"),
-            Description = $"Turn {state.TurnNumber}: phase {state.Turn.Phase}"
-        });
+        _mapPlayerStates = state.Players
+            .Select((player, index) =>
+            {
+                var selection = index < playerSelections.Count ? playerSelections[index] : null;
+                var playerColor = ResolvePlayerColor(selection, index);
+                var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
 
-        if (_gameEngineEvents.Count > 100)
-        {
-            _gameEngineEvents = _gameEngineEvents.Take(100).ToList();
-        }
+                var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
+                    && !string.IsNullOrWhiteSpace(resolvedUserId)
+                    && string.Equals(_currentUserId, resolvedUserId, StringComparison.OrdinalIgnoreCase);
+
+                return new PlayerMapState
+                {
+                    PlayerId = resolvedUserId,
+                    Color = playerColor,
+                    HomeCityName = player.HomeCityName,
+                    CurrentCityName = player.CurrentCityName,
+                    StartNodeId = player.ActiveRoute?.NodeIds.FirstOrDefault(),
+                    DestinationCityName = player.DestinationCityName,
+                    CurrentNodeId = player.CurrentNodeId,
+                    TraveledSegmentKeys = player.UsedSegments,
+                    IsCurrentUser = isCurrentUser
+                };
+            })
+            .ToList();
 
         SyncRouteSelectionToActivePlayer();
+    }
+
+    private static string ResolvePlayerUserId(
+        Boxcars.Engine.Persistence.PlayerState player,
+        GamePlayerSelection? selection,
+        IReadOnlyDictionary<string, string> playerUserIdsByDisplayName)
+    {
+        if (selection is not null && !string.IsNullOrWhiteSpace(selection.UserId))
+        {
+            return selection.UserId;
+        }
+
+        if (playerUserIdsByDisplayName.TryGetValue(player.Name, out var byDisplayName)
+            && !string.IsNullOrWhiteSpace(byDisplayName))
+        {
+            return byDisplayName;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolvePlayerColor(GamePlayerSelection? selection, int index)
+    {
+        if (selection is not null && !string.IsNullOrWhiteSpace(selection.Color))
+        {
+            return selection.Color.Trim().ToLowerInvariant();
+        }
+
+        return PlayerColors[index % PlayerColors.Length];
+    }
+
+    private async Task RefreshTimelineAsync()
+    {
+        var timeline = await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
+        _gameEngineEvents = timeline
+            .OrderByDescending(item => item.OccurredUtc)
+            .Take(200)
+            .Select(item => new GameEngineEventEntry
+            {
+                EventId = item.EventId,
+                Description = item.Description
+            })
+            .ToList();
     }
 
     private void SyncRouteSelectionToActivePlayer()
@@ -488,6 +581,16 @@
     private int CurrentRouteFees => _gameMap?.GetSelectedRouteFeeEstimate() ?? 0;
 
     private int SuggestedRouteFees => _gameMap?.RouteSuggestion?.TotalCost ?? 0;
+
+    private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
+
+    private bool IsCurrentUserActivePlayer => _gameState is not null
+        && _currentUserPlayerIndex >= 0
+        && _currentUserPlayerIndex == _gameState.ActivePlayerIndex;
+
+    private string CurrentUserPlayerColor => _currentUserPlayerIndex >= 0
+        ? _players[_currentUserPlayerIndex].Color
+        : "var(--accent-fill-rest)";
 
     private static string FormatFee(int fee)
     {

@@ -68,7 +68,9 @@
 
     private static string GetCardStyle(PlayerBoardModel player)
     {
-        return $"--player-color: {player.Color}; border-color: {player.Color};";
+        return player.IsActiveTurn
+            ? $"--player-color: {player.Color};"
+            : string.Empty;
     }
 
 

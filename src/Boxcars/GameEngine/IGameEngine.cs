@@ -1,3 +1,4 @@
+using Boxcars.Data;
 using RailBaronGameState = global::Boxcars.Engine.Persistence.GameState;
 
 namespace Boxcars.GameEngine;
@@ -6,7 +7,7 @@ public interface IGameEngine
 {
     event Action<string, RailBaronGameState>? OnStateChanged;
 
-    Task<string> CreateGameAsync(IReadOnlyList<string> players, GameCreationOptions? options = null, CancellationToken cancellationToken = default);
+    Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default);
 
     Task<RailBaronGameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default);
 

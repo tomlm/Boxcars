@@ -123,7 +123,7 @@ else
                 <FluentLabel Typo="Typography.H6" Style="margin-bottom: 0.75rem;">Create a New Game</FluentLabel>
                 <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1rem;">
                     <FluentButton Appearance="Appearance.Accent"
-                                  OnClick="@CreateGameAsync">
+                                  OnClick="@GoToCreateGame">
                         Create Game
                     </FluentButton>
                 </FluentStack>
@@ -383,23 +383,9 @@ else
         }
     }
 
-    private async Task CreateGameAsync()
+    private void GoToCreateGame()
     {
-        if (_currentUserId == null) return;
-
-        const int maxPlayers = 6;
-        var result = await GameService.CreateGameAsync(_currentUserId, maxPlayers, CancellationToken.None);
-
-        if (result.Success)
-        {
-            Navigation.NavigateTo($"/game/{result.GameId}");
-        }
-        else
-        {
-            await MessageService.ShowMessageBarAsync(result.Reason ?? "Failed to create game.", MessageIntent.Error, "DASHBOARD");
-            await RefreshDashboardStateAsync();
-            StateHasChanged();
-        }
+        Navigation.NavigateTo("/create-game");
     }
 
     private async Task JoinGameAsync(string gameId)

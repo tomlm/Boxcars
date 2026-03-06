@@ -1,0 +1,56 @@
+@page "/create-game"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Boxcars.Data
+@using Boxcars.Services
+@attribute [Authorize]
+
+<PageTitle>Create Game - BoxCars</PageTitle>
+
+@if (_loading)
+{
+    <FluentProgressRing />
+}
+else
+{
+    <FluentStack Orientation="Orientation.Vertical" Class="create-game-page">
+        <FluentLabel Typo="Typography.H3">Create Game</FluentLabel>
+
+        @foreach (var slotIndex in Enumerable.Range(0, _slots.Count))
+        {
+            var slot = _slots[slotIndex];
+            <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Class="create-game-slot-row" Style="gap: 1rem;">
+                <FluentLabel Typo="Typography.Body">Player @(slotIndex + 1)</FluentLabel>
+                <FluentSelect TOption="string" Value="@slot.UserId" ValueChanged="(value) => OnUserChanged(slotIndex, value)" Class="create-game-select">
+                    <FluentOption Value="">Select player</FluentOption>
+                    @foreach (var player in _players)
+                    {
+                        var displayName = string.IsNullOrWhiteSpace(player.Nickname) ? player.Email : player.Nickname;
+                        <FluentOption Value="@player.RowKey">@displayName (@player.Email)</FluentOption>
+                    }
+                </FluentSelect>
+
+                <FluentSelect TOption="string" Value="@slot.Color" ValueChanged="(value) => OnColorChanged(slotIndex, value)" Class="create-game-select">
+                    <FluentOption Value="">Select color</FluentOption>
+                    @foreach (var color in _colors)
+                    {
+                        <FluentOption Value="@color">@color</FluentOption>
+                    }
+                </FluentSelect>
+            </FluentStack>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <FluentLabel Typo="Typography.Body" Style="color: var(--error);">@_errorMessage</FluentLabel>
+        }
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 1rem;">
+            <FluentButton Appearance="Appearance.Accent" OnClick="CreateGameAsync" Disabled="_creating">Create Game</FluentButton>
+            <FluentButton Appearance="Appearance.Outline" OnClick="BackToDashboard">Back</FluentButton>
+        </FluentStack>
+    </FluentStack>
+}

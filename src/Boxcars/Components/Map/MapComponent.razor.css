@@ -79,8 +79,13 @@
     stroke-width: 1.5;
 }
 
-.game-map-railroads line.route-selected {
+.game-map-railroads line.route-selected-active {
     stroke-dasharray: none;
+    stroke-width: 1.2;
+}
+
+.game-map-railroads line.route-selected-inactive {
+    stroke-dasharray: 1.2 0.8;
     stroke-width: 1.2;
 }
 
@@ -141,8 +146,37 @@
 
 .game-map-route-suggestion-circle {
     stroke-width: 0.9;
-    stroke-dasharray: none;
     stroke-linecap: round;
+    pointer-events: none;
+}
+
+.game-map-route-suggestion-circle-solid {
+    stroke-dasharray: none;
+}
+
+.game-map-route-suggestion-circle-dashed {
+    stroke-dasharray: 1.2 0.9;
+}
+
+.game-map-player-start-city {
+    stroke-width: 0.75;
+    stroke-dasharray: 0.9 0.7;
+    pointer-events: none;
+}
+
+.game-map-player-destination-city {
+    stroke-width: 1.05;
+    stroke-dasharray: none;
+    pointer-events: none;
+}
+
+.game-map-player-current-location {
+    stroke-width: 0.85;
+    pointer-events: none;
+}
+
+.game-map-player-traveled-segment {
+    stroke-width: 0.75;
     pointer-events: none;
 }
 

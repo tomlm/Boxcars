@@ -1,7 +1,6 @@
 using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
-using Boxcars.Identity;
 using Microsoft.AspNetCore.Identity;
 
 namespace Boxcars.Identity;
@@ -14,80 +13,50 @@ public class TableStorageUserStore :
     IUserLockoutStore<ApplicationUser>
 {
     private readonly TableClient _usersTable;
-    private readonly TableClient _emailIndexTable;
-    private readonly TableClient _userNameIndexTable;
-    private readonly TableClient _nicknameIndexTable;
-
     private const string DefaultThumbnailUrl = "https://via.placeholder.com/150?text=Player";
 
     public TableStorageUserStore(TableServiceClient tableServiceClient)
     {
         _usersTable = tableServiceClient.GetTableClient(TableNames.UsersTable);
-        _emailIndexTable = tableServiceClient.GetTableClient(TableNames.UserEmailIndexTable);
-        _userNameIndexTable = tableServiceClient.GetTableClient(TableNames.UserNameIndexTable);
-        _nicknameIndexTable = tableServiceClient.GetTableClient(TableNames.NicknameIndexTable);
     }
-
-    // IUserStore<ApplicationUser>
 
     public async Task<IdentityResult> CreateAsync(ApplicationUser user, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        user.RowKey = Guid.NewGuid().ToString();
+        var normalizedEmail = (user.NormalizedEmail ?? user.Email)?.Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedEmail) || string.IsNullOrWhiteSpace(user.Email))
+        {
+            return IdentityResult.Failed(new IdentityError { Code = "InvalidEmail", Description = "Email is required." });
+        }
+
         user.PartitionKey = "USER";
-        user.SecurityStamp = Guid.NewGuid().ToString();
+        user.RowKey = user.Email.Trim().ToLowerInvariant();
+        user.NormalizedEmail = normalizedEmail;
+        user.SecurityStamp = string.IsNullOrWhiteSpace(user.SecurityStamp) ? Guid.NewGuid().ToString() : user.SecurityStamp;
+        user.Name = string.IsNullOrWhiteSpace(user.Name) ? user.UserName : user.Name;
 
-        // Derive nickname from email prefix
-        var emailPrefix = user.Email.Split('@')[0];
-        var normalizedNickname = emailPrefix.ToUpperInvariant();
-
-        // Try to claim the nickname; if taken, leave blank
-        try
+        if (string.IsNullOrWhiteSpace(user.Nickname))
         {
-            await _nicknameIndexTable.AddEntityAsync(new IndexEntity
-            {
-                PartitionKey = "NICKNAME_INDEX",
-                RowKey = normalizedNickname,
-                UserId = user.RowKey
-            }, cancellationToken);
-
-            user.Nickname = emailPrefix;
-            user.NormalizedNickname = normalizedNickname;
-        }
-        catch (RequestFailedException ex) when (ex.Status == 409)
-        {
-            // Nickname collision — leave blank, user must set manually
-            user.Nickname = string.Empty;
-            user.NormalizedNickname = string.Empty;
+            user.Nickname = user.Email.Split('@')[0];
         }
 
-        // Set default thumbnail
-        if (string.IsNullOrEmpty(user.ThumbnailUrl))
+        user.NormalizedNickname = user.Nickname.ToUpperInvariant();
+
+        if (string.IsNullOrWhiteSpace(user.ThumbnailUrl))
         {
             user.ThumbnailUrl = DefaultThumbnailUrl;
         }
 
-        // Insert user entity
-        await _usersTable.AddEntityAsync(user, cancellationToken);
-
-        // Insert email index
-        await _emailIndexTable.AddEntityAsync(new IndexEntity
+        try
         {
-            PartitionKey = "EMAIL_INDEX",
-            RowKey = user.NormalizedEmail,
-            UserId = user.RowKey
-        }, cancellationToken);
-
-        // Insert username index
-        await _userNameIndexTable.AddEntityAsync(new IndexEntity
+            await _usersTable.AddEntityAsync(user, cancellationToken);
+            return IdentityResult.Success;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 409)
         {
-            PartitionKey = "USERNAME_INDEX",
-            RowKey = user.NormalizedUserName,
-            UserId = user.RowKey
-        }, cancellationToken);
-
-        return IdentityResult.Success;
+            return IdentityResult.Failed(new IdentityError { Code = "DuplicateUser", Description = "User already exists." });
+        }
     }
 
     public async Task<IdentityResult> UpdateAsync(ApplicationUser user, CancellationToken cancellationToken)
@@ -112,28 +81,7 @@ public class TableStorageUserStore :
     public async Task<IdentityResult> DeleteAsync(ApplicationUser user, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
-        // Delete index entries
-        if (!string.IsNullOrEmpty(user.NormalizedEmail))
-        {
-            try { await _emailIndexTable.DeleteEntityAsync("EMAIL_INDEX", user.NormalizedEmail, cancellationToken: cancellationToken); }
-            catch (RequestFailedException) { /* best-effort cleanup */ }
-        }
-
-        if (!string.IsNullOrEmpty(user.NormalizedUserName))
-        {
-            try { await _userNameIndexTable.DeleteEntityAsync("USERNAME_INDEX", user.NormalizedUserName, cancellationToken: cancellationToken); }
-            catch (RequestFailedException) { /* best-effort cleanup */ }
-        }
-
-        if (!string.IsNullOrEmpty(user.NormalizedNickname))
-        {
-            try { await _nicknameIndexTable.DeleteEntityAsync("NICKNAME_INDEX", user.NormalizedNickname, cancellationToken: cancellationToken); }
-            catch (RequestFailedException) { /* best-effort cleanup */ }
-        }
-
         await _usersTable.DeleteEntityAsync(user.PartitionKey, user.RowKey, cancellationToken: cancellationToken);
-
         return IdentityResult.Success;
     }
 
@@ -143,7 +91,7 @@ public class TableStorageUserStore :
 
         try
         {
-            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId, cancellationToken: cancellationToken);
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId.ToLowerInvariant(), cancellationToken: cancellationToken);
             return response.Value;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -156,15 +104,14 @@ public class TableStorageUserStore :
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        try
+        await foreach (var user in _usersTable.QueryAsync<ApplicationUser>(
+                           entity => entity.PartitionKey == "USER" && entity.NormalizedUserName == normalizedUserName,
+                           cancellationToken: cancellationToken))
         {
-            var indexResponse = await _userNameIndexTable.GetEntityAsync<IndexEntity>("USERNAME_INDEX", normalizedUserName, cancellationToken: cancellationToken);
-            return await FindByIdAsync(indexResponse.Value.UserId, cancellationToken);
+            return user;
         }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            return null;
-        }
+
+        return null;
     }
 
     public Task<string> GetUserIdAsync(ApplicationUser user, CancellationToken cancellationToken) =>
@@ -188,11 +135,14 @@ public class TableStorageUserStore :
         return Task.CompletedTask;
     }
 
-    // IUserEmailStore<ApplicationUser>
-
     public Task SetEmailAsync(ApplicationUser user, string? email, CancellationToken cancellationToken)
     {
         user.Email = email ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            user.RowKey = user.Email.Trim().ToLowerInvariant();
+        }
+
         return Task.CompletedTask;
     }
 
@@ -212,15 +162,14 @@ public class TableStorageUserStore :
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        try
+        await foreach (var user in _usersTable.QueryAsync<ApplicationUser>(
+                           entity => entity.PartitionKey == "USER" && entity.NormalizedEmail == normalizedEmail,
+                           cancellationToken: cancellationToken))
         {
-            var indexResponse = await _emailIndexTable.GetEntityAsync<IndexEntity>("EMAIL_INDEX", normalizedEmail, cancellationToken: cancellationToken);
-            return await FindByIdAsync(indexResponse.Value.UserId, cancellationToken);
+            return user;
         }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            return null;
-        }
+
+        return null;
     }
 
     public Task<string?> GetNormalizedEmailAsync(ApplicationUser user, CancellationToken cancellationToken) =>
@@ -231,8 +180,6 @@ public class TableStorageUserStore :
         user.NormalizedEmail = normalizedEmail ?? string.Empty;
         return Task.CompletedTask;
     }
-
-    // IUserPasswordStore<ApplicationUser>
 
     public Task SetPasswordHashAsync(ApplicationUser user, string? passwordHash, CancellationToken cancellationToken)
     {
@@ -246,8 +193,6 @@ public class TableStorageUserStore :
     public Task<bool> HasPasswordAsync(ApplicationUser user, CancellationToken cancellationToken) =>
         Task.FromResult(!string.IsNullOrEmpty(user.PasswordHash));
 
-    // IUserSecurityStampStore<ApplicationUser>
-
     public Task SetSecurityStampAsync(ApplicationUser user, string stamp, CancellationToken cancellationToken)
     {
         user.SecurityStamp = stamp;
@@ -256,8 +201,6 @@ public class TableStorageUserStore :
 
     public Task<string?> GetSecurityStampAsync(ApplicationUser user, CancellationToken cancellationToken) =>
         Task.FromResult<string?>(user.SecurityStamp);
-
-    // IUserLockoutStore<ApplicationUser>
 
     public Task<DateTimeOffset?> GetLockoutEndDateAsync(ApplicationUser user, CancellationToken cancellationToken) =>
         Task.FromResult(user.LockoutEnd);
