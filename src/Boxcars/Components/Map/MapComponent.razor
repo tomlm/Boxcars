@@ -1699,6 +1699,49 @@
         return false;
     }
 
+    public int GetSelectedRouteMoveCount()
+    {
+        return Math.Max(0, _selectedRouteNodeIds.Count - 1);
+    }
+
+    public int GetSelectedRouteFeeEstimate()
+    {
+        if (_selectedRouteSegments.Count == 0)
+        {
+            return 0;
+        }
+
+        var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        var totalCost = 0;
+        var pointsUsedInCurrentTurn = 0;
+        var lastRailroadIndex = -1;
+
+        foreach (var segment in _selectedRouteSegments)
+        {
+            var ownershipCategory = ResolveRailroadOwnershipCategory(segment.RailroadIndex);
+            var costPerTurn = ownershipCategory == RailroadOwnershipCategory.OwnedByOtherPlayer ? 5000 : 1000;
+
+            var isFirstEdge = lastRailroadIndex < 0;
+            var switchedRailroad = lastRailroadIndex >= 0 && lastRailroadIndex != segment.RailroadIndex;
+            var exhaustedTurnCapacity = lastRailroadIndex == segment.RailroadIndex && pointsUsedInCurrentTurn >= movementPointsPerTurn;
+            var startsNewTurn = isFirstEdge || switchedRailroad || exhaustedTurnCapacity;
+
+            if (startsNewTurn)
+            {
+                totalCost += costPerTurn;
+                pointsUsedInCurrentTurn = 1;
+            }
+            else
+            {
+                pointsUsedInCurrentTurn++;
+            }
+
+            lastRailroadIndex = segment.RailroadIndex;
+        }
+
+        return totalCost;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_cameraInitialized)

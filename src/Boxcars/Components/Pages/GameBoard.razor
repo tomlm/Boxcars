@@ -47,7 +47,8 @@
                           MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                           SelectionMode="@_selectionMode"
                           PlayerId="@(_currentUserId ?? string.Empty)"
-                          ZoomPercentChanged="OnZoomPercentChanged" />
+                          ZoomPercentChanged="OnZoomPercentChanged"
+                          RouteSuggestionChanged="OnRouteSuggestionChangedAsync" />
         </div>
 
         @* ── Status line below map ── *@
@@ -94,11 +95,15 @@
 
         @* ── Bottom bar: action log + zoom/OK controls ── *@
         <div class="map-board-bottom-bar">
-            <FluentListbox TOption="string" Class="map-board-history-listbox">
-                <Virtualize Items="@_gameEngineEvents" Context="gameEvent">
-                    <FluentOption Value="@gameEvent.EventId" Class="map-board-history-item">@gameEvent.Description</FluentOption>
-                </Virtualize>
-            </FluentListbox>
+            <FluentStack Orientation="Orientation.Vertical" Class="map-board-history-panel">
+                <FluentLabel Typo="Typography.Body" Class="map-board-turn-status">@TurnStatusText</FluentLabel>
+
+                <FluentListbox TOption="string" Class="map-board-history-listbox">
+                    <Virtualize Items="@_gameEngineEvents" Context="gameEvent">
+                        <FluentOption Value="@gameEvent.EventId" Class="map-board-history-item">@gameEvent.Description</FluentOption>
+                    </Virtualize>
+                </FluentListbox>
+            </FluentStack>
 
             <FluentStack Orientation="Orientation.Vertical" Class="map-board-controls">
                 <FluentStack Orientation="Orientation.Horizontal" Class="map-board-mode-row">
@@ -123,8 +128,8 @@
                                   Class="map-board-zoom-slider" />
                 </FluentStack>
 
-                <FluentButton Appearance="Appearance.Accent" OnClick="OnResetZoomAsync">
-                    OK (done)
+                <FluentButton Appearance="Appearance.Accent" OnClick="OnPrimaryGameActionAsync">
+                    @PrimaryGameActionLabel
                 </FluentButton>
 
                 <FluentButton Appearance="Appearance.Lightweight" OnClick="EndGameAsync">
@@ -143,6 +148,7 @@
     private MapComponent? _gameMap;
     private HubConnection? _hubConnection;
     private bool _hubConnectionInitialized;
+    private bool _hasStartedGame;
     private RailBaronGameState? _gameState;
     private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
     private int _zoomPercent = 100;
@@ -232,14 +238,91 @@
         await _gameMap.SetZoom(_zoomPercent);
     }
 
-    private async Task OnResetZoomAsync()
+    private string PrimaryGameActionLabel => _hasStartedGame ? "END TURN" : "START GAME";
+
+    private async Task OnPrimaryGameActionAsync()
     {
-        if (_gameMap is null)
+        if (string.IsNullOrWhiteSpace(GameId) || _gameState is null || _gameState.Players.Count == 0)
         {
             return;
         }
 
-        await _gameMap.ResetZoom();
+        if (!_hasStartedGame)
+        {
+            _hasStartedGame = true;
+            _selectionMode = MapSelectionMode.Route;
+            await PrepareActivePlayerTurnAsync();
+            return;
+        }
+
+        var activePlayerName = _gameState.Players[_gameState.ActivePlayerIndex].Name;
+        var turnBeforeEnd = _gameState.TurnNumber;
+
+        var endTurnActions = new PlayerAction[]
+        {
+            new ChooseRouteAction { PlayerId = activePlayerName },
+            new MoveAction { PlayerId = activePlayerName },
+            new MoveAction { PlayerId = activePlayerName },
+            new DeclinePurchaseAction { PlayerId = activePlayerName },
+            new EndTurnAction { PlayerId = activePlayerName }
+        };
+
+        foreach (var action in endTurnActions)
+        {
+            await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
+        }
+
+        await RefreshStateAfterTurnAsync(state => state.TurnNumber > turnBeforeEnd);
+        await PrepareActivePlayerTurnAsync();
+    }
+
+    private async Task PrepareActivePlayerTurnAsync()
+    {
+        if (_gameState is null || _gameState.Players.Count == 0)
+        {
+            return;
+        }
+
+        var activePlayerName = _gameState.Players[_gameState.ActivePlayerIndex].Name;
+        var activeTurnNumber = _gameState.TurnNumber;
+
+        var setupActions = new PlayerAction[]
+        {
+            new PickDestinationAction { PlayerId = activePlayerName },
+            new RollDiceAction { PlayerId = activePlayerName, WhiteDieOne = 0, WhiteDieTwo = 0 }
+        };
+
+        foreach (var action in setupActions)
+        {
+            await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
+        }
+
+        await RefreshStateAfterTurnAsync(state =>
+            state.TurnNumber > activeTurnNumber
+            || (state.TurnNumber == activeTurnNumber
+                && string.Equals(state.Turn.Phase, "Move", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private async Task RefreshStateAfterTurnAsync(Func<RailBaronGameState, bool> completion)
+    {
+        for (var attempt = 0; attempt < 15; attempt++)
+        {
+            await Task.Delay(100);
+
+            var updatedState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+            ApplyGameState(updatedState);
+            SyncRouteSelectionToActivePlayer();
+
+            if (completion(updatedState))
+            {
+                return;
+            }
+        }
+    }
+
+    private Task OnRouteSuggestionChangedAsync(RouteSuggestionResult _)
+    {
+        return InvokeAsync(StateHasChanged);
     }
 
     private void OnStartCitySelected(string? selectedNodeId)
@@ -281,6 +364,7 @@
     {
         _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
         ApplyGameState(_gameState);
+        SyncRouteSelectionToActivePlayer();
     }
 
     private async Task ConnectToGameHubAsync()
@@ -333,6 +417,81 @@
         {
             _gameEngineEvents = _gameEngineEvents.Take(100).ToList();
         }
+
+        SyncRouteSelectionToActivePlayer();
+    }
+
+    private void SyncRouteSelectionToActivePlayer()
+    {
+        if (_gameMap is null || _gameState is null || _gameState.Players.Count == 0)
+        {
+            return;
+        }
+
+        var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
+        var routeCityOptions = _gameMap.RouteCityOptions;
+
+        var startCity = routeCityOptions.FirstOrDefault(option =>
+            string.Equals(option.CityName, activePlayer.CurrentCityName, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(startCity.NodeId))
+        {
+            _gameMap.SetStartCity(startCity.NodeId);
+        }
+
+        if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
+        {
+            return;
+        }
+
+        var destinationCity = routeCityOptions.FirstOrDefault(option =>
+            string.Equals(option.CityName, activePlayer.DestinationCityName, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(destinationCity.NodeId))
+        {
+            _gameMap.SetDestinationCity(destinationCity.NodeId);
+        }
+    }
+
+    private string TurnStatusText => $"{CurrentTurnPlayerName} Roll={CurrentRollTotalLabel} Moves={CurrentRouteMoveCount} Fees={FormatFee(CurrentRouteFees)} Sugg={FormatFee(SuggestedRouteFees)}";
+
+    private string CurrentTurnPlayerName
+    {
+        get
+        {
+            if (_gameState is null || _gameState.Players.Count == 0)
+            {
+                return "No active player";
+            }
+
+            return _gameState.Players[_gameState.ActivePlayerIndex].Name;
+        }
+    }
+
+    private string CurrentRollTotalLabel
+    {
+        get
+        {
+            if (_gameState?.Turn.DiceResult is not { } diceResult)
+            {
+                return "-";
+            }
+
+            var whiteDiceTotal = diceResult.WhiteDice?.Sum() ?? 0;
+            var total = whiteDiceTotal + (diceResult.RedDie ?? 0);
+            return total.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    private int CurrentRouteMoveCount => _gameMap?.GetSelectedRouteMoveCount() ?? 0;
+
+    private int CurrentRouteFees => _gameMap?.GetSelectedRouteFeeEstimate() ?? 0;
+
+    private int SuggestedRouteFees => _gameMap?.RouteSuggestion?.TotalCost ?? 0;
+
+    private static string FormatFee(int fee)
+    {
+        return string.Format(CultureInfo.InvariantCulture, "${0:N0}", Math.Max(0, fee));
     }
 
     public async ValueTask DisposeAsync()

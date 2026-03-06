@@ -11,6 +11,7 @@ namespace Boxcars.Services;
 public class GameService
 {
     public const string DefaultMapFileName = "U21MAP.RB3";
+    private static readonly string[] MockPlayerNames = ["Paul", "George", "Ringo", "John"];
 
     private readonly TableClient _gamesTable;
     private readonly TableClient _gamePlayersTable;
@@ -79,6 +80,14 @@ public class GameService
             return new GameActionResult { Success = false, Reason = "You already have an active game." };
         }
 
+        var seededPlayerNames = new[] { creatorId }
+            .Concat(MockPlayerNames)
+            .ToList();
+
+        var seededPlayerIds = new[] { creatorId }
+            .Concat(MockPlayerNames.Select(name => $"mock-{name.ToLowerInvariant()}"))
+            .ToList();
+
         var gameId = Guid.NewGuid().ToString();
 
         // Create game entity
@@ -88,20 +97,22 @@ public class GameService
             RowKey = gameId,
             CreatorId = creatorId,
             MapFileName = DefaultMapFileName,
-            MaxPlayers = maxPlayers,
-            CurrentPlayerCount = 1,
+            MaxPlayers = seededPlayerNames.Count,
+            CurrentPlayerCount = seededPlayerNames.Count,
             CreatedAt = DateTime.UtcNow
         };
 
         await _gamesTable.AddEntityAsync(game, cancellationToken);
 
-        // Add creator as first player
-        await _gamePlayersTable.AddEntityAsync(new GamePlayerEntity
+        foreach (var playerId in seededPlayerIds)
         {
-            PartitionKey = gameId,
-            RowKey = creatorId,
-            JoinedAt = DateTime.UtcNow
-        }, cancellationToken);
+            await _gamePlayersTable.AddEntityAsync(new GamePlayerEntity
+            {
+                PartitionKey = gameId,
+                RowKey = playerId,
+                JoinedAt = DateTime.UtcNow
+            }, cancellationToken);
+        }
 
         // Add active game index for creator
         await _activeGameIndexTable.AddEntityAsync(new IndexEntity
@@ -114,14 +125,19 @@ public class GameService
         try
         {
             await _gameEngine.CreateGameAsync(
-                [creatorId],
+                seededPlayerNames,
                 new GameCreationOptions { PreferredGameId = gameId },
                 cancellationToken);
         }
         catch
         {
             await _activeGameIndexTable.DeleteEntityAsync("ACTIVE_GAME", creatorId, cancellationToken: cancellationToken);
-            await _gamePlayersTable.DeleteEntityAsync(gameId, creatorId, cancellationToken: cancellationToken);
+
+            foreach (var playerId in seededPlayerIds)
+            {
+                await _gamePlayersTable.DeleteEntityAsync(gameId, playerId, cancellationToken: cancellationToken);
+            }
+
             await _gamesTable.DeleteEntityAsync("ACTIVE", gameId, cancellationToken: cancellationToken);
             throw;
         }

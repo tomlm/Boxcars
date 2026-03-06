@@ -72,6 +72,24 @@
     max-height: 180px;
 }
 
+::deep .map-board-history-panel {
+    min-width: 0;
+    height: 100%;
+    gap: 0;
+}
+
+::deep .map-board-turn-status {
+    flex-shrink: 0;
+    padding: 0.2rem 0.5rem;
+    border-bottom: 1px solid #2f2f2f;
+    color: #d8d8d8;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* ── History listbox ── */
 ::deep .map-board-history-listbox {
     display: block;
@@ -85,6 +103,7 @@
     color: #ccc;
     line-height: 1.35;
     height: 100%;
+    flex: 1;
 }
 
 ::deep .map-board-history-listbox fluent-option {
