@@ -1,0 +1,47 @@
+::deep .player-board {
+    gap: 0 !important;
+    width: 100%;
+}
+
+::deep fluent-card.player-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 92px;
+    overflow: hidden;
+    border-radius: 0;
+}
+
+    ::deep fluent-card.player-card::part(control) {
+        border-color: var(--player-color, #888) !important;
+        border-width: 2px;
+        border-style: solid;
+        border-radius: 0;
+    }
+
+::deep fluent-card.player-card-active {
+    box-shadow: 0 0 6px var(--player-color, #888);
+}
+
+    ::deep fluent-card.player-card-active::part(control) {
+        border-width: 3px;
+    }
+
+::deep .player-card-portrait {
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0px;
+    width: 100%;
+}
+
+::deep .player-persona {
+    flex: 1 1 auto;
+    width: 100%;
+}
+
+    ::deep .player-persona::part(control) {
+        width: 100% !important;
+        max-width: none !important;
+    }
+
+}

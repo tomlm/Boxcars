@@ -1,23 +1,13 @@
 <!--
 Sync Impact Report
 ===================
-Version change: N/A → 1.0.0
-Modified principles: N/A (initial ratification)
+Version change: 1.4.0 → 1.5.0
+Modified principles: N/A
 Added sections:
-  - Core Principles (3 principles: Gameplay Fidelity, Real-Time
-    Multiplayer First, Simplicity & Ship Fast)
-  - Technology Stack & Constraints
-  - Development Workflow
-  - Governance
+  - Blazor UI Conventions (component decomposition, no inline
+    CSS, Fluent UI best practices, naming, parameter discipline)
 Removed sections: N/A
-Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ no updates needed
-    (generic template, constitution check is dynamic)
-  - .specify/templates/spec-template.md ✅ no updates needed
-    (generic template, compatible with principles)
-  - .specify/templates/tasks-template.md ✅ no updates needed
-    (generic template, test-encouraged aligns with optional
-    test tasks)
+Templates requiring updates: None
 Follow-up TODOs: None
 -->
 
@@ -43,7 +33,8 @@ strategic experience of the original Rail Baron board game.
   (e.g., automated payoff lookups, digital dice). Such
   adaptations MUST NOT alter outcomes or strategy.
 - Rule accuracy MUST be verified against the official Rail Baron
-  rulebook. When ambiguity exists in the original rules, the
+  rules at https://www.railgamefans.com/rbp/rb21rules.htm.
+  When ambiguity exists in the original rules, the
   chosen interpretation MUST be documented and applied
   consistently.
 - New "house rule" variants or quality-of-life features (e.g.,
@@ -155,6 +146,39 @@ architecture should reflect that simplicity.
 - **Blocking calls**: Avoid blocking on async work (`.Result`,
   `.Wait()`, `GetAwaiter().GetResult()`) in application code.
 
+## Blazor UI Conventions
+
+- **Component library**: Use Microsoft Fluent UI Blazor
+  components as the primary UI toolkit. Follow Fluent UI
+  best practices for component usage, theming, and layout.
+- **No raw HTML**: Avoid raw HTML elements. Use Fluent UI
+  Blazor components for all UI rendering. Raw HTML is permitted
+  only when no suitable Fluent component exists and MUST be
+  justified in review.
+- **No inline CSS**: Styling MUST NOT be applied via inline
+  `style` attributes. Use CSS classes, CSS isolation
+  (`.razor.css` files), or Fluent UI design tokens instead.
+- **Component decomposition**: Pages MUST NOT be monolithic.
+  Major UI sections (e.g., map, player panel, dice controls,
+  railroad list, chat) MUST be extracted into dedicated Blazor
+  components to keep each file focused and independently
+  testable.
+- **Component naming**: Blazor components SHOULD be named
+  after the domain concept they represent (e.g.,
+  `GameMap.razor`, `PlayerPanel.razor`, `DiceRoller.razor`).
+- **Parameter discipline**: Components SHOULD accept data via
+  `[Parameter]` properties and communicate upward via
+  `EventCallback`. Avoid injecting broad state objects when
+  a focused parameter set suffices.
+- **Data binding**: Use Blazor's built-in data binding (`@bind`,
+  `@bind:event`, `@bind:after`) for two-way bindings. Prefer
+  one-way binding (`Value="@prop"`) with explicit
+  `ValueChanged` callbacks over two-way `@bind` when the
+  component needs to intercept or validate changes. Avoid
+  manual `StateHasChanged()` calls — rely on Blazor's
+  automatic re-rendering after event handlers and parameter
+  updates.
+
 ## Development Workflow
 
 - Features are developed on feature branches and merged to
@@ -193,4 +217,4 @@ architectural decisions MUST align with these principles.
   takes precedence. If Principle I is not involved, prefer
   Simplicity (Principle III).
 
-**Version**: 1.3.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-02-26
+**Version**: 1.5.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-04

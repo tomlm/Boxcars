@@ -6,8 +6,14 @@
 
 ## Code Style
 - Use specific formatting rules
-- Follow naming conventions
+- Follow naming conventions for dotnet and Blazor proejcts
+- Use Fluent UI Blazor components (no raw HTML)
+- Avoid inline CSS styles
+- Implement component decomposition for major UI sections
+- Utilize async I/O with CancellationToken
+- Apply LINQ extension-method syntax
 
 ## Project-Specific Rules
-- For route-node revisits, backtrack logic should run before railroad toggle logic; toggling must not preempt backtrack when selecting a previously visited non-endpoint node.
-- When selecting a route-node context menu railroad, prefer appending from the current endpoint using that railroad if possible, instead of rolling back/truncating.
+- Always read .specify/memory/constitution.md at the start of any work session on the Boxcars project. It defines non-negotiable principles.
+- Use the .specify agent when doing work on the Boxcars project.
+- Ensure gameplay fidelity to original Rail Baron rules.

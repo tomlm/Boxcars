@@ -1,4 +1,5 @@
 @using Boxcars.Data.Maps
+@using Boxcars.Engine.Data.Maps
 @using Boxcars.Hubs
 @using Boxcars.Services.Maps
 @using System.Globalization
@@ -7,338 +8,234 @@
 @using Microsoft.AspNetCore.SignalR
 @using Microsoft.FluentUI.AspNetCore.Components
 @using Microsoft.JSInterop
-@inject IMapParserService MapParserService
 @inject BoardProjectionService BoardProjectionService
 @inject BoardViewportService BoardViewportService
 @inject MapRouteService MapRouteService
-@inject IHubContext<BoxCarsHub> HubContext
+@inject IHubContext<DashboardHub> HubContext
 @inject IWebHostEnvironment HostEnvironment
 @inject IJSRuntime JavaScriptRuntime
 @implements IAsyncDisposable
 
-<div class="map-board-shell">
-    <FluentCard class="map-board-controls">
-        <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
-            <FluentLabel Typo="Typography.H5">Map Board</FluentLabel>
-            <FluentLabel Typo="Typography.Body">Map selection is provided by game setup.</FluentLabel>
-
-            <div class="map-board-mode-row">
-                <FluentLabel Typo="Typography.Body">Mode</FluentLabel>
-                <FluentButton Appearance="@GetModeButtonAppearance(MapInteractionMode.Rail)"
-                              OnClick="() => SetInteractionMode(MapInteractionMode.Rail)">
-                    Rail mode
-                </FluentButton>
-                <FluentButton Appearance="@GetModeButtonAppearance(MapInteractionMode.Route)"
-                              OnClick="() => SetInteractionMode(MapInteractionMode.Route)">
-                    Movement mode
-                </FluentButton>
-                @if (!string.IsNullOrWhiteSpace(_routeStartNodeName))
-                {
-                    <FluentLabel Typo="Typography.Body">Start: @_routeStartNodeName</FluentLabel>
-                }
-                @if (!string.IsNullOrWhiteSpace(_destinationCityName))
-                {
-                    <FluentLabel Typo="Typography.Body">Destination: @_destinationCityName</FluentLabel>
-                }
-                @if (_routeSuggestion is not null)
-                {
-                    if (_routeSuggestion.Status == RouteSuggestionStatus.Success)
-                    {
-                        <FluentLabel Typo="Typography.Body">Suggested Cost: @_routeSuggestion.TotalCost.ToString("C0", CultureInfo.CurrentCulture)</FluentLabel>
-                    }
-                    else if (_routeSuggestion.Status == RouteSuggestionStatus.NoRoute)
-                    {
-                        <FluentLabel Typo="Typography.Body">No route available</FluentLabel>
-                    }
-                }
-            </div>
-
-            @if (_interactionMode == MapInteractionMode.Route && _routeCityOptions.Count > 0)
-            {
-                <div class="map-board-route-picker-row">
-                    <div class="map-board-route-picker-group">
-                        <FluentLabel Typo="Typography.Body">Start city</FluentLabel>
-                        <select class="map-board-route-picker-select"
-                                value="@(_routeStartNodeId ?? string.Empty)"
-                                @onchange="OnStartCityChanged">
-                            @foreach (var option in _routeCityOptions)
-                            {
-                                <option value="@option.NodeId">@option.CityName</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="map-board-route-picker-group">
-                        <FluentLabel Typo="Typography.Body">Destination city</FluentLabel>
-                        <select class="map-board-route-picker-select"
-                                value="@(_destinationNodeId ?? string.Empty)"
-                                @onchange="OnDestinationCityChanged">
-                            <option value="">Select destination</option>
-                            @foreach (var option in _routeCityOptions)
-                            {
-                                <option value="@option.NodeId">@option.CityName</option>
-                            }
-                        </select>
-                    </div>
-
-                    <FluentButton Appearance="Appearance.Accent"
-                                  OnClick="OnSuggestRouteClickedAsync"
-                                  Disabled="@(!CanSuggestRoute)">
-                        Suggest route
-                    </FluentButton>
-                </div>
-            }
-
-            <div class="map-board-zoom-row">
-                <FluentLabel Typo="Typography.Body">Zoom (@_viewport.ZoomPercent.ToString("F0")%)</FluentLabel>
-                <input type="range"
-                       min="100"
-                       max="500"
-                       step="50"
-                       value="@_viewport.ZoomPercent"
-                       @oninput="OnZoomSliderInput"
-                       class="map-board-zoom-slider" />
-                <FluentButton Appearance="Appearance.Neutral" OnClick="ResetZoom">Fit to board</FluentButton>
-
-                @if (ShowEndGameButton)
-                {
-                    <FluentButton Appearance="Appearance.Lightweight" OnClick="OnEndGameClickedAsync" Disabled="@(!EndGameRequested.HasDelegate)">
-                        End Game
-                    </FluentButton>
-                }
-            </div>
-        </FluentStack>
-    </FluentCard>
-
-    @if (_errors.Count > 0)
+<div class="game-map-viewport"
+     @ref="_boardViewportElement"
+     tabindex="0">
+    @if (_mapDefinition is null || _renderModel is null)
     {
-        <FluentCard class="map-board-message map-board-error">
-            <FluentLabel Typo="Typography.H6">Unable to render map</FluentLabel>
-            @foreach (var error in _errors)
-            {
-                <FluentLabel Typo="Typography.Body">@error</FluentLabel>
-            }
+        <FluentCard class="game-map-placeholder">
+            <FluentLabel Typo="Typography.Body">No map loaded yet.</FluentLabel>
         </FluentCard>
     }
+    else
+    {
+        <svg class="@GetMapSvgClass()"
+             viewBox="@GetMapViewBoxValue()"
+             preserveAspectRatio="none"
+             aria-label="Rail Baron game board">
+            <g class="game-map-camera" transform="@GetCameraTransform()">
+                <g class="game-map-regions">
+                    @foreach (var regionFill in _renderModel.RegionFills)
+                    {
+                        <path d="@regionFill.PathData" fill="@regionFill.FillColor" />
+                    }
+                </g>
 
-    <div class="map-board-viewport"
-         @ref="_boardViewportElement"
-         tabindex="0">
-        @if (_mapDefinition is null || _renderModel is null)
-        {
-            <FluentCard class="map-board-placeholder">
-                <FluentLabel Typo="Typography.Body">No map loaded yet.</FluentLabel>
-            </FluentCard>
-        }
-        else
-        {
-            <svg class="map-board-svg"
-                 viewBox="@GetMapViewBoxValue()"
-                 preserveAspectRatio="none"
-                 aria-label="Rail Baron game board">
-                <g class="map-board-camera" transform="@GetCameraTransform()">
-                    <g class="map-board-regions">
-                        @foreach (var regionFill in _renderModel.RegionFills)
-                        {
-                            <path d="@regionFill.PathData" fill="@regionFill.FillColor" />
-                        }
-                    </g>
+                <g class="game-map-lines">
+                    @foreach (var line in _renderModel.MapLines)
+                    {
+                        <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
+                    }
+                </g>
 
-                    <g class="map-board-lines">
-                        @foreach (var line in _renderModel.MapLines)
-                        {
-                            <line x1="@line.X1" y1="@line.Y1" x2="@line.X2" y2="@line.Y2" />
-                        }
-                    </g>
+                <g class="game-map-separators">
+                    @foreach (var separator in _renderModel.Separators)
+                    {
+                        <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
+                    }
+                </g>
 
-                    <g class="map-board-separators">
-                        @foreach (var separator in _renderModel.Separators)
-                        {
-                            <line x1="@separator.X1" y1="@separator.Y1" x2="@separator.X2" y2="@separator.Y2" />
-                        }
-                    </g>
+                <g class="game-map-railroads">
+                    @foreach (var railroadSegment in _renderModel.RailroadSegments)
+                    {
+                        <line x1="@railroadSegment.X1"
+                              y1="@railroadSegment.Y1"
+                              x2="@railroadSegment.X2"
+                              y2="@railroadSegment.Y2"
+                              stroke="@railroadSegment.StrokeColor"
+                              class="@GetRailroadSegmentClass(railroadSegment)" />
+                        <line x1="@railroadSegment.X1"
+                              y1="@railroadSegment.Y1"
+                              x2="@railroadSegment.X2"
+                              y2="@railroadSegment.Y2"
+                              class="game-map-railroad-hitbox"
+                              data-mapboard-pan-ignore="true"
+                              @onmousedown:stopPropagation="true"
+                              @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
+                                @onclick:stopPropagation="@(SelectionMode == MapSelectionMode.Rail)" />
+                    }
+                </g>
 
-                    <g class="map-board-railroads">
-                        @foreach (var railroadSegment in _renderModel.RailroadSegments)
+                <g class="game-map-city-labels">
+                    @foreach (var city in _renderModel.Cities)
+                    {
+                        <svg:text x="@(city.X + 2.2)"
+                                  y="@(city.Y - 1.2)"
+                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 1.2)">@city.Name</svg:text>
+                    }
+                </g>
+
+                <g class="game-map-train-dots">
+                    @foreach (var dot in _renderModel.TrainDots)
+                    {
+                        <circle cx="@dot.X" cy="@dot.Y" r="0.9" />
+                    }
+                </g>
+
+                <g class="game-map-cities">
+                    @foreach (var city in _renderModel.Cities)
+                    {
+                        <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
+                    }
+                </g>
+
+                @if (SelectionMode == MapSelectionMode.Route)
+                {
+                    <g class="game-map-city-hitboxes">
+                        @foreach (var city in _renderModel.Cities)
                         {
-                            <line x1="@railroadSegment.X1"
-                                  y1="@railroadSegment.Y1"
-                                  x2="@railroadSegment.X2"
-                                  y2="@railroadSegment.Y2"
-                                  stroke="@railroadSegment.StrokeColor"
-                                  class="@GetRailroadSegmentClass(railroadSegment)" />
-                            <line x1="@railroadSegment.X1"
-                                  y1="@railroadSegment.Y1"
-                                  x2="@railroadSegment.X2"
-                                  y2="@railroadSegment.Y2"
-                                  class="map-board-railroad-hitbox"
+                            <rect x="@(city.X - 3.5)"
+                                  y="@(city.Y - 3.5)"
+                                  width="7"
+                                  height="7"
+                                  class="game-map-city-hitbox"
                                   data-mapboard-pan-ignore="true"
                                   @onmousedown:stopPropagation="true"
-                                  @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
-                                    @onclick:stopPropagation="@(_interactionMode == MapInteractionMode.Rail)" />
+                                  @oncontextmenu="@((MouseEventArgs args) => OnCityRightClicked(city, args))"
+                                  @oncontextmenu:preventDefault="true"
+                                  @oncontextmenu:stopPropagation="true" />
                         }
                     </g>
-
-                    <g class="map-board-train-dots">
-                        @foreach (var dot in _renderModel.TrainDots)
-                        {
-                            <circle cx="@dot.X" cy="@dot.Y" r="0.9" />
-                        }
-                    </g>
-
-                    <g class="map-board-cities">
-                        @foreach (var city in _renderModel.Cities)
-                        {
-                            <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
-                        }
-                    </g>
-
-                    @if (_interactionMode == MapInteractionMode.Route)
-                    {
-                        <g class="map-board-city-hitboxes">
-                            @foreach (var city in _renderModel.Cities)
-                            {
-                                <rect x="@(city.X - 3.5)"
-                                      y="@(city.Y - 3.5)"
-                                      width="7"
-                                      height="7"
-                                      class="map-board-city-hitbox"
-                                      data-mapboard-pan-ignore="true"
-                                      @onmousedown:stopPropagation="true"
-                                      @oncontextmenu="@((MouseEventArgs args) => OnCityRightClicked(city, args))"
-                                      @oncontextmenu:preventDefault="true"
-                                      @oncontextmenu:stopPropagation="true" />
-                            }
-                        </g>
-                    }
-
-                    @if (_routeSuggestionHighlights.Count > 0)
-                    {
-                        <g class="map-board-route-suggestion-highlights">
-                            @foreach (var highlight in _routeSuggestionHighlights)
-                            {
-                                <circle cx="@highlight.X"
-                                        cy="@highlight.Y"
-                                        r="@highlight.Radius"
-                                        fill="none"
-                                        stroke="@highlight.Color"
-                                        class="map-board-route-suggestion-circle" />
-                            }
-                        </g>
-                    }
-
-                    @if (_interactionMode == MapInteractionMode.Route)
-                    {
-                        var routeNodeHitboxWidth = GetRouteNodeHitboxWidth();
-                        var routeNodeHitboxHeight = GetRouteNodeHitboxHeight();
-
-                        <g class="map-board-route-node-hitboxes">
-                            @foreach (var routeNode in _routeNodes)
-                            {
-                                <rect x="@(routeNode.X - (routeNodeHitboxWidth / 2))"
-                                      y="@(routeNode.Y - (routeNodeHitboxHeight / 2))"
-                                      width="@routeNodeHitboxWidth"
-                                      height="@routeNodeHitboxHeight"
-                                      class="map-board-route-node-hitbox"
-                                      data-mapboard-pan-ignore="true"
-                                      @onmousedown:stopPropagation="true"
-                                      @onclick="@(() => OnRouteNodeClicked(routeNode))"
-                                      @ondblclick="@(() => OnRouteNodeDoubleClicked(routeNode))"
-                                      @ondblclick:stopPropagation="true"
-                                      @oncontextmenu="@((MouseEventArgs args) => OnRouteNodeRightClicked(routeNode, args))"
-                                      @oncontextmenu:preventDefault="true"
-                                      @oncontextmenu:stopPropagation="true"
-                                      @onclick:stopPropagation="true" />
-                            }
-                        </g>
-                    }
-
-                    <g class="map-board-region-labels">
-                        @foreach (var label in _renderModel.RegionLabels)
-                        {
-                            <svg:text x="@label.X"
-                                      y="@label.Y"
-                                      transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
-                        }
-                    </g>
-
-                    <g class="map-board-city-labels">
-                        @foreach (var city in _renderModel.Cities)
-                        {
-                            <svg:text x="@(city.X + 2.2)"
-                                      y="@(city.Y - 2.2)"
-                                      transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 2.2)">@city.Name</svg:text>
-                        }
-                    </g>
-                </g>
-            </svg>
-        }
-    </div>
-
-    @if (_routeNodeRailMenuVisible && _routeNodeRailMenuOptions.Count > 0)
-    {
-        <div class="map-board-route-node-menu"
-             style="@GetRouteNodeRailMenuStyle()"
-             data-mapboard-pan-ignore="true"
-             @onmousedown:stopPropagation="true"
-             @onclick:stopPropagation="true">
-            <FluentLabel Typo="Typography.Body">Select railroad</FluentLabel>
-            <div class="map-board-route-node-menu-items">
-                @foreach (var option in _routeNodeRailMenuOptions)
-                {
-                    <button type="button"
-                            class="map-board-route-node-menu-item"
-                            @onclick="() => OnRouteNodeRailOptionSelected(option)">
-                        @option.DisplayName
-                    </button>
                 }
-            </div>
-        </div>
-    }
 
-    @if (_destinationMenuVisible && !string.IsNullOrWhiteSpace(_destinationMenuCityName))
-    {
-        <div class="map-board-route-node-menu"
-             style="@GetDestinationMenuStyle()"
-             data-mapboard-pan-ignore="true"
-             @onmousedown:stopPropagation="true"
-             @onclick:stopPropagation="true">
-            <FluentLabel Typo="Typography.Body">City actions</FluentLabel>
-            <div class="map-board-route-node-menu-items">
-                <button type="button"
-                        class="map-board-route-node-menu-item"
-                        @onclick="OnDestinationMenuSelectedAsync">
-                    Set as destination (@_destinationMenuCityName)
-                </button>
-            </div>
-        </div>
-    }
+                @if (_routeSuggestionHighlights.Count > 0)
+                {
+                    <g class="game-map-route-suggestion-highlights">
+                        @foreach (var highlight in _routeSuggestionHighlights)
+                        {
+                            <circle cx="@highlight.X"
+                                    cy="@highlight.Y"
+                                    r="@highlight.Radius"
+                                    fill="none"
+                                    stroke="@highlight.Color"
+                                    class="game-map-route-suggestion-circle" />
+                        }
+                    </g>
+                }
 
-    @if (_warnings.Count > 0)
-    {
-        <FluentCard class="map-board-message map-board-warning map-board-warning-panel">
-            <details open>
-                <summary>Map Warnings (@_warnings.Count)</summary>
-                <div class="map-board-warning-list">
-                    @foreach (var warning in _warnings)
+                @if (SelectionMode == MapSelectionMode.Route)
+                {
+                    var routeNodeHitboxWidth = GetRouteNodeHitboxWidth();
+                    var routeNodeHitboxHeight = GetRouteNodeHitboxHeight();
+
+                    <g class="game-map-route-node-hitboxes">
+                        @foreach (var routeNode in _routeNodes)
+                        {
+                            <rect x="@(routeNode.X - (routeNodeHitboxWidth / 2))"
+                                  y="@(routeNode.Y - (routeNodeHitboxHeight / 2))"
+                                  width="@routeNodeHitboxWidth"
+                                  height="@routeNodeHitboxHeight"
+                                  class="game-map-route-node-hitbox"
+                                  data-mapboard-pan-ignore="true"
+                                  @onmousedown:stopPropagation="true"
+                                  @onclick="@(() => OnRouteNodeClicked(routeNode))"
+                                  @ondblclick="@(() => OnRouteNodeDoubleClicked(routeNode))"
+                                  @ondblclick:stopPropagation="true"
+                                  @oncontextmenu="@((MouseEventArgs args) => OnRouteNodeRightClicked(routeNode, args))"
+                                  @oncontextmenu:preventDefault="true"
+                                  @oncontextmenu:stopPropagation="true"
+                                  @onclick:stopPropagation="true" />
+                        }
+                    </g>
+                }
+
+                <g class="game-map-region-labels">
+                    @foreach (var label in _renderModel.RegionLabels)
                     {
-                        <FluentLabel Typo="Typography.Body">@warning</FluentLabel>
+                        <svg:text x="@label.X"
+                                  y="@label.Y"
+                                  transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
                     }
-                </div>
-            </details>
-        </FluentCard>
+                </g>
+            </g>
+        </svg>
     }
 </div>
 
+@if (_routeNodeRailMenuVisible && _routeNodeRailMenuOptions.Count > 0)
+{
+    <div class="game-map-route-node-menu"
+         style="@GetRouteNodeRailMenuStyle()"
+         data-mapboard-pan-ignore="true"
+         @onmousedown:stopPropagation="true"
+         @onclick:stopPropagation="true">
+        <FluentLabel Typo="Typography.Body">Select railroad</FluentLabel>
+        <div class="game-map-route-node-menu-items">
+            @foreach (var option in _routeNodeRailMenuOptions)
+            {
+                <button type="button"
+                        class="game-map-route-node-menu-item"
+                        @onclick="() => OnRouteNodeRailOptionSelected(option)">
+                    @option.DisplayName
+                </button>
+            }
+        </div>
+    </div>
+}
+
+@if (_destinationMenuVisible && !string.IsNullOrWhiteSpace(_destinationMenuCityName))
+{
+    <div class="game-map-route-node-menu"
+         style="@GetDestinationMenuStyle()"
+         data-mapboard-pan-ignore="true"
+         @onmousedown:stopPropagation="true"
+         @onclick:stopPropagation="true">
+        <FluentLabel Typo="Typography.Body">City actions</FluentLabel>
+        <div class="game-map-route-node-menu-items">
+            <button type="button"
+                    class="game-map-route-node-menu-item"
+                    @onclick="OnDestinationMenuSelectedAsync">
+                Set as destination (@_destinationMenuCityName)
+            </button>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter]
-    public bool ShowEndGameButton { get; set; }
-
-    [Parameter]
-    public EventCallback EndGameRequested { get; set; }
-
-    [Parameter]
     public string MapFileName { get; set; } = "U21MAP.RB3";
+
+    [Parameter]
+    public MapSelectionMode SelectionMode { get; set; } = MapSelectionMode.Rail;
+
+    [Parameter]
+    public EventCallback<MapSelectionMode> SelectionModeChanged { get; set; }
+
+    [Parameter]
+    public double ZoomPercent { get; set; } = 100;
+
+    [Parameter]
+    public EventCallback<double> ZoomPercentChanged { get; set; }
+
+    [Parameter]
+    public double PanCenterX { get; set; }
+
+    [Parameter]
+    public EventCallback<double> PanCenterXChanged { get; set; }
+
+    [Parameter]
+    public double PanCenterY { get; set; }
+
+    [Parameter]
+    public EventCallback<double> PanCenterYChanged { get; set; }
 
     [Parameter]
     public string PlayerId { get; set; } = "mock-player";
@@ -355,16 +252,38 @@
     [Parameter]
     public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
 
+    [Parameter]
+    public EventCallback<int> RailroadSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<string> DestinationCityChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<string> StartCityChanged { get; set; }
+
+    public MapDefinition? MapDefinition => _mapDefinition;
+    public IReadOnlyList<string> Errors => _errors;
+    public IReadOnlyList<string> Warnings => _warnings;
+    public string? RouteStartNodeName => _routeStartNodeName;
+    public string? DestinationCityName => _destinationCityName;
+    public RouteSuggestionResult? RouteSuggestion => _routeSuggestion;
+    public IReadOnlyList<RouteCityOption> RouteCityOptions => _routeCityOptions;
+    public string? RouteStartNodeId => _routeStartNodeId;
+    public string? DestinationNodeId => _destinationNodeId;
+
     private readonly List<string> _errors = new();
     private readonly List<string> _warnings = new();
 
     private ElementReference _boardViewportElement;
-    private DotNetObjectReference<MapBoard>? _mapBoardReference;
+    private DotNetObjectReference<MapComponent>? _mapBoardReference;
     private MapDefinition? _mapDefinition = null;
     private BoardRenderModel? _renderModel = null;
     private BoardViewport _viewport = new()
     {
-        ZoomPercent = 50,
+        ZoomPercent = 100,
         CenterX = 0,
         CenterY = 0,
         ZoomAnchor = ZoomAnchor.ViewportCenter
@@ -372,7 +291,7 @@
 
     private string? _loadedMapFileName;
     private int? _selectedRailroadIndex;
-    private MapInteractionMode _interactionMode = MapInteractionMode.Rail;
+    private MapSelectionMode _previousSelectionMode = MapSelectionMode.Rail;
     private readonly List<RouteNodeRenderItem> _routeNodes = new();
     private readonly List<RouteGraphEdge> _selectedRouteSegments = new();
     private readonly List<string> _selectedRouteNodeIds = new();
@@ -407,13 +326,20 @@
     private long _lastClientViewportSequence;
     private double _viewportRenderWidth = 1;
     private double _viewportRenderHeight = 1;
-    private bool CanSuggestRoute => _interactionMode == MapInteractionMode.Route
+
+    public bool CanSuggestRoute => SelectionMode == MapSelectionMode.Route
         && _routeContext is not null
         && !string.IsNullOrWhiteSpace(_routeStartNodeId)
         && !string.IsNullOrWhiteSpace(_destinationNodeId);
 
     protected override async Task OnParametersSetAsync()
     {
+        if (_previousSelectionMode != SelectionMode)
+        {
+            ResetSelectionState(_previousSelectionMode);
+            _previousSelectionMode = SelectionMode;
+        }
+
         var configuredMapFile = string.IsNullOrWhiteSpace(MapFileName)
             ? "U21MAP.RB3"
             : MapFileName.Trim();
@@ -424,6 +350,30 @@
         }
 
         await LoadConfiguredMapAsync(configuredMapFile);
+    }
+
+    private void ResetSelectionState(MapSelectionMode previousMode)
+    {
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+
+        if (previousMode == MapSelectionMode.Rail)
+        {
+            _selectedRailroadIndex = null;
+        }
+        else if (previousMode == MapSelectionMode.Route)
+        {
+            _selectedRouteSegments.Clear();
+            _selectedRouteNodeIds.Clear();
+            _routeSuggestion = null;
+            _routeSuggestionHighlights.Clear();
+            ResetRouteCycleState();
+
+            if (!string.IsNullOrWhiteSpace(_routeStartNodeId))
+            {
+                _selectedRouteNodeIds.Add(_routeStartNodeId);
+            }
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -501,7 +451,7 @@
         }
 
         await using var stream = File.OpenRead(resolvedPath);
-        var parseResult = await MapParserService.ParseAsync(Path.GetFileName(resolvedPath), stream, CancellationToken.None);
+        var parseResult = await MapDefinition.LoadAsync(Path.GetFileName(resolvedPath), stream);
 
         if (!parseResult.Succeeded || parseResult.Definition is null)
         {
@@ -527,6 +477,8 @@
 
         _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
         _loadedMapFileName = configuredMapFile;
+
+        await NotifyViewportChanged();
     }
 
     private string? ResolveMapPath(string configuredMapFile)
@@ -547,28 +499,27 @@
         return candidates.FirstOrDefault(File.Exists);
     }
 
-    private void OnZoomSliderInput(ChangeEventArgs args)
+    public async Task SetZoom(double zoomPercent)
     {
         if (_mapDefinition is null)
         {
             return;
         }
 
-        if (!double.TryParse(args.Value?.ToString(), out var requestedZoom))
-        {
-            return;
-        }
-
-        if (BoardViewportService.ClampZoom(requestedZoom) <= BoardViewportService.MinZoom)
+        if (BoardViewportService.ClampZoom(zoomPercent) <= BoardViewportService.MinZoom)
         {
             _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
-            return;
+        }
+        else
+        {
+            _viewport = BoardViewportService.UpdateViewportCentered(_viewport, zoomPercent);
         }
 
-        _viewport = BoardViewportService.UpdateViewportCentered(_viewport, requestedZoom);
+        await NotifyViewportChanged();
+        StateHasChanged();
     }
 
-    private void ResetZoom()
+    public async Task ResetZoom()
     {
         if (_mapDefinition is null)
         {
@@ -576,8 +527,58 @@
         }
 
         _viewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+        await NotifyViewportChanged();
+        StateHasChanged();
     }
 
+    public void SetStartCity(string nodeId)
+    {
+        SetRouteStartNode(nodeId);
+    }
+
+    public void SetDestinationCity(string nodeId)
+    {
+        var selectedOption = _routeCityOptions.FirstOrDefault(option =>
+            string.Equals(option.NodeId, nodeId, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(selectedOption.NodeId))
+        {
+            return;
+        }
+
+        _destinationNodeId = selectedOption.NodeId;
+        _destinationCityName = selectedOption.CityName;
+    }
+
+    public async Task SuggestRouteAsync()
+    {
+        DismissRouteNodeRailMenu();
+        DismissDestinationMenu();
+
+        if (!CanSuggestRoute)
+        {
+            return;
+        }
+
+        await RecalculateRouteSuggestionAsync();
+    }
+
+    private async Task NotifyViewportChanged()
+    {
+        if (ZoomPercentChanged.HasDelegate)
+        {
+            await ZoomPercentChanged.InvokeAsync(_viewport.ZoomPercent);
+        }
+
+        if (PanCenterXChanged.HasDelegate)
+        {
+            await PanCenterXChanged.InvokeAsync(_viewport.CenterX);
+        }
+
+        if (PanCenterYChanged.HasDelegate)
+        {
+            await PanCenterYChanged.InvokeAsync(_viewport.CenterY);
+        }
+    }
 
     private async Task InitializeCameraInteropAsync()
     {
@@ -623,6 +624,13 @@
 
         return FormattableString.Invariant(
             $"{_mapDefinition.ScaleLeft:F4} {_mapDefinition.ScaleTop:F4} {_mapDefinition.ScaleWidth:F4} {_mapDefinition.ScaleHeight:F4}");
+    }
+
+    private string GetMapSvgClass()
+    {
+        return Math.Abs(_viewport.ZoomPercent - 100) < 0.001
+            ? "game-map-svg game-map-svg-default-zoom"
+            : "game-map-svg";
     }
 
     private string? GetCameraTransform()
@@ -681,22 +689,12 @@
             $"translate({x:F4} {y:F4}) scale({compensationScaleX:F6} 1) translate({-x:F4} {-y:F4})");
     }
 
-    private async Task OnEndGameClickedAsync()
-    {
-        if (!EndGameRequested.HasDelegate)
-        {
-            return;
-        }
-
-        await EndGameRequested.InvokeAsync();
-    }
-
     private void OnRailroadSegmentClicked(int railroadIndex)
     {
         DismissRouteNodeRailMenu();
         DismissDestinationMenu();
 
-        if (_interactionMode != MapInteractionMode.Rail)
+        if (SelectionMode != MapSelectionMode.Rail)
         {
             return;
         }
@@ -707,6 +705,11 @@
         }
 
         _selectedRailroadIndex = railroadIndex;
+
+        if (RailroadSelected.HasDelegate)
+        {
+            _ = RailroadSelected.InvokeAsync(railroadIndex);
+        }
     }
 
     private void OnRouteNodeClicked(RouteNodeRenderItem routeNode)
@@ -714,7 +717,7 @@
         DismissRouteNodeRailMenu();
         DismissDestinationMenu();
 
-        if (_interactionMode != MapInteractionMode.Route
+        if (SelectionMode != MapSelectionMode.Route
             || _routeContext is null
             || string.IsNullOrWhiteSpace(_routeStartNodeId))
         {
@@ -766,7 +769,7 @@
         DismissRouteNodeRailMenu();
         DismissDestinationMenu();
 
-        if (_interactionMode != MapInteractionMode.Route
+        if (SelectionMode != MapSelectionMode.Route
             || string.IsNullOrWhiteSpace(routeNode.NodeId))
         {
             return;
@@ -957,7 +960,7 @@
     {
         DismissDestinationMenu();
 
-        if (_interactionMode != MapInteractionMode.Route
+        if (SelectionMode != MapSelectionMode.Route
             || _routeContext is null
             || _selectedRouteNodeIds.Count == 0)
         {
@@ -1200,7 +1203,7 @@
     {
         DismissRouteNodeRailMenu();
 
-        if (_interactionMode != MapInteractionMode.Route || _routeContext is null)
+        if (SelectionMode != MapSelectionMode.Route || _routeContext is null)
         {
             DismissDestinationMenu();
             return;
@@ -1256,38 +1259,6 @@
         }
     }
 
-    private void OnStartCityChanged(ChangeEventArgs args)
-    {
-        var selectedNodeId = args.Value?.ToString();
-        if (string.IsNullOrWhiteSpace(selectedNodeId))
-        {
-            return;
-        }
-
-        SetRouteStartNode(selectedNodeId);
-    }
-
-    private void OnDestinationCityChanged(ChangeEventArgs args)
-    {
-        var selectedNodeId = args.Value?.ToString();
-        if (string.IsNullOrWhiteSpace(selectedNodeId))
-        {
-            _destinationNodeId = null;
-            _destinationCityName = null;
-            return;
-        }
-
-        var selectedOption = _routeCityOptions.FirstOrDefault(option =>
-            string.Equals(option.NodeId, selectedNodeId, StringComparison.OrdinalIgnoreCase));
-        if (string.IsNullOrWhiteSpace(selectedOption.NodeId))
-        {
-            return;
-        }
-
-        _destinationNodeId = selectedOption.NodeId;
-        _destinationCityName = selectedOption.CityName;
-    }
-
     private Task OnDestinationMenuSelectedAsync()
     {
         if (string.IsNullOrWhiteSpace(_destinationMenuCityName) || string.IsNullOrWhiteSpace(_destinationMenuNodeId))
@@ -1299,20 +1270,49 @@
         _destinationCityName = _destinationMenuCityName;
         _destinationNodeId = _destinationMenuNodeId;
         DismissDestinationMenu();
+
+        if (DestinationCityChanged.HasDelegate)
+        {
+            return DestinationCityChanged.InvokeAsync(_destinationCityName);
+        }
+
         return Task.CompletedTask;
     }
 
-    private async Task OnSuggestRouteClickedAsync()
+    private async Task RecalculateRouteSuggestionAsync()
     {
-        DismissRouteNodeRailMenu();
-        DismissDestinationMenu();
-
-        if (!CanSuggestRoute)
+        if (_routeContext is null || string.IsNullOrWhiteSpace(_destinationNodeId))
         {
             return;
         }
 
-        await RecalculateRouteSuggestionAsync();
+        var startNodeId = ResolveCurrentPlayerNodeId();
+        if (string.IsNullOrWhiteSpace(startNodeId))
+        {
+            return;
+        }
+
+        var suggestion = MapRouteService.FindCheapestSuggestion(
+            _routeContext,
+            new RouteSuggestionRequest
+            {
+                PlayerId = string.IsNullOrWhiteSpace(PlayerId) ? "mock-player" : PlayerId,
+                StartNodeId = startNodeId,
+                DestinationNodeId = _destinationNodeId,
+                MovementType = MovementType,
+                PlayerColor = PlayerColor,
+                ResolveRailroadOwnership = ResolveRailroadOwnershipCategory
+            });
+
+        _routeSuggestion = suggestion;
+        ApplySuggestionToSelection(suggestion);
+        BuildSuggestionHighlights(suggestion);
+        await PublishRouteSuggestionUpdateAsync(suggestion);
+
+        if (RouteSuggestionChanged.HasDelegate)
+        {
+            await RouteSuggestionChanged.InvokeAsync(suggestion);
+        }
     }
 
     private string GetDestinationMenuStyle()
@@ -1352,37 +1352,6 @@
         }
 
         return _routeStartNodeId ?? string.Empty;
-    }
-
-    private async Task RecalculateRouteSuggestionAsync()
-    {
-        if (_routeContext is null || string.IsNullOrWhiteSpace(_destinationNodeId))
-        {
-            return;
-        }
-
-        var startNodeId = ResolveCurrentPlayerNodeId();
-        if (string.IsNullOrWhiteSpace(startNodeId))
-        {
-            return;
-        }
-
-        var suggestion = MapRouteService.FindCheapestSuggestion(
-            _routeContext,
-            new RouteSuggestionRequest
-            {
-                PlayerId = string.IsNullOrWhiteSpace(PlayerId) ? "mock-player" : PlayerId,
-                StartNodeId = startNodeId,
-                DestinationNodeId = _destinationNodeId,
-                MovementType = MovementType,
-                PlayerColor = PlayerColor,
-                ResolveRailroadOwnership = ResolveRailroadOwnershipCategory
-            });
-
-        _routeSuggestion = suggestion;
-        ApplySuggestionToSelection(suggestion);
-        BuildSuggestionHighlights(suggestion);
-        await PublishRouteSuggestionUpdateAsync(suggestion);
     }
 
     private void ApplySuggestionToSelection(RouteSuggestionResult suggestion)
@@ -1449,7 +1418,7 @@
         try
         {
             await HubContext.Clients.All.SendAsync(
-                BoxCarsHubEvents.RouteSuggestionUpdated,
+                DashboardHubEvents.RouteSuggestionUpdated,
                 new
                 {
                     PlayerId = string.IsNullOrWhiteSpace(PlayerId) ? "mock-player" : PlayerId,
@@ -1597,6 +1566,11 @@
         _routeSuggestion = null;
         _routeSuggestionHighlights.Clear();
         ResetRouteCycleState();
+
+        if (StartCityChanged.HasDelegate)
+        {
+            _ = StartCityChanged.InvokeAsync(routeNode.Name);
+        }
     }
 
     private void ResetRouteCycleState()
@@ -1629,28 +1603,25 @@
             : "#000000";
     }
 
-    private void SetInteractionMode(MapInteractionMode mode)
-    {
-        DismissRouteNodeRailMenu();
-        DismissDestinationMenu();
-        _interactionMode = mode;
-        if (mode == MapInteractionMode.Route)
-        {
-            _selectedRailroadIndex = null;
-        }
-    }
-
     [JSInvokable]
-    public Task OnClientViewportChanged(long sequence, double zoomPercent, double centerX, double centerY, double width, double height)
+    public async Task OnClientViewportChanged(long sequence, double zoomPercent, double centerX, double centerY, double width, double height)
     {
         if (sequence <= _lastClientViewportSequence)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         _lastClientViewportSequence = sequence;
 
         var nextZoom = BoardViewportService.ClampZoom(zoomPercent);
+
+        if (nextZoom <= BoardViewportService.MinZoom && _mapDefinition is not null)
+        {
+            var fitViewport = BoardViewportService.InitializeFitToBoard(_mapDefinition);
+            centerX = fitViewport.CenterX;
+            centerY = fitViewport.CenterY;
+        }
+
         var changed = Math.Abs(_viewport.ZoomPercent - nextZoom) > 0.01
             || Math.Abs(_viewport.CenterX - centerX) > 0.01
             || Math.Abs(_viewport.CenterY - centerY) > 0.01;
@@ -1667,17 +1638,17 @@
 
         var sizeChanged = UpdateViewportRenderSize(new RelativePoint(0, 0, width, height));
 
-        if (!changed && !sizeChanged)
+        if (changed)
         {
-            return Task.CompletedTask;
+            await NotifyViewportChanged();
         }
 
-        return InvokeAsync(StateHasChanged);
-    }
+        if (!changed && !sizeChanged)
+        {
+            return;
+        }
 
-    private Appearance GetModeButtonAppearance(MapInteractionMode mode)
-    {
-        return _interactionMode == mode ? Appearance.Accent : Appearance.Neutral;
+        await InvokeAsync(StateHasChanged);
     }
 
     private string GetRailroadSegmentClass(RailroadRenderSegment segment)
@@ -1690,7 +1661,7 @@
             classes.Add("selected");
         }
 
-        if (_interactionMode == MapInteractionMode.Route && IsRailroadSegmentInSelectedRoute(segment))
+        if (SelectionMode == MapSelectionMode.Route && IsRailroadSegmentInSelectedRoute(segment))
         {
             classes.Add("route-selected");
         }
@@ -1728,6 +1699,49 @@
         return false;
     }
 
+    public int GetSelectedRouteMoveCount()
+    {
+        return Math.Max(0, _selectedRouteNodeIds.Count - 1);
+    }
+
+    public int GetSelectedRouteFeeEstimate()
+    {
+        if (_selectedRouteSegments.Count == 0)
+        {
+            return 0;
+        }
+
+        var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        var totalCost = 0;
+        var pointsUsedInCurrentTurn = 0;
+        var lastRailroadIndex = -1;
+
+        foreach (var segment in _selectedRouteSegments)
+        {
+            var ownershipCategory = ResolveRailroadOwnershipCategory(segment.RailroadIndex);
+            var costPerTurn = ownershipCategory == RailroadOwnershipCategory.OwnedByOtherPlayer ? 5000 : 1000;
+
+            var isFirstEdge = lastRailroadIndex < 0;
+            var switchedRailroad = lastRailroadIndex >= 0 && lastRailroadIndex != segment.RailroadIndex;
+            var exhaustedTurnCapacity = lastRailroadIndex == segment.RailroadIndex && pointsUsedInCurrentTurn >= movementPointsPerTurn;
+            var startsNewTurn = isFirstEdge || switchedRailroad || exhaustedTurnCapacity;
+
+            if (startsNewTurn)
+            {
+                totalCost += costPerTurn;
+                pointsUsedInCurrentTurn = 1;
+            }
+            else
+            {
+                pointsUsedInCurrentTurn++;
+            }
+
+            lastRailroadIndex = segment.RailroadIndex;
+        }
+
+        return totalCost;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_cameraInitialized)
@@ -1738,20 +1752,12 @@
             }
             catch (JSDisconnectedException)
             {
-                // ignored during teardown
             }
         }
 
         _mapBoardReference?.Dispose();
     }
 
-    private enum MapInteractionMode
-    {
-        Rail,
-        Route
-    }
-
-    private readonly record struct RouteRailMenuOption(int RailroadIndex, string DisplayName);
-    private readonly record struct RouteCityOption(string CityName, string NodeId);
-
+    public readonly record struct RouteRailMenuOption(int RailroadIndex, string DisplayName);
+    public readonly record struct RouteCityOption(string CityName, string NodeId);
 }

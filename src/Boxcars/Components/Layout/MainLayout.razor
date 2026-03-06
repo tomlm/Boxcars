@@ -14,7 +14,7 @@
         </FluentStack>
     </FluentHeader>
     <FluentBodyContent>
-        <div class="content-area">
+        <div class="@(IsGameRoute ? "content-area content-area--full" : "content-area")">
             @Body
         </div>
     </FluentBodyContent>
@@ -31,3 +31,7 @@
     <a href="" class="reload">Reload</a>
     <a class="dismiss">🗙</a>
 </div>
+
+@code {
+    private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
+}

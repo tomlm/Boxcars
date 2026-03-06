@@ -1,0 +1,75 @@
+@using Boxcars.Data
+
+<FluentStack Orientation="Orientation.Vertical" Class="player-board" VerticalGap="2">
+    @foreach (var player in Players)
+    {
+        <FluentCard Class="@GetCardClass(player)" Style="@GetCardStyle(player)">
+            <FluentStack Orientation="Orientation.Horizontal" Class="player-card-portrait">
+                <FluentPersona Name="@player.Name"
+                               Class="player-persona"
+                               Style="@GetPersonaStyle(player)"
+                               Image="@(string.IsNullOrWhiteSpace(player.ThumbnailUrl) ? null : player.ThumbnailUrl)"
+                               ImageSize="60px"
+                               Status="@player.Status"
+                               StatusSize="PresenceBadgeSize.Medium"
+                               Initials="@GetInitial(player.Name)" />
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Vertical" Class="player-card-info" VerticalGap="0">
+                @if (player.IsAtDestination)
+                {
+                    <FluentLabel Typo="Typography.Body" >At: @player.LocationLabel</FluentLabel>
+                }
+                else if (!string.IsNullOrWhiteSpace(player.LocationLabel))
+                {
+                    <FluentLabel Typo="Typography.Body" >@player.DistanceToDestination to @player.LocationLabel</FluentLabel>
+                }
+                <FluentLabel Typo="Typography.Body" >
+                    @if (player.IsAtDestination)
+                    {
+                        @($"Payoff: ${player.Payoff:N0}")
+                    }
+                    else
+                    {
+                        @($"Get: ${player.Payoff:N0}")
+                    }
+                </FluentLabel>
+                <FluentLabel Typo="Typography.Body">@player.GetMoneyDisplay()</FluentLabel>
+                <FluentLabel Typo="Typography.Body">Home: @player.HomeCity</FluentLabel>
+                <FluentLabel Typo="Typography.Body" >Engine: @player.LocomotiveLabel</FluentLabel>
+            </FluentStack>
+        </FluentCard>
+    }
+</FluentStack>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
+
+    private static string GetInitial(string name)
+    {
+        return string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
+    }
+
+    private static string GetCardClass(PlayerBoardModel player)
+    {
+        var classes = $"player-card";
+        if (player.IsActiveTurn)
+        {
+            classes += " player-card-active";
+        }
+        return classes;
+    }
+
+    private static string GetPersonaStyle(PlayerBoardModel player)
+    {
+        return $"background-color: {player.Color}; color: #fff; width: 100%;";
+    }
+
+    private static string GetCardStyle(PlayerBoardModel player)
+    {
+        return $"--player-color: {player.Color}; border-color: {player.Color};";
+    }
+
+
+}

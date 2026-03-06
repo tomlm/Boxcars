@@ -1,0 +1,515 @@
+@page "/game/{GameId}"
+@rendermode InteractiveServer
+@using Boxcars.Components.Map
+@using Boxcars.Data
+@using Boxcars.Data.Maps
+@using Boxcars.Engine.Data.Maps
+@using Boxcars.GameEngine
+@using Boxcars.Hubs
+@using Boxcars.Services
+@using Boxcars.Services.Maps
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.FluentUI.AspNetCore.Components
+@using System.Globalization
+@using RailBaronGameState = Boxcars.Engine.Persistence.GameState
+@attribute [Authorize]
+@implements IAsyncDisposable
+@inject NavigationManager Navigation
+@inject GameService GameService
+@inject IGameEngine SharedGameEngine
+@inject IMessageService MessageService
+
+<PageTitle>Game - BoxCars</PageTitle>
+
+<div class="map-board-shell">
+    @* ── Left sidebar: player board ── *@
+    <div class="map-board-sidebar">
+        <PlayerBoard Players="_players" />
+    </div>
+
+    @* ── Main area: map + status bar + bottom bar ── *@
+    <div class="map-board-main">
+        @if (_gameMap?.Errors.Count > 0)
+        {
+            <FluentStack Orientation="Orientation.Vertical" Class="map-board-message map-board-error">
+                <FluentLabel Typo="Typography.H6">Unable to render map</FluentLabel>
+                @foreach (var error in _gameMap.Errors)
+                {
+                    <FluentLabel Typo="Typography.Body">@error</FluentLabel>
+                }
+            </FluentStack>
+        }
+
+        <div class="map-board-map-area">
+            <MapComponent @ref="_gameMap"
+                          MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
+                          SelectionMode="@_selectionMode"
+                          PlayerId="@(_currentUserId ?? string.Empty)"
+                          ZoomPercentChanged="OnZoomPercentChanged"
+                          RouteSuggestionChanged="OnRouteSuggestionChangedAsync" />
+        </div>
+
+        @* ── Status line below map ── *@
+        <FluentStack Orientation="Orientation.Horizontal" Wrap="true" VerticalAlignment="VerticalAlignment.Center" Class="map-board-status-bar">
+            @if (_players.Count > 0)
+            {
+                var active = _players.FirstOrDefault(p => p.IsActiveTurn);
+                if (active is not null)
+                {
+                    <FluentLabel Typo="Typography.Body" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</FluentLabel>
+                }
+            }
+
+            @if (_selectionMode == MapSelectionMode.Route && _gameMap?.RouteCityOptions.Count > 0)
+            {
+                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-route-picker-row">
+                    <FluentSelect TOption="string"
+                                  Value="@(_gameMap?.RouteStartNodeId ?? string.Empty)"
+                                  ValueChanged="OnStartCitySelected"
+                                  Class="map-board-route-picker-select">
+                        @foreach (var option in _gameMap!.RouteCityOptions)
+                        {
+                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                        }
+                    </FluentSelect>
+                    <FluentSelect TOption="string"
+                                  Value="@(_gameMap?.DestinationNodeId ?? string.Empty)"
+                                  ValueChanged="OnDestinationCitySelected"
+                                  Class="map-board-route-picker-select">
+                        <FluentOption Value="">Destination</FluentOption>
+                        @foreach (var option in _gameMap!.RouteCityOptions)
+                        {
+                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                        }
+                    </FluentSelect>
+                    <FluentButton Appearance="Appearance.Accent"
+                                  OnClick="OnSuggestRouteClickedAsync"
+                                  Disabled="@(_gameMap?.CanSuggestRoute != true)">
+                        Suggest
+                    </FluentButton>
+                </FluentStack>
+            }
+        </FluentStack>
+
+        @* ── Bottom bar: action log + zoom/OK controls ── *@
+        <div class="map-board-bottom-bar">
+            <FluentStack Orientation="Orientation.Vertical" Class="map-board-history-panel">
+                <FluentLabel Typo="Typography.Body" Class="map-board-turn-status">@TurnStatusText</FluentLabel>
+
+                <FluentListbox TOption="string" Class="map-board-history-listbox">
+                    <Virtualize Items="@_gameEngineEvents" Context="gameEvent">
+                        <FluentOption Value="@gameEvent.EventId" Class="map-board-history-item">@gameEvent.Description</FluentOption>
+                    </Virtualize>
+                </FluentListbox>
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Vertical" Class="map-board-controls">
+                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-mode-row">
+                    <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Rail)"
+                                  OnClick="() => SetSelectionMode(MapSelectionMode.Rail)">
+                        Rail
+                    </FluentButton>
+                    <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Route)"
+                                  OnClick="() => SetSelectionMode(MapSelectionMode.Route)">
+                        Move
+                    </FluentButton>
+                </FluentStack>
+
+                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-zoom-row">
+                    <FluentLabel Typo="Typography.Body">Zoom:</FluentLabel>
+                    <FluentSlider TValue="int"
+                                  Min="100"
+                                  Max="500"
+                                  Step="50"
+                                  @bind-Value="@_zoomPercent"
+                                  @bind-Value:after="OnZoomSliderChangedAsync"
+                                  Class="map-board-zoom-slider" />
+                </FluentStack>
+
+                <FluentButton Appearance="Appearance.Accent" OnClick="OnPrimaryGameActionAsync">
+                    @PrimaryGameActionLabel
+                </FluentButton>
+
+                <FluentButton Appearance="Appearance.Lightweight" OnClick="EndGameAsync">
+                    End Game
+                </FluentButton>
+            </FluentStack>
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] PlayerColors = ["blue", "red", "green", "cyan", "orange", "purple"];
+
+    private string? _currentUserId;
+    private GameEntity? _game;
+    private MapComponent? _gameMap;
+    private HubConnection? _hubConnection;
+    private bool _hubConnectionInitialized;
+    private bool _hasStartedGame;
+    private RailBaronGameState? _gameState;
+    private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
+    private int _zoomPercent = 100;
+    private List<PlayerBoardModel> _players = new();
+    private List<GameEngineEventEntry> _gameEngineEvents = new();
+
+    [Parameter]
+    public string GameId { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null)
+        {
+            return;
+        }
+
+        var state = await AuthState;
+        _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+        await LoadGameStateAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _hubConnectionInitialized || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        _hubConnectionInitialized = true;
+
+        try
+        {
+            await ConnectToGameHubAsync();
+        }
+        catch
+        {
+            // Game board can still render from loaded state without live hub updates.
+        }
+    }
+
+    private async Task EndGameAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentUserId) || string.IsNullOrWhiteSpace(GameId))
+        {
+            await MessageService.ShowMessageBarAsync("Unable to end game: missing user or game context.", MessageIntent.Error, "GAME");
+            return;
+        }
+
+        var result = await GameService.EndGameAsync(_currentUserId, GameId, CancellationToken.None);
+        if (!result.Success)
+        {
+            await MessageService.ShowMessageBarAsync(result.Reason ?? "Unable to end game.", MessageIntent.Error, "GAME");
+            return;
+        }
+
+        Navigation.NavigateTo("/dashboard");
+    }
+
+    private void SetSelectionMode(MapSelectionMode mode)
+    {
+        _selectionMode = mode;
+    }
+
+    private void OnZoomPercentChanged(double zoomPercent)
+    {
+        _zoomPercent = (int)zoomPercent;
+        StateHasChanged();
+    }
+
+    private async Task OnZoomSliderChangedAsync()
+    {
+        if (_gameMap is null)
+        {
+            return;
+        }
+
+        await _gameMap.SetZoom(_zoomPercent);
+    }
+
+    private string PrimaryGameActionLabel => _hasStartedGame ? "END TURN" : "START GAME";
+
+    private async Task OnPrimaryGameActionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(GameId) || _gameState is null || _gameState.Players.Count == 0)
+        {
+            return;
+        }
+
+        if (!_hasStartedGame)
+        {
+            _hasStartedGame = true;
+            _selectionMode = MapSelectionMode.Route;
+            await PrepareActivePlayerTurnAsync();
+            return;
+        }
+
+        var activePlayerName = _gameState.Players[_gameState.ActivePlayerIndex].Name;
+        var turnBeforeEnd = _gameState.TurnNumber;
+
+        var endTurnActions = new PlayerAction[]
+        {
+            new ChooseRouteAction { PlayerId = activePlayerName },
+            new MoveAction { PlayerId = activePlayerName },
+            new MoveAction { PlayerId = activePlayerName },
+            new DeclinePurchaseAction { PlayerId = activePlayerName },
+            new EndTurnAction { PlayerId = activePlayerName }
+        };
+
+        foreach (var action in endTurnActions)
+        {
+            await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
+        }
+
+        await RefreshStateAfterTurnAsync(state => state.TurnNumber > turnBeforeEnd);
+        await PrepareActivePlayerTurnAsync();
+    }
+
+    private async Task PrepareActivePlayerTurnAsync()
+    {
+        if (_gameState is null || _gameState.Players.Count == 0)
+        {
+            return;
+        }
+
+        var activePlayerName = _gameState.Players[_gameState.ActivePlayerIndex].Name;
+        var activeTurnNumber = _gameState.TurnNumber;
+
+        var setupActions = new PlayerAction[]
+        {
+            new PickDestinationAction { PlayerId = activePlayerName },
+            new RollDiceAction { PlayerId = activePlayerName, WhiteDieOne = 0, WhiteDieTwo = 0 }
+        };
+
+        foreach (var action in setupActions)
+        {
+            await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
+        }
+
+        await RefreshStateAfterTurnAsync(state =>
+            state.TurnNumber > activeTurnNumber
+            || (state.TurnNumber == activeTurnNumber
+                && string.Equals(state.Turn.Phase, "Move", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private async Task RefreshStateAfterTurnAsync(Func<RailBaronGameState, bool> completion)
+    {
+        for (var attempt = 0; attempt < 15; attempt++)
+        {
+            await Task.Delay(100);
+
+            var updatedState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+            ApplyGameState(updatedState);
+            SyncRouteSelectionToActivePlayer();
+
+            if (completion(updatedState))
+            {
+                return;
+            }
+        }
+    }
+
+    private Task OnRouteSuggestionChangedAsync(RouteSuggestionResult _)
+    {
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void OnStartCitySelected(string? selectedNodeId)
+    {
+        if (string.IsNullOrWhiteSpace(selectedNodeId) || _gameMap is null)
+        {
+            return;
+        }
+
+        _gameMap.SetStartCity(selectedNodeId);
+    }
+
+    private void OnDestinationCitySelected(string? selectedNodeId)
+    {
+        if (string.IsNullOrWhiteSpace(selectedNodeId) || _gameMap is null)
+        {
+            return;
+        }
+
+        _gameMap.SetDestinationCity(selectedNodeId);
+    }
+
+    private async Task OnSuggestRouteClickedAsync()
+    {
+        if (_gameMap is null)
+        {
+            return;
+        }
+
+        await _gameMap.SuggestRouteAsync();
+    }
+
+    private Appearance GetModeButtonAppearance(MapSelectionMode mode)
+    {
+        return _selectionMode == mode ? Appearance.Accent : Appearance.Neutral;
+    }
+
+    private async Task LoadGameStateAsync()
+    {
+        _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+        ApplyGameState(_gameState);
+        SyncRouteSelectionToActivePlayer();
+    }
+
+    private async Task ConnectToGameHubAsync()
+    {
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/game"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hubConnection.On<RailBaronGameState>(GameHubEvents.StateUpdated, state =>
+        {
+            ApplyGameState(state);
+            return InvokeAsync(StateHasChanged);
+        });
+
+        await _hubConnection.StartAsync();
+        await _hubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
+    }
+
+    private void ApplyGameState(RailBaronGameState state)
+    {
+        _gameState = state;
+
+        _players = state.Players
+            .Select((player, index) => new PlayerBoardModel
+            {
+                Index = index,
+                Name = player.Name,
+                Color = PlayerColors[index % PlayerColors.Length],
+                IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
+                LocationLabel = player.DestinationCityName ?? player.CurrentCityName,
+                DistanceToDestination = 0,
+                Payoff = 0,
+                Cash = player.Cash,
+                IsCurrentUser = false,
+                HomeCity = player.HomeCityName,
+                IsActiveTurn = index == state.ActivePlayerIndex,
+                IsConnected = player.IsActive,
+                LocomotiveLabel = player.LocomotiveType
+            })
+            .ToList();
+
+        _gameEngineEvents.Insert(0, new GameEngineEventEntry
+        {
+            EventId = Guid.NewGuid().ToString("N"),
+            Description = $"Turn {state.TurnNumber}: phase {state.Turn.Phase}"
+        });
+
+        if (_gameEngineEvents.Count > 100)
+        {
+            _gameEngineEvents = _gameEngineEvents.Take(100).ToList();
+        }
+
+        SyncRouteSelectionToActivePlayer();
+    }
+
+    private void SyncRouteSelectionToActivePlayer()
+    {
+        if (_gameMap is null || _gameState is null || _gameState.Players.Count == 0)
+        {
+            return;
+        }
+
+        var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
+        var routeCityOptions = _gameMap.RouteCityOptions;
+
+        var startCity = routeCityOptions.FirstOrDefault(option =>
+            string.Equals(option.CityName, activePlayer.CurrentCityName, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(startCity.NodeId))
+        {
+            _gameMap.SetStartCity(startCity.NodeId);
+        }
+
+        if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
+        {
+            return;
+        }
+
+        var destinationCity = routeCityOptions.FirstOrDefault(option =>
+            string.Equals(option.CityName, activePlayer.DestinationCityName, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(destinationCity.NodeId))
+        {
+            _gameMap.SetDestinationCity(destinationCity.NodeId);
+        }
+    }
+
+    private string TurnStatusText => $"{CurrentTurnPlayerName} Roll={CurrentRollTotalLabel} Moves={CurrentRouteMoveCount} Fees={FormatFee(CurrentRouteFees)} Sugg={FormatFee(SuggestedRouteFees)}";
+
+    private string CurrentTurnPlayerName
+    {
+        get
+        {
+            if (_gameState is null || _gameState.Players.Count == 0)
+            {
+                return "No active player";
+            }
+
+            return _gameState.Players[_gameState.ActivePlayerIndex].Name;
+        }
+    }
+
+    private string CurrentRollTotalLabel
+    {
+        get
+        {
+            if (_gameState?.Turn.DiceResult is not { } diceResult)
+            {
+                return "-";
+            }
+
+            var whiteDiceTotal = diceResult.WhiteDice?.Sum() ?? 0;
+            var total = whiteDiceTotal + (diceResult.RedDie ?? 0);
+            return total.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    private int CurrentRouteMoveCount => _gameMap?.GetSelectedRouteMoveCount() ?? 0;
+
+    private int CurrentRouteFees => _gameMap?.GetSelectedRouteFeeEstimate() ?? 0;
+
+    private int SuggestedRouteFees => _gameMap?.RouteSuggestion?.TotalCost ?? 0;
+
+    private static string FormatFee(int fee)
+    {
+        return string.Format(CultureInfo.InvariantCulture, "${0:N0}", Math.Max(0, fee));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection is not null)
+        {
+            if (_hubConnection.State == HubConnectionState.Connected)
+            {
+                await _hubConnection.InvokeAsync(GameHubEvents.LeaveGame, GameId);
+            }
+
+            await _hubConnection.DisposeAsync();
+        }
+    }
+
+    private sealed class GameEngineEventEntry
+    {
+        public required string EventId { get; init; }
+        public required string Description { get; init; }
+    }
+}

@@ -1,0 +1,91 @@
+namespace Boxcars.GameEngine;
+
+public enum PlayerActionKind
+{
+    PickDestination,
+    RollDice,
+    ChooseRoute,
+    Move,
+    PurchaseRailroad,
+    StartAuction,
+    Bid,
+    SellRailroad,
+    BuySuperchief,
+    DeclinePurchase,
+    EndTurn
+}
+
+public abstract record PlayerAction
+{
+    public required string PlayerId { get; init; }
+    public abstract PlayerActionKind Kind { get; }
+    public DateTimeOffset EnqueuedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+}
+
+public sealed record PickDestinationAction : PlayerAction
+{
+    public override PlayerActionKind Kind => PlayerActionKind.PickDestination;
+}
+
+public sealed record RollDiceAction : PlayerAction
+{
+    public required int WhiteDieOne { get; init; }
+    public required int WhiteDieTwo { get; init; }
+    public int? RedDie { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.RollDice;
+}
+
+public sealed record ChooseRouteAction : PlayerAction
+{
+    public IReadOnlyList<string> RouteNodeIds { get; init; } = [];
+    public override PlayerActionKind Kind => PlayerActionKind.ChooseRoute;
+}
+
+public sealed record MoveAction : PlayerAction
+{
+    public IReadOnlyList<string> PointsTaken { get; init; } = [];
+    public override PlayerActionKind Kind => PlayerActionKind.Move;
+}
+
+public sealed record PurchaseRailroadAction : PlayerAction
+{
+    public required int RailroadIndex { get; init; }
+    public required int AmountPaid { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.PurchaseRailroad;
+}
+
+public sealed record StartAuctionAction : PlayerAction
+{
+    public required int RailroadIndex { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.StartAuction;
+}
+
+public sealed record BidAction : PlayerAction
+{
+    public required int RailroadIndex { get; init; }
+    public required int AmountBid { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.Bid;
+}
+
+public sealed record SellRailroadAction : PlayerAction
+{
+    public required int RailroadIndex { get; init; }
+    public int AmountReceived { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.SellRailroad;
+}
+
+public sealed record BuySuperchiefAction : PlayerAction
+{
+    public required int AmountPaid { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.BuySuperchief;
+}
+
+public sealed record DeclinePurchaseAction : PlayerAction
+{
+    public override PlayerActionKind Kind => PlayerActionKind.DeclinePurchase;
+}
+
+public sealed record EndTurnAction : PlayerAction
+{
+    public override PlayerActionKind Kind => PlayerActionKind.EndTurn;
+}
