@@ -11,13 +11,14 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.SignalR.Client
-@using Microsoft.FluentUI.AspNetCore.Components
+@using MudBlazor
 @using System.Globalization
 @using RailBaronGameState = Boxcars.Engine.Persistence.GameState
 @attribute [Authorize]
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
 @inject GameService GameService
+@inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
 @inject IMessageService MessageService
 
@@ -33,125 +34,134 @@
     <div class="map-board-main">
         @if (_gameMap?.Errors.Count > 0)
         {
-            <FluentStack Orientation="Orientation.Vertical" Class="map-board-message map-board-error">
-                <FluentLabel Typo="Typography.H6">Unable to render map</FluentLabel>
+            <MudStack Class="map-board-message map-board-error">
+                <MudText Typo="Typo.h6">Unable to render map</MudText>
                 @foreach (var error in _gameMap.Errors)
                 {
-                    <FluentLabel Typo="Typography.Body">@error</FluentLabel>
+                    <MudText Typo="Typo.body2">@error</MudText>
                 }
-            </FluentStack>
+            </MudStack>
         }
 
         <div class="map-board-map-area">
-            <MapComponent @ref="_gameMap"
-                          MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
-                          SelectionMode="@_selectionMode"
-                          PlayerId="@(_currentUserId ?? string.Empty)"
-                          ZoomPercentChanged="OnZoomPercentChanged"
-                          RouteSuggestionChanged="OnRouteSuggestionChangedAsync" />
+            <GameMapComponent @ref="_gameMap"
+                              MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
+                              SelectionMode="@_selectionMode"
+                              PlayerId="@(_currentUserId ?? string.Empty)"
+                              PlayerColor="@_currentPlayerColor"
+                              ZoomPercentChanged="OnZoomPercentChanged"
+                              RouteSuggestionChanged="OnRouteSuggestionChangedAsync" />
         </div>
 
         @* ── Status line below map ── *@
-        <FluentStack Orientation="Orientation.Horizontal" Wrap="true" VerticalAlignment="VerticalAlignment.Center" Class="map-board-status-bar">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="map-board-status-bar">
             @if (_players.Count > 0)
             {
                 var active = _players.FirstOrDefault(p => p.IsActiveTurn);
                 if (active is not null)
                 {
-                    <FluentLabel Typo="Typography.Body" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</FluentLabel>
+                    <MudText Typo="Typo.body2" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</MudText>
                 }
             }
 
             @if (_selectionMode == MapSelectionMode.Route && _gameMap?.RouteCityOptions.Count > 0)
             {
-                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-route-picker-row">
-                    <FluentSelect TOption="string"
-                                  Value="@(_gameMap?.RouteStartNodeId ?? string.Empty)"
-                                  ValueChanged="OnStartCitySelected"
-                                  Class="map-board-route-picker-select">
+                <MudStack Row="true" Class="map-board-route-picker-row">
+                    <MudSelect T="string"
+                               Value="@(_gameMap?.RouteStartNodeId ?? string.Empty)"
+                               ValueChanged="OnStartCitySelected"
+                               Dense="true"
+                               Variant="Variant.Outlined"
+                               Class="map-board-route-picker-select">
                         @foreach (var option in _gameMap!.RouteCityOptions)
                         {
-                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                            <MudSelectItem Value="@option.NodeId">@option.CityName</MudSelectItem>
                         }
-                    </FluentSelect>
-                    <FluentSelect TOption="string"
-                                  Value="@(_gameMap?.DestinationNodeId ?? string.Empty)"
-                                  ValueChanged="OnDestinationCitySelected"
-                                  Class="map-board-route-picker-select">
-                        <FluentOption Value="">Destination</FluentOption>
+                    </MudSelect>
+                    <MudSelect T="string"
+                               Value="@(_gameMap?.DestinationNodeId ?? string.Empty)"
+                               ValueChanged="OnDestinationCitySelected"
+                               Dense="true"
+                               Variant="Variant.Outlined"
+                               Label="Destination"
+                               Class="map-board-route-picker-select">
                         @foreach (var option in _gameMap!.RouteCityOptions)
                         {
-                            <FluentOption Value="@option.NodeId">@option.CityName</FluentOption>
+                            <MudSelectItem Value="@option.NodeId">@option.CityName</MudSelectItem>
                         }
-                    </FluentSelect>
-                    <FluentButton Appearance="Appearance.Accent"
-                                  OnClick="OnSuggestRouteClickedAsync"
-                                  Disabled="@(_gameMap?.CanSuggestRoute != true)">
+                    </MudSelect>
+                    <MudButton Variant="Variant.Filled"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="OnSuggestRouteClickedAsync"
+                               Disabled="@(_gameMap?.CanSuggestRoute != true)">
                         Suggest
-                    </FluentButton>
-                </FluentStack>
+                    </MudButton>
+                </MudStack>
             }
-        </FluentStack>
+        </MudStack>
 
         @* ── Bottom bar: action log + zoom/OK controls ── *@
         <div class="map-board-bottom-bar">
-            <FluentStack Orientation="Orientation.Vertical" Class="map-board-history-panel">
-                <FluentLabel Typo="Typography.Body" Class="map-board-turn-status">@TurnStatusText</FluentLabel>
+            <MudStack Class="map-board-history-panel">
+                <MudText Typo="Typo.body2" Class="map-board-turn-status">@TurnStatusText</MudText>
 
-                <FluentListbox TOption="string" Class="map-board-history-listbox">
+                <MudPaper Class="map-board-history-listbox" Outlined="true">
                     <Virtualize Items="@_gameEngineEvents" Context="gameEvent">
-                        <FluentOption Value="@gameEvent.EventId" Class="map-board-history-item">@gameEvent.Description</FluentOption>
+                        <MudText Typo="Typo.caption" Class="map-board-history-item">@gameEvent.Description</MudText>
                     </Virtualize>
-                </FluentListbox>
-            </FluentStack>
+                </MudPaper>
+            </MudStack>
 
-            <FluentStack Orientation="Orientation.Vertical" Class="map-board-controls">
-                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-mode-row">
-                    <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Rail)"
-                                  OnClick="() => SetSelectionMode(MapSelectionMode.Rail)">
+            <MudStack Class="map-board-controls">
+                <MudStack Row="true" Class="map-board-mode-row">
+                    <MudButton Variant="@GetModeButtonVariant(MapSelectionMode.Rail)"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="() => SetSelectionMode(MapSelectionMode.Rail)">
                         Rail
-                    </FluentButton>
-                    <FluentButton Appearance="@GetModeButtonAppearance(MapSelectionMode.Route)"
-                                  OnClick="() => SetSelectionMode(MapSelectionMode.Route)">
+                    </MudButton>
+                    <MudButton Variant="@GetModeButtonVariant(MapSelectionMode.Route)"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="() => SetSelectionMode(MapSelectionMode.Route)">
                         Move
-                    </FluentButton>
-                </FluentStack>
+                    </MudButton>
+                </MudStack>
 
-                <FluentStack Orientation="Orientation.Horizontal" Class="map-board-zoom-row">
-                    <FluentLabel Typo="Typography.Body">Zoom:</FluentLabel>
-                    <FluentSlider TValue="int"
-                                  Min="100"
-                                  Max="500"
-                                  Step="50"
-                                  @bind-Value="@_zoomPercent"
-                                  @bind-Value:after="OnZoomSliderChangedAsync"
-                                  Class="map-board-zoom-slider" />
-                </FluentStack>
+                <MudStack Row="true" Class="map-board-zoom-row">
+                    <MudText Typo="Typo.body2">Zoom:</MudText>
+                    <MudSlider T="int"
+                               Min="100"
+                               Max="500"
+                               Step="50"
+                               @bind-Value="@_zoomPercent"
+                               @bind-Value:after="OnZoomSliderChangedAsync"
+                               Class="map-board-zoom-slider" />
+                </MudStack>
 
-                <FluentButton Appearance="Appearance.Accent" OnClick="OnPrimaryGameActionAsync">
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="OnPrimaryGameActionAsync">
                     @PrimaryGameActionLabel
-                </FluentButton>
+                </MudButton>
 
-                <FluentButton Appearance="Appearance.Lightweight" OnClick="EndGameAsync">
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" OnClick="EndGameAsync">
                     End Game
-                </FluentButton>
-            </FluentStack>
+                </MudButton>
+            </MudStack>
         </div>
     </div>
 </div>
 
 @code {
-    private static readonly string[] PlayerColors = ["blue", "red", "green", "cyan", "orange", "purple"];
-
     private string? _currentUserId;
+    private ApplicationUser? _currentUserProfile;
     private GameEntity? _game;
-    private MapComponent? _gameMap;
+    private List<GameSeat> _gamePlayers = new();
+    private GameMapComponent? _gameMap;
     private HubConnection? _hubConnection;
     private bool _hubConnectionInitialized;
     private bool _hasStartedGame;
     private RailBaronGameState? _gameState;
     private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
     private int _zoomPercent = 100;
+    private string _currentPlayerColor = PlayerColorOptions.Colors[0];
     private List<PlayerBoardModel> _players = new();
     private List<GameEngineEventEntry> _gameEngineEvents = new();
 
@@ -171,12 +181,19 @@
         var state = await AuthState;
         _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
+        if (!string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            _currentUserProfile = await ProfileService.GetProfileAsync(_currentUserId, CancellationToken.None);
+        }
+
         if (string.IsNullOrWhiteSpace(GameId))
         {
             return;
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+    _gamePlayers = await GameService.GetGamePlayersAsync(GameId, CancellationToken.None);
+    _currentPlayerColor = ResolveCurrentPlayerColor();
         await LoadGameStateAsync();
     }
 
@@ -355,9 +372,9 @@
         await _gameMap.SuggestRouteAsync();
     }
 
-    private Appearance GetModeButtonAppearance(MapSelectionMode mode)
+    private Variant GetModeButtonVariant(MapSelectionMode mode)
     {
-        return _selectionMode == mode ? Appearance.Accent : Appearance.Neutral;
+        return _selectionMode == mode ? Variant.Filled : Variant.Outlined;
     }
 
     private async Task LoadGameStateAsync()
@@ -389,21 +406,27 @@
         _gameState = state;
 
         _players = state.Players
-            .Select((player, index) => new PlayerBoardModel
+            .Select((player, index) =>
             {
-                Index = index,
-                Name = player.Name,
-                Color = PlayerColors[index % PlayerColors.Length],
-                IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
-                LocationLabel = player.DestinationCityName ?? player.CurrentCityName,
-                DistanceToDestination = 0,
-                Payoff = 0,
-                Cash = player.Cash,
-                IsCurrentUser = false,
-                HomeCity = player.HomeCityName,
-                IsActiveTurn = index == state.ActivePlayerIndex,
-                IsConnected = player.IsActive,
-                LocomotiveLabel = player.LocomotiveType
+                var gamePlayer = index < _gamePlayers.Count ? _gamePlayers[index] : null;
+
+                return new PlayerBoardModel
+                {
+                    Index = index,
+                    Name = gamePlayer?.DisplayName ?? player.Name,
+                    ThumbnailUrl = gamePlayer?.ThumbnailUrl ?? ResolveThumbnailUrl(player.Name),
+                    Color = gamePlayer?.AssignedColor ?? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length],
+                    IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
+                    LocationLabel = player.DestinationCityName ?? player.CurrentCityName,
+                    DistanceToDestination = 0,
+                    Payoff = 0,
+                    Cash = player.Cash,
+                    IsCurrentUser = string.Equals(gamePlayer?.UserId, _currentUserId, StringComparison.Ordinal),
+                    HomeCity = player.HomeCityName,
+                    IsActiveTurn = index == state.ActivePlayerIndex,
+                    IsConnected = player.IsActive,
+                    LocomotiveLabel = player.LocomotiveType
+                };
             })
             .ToList();
 
@@ -419,6 +442,37 @@
         }
 
         SyncRouteSelectionToActivePlayer();
+    }
+
+    private string ResolveCurrentPlayerColor()
+    {
+        if (string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return PlayerColorOptions.Colors[0];
+        }
+
+        var gamePlayer = _gamePlayers.FirstOrDefault(player => string.Equals(player.UserId, _currentUserId, StringComparison.Ordinal));
+        return gamePlayer is null
+            ? PlayerColorOptions.Colors[0]
+            : PlayerColorOptions.NormalizeOrDefault(gamePlayer.AssignedColor);
+    }
+
+    private string ResolveThumbnailUrl(string playerName)
+    {
+        if (_currentUserProfile is null || string.IsNullOrWhiteSpace(_currentUserProfile.ThumbnailUrl))
+        {
+            return string.Empty;
+        }
+
+        var matchesCurrentUserId = !string.IsNullOrWhiteSpace(_currentUserId)
+            && string.Equals(playerName, _currentUserId, StringComparison.OrdinalIgnoreCase);
+
+        var matchesNickname = !string.IsNullOrWhiteSpace(_currentUserProfile.Nickname)
+            && string.Equals(playerName, _currentUserProfile.Nickname, StringComparison.OrdinalIgnoreCase);
+
+        return matchesCurrentUserId || matchesNickname
+            ? _currentUserProfile.ThumbnailUrl
+            : string.Empty;
     }
 
     private void SyncRouteSelectionToActivePlayer()

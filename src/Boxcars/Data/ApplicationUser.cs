@@ -29,6 +29,7 @@ public class ApplicationUser : ITableEntity
     public string Nickname { get; set; } = string.Empty;
     public string NormalizedNickname { get; set; } = string.Empty;
     public string ThumbnailUrl { get; set; } = string.Empty;
+    public string PreferredColor { get; set; } = string.Empty;
 
     // Scaffold-compatibility properties (not actively used but required by some Identity pages)
     public string ConcurrencyStamp { get; set; } = Guid.NewGuid().ToString();

@@ -1,11 +1,10 @@
 <!--
 Sync Impact Report
 ===================
-Version change: 1.4.0 → 1.5.0
+Version change: 1.5.0 → 1.6.0
 Modified principles: N/A
 Added sections:
-  - Blazor UI Conventions (component decomposition, no inline
-    CSS, Fluent UI best practices, naming, parameter discipline)
+  - N/A
 Removed sections: N/A
 Templates requiring updates: None
 Follow-up TODOs: None
@@ -148,16 +147,16 @@ architecture should reflect that simplicity.
 
 ## Blazor UI Conventions
 
-- **Component library**: Use Microsoft Fluent UI Blazor
-  components as the primary UI toolkit. Follow Fluent UI
-  best practices for component usage, theming, and layout.
-- **No raw HTML**: Avoid raw HTML elements. Use Fluent UI
-  Blazor components for all UI rendering. Raw HTML is permitted
-  only when no suitable Fluent component exists and MUST be
+- **Component library**: Use MudBlazor components as the
+  primary UI toolkit. Follow MudBlazor best practices for
+  component usage, theming, and layout.
+- **No raw HTML**: Avoid raw HTML elements. Use MudBlazor
+  components for all UI rendering. Raw HTML is permitted
+  only when no suitable MudBlazor component exists and MUST be
   justified in review.
 - **No inline CSS**: Styling MUST NOT be applied via inline
   `style` attributes. Use CSS classes, CSS isolation
-  (`.razor.css` files), or Fluent UI design tokens instead.
+  (`.razor.css` files), or MudBlazor theming/tokens instead.
 - **Component decomposition**: Pages MUST NOT be monolithic.
   Major UI sections (e.g., map, player panel, dice controls,
   railroad list, chat) MUST be extracted into dedicated Blazor
@@ -217,4 +216,4 @@ architectural decisions MUST align with these principles.
   takes precedence. If Principle I is not involved, prefer
   Simplicity (Principle III).
 
-**Version**: 1.5.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-04
+**Version**: 1.6.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-06

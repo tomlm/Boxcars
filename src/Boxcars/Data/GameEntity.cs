@@ -14,5 +14,6 @@ public class GameEntity : ITableEntity
     public string MapFileName { get; set; } = "U21MAP.RB3";
     public int MaxPlayers { get; set; } = 6;
     public int CurrentPlayerCount { get; set; }
+    public string Players { get; set; } = "[]";
     public DateTime CreatedAt { get; set; }
 }

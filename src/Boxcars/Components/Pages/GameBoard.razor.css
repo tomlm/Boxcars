@@ -8,7 +8,7 @@
 }
 
 /* ── Left sidebar ── */
-::deep .map-board-sidebar {
+.map-board-sidebar {
     width: 270px;
     flex-shrink: 0;
     overflow-y: auto;
@@ -17,7 +17,7 @@
 }
 
 /* ── Main right area: map + status + bottom bar ── */
-::deep .map-board-main {
+.map-board-main {
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -37,21 +37,21 @@
     min-height: 0;
 }
 
-::deep .game-map-viewport {
+.game-map-viewport {
     width: 100%;
     height: 100%;
 }
 
 /* ── Status bar below map ── */
-::deep .map-board-status-bar {
+.map-board-status-bar {
     flex-shrink: 0;
     gap: 0.75rem;
     padding: 0.25rem 0.5rem;
-    background: #222;
-    color: #ddd;
+    background: color-mix(in srgb, var(--mud-palette-surface) 70%, black 30%);
+    color: var(--mud-palette-text-primary);
     font-size: 0.85rem;
     min-height: 1.75rem;
-    border-top: 1px solid #444;
+    border-top: 1px solid var(--mud-palette-divider);
 }
 
 .status-bar-text {
@@ -59,30 +59,30 @@
 }
 
 /* ── Bottom bar: log left, controls right ── */
-::deep .map-board-bottom-bar {
+.map-board-bottom-bar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: stretch;
     column-gap: 0;
     flex-shrink: 0;
     width: 100%;
-    background: #1a1a1a;
-    border-top: 1px solid #444;
+    background: color-mix(in srgb, var(--mud-palette-surface) 55%, black 45%);
+    border-top: 1px solid var(--mud-palette-divider);
     min-height: 120px;
     max-height: 180px;
 }
 
-::deep .map-board-history-panel {
+.map-board-history-panel {
     min-width: 0;
     height: 100%;
     gap: 0;
 }
 
-::deep .map-board-turn-status {
+.map-board-turn-status {
     flex-shrink: 0;
     padding: 0.2rem 0.5rem;
-    border-bottom: 1px solid #2f2f2f;
-    color: #d8d8d8;
+    border-bottom: 1px solid var(--mud-palette-divider);
+    color: var(--mud-palette-text-primary);
     font-family: "Consolas", "Courier New", monospace;
     font-size: 0.82rem;
     white-space: nowrap;
@@ -91,22 +91,21 @@
 }
 
 /* ── History listbox ── */
-::deep .map-board-history-listbox {
+.map-board-history-listbox {
     display: block;
     min-width: 0;
     width: 100%;
     max-width: 100%;
-    --listbox-width: 100%;
     padding: 0.35rem 0.5rem;
     font-family: "Consolas", "Courier New", monospace;
     font-size: 0.8rem;
-    color: #ccc;
+    color: var(--mud-palette-text-primary);
     line-height: 1.35;
     height: 100%;
     flex: 1;
 }
 
-::deep .map-board-history-listbox fluent-option {
+.map-board-history-listbox .map-board-history-item {
     display: block;
     width: 100%;
     box-sizing: border-box;
@@ -115,30 +114,24 @@
     text-overflow: ellipsis;
 }
 
-::deep .map-board-history-listbox .map-board-history-item {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-}
-
 /* ── Right-side controls in bottom bar ── */
-::deep .map-board-controls {
+.map-board-controls {
     display: flex;
     align-items: flex-end;
     flex-shrink: 0;
     justify-content: center;
     gap: 0.35rem;
     padding: 0.5rem 0.75rem;
-    border-left: 1px solid #444;
+    border-left: 1px solid var(--mud-palette-divider);
     white-space: nowrap;
 }
 
-::deep .map-board-mode-row {
+.map-board-mode-row {
     gap: 0.35rem;
     align-items: center;
 }
 
-::deep .map-board-zoom-row {
+.map-board-zoom-row {
     gap: 0.35rem;
     align-items: center;
 }
@@ -149,20 +142,14 @@
     max-width: 100px;
 }
 
-::deep .map-board-zoom-slider {
-    width: 100px;
-    min-width: 100px;
-    max-width: 100px;
-}
-
 /* ── Route picker (inline in status bar) ── */
-::deep .map-board-route-picker-row {
+.map-board-route-picker-row {
     gap: 0.5rem;
     align-items: center;
 }
 
 /* ── Error/warning overlays ── */
-::deep .map-board-message {
+.map-board-message {
     padding: 0.5rem 0.75rem;
 }
 
@@ -173,5 +160,5 @@
 }
 
 .map-board-warning {
-    border: 1px solid var(--neutral-stroke-rest);
+    border: 1px solid var(--mud-palette-divider);
 }

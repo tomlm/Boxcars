@@ -10,6 +10,7 @@ using Boxcars.Services.Maps;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.FluentUI.AspNetCore.Components;
+using MudBlazor.Services;
 
 namespace Boxcars;
 
@@ -40,8 +41,9 @@ public class Program
             ?? throw new InvalidOperationException("AzureTableStorage:ConnectionString not found.");
         builder.Services.AddSingleton(new TableServiceClient(tableStorageConnectionString));
 
-        // Fluent UI
+        // UI component libraries
         builder.Services.AddHttpClient();
+        builder.Services.AddMudServices();
         builder.Services.AddFluentUIComponents();
 
         // Identity (custom table storage stores, no EF Core)
@@ -81,7 +83,6 @@ public class Program
             TableNames.UserNameIndexTable,
             TableNames.NicknameIndexTable,
             TableNames.GamesTable,
-            TableNames.GamePlayersTable,
             TableNames.PlayerActiveGameIndexTable,
             TableNames.GameSnapshotsTable
         };

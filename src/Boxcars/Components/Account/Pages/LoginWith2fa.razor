@@ -1,8 +1,10 @@
 ﻿@page "/Account/LoginWith2fa"
 
 @using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Boxcars.Data
+@attribute [AllowAnonymous]
 
 @inject SignInManager<ApplicationUser> SignInManager
 @inject UserManager<ApplicationUser> UserManager
@@ -56,6 +58,11 @@
 
     [SupplyParameterFromQuery]
     private bool RememberMe { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        Input ??= new();
+    }
 
     protected override async Task OnInitializedAsync()
     {

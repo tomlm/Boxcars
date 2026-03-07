@@ -3,9 +3,12 @@
 @using System.ComponentModel.DataAnnotations
 @using System.Text
 @using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using Boxcars.Data
+@using MudBlazor
+@attribute [AllowAnonymous]
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IUserStore<ApplicationUser> UserStore
@@ -17,42 +20,56 @@
 
 <PageTitle>Register</PageTitle>
 
-<h1>Register</h1>
+<MudText Typo="Typo.h4" Class="auth-title">Register</MudText>
 
-<div class="row">
-    <div class="col-md-4">
+<MudGrid Class="auth-grid">
+    <MudItem xs="12" md="5">
+        <MudPaper Class="auth-card" Outlined="true">
         <StatusMessage Message="@Message" />
         <EditForm Model="Input" asp-route-returnUrl="@ReturnUrl" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
-            <h2>Create a new account.</h2>
-            <hr />
-            <ValidationSummary class="text-danger" role="alert" />
-            <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
-                <label for="email">Email</label>
-                <ValidationMessage For="() => Input.Email" class="text-danger" />
-            </div>
-            <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                <label for="password">Password</label>
-                <ValidationMessage For="() => Input.Password" class="text-danger" />
-            </div>
-            <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                <label for="confirm-password">Confirm Password</label>
-                <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
-            </div>
-            <button type="submit" class="w-100 btn btn-lg btn-primary">Register</button>
+            <MudText Typo="Typo.h6">Create a new account.</MudText>
+            <ValidationSummary class="auth-validation" role="alert" />
+            <MudStack Class="auth-form-fields">
+                <InputText @bind-Value="Input.Email"
+                           type="email"
+                           name="Input.Email"
+                           class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end auth-native-input"
+                           autocomplete="username"
+                           aria-required="true"
+                           placeholder="name@example.com" />
+                <ValidationMessage For="() => Input.Email" class="auth-validation" />
+
+                <InputText @bind-Value="Input.Password"
+                           type="password"
+                           name="Input.Password"
+                           class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end auth-native-input"
+                           autocomplete="new-password"
+                           aria-required="true"
+                           placeholder="password" />
+                <ValidationMessage For="() => Input.Password" class="auth-validation" />
+
+                <InputText @bind-Value="Input.ConfirmPassword"
+                           type="password"
+                           name="Input.ConfirmPassword"
+                           class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end auth-native-input"
+                           autocomplete="new-password"
+                           aria-required="true"
+                           placeholder="password" />
+                <ValidationMessage For="() => Input.ConfirmPassword" class="auth-validation" />
+
+                <MudButton ButtonType="MudBlazor.ButtonType.Submit" Variant="Variant.Filled" Color="MudBlazor.Color.Primary" FullWidth="true">Register</MudButton>
+            </MudStack>
         </EditForm>
-    </div>
-    <div class="col-md-6 col-md-offset-2">
-        <section>
-            <h3>Use another service to register.</h3>
-            <hr />
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" md="7">
+        <MudPaper Class="auth-card" Outlined="true">
+            <MudText Typo="Typo.h6">Use another service to register.</MudText>
             <ExternalLoginPicker />
-        </section>
-    </div>
-</div>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
 
 @code {
     private IEnumerable<IdentityError>? identityErrors;
@@ -64,6 +81,11 @@
     private string? ReturnUrl { get; set; }
 
     private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+
+    protected override void OnParametersSet()
+    {
+        Input ??= new();
+    }
 
     public async Task RegisterUser(EditContext editContext)
     {

@@ -6,7 +6,7 @@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.SignalR
-@using Microsoft.FluentUI.AspNetCore.Components
+@using MudBlazor
 @using Microsoft.JSInterop
 @inject BoardProjectionService BoardProjectionService
 @inject BoardViewportService BoardViewportService
@@ -21,9 +21,9 @@
      tabindex="0">
     @if (_mapDefinition is null || _renderModel is null)
     {
-        <FluentCard class="game-map-placeholder">
-            <FluentLabel Typo="Typography.Body">No map loaded yet.</FluentLabel>
-        </FluentCard>
+        <MudPaper Class="game-map-placeholder" Outlined="true">
+            <MudText Typo="Typo.body1">No map loaded yet.</MudText>
+        </MudPaper>
     }
     else
     {
@@ -172,41 +172,47 @@
 
 @if (_routeNodeRailMenuVisible && _routeNodeRailMenuOptions.Count > 0)
 {
-    <div class="game-map-route-node-menu"
-         style="@GetRouteNodeRailMenuStyle()"
-         data-mapboard-pan-ignore="true"
-         @onmousedown:stopPropagation="true"
-         @onclick:stopPropagation="true">
-        <FluentLabel Typo="Typography.Body">Select railroad</FluentLabel>
-        <div class="game-map-route-node-menu-items">
+    <MudPaper Class="game-map-route-node-menu"
+              Style="@GetRouteNodeRailMenuStyle()"
+              data-mapboard-pan-ignore="true"
+              @onmousedown:stopPropagation="true"
+              @onclick:stopPropagation="true"
+              Outlined="true"
+              Elevation="4">
+        <MudText Typo="Typo.body2">Select railroad</MudText>
+        <MudStack Class="game-map-route-node-menu-items">
             @foreach (var option in _routeNodeRailMenuOptions)
             {
-                <button type="button"
-                        class="game-map-route-node-menu-item"
-                        @onclick="() => OnRouteNodeRailOptionSelected(option)">
+                <MudButton Variant="Variant.Outlined"
+                           Color="MudBlazor.Color.Primary"
+                           Class="game-map-route-node-menu-item"
+                           OnClick="() => OnRouteNodeRailOptionSelected(option)">
                     @option.DisplayName
-                </button>
+                </MudButton>
             }
-        </div>
-    </div>
+        </MudStack>
+    </MudPaper>
 }
 
 @if (_destinationMenuVisible && !string.IsNullOrWhiteSpace(_destinationMenuCityName))
 {
-    <div class="game-map-route-node-menu"
-         style="@GetDestinationMenuStyle()"
-         data-mapboard-pan-ignore="true"
-         @onmousedown:stopPropagation="true"
-         @onclick:stopPropagation="true">
-        <FluentLabel Typo="Typography.Body">City actions</FluentLabel>
-        <div class="game-map-route-node-menu-items">
-            <button type="button"
-                    class="game-map-route-node-menu-item"
-                    @onclick="OnDestinationMenuSelectedAsync">
+    <MudPaper Class="game-map-route-node-menu"
+              Style="@GetDestinationMenuStyle()"
+              data-mapboard-pan-ignore="true"
+              @onmousedown:stopPropagation="true"
+              @onclick:stopPropagation="true"
+              Outlined="true"
+              Elevation="4">
+        <MudText Typo="Typo.body2">City actions</MudText>
+        <MudStack Class="game-map-route-node-menu-items">
+            <MudButton Variant="Variant.Outlined"
+                       Color="MudBlazor.Color.Primary"
+                       Class="game-map-route-node-menu-item"
+                       OnClick="OnDestinationMenuSelectedAsync">
                 Set as destination (@_destinationMenuCityName)
-            </button>
-        </div>
-    </div>
+            </MudButton>
+        </MudStack>
+    </MudPaper>
 }
 
 @code {

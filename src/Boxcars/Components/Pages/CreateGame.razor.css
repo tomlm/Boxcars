@@ -1,0 +1,40 @@
+.create-game-page {
+    gap: 1.5rem;
+}
+
+.create-game-card {
+    max-width: 32rem;
+    padding: 1.5rem;
+}
+
+.create-game-fields {
+    gap: 1rem;
+}
+
+.create-game-player-list {
+    gap: 0.75rem;
+}
+
+.create-game-player-row {
+    padding: 1rem;
+}
+
+.create-game-player-row-header {
+    margin-bottom: 0.75rem;
+}
+
+.create-game-player-grid {
+    width: 100%;
+}
+
+.create-game-field {
+    width: 100%;
+}
+
+.create-game-helper {
+    opacity: 0.75;
+}
+
+.create-game-actions {
+    gap: 0.75rem;
+}

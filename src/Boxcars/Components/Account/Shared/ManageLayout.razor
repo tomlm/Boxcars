@@ -1,17 +1,17 @@
 ﻿@inherits LayoutComponentBase
 @layout AccountLayout
+@using MudBlazor
 
-<h1>Manage your account</h1>
+<MudStack Class="manage-layout-root">
+    <MudText Typo="Typo.h4">Manage your account</MudText>
+    <MudText Typo="Typo.h6">Change your account settings</MudText>
 
-<div>
-    <h2>Change your account settings</h2>
-    <hr />
-    <div class="row">
-        <div class="col-md-3">
+    <MudGrid>
+        <MudItem xs="12" md="3">
             <ManageNavMenu />
-        </div>
-        <div class="col-md-9">
+        </MudItem>
+        <MudItem xs="12" md="9">
             @Body
-        </div>
-    </div>
-</div>
+        </MudItem>
+    </MudGrid>
+</MudStack>

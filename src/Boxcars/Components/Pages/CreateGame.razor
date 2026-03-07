@@ -1,0 +1,372 @@
+@page "/games/new"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Boxcars.Data
+@using MudBlazor
+@using Boxcars.Services
+@attribute [Authorize]
+@inject GameService GameService
+@inject PlayerProfileService ProfileService
+@inject NavigationManager Navigation
+@inject IMessageService MessageService
+
+<PageTitle>Create Game - BoxCars</PageTitle>
+
+<MudStack Class="create-game-page">
+    <MudText Typo="Typo.h3">Create Game</MudText>
+
+    <MudPaper Class="create-game-card">
+        <MudStack Class="create-game-fields">
+            <MudText Typo="Typo.body1">
+                Configure the players, their colors, and the starting turn order before entering the board.
+            </MudText>
+
+            <MudSelect T="int"
+                       Label="Player Count"
+                       Value="@_playerCount"
+                       ValueChanged="OnPlayerCountChanged"
+                       Variant="Variant.Outlined"
+                       Class="create-game-field">
+                @foreach (var count in _playerCountOptions)
+                {
+                    <MudSelectItem Value="@count">@count players</MudSelectItem>
+                }
+            </MudSelect>
+
+            @if (!string.IsNullOrWhiteSpace(_validationMessage))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_validationMessage</MudAlert>
+            }
+
+            <MudStack Class="create-game-player-list">
+                @for (var index = 0; index < _playerSlots.Count; index++)
+                {
+                    var slot = _playerSlots[index];
+
+                    <MudPaper Outlined="true" Class="create-game-player-row">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="create-game-player-row-header">
+                            <MudText Typo="Typo.subtitle2">Turn @(index + 1)</MudText>
+                            <MudSpacer />
+                            <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowUp"
+                                           Color="MudBlazor.Color.Primary"
+                                           Size="Size.Small"
+                                           Disabled="@(index == 0 || _creating)"
+                                           OnClick="@(() => MovePlayer(index, -1))" />
+                            <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowDown"
+                                           Color="MudBlazor.Color.Primary"
+                                           Size="Size.Small"
+                                           Disabled="@(index == _playerSlots.Count - 1 || _creating)"
+                                           OnClick="@(() => MovePlayer(index, 1))" />
+                        </MudStack>
+
+                        <MudGrid Class="create-game-player-grid">
+                            <MudItem xs="12" md="7">
+                                <MudSelect T="string"
+                                           Label="Player"
+                                           Value="@slot.UserId"
+                                           ValueChanged="@(value => OnPlayerChangedAsync(slot, value))"
+                                           Variant="Variant.Outlined"
+                                           Disabled="@(slot.IsCreatorSeat || _creating)"
+                                           Class="create-game-field">
+                                    @foreach (var profile in GetSelectablePlayers(slot))
+                                    {
+                                        <MudSelectItem Value="@profile.RowKey">@GetPlayerLabel(profile)</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" md="5">
+                                <MudSelect T="string"
+                                           Label="Color"
+                                           Value="@slot.AssignedColor"
+                                           ValueChanged="@(value => OnColorChanged(slot, value))"
+                                           Variant="Variant.Outlined"
+                                           Disabled="@_creating"
+                                           Class="create-game-field">
+                                    @foreach (var color in PlayerColorOptions.Colors)
+                                    {
+                                        <MudSelectItem Value="@color">@PlayerColorOptions.ToLabel(color)</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                        </MudGrid>
+                    </MudPaper>
+                }
+            </MudStack>
+
+            <MudText Typo="Typo.body2" Class="create-game-helper">
+                Map: @GameService.DefaultMapFileName
+            </MudText>
+
+            <MudStack Row="true" Class="create-game-actions">
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Primary"
+                           OnClick="CreateGameAsync"
+                           Disabled="@_creating">
+                    @(_creating ? "Creating..." : "Create Game")
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="MudBlazor.Color.Primary"
+                           OnClick='@(() => Navigation.NavigateTo("/dashboard"))'
+                           Disabled="@_creating">
+                    Cancel
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+</MudStack>
+
+@code {
+    private string? _currentUserId;
+    private List<ApplicationUser> _availablePlayers = new();
+    private readonly List<PlayerSlot> _playerSlots = new();
+    private List<int> _playerCountOptions = [2, 3, 4, 5, 6];
+    private int _playerCount = 4;
+    private bool _creating;
+    private string? _validationMessage;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null)
+        {
+            return;
+        }
+
+        var state = await AuthState;
+        _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        _availablePlayers = await ProfileService.GetSelectableProfilesAsync(CancellationToken.None);
+        var maxSelectablePlayers = Math.Min(6, _availablePlayers.Count);
+        _playerCountOptions = maxSelectablePlayers >= 2
+            ? Enumerable.Range(2, maxSelectablePlayers - 1).ToList()
+            : [2];
+
+        if (_playerCountOptions.Count == 0)
+        {
+            _playerCountOptions = [2];
+        }
+
+        _playerCount = Math.Min(4, _playerCountOptions[^1]);
+        InitializePlayerSlots();
+    }
+
+    private void InitializePlayerSlots()
+    {
+        _playerSlots.Clear();
+
+        if (string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        var currentUser = _availablePlayers.FirstOrDefault(player => string.Equals(player.RowKey, _currentUserId, StringComparison.Ordinal));
+        if (currentUser is null)
+        {
+            _validationMessage = "Your profile must have a nickname before you can create a configured game.";
+            return;
+        }
+
+        _playerSlots.Add(new PlayerSlot
+        {
+            UserId = currentUser.RowKey,
+            AssignedColor = ResolveDefaultColor(currentUser, new HashSet<string>(StringComparer.OrdinalIgnoreCase)),
+            IsCreatorSeat = true
+        });
+
+        while (_playerSlots.Count < _playerCount)
+        {
+            var usedColors = _playerSlots
+                .Select(slot => slot.AssignedColor)
+                .Where(color => !string.IsNullOrWhiteSpace(color))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _playerSlots.Add(new PlayerSlot
+            {
+                UserId = string.Empty,
+                AssignedColor = ResolveFallbackColor(usedColors)
+            });
+        }
+    }
+
+    private Task OnPlayerCountChanged(int value)
+    {
+        _playerCount = value;
+
+        while (_playerSlots.Count > _playerCount)
+        {
+            _playerSlots.RemoveAt(_playerSlots.Count - 1);
+        }
+
+        while (_playerSlots.Count < _playerCount)
+        {
+            var usedColors = _playerSlots
+                .Select(slot => slot.AssignedColor)
+                .Where(color => !string.IsNullOrWhiteSpace(color))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _playerSlots.Add(new PlayerSlot
+            {
+                UserId = string.Empty,
+                AssignedColor = ResolveFallbackColor(usedColors)
+            });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private IEnumerable<ApplicationUser> GetSelectablePlayers(PlayerSlot slot)
+    {
+        var selectedElsewhere = _playerSlots
+            .Where(candidate => !ReferenceEquals(candidate, slot))
+            .Select(candidate => candidate.UserId)
+            .Where(userId => !string.IsNullOrWhiteSpace(userId))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return _availablePlayers.Where(profile =>
+            string.Equals(profile.RowKey, slot.UserId, StringComparison.Ordinal)
+            || !selectedElsewhere.Contains(profile.RowKey));
+    }
+
+    private async Task OnPlayerChangedAsync(PlayerSlot slot, string? value)
+    {
+        slot.UserId = value ?? string.Empty;
+        var selectedProfile = _availablePlayers.FirstOrDefault(profile => string.Equals(profile.RowKey, slot.UserId, StringComparison.Ordinal));
+        var usedColors = _playerSlots
+            .Where(candidate => !ReferenceEquals(candidate, slot))
+            .Select(candidate => candidate.AssignedColor)
+            .Where(color => !string.IsNullOrWhiteSpace(color))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        slot.AssignedColor = ResolveDefaultColor(selectedProfile, usedColors);
+        _validationMessage = null;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnColorChanged(PlayerSlot slot, string value)
+    {
+        slot.AssignedColor = PlayerColorOptions.NormalizeOrDefault(value);
+        _validationMessage = null;
+        return Task.CompletedTask;
+    }
+
+    private void MovePlayer(int index, int delta)
+    {
+        var targetIndex = index + delta;
+        if (targetIndex < 0 || targetIndex >= _playerSlots.Count)
+        {
+            return;
+        }
+
+        (_playerSlots[index], _playerSlots[targetIndex]) = (_playerSlots[targetIndex], _playerSlots[index]);
+    }
+
+    private async Task CreateGameAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            await MessageService.ShowMessageBarAsync("Unable to create game: missing user context.", MessageIntent.Error, "CREATE-GAME");
+            return;
+        }
+
+        _validationMessage = ValidateSelections();
+        if (!string.IsNullOrWhiteSpace(_validationMessage))
+        {
+            return;
+        }
+
+        _creating = true;
+
+        try
+        {
+            var players = _playerSlots.Select(slot => new GameCreationPlayer
+            {
+                UserId = slot.UserId,
+                AssignedColor = slot.AssignedColor
+            }).ToList();
+
+            var result = await GameService.CreateGameAsync(_currentUserId, players, CancellationToken.None);
+            if (!result.Success)
+            {
+                await MessageService.ShowMessageBarAsync(result.Reason ?? "Failed to create game.", MessageIntent.Error, "CREATE-GAME");
+                return;
+            }
+
+            Navigation.NavigateTo($"/game/{result.GameId}");
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private string? ValidateSelections()
+    {
+        if (_playerSlots.Any(slot => string.IsNullOrWhiteSpace(slot.UserId)))
+        {
+            return "Select a player for every turn-order row.";
+        }
+
+        var distinctUsers = _playerSlots
+            .Select(slot => slot.UserId)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+
+        if (distinctUsers != _playerSlots.Count)
+        {
+            return "Each player can only appear once in the game.";
+        }
+
+        if (_playerSlots.All(slot => !string.Equals(slot.UserId, _currentUserId, StringComparison.Ordinal)))
+        {
+            return "You must include yourself in the game.";
+        }
+
+        var distinctColors = _playerSlots
+            .Select(slot => slot.AssignedColor)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        if (distinctColors != _playerSlots.Count)
+        {
+            return "Each player must have a unique color.";
+        }
+
+        return null;
+    }
+
+    private string ResolveDefaultColor(ApplicationUser? profile, HashSet<string> usedColors)
+    {
+        var preferredColor = profile is null ? null : PlayerColorOptions.NormalizeOrDefault(profile.PreferredColor, string.Empty);
+        if (!string.IsNullOrWhiteSpace(preferredColor)
+            && PlayerColorOptions.IsSupported(preferredColor)
+            && !usedColors.Contains(preferredColor))
+        {
+            return preferredColor;
+        }
+
+        return ResolveFallbackColor(usedColors);
+    }
+
+    private static string ResolveFallbackColor(HashSet<string> usedColors)
+    {
+        return PlayerColorOptions.Colors.FirstOrDefault(color => !usedColors.Contains(color))
+            ?? PlayerColorOptions.Colors[0];
+    }
+
+    private static string GetPlayerLabel(ApplicationUser profile)
+    {
+        return string.IsNullOrWhiteSpace(profile.Email)
+            ? profile.Nickname
+            : $"{profile.Nickname} ({profile.Email})";
+    }
+
+    private sealed class PlayerSlot
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string AssignedColor { get; set; } = PlayerColorOptions.Colors[0];
+        public bool IsCreatorSeat { get; set; }
+    }
+}

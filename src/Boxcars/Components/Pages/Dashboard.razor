@@ -3,6 +3,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.SignalR.Client
+@using MudBlazor
 @using Boxcars.Data
 @using Boxcars.Services
 @attribute [Authorize]
@@ -16,158 +17,166 @@
 
 @if (_loading)
 {
-    <FluentProgressRing />
+    <MudStack Class="dashboard-loading" Justify="Justify.Center" AlignItems="AlignItems.Center">
+        <MudProgressLinear Indeterminate="true" Color="MudBlazor.Color.Primary" Class="dashboard-full" />
+    </MudStack>
 }
 else if (_loadError)
 {
-    <FluentCard Style="max-width: 600px; margin: 2rem auto; text-align: center; padding: 2rem;">
-        <FluentLabel Typo="Typography.H4">Something went wrong</FluentLabel>
-        <FluentLabel Typo="Typography.Body" Style="margin: 1rem 0;">Unable to load your dashboard. Please try again.</FluentLabel>
-        <FluentButton Appearance="Appearance.Accent" OnClick="@LoadDataAsync">Retry</FluentButton>
-    </FluentCard>
+    <MudPaper Class="dashboard-error">
+        <MudText Typo="Typo.h4">Something went wrong</MudText>
+        <MudText Typo="Typo.body1" Class="dashboard-error-message">Unable to load your dashboard. Please try again.</MudText>
+        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadDataAsync">Retry</MudButton>
+    </MudPaper>
 }
 else if (_needsNickname)
 {
-    <FluentCard Style="max-width: 500px; margin: 2rem auto; padding: 2rem;">
-        <FluentLabel Typo="Typography.H4" Style="margin-bottom: 1rem;">Choose Your Nickname</FluentLabel>
-        <FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem;">
+    <MudPaper Class="dashboard-nickname">
+        <MudText Typo="Typo.h4" Class="dashboard-section-title">Choose Your Nickname</MudText>
+        <MudText Typo="Typo.body1" Class="dashboard-helper">
             Your nickname couldn't be auto-set during registration. Please choose one to continue.
-        </FluentLabel>
-        <FluentTextField @bind-Value="_newNickname"
-                         Label="Nickname"
-                         Placeholder="Enter a unique nickname"
-                         Style="width: 100%; margin-bottom: 1rem;" />
+        </MudText>
+        <MudTextField @bind-Value="_newNickname"
+                      Label="Nickname"
+                      Placeholder="Enter a unique nickname"
+                      Variant="Variant.Outlined"
+                      Class="dashboard-full" />
         @if (!string.IsNullOrEmpty(_nicknameError))
         {
-            <FluentLabel Typo="Typography.Body" Style="color: var(--error); margin-bottom: 1rem;">@_nicknameError</FluentLabel>
+            <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error" Class="dashboard-helper">@_nicknameError</MudText>
         }
-        <FluentButton Appearance="Appearance.Accent"
-                      OnClick="@SaveNicknameAsync"
-                      Disabled="@(string.IsNullOrWhiteSpace(_newNickname))">
+        <MudButton Variant="Variant.Filled"
+                   Color="MudBlazor.Color.Primary"
+                   OnClick="@SaveNicknameAsync"
+                   Disabled="@(string.IsNullOrWhiteSpace(_newNickname))">
             Save Nickname
-        </FluentButton>
-    </FluentCard>
+        </MudButton>
+    </MudPaper>
 }
 else
 {
-    @* Player Identity Section *@
-    <FluentStack Orientation="Orientation.Vertical" Style="gap: 1.5rem;">
-        <FluentCard Style="padding: 1.5rem;">
-            <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1rem;">
-                <FluentPersona Name="@_profile!.Nickname"
-                               ImageSize="48px"
-                               Image="@_profile.ThumbnailUrl" />
-                <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.25rem;">
-                    <FluentLabel Typo="Typography.H5">@_profile.Nickname</FluentLabel>
-                    <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">@_profile.Email</FluentLabel>
-                </FluentStack>
-            </FluentStack>
-        </FluentCard>
+    <MudStack Class="dashboard-stack">
+        <MudPaper Class="dashboard-card">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="dashboard-row">
+                <MudAvatar Size="Size.Large">
+                    @if (HasProfileThumbnail())
+                    {
+                        <MudImage Src="@_profile!.ThumbnailUrl" Alt="@_profile.Nickname" Class="dashboard-avatar-image" />
+                    }
+                    else
+                    {
+                        @GetProfileInitials()
+                    }
+                </MudAvatar>
+                <MudStack>
+                    <MudText Typo="Typo.h5">@_profile!.Nickname</MudText>
+                    <MudText Typo="Typo.body2" Class="dashboard-muted">@_profile!.Email</MudText>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
 
-        @* Stats Section (Stub) *@
-        <FluentCard Style="padding: 1.5rem;">
-            <FluentLabel Typo="Typography.H5" Style="margin-bottom: 0.5rem;">Your Stats</FluentLabel>
-            <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">
+        <MudPaper Class="dashboard-card">
+            <MudText Typo="Typo.h5" Class="dashboard-section-title">Your Stats</MudText>
+            <MudText Typo="Typo.body2" Class="dashboard-muted">
                 Welcome to BoxCars! Start your first game to begin tracking your stats.
-            </FluentLabel>
-        </FluentCard>
+            </MudText>
+        </MudPaper>
 
-        @* Game Availability Section *@
-        <FluentCard Style="padding: 1.5rem;">
-            <FluentLabel Typo="Typography.H5" Style="margin-bottom: 1rem;">Games</FluentLabel>
+        <MudPaper Class="dashboard-card">
+            <MudText Typo="Typo.h5" Class="dashboard-section-title">Games</MudText>
 
             @if (_dashboardState!.HasActiveGame)
             {
-                <FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem;">You have an active game.</FluentLabel>
-                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.75rem;">
-                    <FluentButton Appearance="Appearance.Accent"
-                                  OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
+                <MudText Typo="Typo.body1" Class="dashboard-helper">You have an active game.</MudText>
+                <MudStack Row="true" Class="dashboard-actions-row">
+                    <MudButton Variant="Variant.Filled"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
                         Resume Game
-                    </FluentButton>
-                    <FluentButton Appearance="Appearance.Outline"
-                                  OnClick="OpenDeleteGameDialog">
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="OpenDeleteGameDialog">
                         Delete Game
-                    </FluentButton>
-                </FluentStack>
+                    </MudButton>
+                </MudStack>
             }
             else
             {
                 @if (_dashboardState.JoinableGames.Any())
                 {
-                    <FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem;">Available games to join:</FluentLabel>
-                    <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem; margin-bottom: 1.5rem;">
+                    <MudText Typo="Typo.body1" Class="dashboard-helper">Available games to join:</MudText>
+                    <MudStack Class="dashboard-games-list">
                         @foreach (var game in _dashboardState.JoinableGames)
                         {
-                            <FluentCard Style="padding: 1rem;">
-                                <FluentStack Orientation="Orientation.Horizontal"
-                                             HorizontalAlignment="HorizontalAlignment.SpaceBetween"
-                                             VerticalAlignment="VerticalAlignment.Center">
-                                    <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.25rem;">
-                                        <FluentLabel Typo="Typography.Body">
+                            <MudPaper Class="dashboard-join-game-card">
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <MudStack>
+                                        <MudText Typo="Typo.body1">
                                             Game @game.RowKey[..8]...
-                                        </FluentLabel>
-                                        <FluentLabel Typo="Typography.Body" Style="opacity: 0.7; font-size: 0.85rem;">
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Class="dashboard-muted">
                                             @game.CurrentPlayerCount / @game.MaxPlayers players
-                                        </FluentLabel>
-                                    </FluentStack>
-                                    <FluentButton Appearance="Appearance.Accent"
-                                                  OnClick="@(() => JoinGameAsync(game.RowKey))">
+                                        </MudText>
+                                    </MudStack>
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="MudBlazor.Color.Primary"
+                                               OnClick="@(() => JoinGameAsync(game.RowKey))">
                                         Join Game
-                                    </FluentButton>
-                                </FluentStack>
-                            </FluentCard>
+                                    </MudButton>
+                                </MudStack>
+                            </MudPaper>
                         }
-                    </FluentStack>
+                    </MudStack>
                 }
 
-                <FluentLabel Typo="Typography.H6" Style="margin-bottom: 0.75rem;">Create a New Game</FluentLabel>
-                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1rem;">
-                    <FluentButton Appearance="Appearance.Accent"
-                                  OnClick="@CreateGameAsync">
+                <MudText Typo="Typo.h6" Class="dashboard-section-title">Create a New Game</MudText>
+                <MudStack Row="true" Class="dashboard-actions-row">
+                    <MudButton Variant="Variant.Filled"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="@CreateGameAsync">
                         Create Game
-                    </FluentButton>
-                </FluentStack>
+                    </MudButton>
+                </MudStack>
             }
-        </FluentCard>
-    </FluentStack>
+        </MudPaper>
+    </MudStack>
 }
 
 @if (_dashboardState?.HasActiveGame == true && _showDeleteGameDialog)
 {
-    <FluentDialog @bind-Visible="_showDeleteGameDialog"
-                  TrapFocus="true"
-                  Modal="true">
-        <FluentDialogHeader>
-            <FluentLabel Typo="Typography.H5">Delete current game?</FluentLabel>
-        </FluentDialogHeader>
-        <FluentDialogBody>
-            <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
-                <FluentLabel Typo="Typography.Body">
-                    This action cannot be undone here. Type "i am sure" to confirm.
-                </FluentLabel>
-                <FluentTextField Value="@_deleteConfirmationInput"
-                                 ValueChanged="OnDeleteConfirmationChanged"
-                                 Label="Confirmation"
-                                 Placeholder="i am sure" />
-                @if (!string.IsNullOrWhiteSpace(_deleteGameError))
-                {
-                    <FluentLabel Typo="Typography.Body" Style="color: var(--error);">@_deleteGameError</FluentLabel>
-                }
-            </FluentStack>
-        </FluentDialogBody>
-        <FluentDialogFooter>
-            <FluentButton Appearance="Appearance.Neutral"
-                          OnClick="CancelDeleteGameDialog"
-                          Disabled="_deleteGameInProgress">
-                Cancel
-            </FluentButton>
-            <FluentButton Appearance="Appearance.Accent"
-                          OnClick="ConfirmDeleteGameAsync"
-                          Disabled="@(!CanConfirmDeleteGame || _deleteGameInProgress)">
-                Delete Game
-            </FluentButton>
-        </FluentDialogFooter>
-    </FluentDialog>
+    <MudOverlay Visible="true" DarkBackground="true" AutoClose="false" ZIndex="1300">
+        <MudPaper Class="dashboard-delete-dialog">
+            <MudText Typo="Typo.h5">Delete current game?</MudText>
+            <MudText Typo="Typo.body1" Class="dashboard-helper">
+                This action cannot be undone here. Type "i am sure" to confirm.
+            </MudText>
+            <MudTextField Value="@_deleteConfirmationInput"
+                          T="string"
+                          ValueChanged="@(value => OnDeleteConfirmationChanged(value))"
+                          Label="Confirmation"
+                          Placeholder="i am sure"
+                          Variant="Variant.Outlined" />
+            @if (!string.IsNullOrWhiteSpace(_deleteGameError))
+            {
+                <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error">@_deleteGameError</MudText>
+            }
+            <MudStack Row="true" Justify="Justify.FlexEnd" Class="dashboard-actions-row">
+                <MudButton Variant="Variant.Text"
+                           Color="MudBlazor.Color.Default"
+                           OnClick="CancelDeleteGameDialog"
+                           Disabled="_deleteGameInProgress">
+                    Cancel
+                </MudButton>
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Error"
+                           OnClick="ConfirmDeleteGameAsync"
+                           Disabled="@(!CanConfirmDeleteGame || _deleteGameInProgress)">
+                    Delete Game
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudOverlay>
 }
 
 @code {
@@ -185,6 +194,21 @@ else
     private bool _deleteGameInProgress;
     private string _deleteConfirmationInput = string.Empty;
     private string? _deleteGameError;
+
+    private string GetProfileInitials()
+    {
+        if (string.IsNullOrWhiteSpace(_profile?.Nickname))
+        {
+            return "?";
+        }
+
+        return _profile.Nickname.Trim()[0].ToString();
+    }
+
+    private bool HasProfileThumbnail()
+    {
+        return !string.IsNullOrWhiteSpace(_profile?.ThumbnailUrl);
+    }
 
     private bool CanConfirmDeleteGame => string.Equals(
         _deleteConfirmationInput.Trim(),
@@ -383,23 +407,9 @@ else
         }
     }
 
-    private async Task CreateGameAsync()
+    private void CreateGameAsync()
     {
-        if (_currentUserId == null) return;
-
-        const int maxPlayers = 6;
-        var result = await GameService.CreateGameAsync(_currentUserId, maxPlayers, CancellationToken.None);
-
-        if (result.Success)
-        {
-            Navigation.NavigateTo($"/game/{result.GameId}");
-        }
-        else
-        {
-            await MessageService.ShowMessageBarAsync(result.Reason ?? "Failed to create game.", MessageIntent.Error, "DASHBOARD");
-            await RefreshDashboardStateAsync();
-            StateHasChanged();
-        }
+        Navigation.NavigateTo("/games/new");
     }
 
     private async Task JoinGameAsync(string gameId)

@@ -1,4 +1,5 @@
 ﻿@page "/Account/ExternalLogin"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 
 @using System.ComponentModel.DataAnnotations
 @using System.Security.Claims
@@ -66,6 +67,11 @@
     private string? Action { get; set; }
 
     private string? ProviderDisplayName => externalLoginInfo.ProviderDisplayName;
+
+    protected override void OnParametersSet()
+    {
+        Input ??= new();
+    }
 
     protected override async Task OnInitializedAsync()
     {

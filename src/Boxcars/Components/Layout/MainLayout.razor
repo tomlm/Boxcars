@@ -1,24 +1,26 @@
 @inherits LayoutComponentBase
 @inject NavigationManager Navigation
+@using MudBlazor
 
-<FluentLayout>
-    <FluentHeader Style="overflow: visible;">
-        <FluentStack Orientation="Orientation.Horizontal"
-                     HorizontalAlignment="HorizontalAlignment.SpaceBetween"
-                     VerticalAlignment="VerticalAlignment.Center"
-                     Style="width: 100%; overflow: visible;">
-            <a href="/" style="text-decoration: none; color: inherit;">
-                <FluentLabel Typo="Typography.H4">BoxCars</FluentLabel>
-            </a>
-            <UserMenu />
-        </FluentStack>
-    </FluentHeader>
-    <FluentBodyContent>
+<MudThemeProvider Theme="_darkTheme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Class="app-bar">
+        <MudLink Href="/" Underline="Underline.None" Class="app-title-link">
+            <MudText Typo="Typo.h5">BoxCars</MudText>
+        </MudLink>
+        <MudSpacer />
+        <UserMenu />
+    </MudAppBar>
+    <MudMainContent>
         <div class="@(IsGameRoute ? "content-area content-area--full" : "content-area")">
             @Body
         </div>
-    </FluentBodyContent>
-</FluentLayout>
+    </MudMainContent>
+</MudLayout>
 
 <FluentToastProvider />
 <FluentDialogProvider />
@@ -33,5 +35,10 @@
 </div>
 
 @code {
+    private static readonly MudTheme _darkTheme = new()
+    {
+        PaletteDark = new PaletteDark()
+    };
+
     private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
 }

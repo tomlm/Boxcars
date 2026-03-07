@@ -29,6 +29,26 @@ public class PlayerProfileService
         }
     }
 
+    public async Task<List<ApplicationUser>> GetSelectableProfilesAsync(CancellationToken cancellationToken)
+    {
+        var profiles = new List<ApplicationUser>();
+        var query = _usersTable.QueryAsync<ApplicationUser>(
+            user => user.PartitionKey == "USER",
+            cancellationToken: cancellationToken);
+
+        await foreach (var user in query)
+        {
+            if (!string.IsNullOrWhiteSpace(user.Nickname))
+            {
+                profiles.Add(user);
+            }
+        }
+
+        return profiles
+            .OrderBy(profile => profile.Nickname, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public async Task<NicknameResult> UpdateNicknameAsync(string userId, string newNickname, CancellationToken cancellationToken)
     {
         var normalizedNickname = newNickname.ToUpperInvariant();
@@ -96,6 +116,22 @@ public class PlayerProfileService
             var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId, cancellationToken: cancellationToken);
             var user = response.Value;
             user.ThumbnailUrl = newUrl;
+            await _usersTable.UpdateEntityAsync(user, user.ETag, TableUpdateMode.Replace, cancellationToken);
+            return true;
+        }
+        catch (RequestFailedException)
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> UpdatePreferredColorAsync(string userId, string preferredColor, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId, cancellationToken: cancellationToken);
+            var user = response.Value;
+            user.PreferredColor = preferredColor;
             await _usersTable.UpdateEntityAsync(user, user.ETag, TableUpdateMode.Replace, cancellationToken);
             return true;
         }

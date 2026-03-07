@@ -1,30 +1,39 @@
 @using Boxcars.Data
+@using MudBlazor
 
-<FluentStack Orientation="Orientation.Vertical" Class="player-board" VerticalGap="2">
+<MudStack Class="player-board">
     @foreach (var player in Players)
     {
-        <FluentCard Class="@GetCardClass(player)" Style="@GetCardStyle(player)">
-            <FluentStack Orientation="Orientation.Horizontal" Class="player-card-portrait">
-                <FluentPersona Name="@player.Name"
-                               Class="player-persona"
-                               Style="@GetPersonaStyle(player)"
-                               Image="@(string.IsNullOrWhiteSpace(player.ThumbnailUrl) ? null : player.ThumbnailUrl)"
-                               ImageSize="60px"
-                               Status="@player.Status"
-                               StatusSize="PresenceBadgeSize.Medium"
-                               Initials="@GetInitial(player.Name)" />
-            </FluentStack>
+        <MudPaper Class="@GetCardClass(player)" Outlined="true">
+            <MudStack Row="true" Class="player-card-portrait">
+                <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
+                    @if (HasThumbnail(player))
+                    {
+                        <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
+                    }
+                    else
+                    {
+                        @GetInitial(player.Name)
+                    }
+                </MudAvatar>
+                <MudStack Class="player-card-header-text">
+                    <MudText Typo="Typo.subtitle2">@player.Name</MudText>
+                    <MudText Typo="Typo.caption" Class="@(player.IsConnected ? "player-status-connected" : "player-status-disconnected")">
+                        @(player.IsConnected ? "Connected" : "Offline")
+                    </MudText>
+                </MudStack>
+            </MudStack>
 
-            <FluentStack Orientation="Orientation.Vertical" Class="player-card-info" VerticalGap="0">
+            <MudStack Class="player-card-info">
                 @if (player.IsAtDestination)
                 {
-                    <FluentLabel Typo="Typography.Body" >At: @player.LocationLabel</FluentLabel>
+                    <MudText Typo="Typo.body2">At: @player.LocationLabel</MudText>
                 }
                 else if (!string.IsNullOrWhiteSpace(player.LocationLabel))
                 {
-                    <FluentLabel Typo="Typography.Body" >@player.DistanceToDestination to @player.LocationLabel</FluentLabel>
+                    <MudText Typo="Typo.body2">@player.DistanceToDestination to @player.LocationLabel</MudText>
                 }
-                <FluentLabel Typo="Typography.Body" >
+                <MudText Typo="Typo.body2">
                     @if (player.IsAtDestination)
                     {
                         @($"Payoff: ${player.Payoff:N0}")
@@ -33,14 +42,14 @@
                     {
                         @($"Get: ${player.Payoff:N0}")
                     }
-                </FluentLabel>
-                <FluentLabel Typo="Typography.Body">@player.GetMoneyDisplay()</FluentLabel>
-                <FluentLabel Typo="Typography.Body">Home: @player.HomeCity</FluentLabel>
-                <FluentLabel Typo="Typography.Body" >Engine: @player.LocomotiveLabel</FluentLabel>
-            </FluentStack>
-        </FluentCard>
+                </MudText>
+                <MudText Typo="Typo.body2">@player.GetMoneyDisplay()</MudText>
+                <MudText Typo="Typo.body2">Home: @player.HomeCity</MudText>
+                <MudText Typo="Typo.body2">Engine: @player.LocomotiveLabel</MudText>
+            </MudStack>
+        </MudPaper>
     }
-</FluentStack>
+</MudStack>
 
 @code {
     [Parameter]
@@ -53,7 +62,7 @@
 
     private static string GetCardClass(PlayerBoardModel player)
     {
-        var classes = $"player-card";
+        var classes = $"player-card {GetColorClass(player.Color)}";
         if (player.IsActiveTurn)
         {
             classes += " player-card-active";
@@ -61,15 +70,27 @@
         return classes;
     }
 
-    private static string GetPersonaStyle(PlayerBoardModel player)
+    private static string GetAvatarClass(PlayerBoardModel player)
     {
-        return $"background-color: {player.Color}; color: #fff; width: 100%;";
+        return $"player-avatar {GetColorClass(player.Color)}";
     }
 
-    private static string GetCardStyle(PlayerBoardModel player)
+    private static bool HasThumbnail(PlayerBoardModel player)
     {
-        return $"--player-color: {player.Color}; border-color: {player.Color};";
+        return !string.IsNullOrWhiteSpace(player.ThumbnailUrl);
     }
 
-
+    private static string GetColorClass(string color)
+    {
+        return color.Trim().ToLowerInvariant() switch
+        {
+            "blue" => "player-color-blue",
+            "red" => "player-color-red",
+            "green" => "player-color-green",
+            "cyan" => "player-color-cyan",
+            "orange" => "player-color-orange",
+            "purple" => "player-color-purple",
+            _ => "player-color-default"
+        };
+    }
 }
