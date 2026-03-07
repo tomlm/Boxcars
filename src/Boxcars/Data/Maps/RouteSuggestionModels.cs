@@ -60,4 +60,5 @@ public sealed class RouteSuggestionHighlight
     public required double Y { get; init; }
     public required string Color { get; init; }
     public required double Radius { get; init; }
+    public bool IsDashed { get; init; }
 }

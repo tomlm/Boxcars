@@ -12,10 +12,8 @@ namespace Boxcars.Services;
 public class GameService
 {
     public const string DefaultMapFileName = "U21MAP.RB3";
-    private static readonly JsonSerializerOptions JsonSerializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly TableClient _gamesTable;
-    private readonly TableClient _activeGameIndexTable;
     private readonly TableClient _usersTable;
     private readonly IHubContext<DashboardHub> _hubContext;
     private readonly IGameEngine _gameEngine;
@@ -23,7 +21,6 @@ public class GameService
     public GameService(TableServiceClient tableServiceClient, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
     {
         _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
-        _activeGameIndexTable = tableServiceClient.GetTableClient(TableNames.PlayerActiveGameIndexTable);
         _usersTable = tableServiceClient.GetTableClient(TableNames.UsersTable);
         _hubContext = hubContext;
         _gameEngine = gameEngine;
@@ -31,288 +28,93 @@ public class GameService
 
     public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
     {
-        // Check if player has an active game
-        var activeGameIndex = await _activeGameIndexTable.GetEntityIfExistsAsync<IndexEntity>(
-            "ACTIVE_GAME",
-            playerId,
-            cancellationToken: cancellationToken);
+        var games = await GetAllGamesAsync(cancellationToken);
 
-        if (activeGameIndex.HasValue
-            && activeGameIndex.Value is { } activeGame
-            && !string.IsNullOrWhiteSpace(activeGame.GameId))
-        {
-            return new DashboardState
-            {
-                HasActiveGame = true,
-                ActiveGameId = activeGame.GameId
-            };
-        }
-
-        var joinableGames = new List<GameEntity>();
-        var query = _gamesTable.QueryAsync<GameEntity>(
-            e => e.PartitionKey == "ACTIVE",
-            cancellationToken: cancellationToken);
-
-        await foreach (var game in query)
-        {
-            if (game.CurrentPlayerCount < game.MaxPlayers)
-            {
-                joinableGames.Add(game);
-            }
-        }
+        var activeGame = games
+            .OrderByDescending(game => game.CreatedAt)
+            .FirstOrDefault(game => IsPlayerInGame(game, playerId));
 
         return new DashboardState
         {
-            HasActiveGame = false,
-            JoinableGames = joinableGames
+            HasActiveGame = activeGame is not null,
+            ActiveGameId = activeGame?.GameId,
+            JoinableGames = []
         };
     }
 
-    public async Task<GameActionResult> CreateGameAsync(string creatorId, IReadOnlyList<GameCreationPlayer> selectedPlayers, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ApplicationUser>> GetAvailablePlayersAsync(CancellationToken cancellationToken)
     {
-        if (selectedPlayers.Count is < 2 or > 6)
+        var users = new List<ApplicationUser>();
+        await foreach (var user in _usersTable.QueryAsync<ApplicationUser>(
+                           entity => entity.PartitionKey == "USER",
+                           cancellationToken: cancellationToken))
         {
-            return new GameActionResult { Success = false, Reason = "Games must include between 2 and 6 players." };
+            users.Add(user);
         }
 
-        var distinctUserIds = selectedPlayers
-            .Select(player => player.UserId)
-            .Distinct(StringComparer.Ordinal)
+        return users
+            .OrderBy(user => user.Nickname)
+            .ThenBy(user => user.Email)
             .ToList();
+    }
 
-        if (distinctUserIds.Count != selectedPlayers.Count)
+    public async Task<GameActionResult> CreateGameAsync(CreateGameRequest request, CancellationToken cancellationToken)
+    {
+        if (request.Players.Count < 2)
         {
-            return new GameActionResult { Success = false, Reason = "Each player must be selected only once." };
+            return new GameActionResult { Success = false, Reason = "At least two player slots are required." };
         }
 
-        if (!distinctUserIds.Contains(creatorId, StringComparer.Ordinal))
+        var duplicateUser = request.Players
+            .GroupBy(player => player.UserId, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() > 1);
+
+        if (duplicateUser)
         {
-            return new GameActionResult { Success = false, Reason = "The game creator must be included in the player list." };
+            return new GameActionResult { Success = false, Reason = "Each player can only be assigned once." };
         }
 
-        var resolvedPlayers = new List<ResolvedGamePlayer>(selectedPlayers.Count);
-        var fallbackColorIndex = 0;
+        var duplicateColor = request.Players
+            .GroupBy(player => player.Color, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() > 1);
 
-        foreach (var selectedPlayer in selectedPlayers)
+        if (duplicateColor)
         {
-            var existingActiveGame = await _activeGameIndexTable.GetEntityIfExistsAsync<IndexEntity>(
-                "ACTIVE_GAME",
-                selectedPlayer.UserId,
-                cancellationToken: cancellationToken);
-
-            if (existingActiveGame.HasValue)
-            {
-                var userName = selectedPlayer.UserId;
-                try
-                {
-                    var activeUserResponse = await _usersTable.GetEntityAsync<ApplicationUser>("USER", selectedPlayer.UserId, cancellationToken: cancellationToken);
-                    userName = string.IsNullOrWhiteSpace(activeUserResponse.Value.Nickname)
-                        ? activeUserResponse.Value.Email
-                        : activeUserResponse.Value.Nickname;
-                }
-                catch (RequestFailedException)
-                {
-                }
-
-                return new GameActionResult { Success = false, Reason = $"Player '{userName}' already has an active game." };
-            }
-
-            ApplicationUser user;
-            try
-            {
-                var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", selectedPlayer.UserId, cancellationToken: cancellationToken);
-                user = response.Value;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                return new GameActionResult { Success = false, Reason = "One or more selected players no longer exist." };
-            }
-
-            if (string.IsNullOrWhiteSpace(user.Nickname))
-            {
-                return new GameActionResult { Success = false, Reason = $"Player '{user.Email}' must set a nickname before being added to a game." };
-            }
-
-            var fallbackColor = PlayerColorOptions.Colors[fallbackColorIndex % PlayerColorOptions.Colors.Length];
-            fallbackColorIndex++;
-
-            resolvedPlayers.Add(new ResolvedGamePlayer
-            {
-                UserId = user.RowKey,
-                DisplayName = user.Nickname,
-                ThumbnailUrl = user.ThumbnailUrl,
-                AssignedColor = PlayerColorOptions.NormalizeOrDefault(selectedPlayer.AssignedColor, fallbackColor)
-            });
+            return new GameActionResult { Success = false, Reason = "Each color can only be assigned once." };
         }
 
-        var distinctColors = resolvedPlayers
-            .Select(player => player.AssignedColor)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-
-        if (distinctColors != resolvedPlayers.Count)
-        {
-            return new GameActionResult { Success = false, Reason = "Each player must have a unique color." };
-        }
-
-        var gameId = Guid.NewGuid().ToString();
-
-        // Create game entity
-        var game = new GameEntity
-        {
-            PartitionKey = "ACTIVE",
-            RowKey = gameId,
-            CreatorId = creatorId,
-            MapFileName = DefaultMapFileName,
-            MaxPlayers = resolvedPlayers.Count,
-            CurrentPlayerCount = resolvedPlayers.Count,
-            Players = SerializePlayers(resolvedPlayers.Select((player, index) => new GameSeat
-            {
-                UserId = player.UserId,
-                DisplayName = player.DisplayName,
-                ThumbnailUrl = player.ThumbnailUrl,
-                AssignedColor = player.AssignedColor,
-                TurnOrder = index
-            })),
-            CreatedAt = DateTime.UtcNow
-        };
-
-        await _gamesTable.AddEntityAsync(game, cancellationToken);
-
-        foreach (var player in resolvedPlayers)
-        {
-            await _activeGameIndexTable.AddEntityAsync(new IndexEntity
-            {
-                PartitionKey = "ACTIVE_GAME",
-                RowKey = player.UserId,
-                GameId = gameId
-            }, cancellationToken);
-        }
+        var gameId = Guid.NewGuid().ToString("N");
 
         try
         {
-            await _gameEngine.CreateGameAsync(
-                resolvedPlayers.Select(player => player.DisplayName).ToList(),
+            var createdGameId = await _gameEngine.CreateGameAsync(request with { CreatorUserId = request.CreatorUserId },
                 new GameCreationOptions { PreferredGameId = gameId },
                 cancellationToken);
+
+            await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
+
+            return new GameActionResult { Success = true, GameId = createdGameId };
         }
-        catch
+        catch (Exception exception)
         {
-            foreach (var player in resolvedPlayers)
-            {
-                try { await _activeGameIndexTable.DeleteEntityAsync("ACTIVE_GAME", player.UserId, cancellationToken: cancellationToken); }
-                catch (RequestFailedException) { }
-            }
-
-            await _gamesTable.DeleteEntityAsync("ACTIVE", gameId, cancellationToken: cancellationToken);
-            throw;
+            return new GameActionResult { Success = false, Reason = exception.Message };
         }
-
-        // Broadcast dashboard refresh
-        await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
-
-        return new GameActionResult { Success = true, GameId = gameId };
     }
 
-    public async Task<GameActionResult> JoinGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
+    public Task<GameActionResult> JoinGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
     {
-        // Check if player already has an active game
-        var existingActiveGame = await _activeGameIndexTable.GetEntityIfExistsAsync<IndexEntity>(
-            "ACTIVE_GAME",
-            playerId,
-            cancellationToken: cancellationToken);
-
-        if (existingActiveGame.HasValue)
+        return Task.FromResult(new GameActionResult
         {
-            return new GameActionResult { Success = false, Reason = "You already have an active game." };
-        }
-
-        // Read game entity
-        GameEntity game;
-        try
-        {
-            var response = await _gamesTable.GetEntityAsync<GameEntity>("ACTIVE", gameId, cancellationToken: cancellationToken);
-            game = response.Value;
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            await _hubContext.Clients.User(playerId).SendAsync("JoinConflict",
-                new { gameId, reason = "Game is no longer available." }, cancellationToken);
-            return new GameActionResult { Success = false, Reason = "Game is no longer available." };
-        }
-
-        if (game.CurrentPlayerCount >= game.MaxPlayers)
-        {
-            await _hubContext.Clients.User(playerId).SendAsync("JoinConflict",
-                new { gameId, reason = "Game is full." }, cancellationToken);
-            return new GameActionResult { Success = false, Reason = "Game is full." };
-        }
-
-        ApplicationUser user;
-        try
-        {
-            var userResponse = await _usersTable.GetEntityAsync<ApplicationUser>("USER", playerId, cancellationToken: cancellationToken);
-            user = userResponse.Value;
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            return new GameActionResult { Success = false, Reason = "Player profile could not be loaded." };
-        }
-
-        var existingPlayers = GetConfiguredPlayers(game);
-        var fallbackColor = PlayerColorOptions.Colors
-            .FirstOrDefault(color => existingPlayers.All(player => !string.Equals(player.AssignedColor, color, StringComparison.OrdinalIgnoreCase)))
-            ?? PlayerColorOptions.Colors[game.CurrentPlayerCount % PlayerColorOptions.Colors.Length];
-        var preferredColor = PlayerColorOptions.IsSupported(user.PreferredColor)
-            && existingPlayers.All(player => !string.Equals(player.AssignedColor, user.PreferredColor, StringComparison.OrdinalIgnoreCase))
-                ? user.PreferredColor
-                : fallbackColor;
-
-        existingPlayers.Add(new GameSeat
-        {
-            UserId = playerId,
-            DisplayName = string.IsNullOrWhiteSpace(user.Nickname) ? user.Email : user.Nickname,
-            ThumbnailUrl = user.ThumbnailUrl,
-            AssignedColor = PlayerColorOptions.NormalizeOrDefault(preferredColor, fallbackColor),
-            TurnOrder = game.CurrentPlayerCount
+            Success = false,
+            Reason = "Joining existing games is not supported in this flow."
         });
-
-        // Insert active game index
-        await _activeGameIndexTable.AddEntityAsync(new IndexEntity
-        {
-            PartitionKey = "ACTIVE_GAME",
-            RowKey = playerId,
-            GameId = gameId
-        }, cancellationToken);
-
-        // Increment player count with ETag concurrency
-        game.CurrentPlayerCount++;
-        game.Players = SerializePlayers(existingPlayers);
-        try
-        {
-            await _gamesTable.UpdateEntityAsync(game, game.ETag, TableUpdateMode.Replace, cancellationToken);
-        }
-        catch (RequestFailedException ex) when (ex.Status == 412)
-        {
-            try { await _activeGameIndexTable.DeleteEntityAsync("ACTIVE_GAME", playerId, cancellationToken: cancellationToken); }
-            catch (RequestFailedException) { /* best-effort */ }
-
-            await _hubContext.Clients.User(playerId).SendAsync("JoinConflict",
-                new { gameId, reason = "Game state changed. Please try again." }, cancellationToken);
-            return new GameActionResult { Success = false, Reason = "Game state changed. Please try again." };
-        }
-
-        // Broadcast dashboard refresh
-        await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
-
-        return new GameActionResult { Success = true, GameId = gameId };
     }
 
     public async Task<GameEntity?> GetGameAsync(string gameId, CancellationToken cancellationToken)
     {
         try
         {
-            var response = await _gamesTable.GetEntityAsync<GameEntity>("ACTIVE", gameId, cancellationToken: cancellationToken);
+            var response = await _gamesTable.GetEntityAsync<GameEntity>(gameId, "GAME", cancellationToken: cancellationToken);
             return response.Value;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -321,92 +123,86 @@ public class GameService
         }
     }
 
-    public async Task<List<GameSeat>> GetGamePlayersAsync(string gameId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
     {
-        var game = await GetGameAsync(gameId, cancellationToken);
-        return game is null ? [] : GetConfiguredPlayers(game);
+        var events = new List<EventTimelineItem>();
+
+        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
+                           entity => entity.PartitionKey == gameId,
+                           cancellationToken: cancellationToken))
+        {
+            if (!gameEvent.RowKey.StartsWith("Event_", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            events.Add(new EventTimelineItem
+            {
+                EventId = gameEvent.RowKey,
+                EventKind = gameEvent.EventKind,
+                Description = string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                    ? gameEvent.EventKind
+                    : gameEvent.ChangeSummary,
+                OccurredUtc = gameEvent.OccurredUtc
+            });
+        }
+
+        return events
+            .OrderBy(item => item.EventId, StringComparer.Ordinal)
+            .ToList();
     }
 
     public async Task<GameActionResult> EndGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
     {
-        GameEntity game;
-        try
-        {
-            var response = await _gamesTable.GetEntityAsync<GameEntity>("ACTIVE", gameId, cancellationToken: cancellationToken);
-            game = response.Value;
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
+        var game = await GetGameAsync(gameId, cancellationToken);
+        if (game is null)
         {
             return new GameActionResult { Success = false, Reason = "Game is no longer active." };
         }
 
-        if (!string.Equals(game.CreatorId, playerId, StringComparison.Ordinal))
+        if (!string.Equals(game.CreatorId, playerId, StringComparison.OrdinalIgnoreCase))
         {
             return new GameActionResult { Success = false, Reason = "Only the game creator can end this game." };
         }
 
-        var gamePlayers = GetConfiguredPlayers(game);
-
-        foreach (var gamePlayer in gamePlayers)
+        var rowsToDelete = new List<(string PartitionKey, string RowKey, ETag ETag)>();
+        await foreach (var tableEntity in _gamesTable.QueryAsync<TableEntity>(
+                           entity => entity.PartitionKey == gameId,
+                           cancellationToken: cancellationToken))
         {
-            try
-            {
-                await _activeGameIndexTable.DeleteEntityAsync("ACTIVE_GAME", gamePlayer.UserId, cancellationToken: cancellationToken);
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                // Ignore missing index rows.
-            }
+            rowsToDelete.Add((tableEntity.PartitionKey, tableEntity.RowKey, tableEntity.ETag));
         }
 
-        await _gamesTable.DeleteEntityAsync("ACTIVE", gameId, game.ETag, cancellationToken: cancellationToken);
+        foreach (var row in rowsToDelete)
+        {
+            await _gamesTable.DeleteEntityAsync(row.PartitionKey, row.RowKey, row.ETag, cancellationToken);
+        }
 
         await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
 
         return new GameActionResult { Success = true, GameId = gameId };
     }
 
-    private static List<GameSeat> GetConfiguredPlayers(GameEntity game)
+    private async Task<List<GameEntity>> GetAllGamesAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(game.Players))
+        var games = new List<GameEntity>();
+
+        await foreach (var game in _gamesTable.QueryAsync<GameEntity>(
+                           entity => entity.RowKey == "GAME",
+                           cancellationToken: cancellationToken))
         {
-            return [];
+            game.GameId = string.IsNullOrWhiteSpace(game.GameId) ? game.PartitionKey : game.GameId;
+            games.Add(game);
         }
 
-        try
-        {
-            return JsonSerializer.Deserialize<List<GameSeat>>(game.Players, JsonSerializerOptions)?
-                .OrderBy(player => player.TurnOrder)
-                .ToList()
-                ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
+        return games;
     }
 
-    private static string SerializePlayers(IEnumerable<GameSeat> players)
+    private static bool IsPlayerInGame(GameEntity game, string playerId)
     {
-        return JsonSerializer.Serialize(players.OrderBy(player => player.TurnOrder), JsonSerializerOptions);
+        var players = GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
+        return players.Any(player => string.Equals(player.UserId, playerId, StringComparison.OrdinalIgnoreCase));
     }
-}
-
-public sealed class GameSeat
-{
-    public required string UserId { get; init; }
-    public required string DisplayName { get; init; }
-    public string ThumbnailUrl { get; init; } = string.Empty;
-    public required string AssignedColor { get; init; }
-    public int TurnOrder { get; init; }
-}
-
-file sealed class ResolvedGamePlayer
-{
-    public required string UserId { get; init; }
-    public required string DisplayName { get; init; }
-    public required string ThumbnailUrl { get; init; }
-    public required string AssignedColor { get; init; }
 }
 
 public class DashboardState

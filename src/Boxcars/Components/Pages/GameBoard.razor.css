@@ -30,8 +30,7 @@
 /* ── Map fills available space ── */
 .map-board-map-area {
     display: flex;
-    flex: 1;
-    flex-basis: 0;
+    grid-row: 1;
     overflow: hidden;
     position: relative;
     min-height: 0;
@@ -45,6 +44,7 @@
 /* ── Status bar below map ── */
 .map-board-status-bar {
     flex-shrink: 0;
+    grid-row: 2;
     gap: 0.75rem;
     padding: 0.25rem 0.5rem;
     background: color-mix(in srgb, var(--mud-palette-surface) 70%, black 30%);
@@ -62,6 +62,7 @@
 .map-board-bottom-bar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
+    grid-row: 3;
     align-items: stretch;
     column-gap: 0;
     flex-shrink: 0;
@@ -75,6 +76,7 @@
 .map-board-history-panel {
     min-width: 0;
     height: 100%;
+    min-height: 0;
     gap: 0;
 }
 
@@ -102,7 +104,9 @@
     color: var(--mud-palette-text-primary);
     line-height: 1.35;
     height: 100%;
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .map-board-history-listbox .map-board-history-item {
@@ -117,6 +121,7 @@
 /* ── Right-side controls in bottom bar ── */
 .map-board-controls {
     display: flex;
+    flex-direction: column;
     align-items: flex-end;
     flex-shrink: 0;
     justify-content: center;

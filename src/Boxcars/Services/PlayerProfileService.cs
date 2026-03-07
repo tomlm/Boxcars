@@ -8,19 +8,17 @@ namespace Boxcars.Services;
 public class PlayerProfileService
 {
     private readonly TableClient _usersTable;
-    private readonly TableClient _nicknameIndexTable;
 
     public PlayerProfileService(TableServiceClient tableServiceClient)
     {
         _usersTable = tableServiceClient.GetTableClient(TableNames.UsersTable);
-        _nicknameIndexTable = tableServiceClient.GetTableClient(TableNames.NicknameIndexTable);
     }
 
     public async Task<ApplicationUser?> GetProfileAsync(string userId, CancellationToken cancellationToken)
     {
         try
         {
-            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId, cancellationToken: cancellationToken);
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId.ToLowerInvariant(), cancellationToken: cancellationToken);
             return response.Value;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -51,13 +49,13 @@ public class PlayerProfileService
 
     public async Task<NicknameResult> UpdateNicknameAsync(string userId, string newNickname, CancellationToken cancellationToken)
     {
-        var normalizedNickname = newNickname.ToUpperInvariant();
+        var normalizedNickname = newNickname.Trim().ToUpperInvariant();
 
         // Load current user
         ApplicationUser user;
         try
         {
-            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId, cancellationToken: cancellationToken);
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId.ToLowerInvariant(), cancellationToken: cancellationToken);
             user = response.Value;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -65,25 +63,18 @@ public class PlayerProfileService
             return NicknameResult.UserNotFound;
         }
 
-        var oldNormalizedNickname = user.NormalizedNickname;
-
-        // Try to claim new nickname index
-        try
+        await foreach (var existing in _usersTable.QueryAsync<ApplicationUser>(
+                           entity => entity.PartitionKey == "USER" && entity.NormalizedNickname == normalizedNickname,
+                           cancellationToken: cancellationToken))
         {
-            await _nicknameIndexTable.AddEntityAsync(new IndexEntity
+            if (!string.Equals(existing.RowKey, user.RowKey, StringComparison.OrdinalIgnoreCase))
             {
-                PartitionKey = "NICKNAME_INDEX",
-                RowKey = normalizedNickname,
-                UserId = userId
-            }, cancellationToken);
-        }
-        catch (RequestFailedException ex) when (ex.Status == 409)
-        {
-            return NicknameResult.Conflict;
+                return NicknameResult.Conflict;
+            }
         }
 
         // Update user entity
-        user.Nickname = newNickname;
+        user.Nickname = newNickname.Trim();
         user.NormalizedNickname = normalizedNickname;
 
         try
@@ -92,18 +83,7 @@ public class PlayerProfileService
         }
         catch (RequestFailedException)
         {
-            // Rollback: delete new nickname index
-            try { await _nicknameIndexTable.DeleteEntityAsync("NICKNAME_INDEX", normalizedNickname, cancellationToken: cancellationToken); }
-            catch (RequestFailedException) { /* best-effort rollback */ }
-
             return NicknameResult.UpdateFailed;
-        }
-
-        // Delete old nickname index entry
-        if (!string.IsNullOrEmpty(oldNormalizedNickname))
-        {
-            try { await _nicknameIndexTable.DeleteEntityAsync("NICKNAME_INDEX", oldNormalizedNickname, cancellationToken: cancellationToken); }
-            catch (RequestFailedException) { /* best-effort cleanup */ }
         }
 
         return NicknameResult.Success;
@@ -113,7 +93,7 @@ public class PlayerProfileService
     {
         try
         {
-            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId, cancellationToken: cancellationToken);
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId.ToLowerInvariant(), cancellationToken: cancellationToken);
             var user = response.Value;
             user.ThumbnailUrl = newUrl;
             await _usersTable.UpdateEntityAsync(user, user.ETag, TableUpdateMode.Replace, cancellationToken);

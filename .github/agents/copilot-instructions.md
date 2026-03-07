@@ -11,7 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-26
 - Azure Table Storage with records organized by `GameId`: one current full-state snapshot blob + per-action immutable log rows (002-rail-baron-engine)
 - C# 12 / .NET 8 (LTS) + `System.ComponentModel` (INotifyPropertyChanged), `System.Collections.ObjectModel` (ObservableCollection), `System.Text.Json` (serialization). No third-party dependencies for the engine library itself. (004-observable-game-model)
 - Azure Table Storage — game state serialized as JSON blob property via `System.Text.Json` (004-observable-game-model)
-- C# 12 on .NET 8 (`net8.0`) + ASP.NET Core Blazor Server, MudBlazor, ASP.NET Core SignalR, ASP.NET Core Identity (custom store), Azure.Data.Tables (001-port-ui-mudblazor)
+- C# / .NET 8 (`net8.0`) + ASP.NET Core Blazor Server, ASP.NET Core SignalR, Azure.Data.Tables, Microsoft Fluent UI Blazor (002-redo-table-storage)
+- Azure Table Storage (`UsersTable`, `GamesTable`) (002-redo-table-storage)
 
 - C# on .NET 10 (SDK installed: 10.0.102) + ASP.NET Core Blazor Server, ASP.NET Core SignalR, ASP.NET Core Authentication (OpenID Connect providers), `MudBlazor`, `Azure.Data.Tables` (001-initial-shell-app)
 
@@ -33,6 +34,7 @@ C# on .NET 10 (SDK installed: 10.0.102): Follow standard conventions
 
 ## Recent Changes
 - 001-port-ui-mudblazor: Added C# 12 on .NET 8 (`net8.0`) + ASP.NET Core Blazor Server, MudBlazor, ASP.NET Core SignalR, ASP.NET Core Identity (custom store), Azure.Data.Tables
+- 002-redo-table-storage: Added C# / .NET 8 (`net8.0`) + ASP.NET Core Blazor Server, ASP.NET Core SignalR, Azure.Data.Tables, Microsoft Fluent UI Blazor
 - 004-observable-game-model: Added C# 12 / .NET 8 (LTS) + `System.ComponentModel` (INotifyPropertyChanged), `System.Collections.ObjectModel` (ObservableCollection), `System.Text.Json` (serialization). No third-party dependencies for the engine library itself.
 - 002-rail-baron-engine: Added C# 12 on .NET 8 (LTS) + .NET BCL, ASP.NET Core-compatible contracts, Azure.Data.Tables for persistence adapter
 

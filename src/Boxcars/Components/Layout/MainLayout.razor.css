@@ -33,6 +33,14 @@
     margin: 0;
 }
 
+.content-area--create-game {
+    padding: 0;
+    max-width: none;
+    margin: 0;
+    block-size: calc(100dvh - 56px);
+    overflow: hidden;
+}
+
 #blazor-error-ui {
     background: lightyellow;
     bottom: 0;
