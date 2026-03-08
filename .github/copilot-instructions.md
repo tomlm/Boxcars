@@ -7,7 +7,7 @@
 ## Code Style
 - Use specific formatting rules
 - Follow naming conventions for dotnet and Blazor proejcts
-- Use Fluent UI Blazor components (no raw HTML)
+- Use MudBlazor components (no raw HTML), and MudBlazor Layout components for page structure
 - Avoid inline CSS styles
 - Implement component decomposition for major UI sections
 - Utilize async I/O with CancellationToken

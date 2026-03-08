@@ -6,7 +6,7 @@
     border-radius: 0;
     overflow: hidden;
     overscroll-behavior: contain;
-    background-color: var(--neutral-fill-layer-rest);
+    background-color: var(--mud-palette-surface);
     position: relative;
     cursor: grab;
 }
@@ -105,10 +105,10 @@
 }
 
 .game-map-city-labels text {
-    fill: var(--neutral-foreground-rest);
+    fill: var(--mud-palette-text-primary);
     font-size: 2.5px;
     paint-order: stroke;
-    stroke: var(--neutral-fill-layer-rest);
+    stroke: var(--mud-palette-surface);
     stroke-width: 0.7;
     dominant-baseline: hanging;
     white-space: nowrap;
@@ -186,9 +186,9 @@
     min-width: 11rem;
     max-width: 16rem;
     padding: 0.5rem;
-    border: 1px solid var(--neutral-stroke-rest);
+    border: 1px solid var(--mud-palette-divider);
     border-radius: 0.35rem;
-    background: var(--neutral-fill-layer-rest);
+    background: var(--mud-palette-surface);
     box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
 }
 
@@ -201,15 +201,10 @@
 
 .game-map-route-node-menu-item {
     text-align: left;
-    border: 1px solid var(--neutral-stroke-rest);
-    border-radius: 0.25rem;
-    background: var(--neutral-fill-input-rest);
-    color: var(--neutral-foreground-rest);
-    padding: 0.3rem 0.45rem;
-    font: inherit;
+    justify-content: flex-start;
+    text-transform: none;
+    width: 100%;
+    min-height: 2rem;
+    padding: 0.2rem 0.45rem;
     cursor: pointer;
-}
-
-.game-map-route-node-menu-item:hover {
-    background: var(--neutral-fill-input-hover);
 }

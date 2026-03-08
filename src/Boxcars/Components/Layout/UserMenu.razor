@@ -1,21 +1,46 @@
-@rendermode InteractiveServer
 @using Boxcars.Data
 @using Boxcars.Services
 @using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
 @inject NavigationManager Navigation
 @inject PlayerProfileService ProfileService
 
 <AuthorizeView>
     <Authorized>
-        <FluentProfileMenu Initials="@_initials"
-                           HeaderLabel="BoxCars"
-                           HeaderButton="Sign out"
-                           OnHeaderButtonClick="@SignOut"
-                           FullName="@_fullName"
-                           EMail="@_email"
-                           FooterLink="View account"
-                           OnFooterLinkClick="@NavigateToProfile"
-                           PopoverStyle="min-width: 340px;" />
+        <MudMenu Dense="true"
+                 AnchorOrigin="Origin.BottomRight"
+                 TransformOrigin="Origin.TopRight">
+            <ActivatorContent>
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Inherit" Class="user-menu-trigger">
+                    <MudAvatar Size="Size.Medium" Class="user-menu-avatar">
+                        @if (HasThumbnail)
+                        {
+                            <MudImage Src="@_thumbnailUrl" Alt="@_fullName" Class="user-menu-avatar-image" />
+                        }
+                        else
+                        {
+                            @_initials
+                        }
+                    </MudAvatar>
+                </MudButton>
+            </ActivatorContent>
+            <ChildContent>
+                <MudMenuItem Disabled="true">
+                    <MudText Typo="Typo.subtitle2">@_fullName</MudText>
+                </MudMenuItem>
+
+                @if (!string.IsNullOrWhiteSpace(_email))
+                {
+                    <MudMenuItem Disabled="true">
+                        <MudText Typo="Typo.caption">@_email</MudText>
+                    </MudMenuItem>
+                }
+
+                <MudDivider />
+                <MudMenuItem OnClick="@(() => NavigateToProfile())">View account</MudMenuItem>
+                <MudMenuItem OnClick="@(() => SignOut())">Sign out</MudMenuItem>
+            </ChildContent>
+        </MudMenu>
     </Authorized>
 </AuthorizeView>
 
@@ -23,6 +48,7 @@
     private string _initials = "?";
     private string _fullName = "Player";
     private string _email = string.Empty;
+    private string _thumbnailUrl = string.Empty;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -50,11 +76,14 @@
                         var nickname = !string.IsNullOrEmpty(profile.Nickname) ? profile.Nickname : "Player";
                         _fullName = nickname;
                         _initials = GetInitials(nickname);
+                        _thumbnailUrl = profile.ThumbnailUrl;
                     }
                 }
             }
         }
     }
+
+    private bool HasThumbnail => !string.IsNullOrWhiteSpace(_thumbnailUrl);
 
     private void NavigateToProfile()
     {

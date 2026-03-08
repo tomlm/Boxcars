@@ -10,6 +10,7 @@ using Boxcars.Services.Maps;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.FluentUI.AspNetCore.Components;
+using MudBlazor.Services;
 
 namespace Boxcars;
 
@@ -40,8 +41,9 @@ public class Program
             ?? throw new InvalidOperationException("AzureTableStorage:ConnectionString not found.");
         builder.Services.AddSingleton(new TableServiceClient(tableStorageConnectionString));
 
-        // Fluent UI
+        // UI component libraries
         builder.Services.AddHttpClient();
+        builder.Services.AddMudServices();
         builder.Services.AddFluentUIComponents();
 
         // Identity (custom table storage stores, no EF Core)
@@ -87,18 +89,25 @@ public class Program
         var usersTable = tableService.GetTableClient(TableNames.UsersTable);
         var beatlesUsers = new[]
         {
-            (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul"),
-            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo"),
-            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George"),
-            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John")
+            (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple"),
+            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "red"),
+            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "green"),
+            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "orange")
         };
 
         foreach (var beatle in beatlesUsers)
         {
             var userId = beatle.Email.ToLowerInvariant();
             var existing = await usersTable.GetEntityIfExistsAsync<ApplicationUser>("USER", userId);
-            if (existing.HasValue)
+            if (existing.HasValue && existing.Value is { } existingUser)
             {
+                var normalizedPreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor);
+                if (!string.Equals(existingUser.PreferredColor, normalizedPreferredColor, StringComparison.OrdinalIgnoreCase))
+                {
+                    existingUser.PreferredColor = normalizedPreferredColor;
+                    await usersTable.UpdateEntityAsync(existingUser, existingUser.ETag, TableUpdateMode.Replace);
+                }
+
                 continue;
             }
 
@@ -113,6 +122,7 @@ public class Program
                 Name = beatle.Name,
                 Nickname = beatle.Nickname,
                 NormalizedNickname = beatle.Nickname.ToUpperInvariant(),
+                PreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor),
                 ThumbnailUrl = "https://via.placeholder.com/150?text=Player",
                 SecurityStamp = Guid.NewGuid().ToString(),
                 EmailConfirmed = true

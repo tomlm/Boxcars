@@ -1,10 +1,14 @@
 ﻿@inherits LayoutComponentBase
 @layout Boxcars.Components.Layout.MainLayout
 @inject NavigationManager NavigationManager
+@using MudBlazor
 
 @if (HttpContext is null)
 {
-    <p>Loading...</p>
+    <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Class="account-layout-loading">
+        <MudProgressCircular Indeterminate="true" Size="Size.Medium" Color="MudBlazor.Color.Primary" />
+        <MudText Typo="Typo.body2">Loading...</MudText>
+    </MudStack>
 }
 else
 {

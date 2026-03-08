@@ -1,3 +1,26 @@
+.app-bar {
+    overflow: visible;
+}
+
+.app-title-link {
+    color: inherit;
+}
+
+.user-menu-trigger {
+    min-width: auto;
+    padding: 0;
+}
+
+.user-menu-avatar {
+    overflow: hidden;
+}
+
+.user-menu-avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
 .content-area {
     padding: 1.5rem 2rem;
     max-width: 1200px;

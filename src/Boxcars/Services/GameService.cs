@@ -5,6 +5,7 @@ using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Microsoft.AspNetCore.SignalR;
+using System.Text.Json;
 
 namespace Boxcars.Services;
 

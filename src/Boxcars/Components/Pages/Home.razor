@@ -1,18 +1,21 @@
 @page "/"
-@rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
+@using MudBlazor
 @attribute [Authorize]
 @inject NavigationManager Navigation
 
 <PageTitle>BoxCars</PageTitle>
 
-<div style="display: flex; justify-content: center; align-items: center; min-height: 70vh;">
-    <FluentProgressRing />
-</div>
+<MudStack Class="home-loading" Justify="Justify.Center" AlignItems="AlignItems.Center">
+    <MudProgressCircular Indeterminate="true" Size="Size.Large" Color="MudBlazor.Color.Primary" />
+</MudStack>
 
 @code {
-    protected override void OnInitialized()
+    protected override void OnAfterRender(bool firstRender)
     {
-        Navigation.NavigateTo("/dashboard", replace: true);
+        if (firstRender)
+        {
+            Navigation.NavigateTo("/dashboard", replace: true);
+        }
     }
 }

@@ -1,0 +1,139 @@
+@using Boxcars.Data.Maps
+@using Boxcars.Engine.Data.Maps
+
+<MapComponent @ref="_mapComponent"
+			  MapFileName="@MapFileName"
+			  SelectionMode="@SelectionMode"
+			  SelectionModeChanged="@SelectionModeChanged"
+			  ZoomPercent="@ZoomPercent"
+			  ZoomPercentChanged="@ZoomPercentChanged"
+			  PanCenterX="@PanCenterX"
+			  PanCenterXChanged="@PanCenterXChanged"
+			  PanCenterY="@PanCenterY"
+			  PanCenterYChanged="@PanCenterYChanged"
+			  PlayerId="@PlayerId"
+			  PlayerColor="@PlayerColor"
+			  PlayerStates="@PlayerStates"
+			  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+			  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+			  MovementType="@MovementType"
+			  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
+			  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
+			  RailroadSelected="@RailroadSelected"
+			  RouteSuggestionChanged="@RouteSuggestionChanged"
+			  DestinationCityChanged="@DestinationCityChanged"
+			  StartCityChanged="@StartCityChanged" />
+
+@code {
+	[Parameter]
+	public string MapFileName { get; set; } = "U21MAP.RB3";
+
+	[Parameter]
+	public MapSelectionMode SelectionMode { get; set; } = MapSelectionMode.Rail;
+
+	[Parameter]
+	public EventCallback<MapSelectionMode> SelectionModeChanged { get; set; }
+
+	[Parameter]
+	public double ZoomPercent { get; set; } = 100;
+
+	[Parameter]
+	public EventCallback<double> ZoomPercentChanged { get; set; }
+
+	[Parameter]
+	public double PanCenterX { get; set; }
+
+	[Parameter]
+	public EventCallback<double> PanCenterXChanged { get; set; }
+
+	[Parameter]
+	public double PanCenterY { get; set; }
+
+	[Parameter]
+	public EventCallback<double> PanCenterYChanged { get; set; }
+
+	[Parameter]
+	public string PlayerId { get; set; } = "mock-player";
+
+	[Parameter]
+	public string PlayerColor { get; set; } = "var(--accent-fill-rest)";
+
+	[Parameter]
+	public IReadOnlyList<PlayerMapState>? PlayerStates { get; set; }
+
+	[Parameter]
+	public int CurrentTurnMovementRemaining { get; set; }
+
+	[Parameter]
+	public bool IsCurrentUserActivePlayer { get; set; }
+
+	[Parameter]
+	public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
+
+	[Parameter]
+	public IReadOnlyCollection<int>? PlayerOwnedRailroadIndices { get; set; }
+
+	[Parameter]
+	public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
+
+	[Parameter]
+	public EventCallback<int> RailroadSelected { get; set; }
+
+	[Parameter]
+	public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }
+
+	[Parameter]
+	public EventCallback<string> DestinationCityChanged { get; set; }
+
+	[Parameter]
+	public EventCallback<string> StartCityChanged { get; set; }
+
+	private MapComponent? _mapComponent;
+
+	public IReadOnlyList<string> Errors => _mapComponent?.Errors ?? Array.Empty<string>();
+	public IReadOnlyList<MapComponent.RouteCityOption> RouteCityOptions => _mapComponent?.RouteCityOptions ?? Array.Empty<MapComponent.RouteCityOption>();
+	public string? RouteStartNodeId => _mapComponent?.RouteStartNodeId;
+	public string? DestinationNodeId => _mapComponent?.DestinationNodeId;
+	public bool CanSuggestRoute => _mapComponent?.CanSuggestRoute == true;
+	public RouteSuggestionResult? RouteSuggestion => _mapComponent?.RouteSuggestion;
+
+	public int GetSelectedRouteMoveCount()
+	{
+		return _mapComponent?.GetSelectedRouteMoveCount() ?? 0;
+	}
+
+	public int GetSelectedRouteFeeEstimate()
+	{
+		return _mapComponent?.GetSelectedRouteFeeEstimate() ?? 0;
+	}
+
+	public async Task SetZoom(double zoomPercent)
+	{
+		if (_mapComponent is null)
+		{
+			return;
+		}
+
+		await _mapComponent.SetZoom(zoomPercent);
+	}
+
+	public void SetStartCity(string nodeId)
+	{
+		_mapComponent?.SetStartCity(nodeId);
+	}
+
+	public void SetDestinationCity(string nodeId)
+	{
+		_mapComponent?.SetDestinationCity(nodeId);
+	}
+
+	public async Task SuggestRouteAsync()
+	{
+		if (_mapComponent is null)
+		{
+			return;
+		}
+
+		await _mapComponent.SuggestRouteAsync();
+	}
+}

@@ -5,6 +5,7 @@
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
 @using Boxcars.Data
+@using MudBlazor
 @attribute [AllowAnonymous]
 
 @inject SignInManager<ApplicationUser> SignInManager
@@ -15,64 +16,62 @@
 
 <PageTitle>Log in</PageTitle>
 
-<h1>Log in</h1>
-<div class="row">
-    <div class="col-md-4">
-        <section>
+<MudText Typo="Typo.h4" Class="auth-title">Log in</MudText>
+<MudGrid Class="auth-grid">
+    <MudItem xs="12" md="5">
+        <MudPaper Class="auth-card" Outlined="true">
             <StatusMessage Message="@errorMessage" />
             @if (showRegistrationPrompt)
             {
-                <div class="alert alert-info" role="alert">
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                     Don't have an account yet?
                     <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Sign up here</a>.
-                </div>
+                </MudAlert>
             }
             <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
                 <DataAnnotationsValidator />
-                <h2>Use a local account to log in.</h2>
-                <hr />
-                <ValidationSummary class="text-danger" role="alert" />
-                <div class="form-floating mb-3">
-                    <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
-                    <label for="email" class="form-label">Email</label>
-                    <ValidationMessage For="() => Input.Email" class="text-danger" />
-                </div>
-                <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="password" />
-                    <label for="password" class="form-label">Password</label>
-                    <ValidationMessage For="() => Input.Password" class="text-danger" />
-                </div>
-                <div class="checkbox mb-3">
-                    <label class="form-label">
-                        <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
-                        Remember me
+                <MudText Typo="Typo.h6">Use a local account to log in.</MudText>
+                <ValidationSummary class="auth-validation" role="alert" />
+                <MudStack Class="auth-form-fields">
+                    <InputText @bind-Value="Input.Email"
+                               type="email"
+                               name="Input.Email"
+                               class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end auth-native-input"
+                               autocomplete="username"
+                               aria-required="true"
+                               placeholder="name@example.com" />
+                    <ValidationMessage For="() => Input.Email" class="auth-validation" />
+
+                    <InputText @bind-Value="Input.Password"
+                               type="password"
+                               name="Input.Password"
+                               class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end auth-native-input"
+                               autocomplete="current-password"
+                               aria-required="true"
+                               placeholder="password" />
+                    <ValidationMessage For="() => Input.Password" class="auth-validation" />
+
+                    <label class="auth-checkbox-row">
+                        <InputCheckbox @bind-Value="Input.RememberMe" name="Input.RememberMe" class="auth-checkbox" />
+                        <span>Remember me</span>
                     </label>
-                </div>
-                <div>
-                    <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
-                </div>
-                <div>
-                    <p>
-                        <a href="Account/ForgotPassword">Forgot your password?</a>
-                    </p>
-                    <p>
-                        <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</a>
-                    </p>
-                    <p>
-                        <a href="Account/ResendEmailConfirmation">Resend email confirmation</a>
-                    </p>
-                </div>
+
+                    <MudButton ButtonType="MudBlazor.ButtonType.Submit" Variant="Variant.Filled" Color="MudBlazor.Color.Primary" FullWidth="true">Log in</MudButton>
+
+                    <MudLink Href="Account/ForgotPassword">Forgot your password?</MudLink>
+                    <MudLink Href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</MudLink>
+                    <MudLink Href="Account/ResendEmailConfirmation">Resend email confirmation</MudLink>
+                </MudStack>
             </EditForm>
-        </section>
-    </div>
-    <div class="col-md-6 col-md-offset-2">
-        <section>
-            <h3>Use another service to log in.</h3>
-            <hr />
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" md="7">
+        <MudPaper Class="auth-card" Outlined="true">
+            <MudText Typo="Typo.h6">Use another service to log in.</MudText>
             <ExternalLoginPicker />
-        </section>
-    </div>
-</div>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
 
 @code {
     private string? errorMessage;
@@ -86,6 +85,11 @@
 
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; } = "/dashboard";
+
+    protected override void OnParametersSet()
+    {
+        Input ??= new();
+    }
 
     protected override async Task OnInitializedAsync()
     {

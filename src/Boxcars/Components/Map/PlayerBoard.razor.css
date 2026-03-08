@@ -1,49 +1,97 @@
-::deep .player-board {
-    gap: 0 !important;
+.player-board {
+    gap: 0;
     width: 100%;
 }
 
-::deep fluent-card.player-card {
+.player-card {
     display: flex;
     flex-direction: column;
     min-height: 92px;
     overflow: hidden;
     border-radius: 0;
+    border-width: 2px;
+    border-style: solid;
 }
 
-    ::deep fluent-card.player-card::part(control) {
-        border-color: transparent !important;
-        border-width: 0;
-        border-style: none;
-        border-radius: 0;
-    }
-
-::deep fluent-card.player-card-active {
+.player-card-active {
     box-shadow: 0 0 6px var(--player-color, #888);
+    border-width: 3px;
 }
 
-    ::deep fluent-card.player-card-active::part(control) {
-        border-color: var(--player-color, #888) !important;
-        border-width: 4px;
-        border-style: solid;
-    }
+.player-card-portrait {
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding: 0.25rem 0.35rem;
+}
 
-::deep .player-card-portrait {
-    display: flex;
-    align-items: stretch;
-    justify-content: stretch;
-    padding: 0px;
+.player-avatar {
+    color: #ffffff;
+    font-weight: 700;
+    overflow: hidden;
+}
+
+.player-avatar-image {
     width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
-::deep .player-persona {
-    flex: 1 1 auto;
-    width: 100%;
+.player-card-header-text {
+    gap: 0;
 }
 
-    ::deep .player-persona::part(control) {
-        width: 100% !important;
-        max-width: none !important;
-    }
+.player-card-info {
+    gap: 0;
+    padding: 0 0.35rem 0.35rem;
+}
 
+.player-status-connected {
+    color: var(--mud-palette-success);
+}
+
+.player-status-disconnected {
+    color: var(--mud-palette-error);
+}
+
+.player-color-blue {
+    --player-color: blue;
+    border-color: blue;
+    background-color: color-mix(in srgb, blue 14%, var(--mud-palette-surface));
+}
+
+.player-color-red {
+    --player-color: red;
+    border-color: red;
+    background-color: color-mix(in srgb, red 14%, var(--mud-palette-surface));
+}
+
+.player-color-green {
+    --player-color: green;
+    border-color: green;
+    background-color: color-mix(in srgb, green 14%, var(--mud-palette-surface));
+}
+
+.player-color-cyan {
+    --player-color: cyan;
+    border-color: cyan;
+    background-color: color-mix(in srgb, cyan 14%, var(--mud-palette-surface));
+}
+
+.player-color-orange {
+    --player-color: orange;
+    border-color: orange;
+    background-color: color-mix(in srgb, orange 14%, var(--mud-palette-surface));
+}
+
+.player-color-purple {
+    --player-color: purple;
+    border-color: purple;
+    background-color: color-mix(in srgb, purple 14%, var(--mud-palette-surface));
+}
+
+.player-color-default {
+    --player-color: #888;
+    border-color: #888;
+    background-color: var(--mud-palette-surface);
 }

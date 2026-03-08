@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
 @using Boxcars.Data
 @using Boxcars.Services
 @attribute [Authorize]
@@ -13,46 +14,64 @@
 
 @if (_loading)
 {
-    <FluentProgressRing />
+    <MudStack Class="profile-loading" Justify="Justify.Center" AlignItems="AlignItems.Center">
+        <MudProgressCircular Indeterminate="true" Size="Size.Large" Color="MudBlazor.Color.Primary" />
+    </MudStack>
 }
 else if (_profile == null)
 {
-    <FluentCard Style="max-width: 600px; margin: 2rem auto; text-align: center; padding: 2rem;">
-        <FluentLabel Typo="Typography.H4">Unable to load profile</FluentLabel>
-        <FluentButton Appearance="Appearance.Accent" OnClick="@LoadProfileAsync" Style="margin-top: 1rem;">Retry</FluentButton>
-    </FluentCard>
+    <MudPaper Class="profile-error">
+        <MudText Typo="Typo.h4">Unable to load profile</MudText>
+        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadProfileAsync" Class="profile-retry">Retry</MudButton>
+    </MudPaper>
 }
 else
 {
-    <FluentStack Orientation="Orientation.Vertical" Style="max-width: 600px; margin: 0 auto; gap: 1.5rem;">
-        <FluentLabel Typo="Typography.H3">Profile Settings</FluentLabel>
+    <MudStack Class="profile-container">
+        <MudText Typo="Typo.h3">Profile Settings</MudText>
 
-        <FluentCard Style="padding: 1.5rem;">
-            <FluentStack Orientation="Orientation.Vertical" Style="gap: 1rem;">
-                <FluentTextField @bind-Value="_nickname"
-                                 Label="Nickname"
-                                 Placeholder="Enter your display name"
-                                 Style="width: 100%;" />
+        <MudPaper Class="profile-card">
+            <MudStack Class="profile-fields">
+                <MudTextField @bind-Value="_nickname"
+                              Label="Nickname"
+                              Placeholder="Enter your display name"
+                              Variant="Variant.Outlined"
+                              Class="profile-field" />
 
-                <FluentTextField @bind-Value="_thumbnailUrl"
-                                 Label="Thumbnail URL"
-                                 Placeholder="https://example.com/avatar.png"
-                                 Style="width: 100%;" />
+                <MudTextField @bind-Value="_thumbnailUrl"
+                              Label="Thumbnail URL"
+                              Placeholder="https://example.com/avatar.png"
+                              Variant="Variant.Outlined"
+                              Class="profile-field" />
 
-                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 1rem; margin-top: 0.5rem;">
-                    <FluentButton Appearance="Appearance.Accent"
-                                  OnClick="@SaveAsync"
-                                  Disabled="@_saving">
+                <MudSelect T="string"
+                           Label="Preferred Color"
+                           Value="@_preferredColor"
+                           ValueChanged="OnPreferredColorChanged"
+                           Variant="Variant.Outlined"
+                           Class="profile-field">
+                    @foreach (var color in PlayerColorOptions.Colors)
+                    {
+                        <MudSelectItem Value="@color">@PlayerColorOptions.ToLabel(color)</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <MudStack Row="true" Class="profile-actions">
+                    <MudButton Variant="Variant.Filled"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="@SaveAsync"
+                               Disabled="@_saving">
                         @(_saving ? "Saving..." : "Save Changes")
-                    </FluentButton>
-                    <FluentButton Appearance="Appearance.Outline"
-                                  OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
                         Back to Dashboard
-                    </FluentButton>
-                </FluentStack>
-            </FluentStack>
-        </FluentCard>
-    </FluentStack>
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    </MudStack>
 }
 
 @code {
@@ -61,9 +80,11 @@ else
     private ApplicationUser? _profile;
     private string _nickname = string.Empty;
     private string _thumbnailUrl = string.Empty;
+    private string _preferredColor = PlayerColorOptions.Colors[0];
     private string? _currentUserId;
     private string _originalNickname = string.Empty;
     private string _originalThumbnailUrl = string.Empty;
+    private string _originalPreferredColor = PlayerColorOptions.Colors[0];
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -91,8 +112,10 @@ else
             {
                 _nickname = _profile.Nickname;
                 _thumbnailUrl = _profile.ThumbnailUrl;
+                _preferredColor = PlayerColorOptions.NormalizeOrDefault(_profile.PreferredColor);
                 _originalNickname = _profile.Nickname;
                 _originalThumbnailUrl = _profile.ThumbnailUrl;
+                _originalPreferredColor = _preferredColor;
             }
         }
 
@@ -109,6 +132,7 @@ else
 
         var nicknameChanged = _nickname.Trim() != _originalNickname;
         var thumbnailChanged = _thumbnailUrl.Trim() != _originalThumbnailUrl;
+        var preferredColorChanged = _preferredColor != _originalPreferredColor;
 
         try
         {
@@ -148,7 +172,21 @@ else
                 _originalThumbnailUrl = _thumbnailUrl.Trim();
             }
 
-            if (nicknameChanged || thumbnailChanged)
+            if (preferredColorChanged)
+            {
+                var updated = await ProfileService.UpdatePreferredColorAsync(_currentUserId, _preferredColor, CancellationToken.None);
+                if (!updated)
+                {
+                    await MessageService.ShowMessageBarAsync("Save failed, please try again.", MessageIntent.Error, "SETTINGS");
+                    _saving = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                _originalPreferredColor = _preferredColor;
+            }
+
+            if (nicknameChanged || thumbnailChanged || preferredColorChanged)
             {
                 await MessageService.ShowMessageBarAsync("Profile updated successfully!", MessageIntent.Success, "SETTINGS");
                 // Force page refresh to update the header profile menu
@@ -168,5 +206,11 @@ else
             _saving = false;
             StateHasChanged();
         }
+    }
+
+    private Task OnPreferredColorChanged(string value)
+    {
+        _preferredColor = PlayerColorOptions.NormalizeOrDefault(value);
+        return Task.CompletedTask;
     }
 }

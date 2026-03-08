@@ -1,3 +1,7 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+
 <!DOCTYPE html>
 <html lang="en">
 
@@ -5,18 +9,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
     <link rel="stylesheet" href="_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css" />
     <link rel="stylesheet" href="app.css" />
     <link rel="stylesheet" href="Boxcars.styles.css" />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <HeadOutlet />
+    <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 
 <body>
-    <Routes />
+    <Routes @rendermode="PageRenderMode" />
     <FluentDesignTheme StorageName="theme" />
     <script src="js/mapBoard.js?v=2"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    private IComponentRenderMode? PageRenderMode => HttpContext.Request.Path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase)
+        ? null
+        : InteractiveServer;
+}
