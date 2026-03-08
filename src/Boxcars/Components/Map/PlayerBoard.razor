@@ -25,6 +25,8 @@
             </MudStack>
 
             <MudStack Class="player-card-info">
+                <MudText Typo="Typo.body2">Home: @player.HomeCity</MudText>
+                <MudText Typo="Typo.body2">Engine: @player.LocomotiveLabel</MudText>
                 @if (player.IsAtDestination)
                 {
                     <MudText Typo="Typo.body2">At: @player.LocationLabel</MudText>
@@ -44,8 +46,6 @@
                     }
                 </MudText>
                 <MudText Typo="Typo.body2">@player.GetMoneyDisplay()</MudText>
-                <MudText Typo="Typo.body2">Home: @player.HomeCity</MudText>
-                <MudText Typo="Typo.body2">Engine: @player.LocomotiveLabel</MudText>
             </MudStack>
         </MudPaper>
     }
