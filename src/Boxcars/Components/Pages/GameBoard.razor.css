@@ -131,9 +131,6 @@
     align-items: center;
 }
 
-.map-board-zoom-row {
-}
-
 .map-board-zoom-slider {
     width: 100px;
     min-width: 100px;
@@ -141,8 +138,6 @@
 }
 
 /* ── Route picker (inline in status bar) ── */
-.map-board-route-picker-row {
-}
 
 /* ── Error/warning overlays ── */
 .map-board-message {

@@ -56,9 +56,9 @@ else if (_needsNickname)
 }
 else
 {
-    <MudStack Class="dashboard-stack" Spacing="6">
-        <MudPaper Class="dashboard-card pa-6">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="dashboard-row" Spacing="4">
+    <MudStack Spacing="6">
+        <MudPaper Class="pa-6">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="4">
                 <MudAvatar Size="Size.Large">
                     @if (HasProfileThumbnail())
                     {
@@ -76,20 +76,20 @@ else
             </MudStack>
         </MudPaper>
 
-        <MudPaper Class="dashboard-card pa-6">
+        <MudPaper Class="pa-6">
             <MudText Typo="Typo.h5" Class="dashboard-section-title">Your Stats</MudText>
             <MudText Typo="Typo.body2" Class="dashboard-muted">
                 Welcome to BoxCars! Start your first game to begin tracking your stats.
             </MudText>
         </MudPaper>
 
-        <MudPaper Class="dashboard-card pa-6">
+        <MudPaper Class="pa-6">
             <MudText Typo="Typo.h5" Class="dashboard-section-title">Games</MudText>
 
             @if (_dashboardState!.HasActiveGame)
             {
                 <MudText Typo="Typo.body1" Class="dashboard-helper">You have an active game.</MudText>
-                <MudStack Row="true" Class="dashboard-actions-row" Spacing="3">
+                <MudStack Row="true" Spacing="3">
                     <MudButton Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary"
                                OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
@@ -110,7 +110,7 @@ else
                     <MudStack Class="dashboard-games-list" Spacing="3">
                         @foreach (var game in _dashboardState.JoinableGames)
                         {
-                            <MudPaper Class="dashboard-join-game-card pa-4">
+                            <MudPaper Class="pa-4">
                                 <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                                     <MudStack>
                                         <MudText Typo="Typo.body1">
@@ -132,7 +132,7 @@ else
                 }
 
                 <MudText Typo="Typo.h6" Class="dashboard-section-title">Create a New Game</MudText>
-                <MudStack Row="true" Class="dashboard-actions-row" Spacing="3">
+                <MudStack Row="true" Spacing="3">
                     <MudButton Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary"
                                OnClick="@CreateGameAsync">
@@ -162,7 +162,7 @@ else
             {
                 <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error">@_deleteGameError</MudText>
             }
-            <MudStack Row="true" Justify="Justify.FlexEnd" Class="dashboard-actions-row" Spacing="3">
+            <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="3">
                 <MudButton Variant="Variant.Text"
                            Color="MudBlazor.Color.Default"
                            OnClick="CancelDeleteGameDialog"

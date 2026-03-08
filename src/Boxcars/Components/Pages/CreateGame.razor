@@ -13,11 +13,11 @@
 
 <PageTitle>Create Game - BoxCars</PageTitle>
 
-<MudStack Class="create-game-page" Spacing="6">
+<MudStack Spacing="6">
     <MudText Typo="Typo.h3">Create Game</MudText>
 
     <MudPaper Class="create-game-card pa-6">
-        <MudStack Class="create-game-fields" Spacing="4">
+        <MudStack Spacing="4">
             <MudText Typo="Typo.body1">
                 Configure the players, their colors, and the starting turn order before entering the board.
             </MudText>
@@ -39,13 +39,13 @@
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_validationMessage</MudAlert>
             }
 
-            <MudStack Class="create-game-player-list" Spacing="3">
+            <MudStack Spacing="3">
                 @for (var index = 0; index < _playerSlots.Count; index++)
                 {
                     var slot = _playerSlots[index];
 
-                    <MudPaper @key="slot.SlotId" Outlined="true" Class="create-game-player-row pa-4">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="create-game-player-row-header mb-3">
+                    <MudPaper @key="slot.SlotId" Outlined="true" Class="pa-4">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
                             <MudSpacer />
                             <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowUp"
                                            Color="MudBlazor.Color.Primary"
@@ -97,7 +97,7 @@
                 Map: @GameService.DefaultMapFileName
             </MudText>
 
-            <MudStack Row="true" Class="create-game-actions" Spacing="3">
+            <MudStack Row="true" Spacing="3">
                 <MudButton Variant="Variant.Filled"
                            Color="MudBlazor.Color.Primary"
                            OnClick="CreateGameAsync"

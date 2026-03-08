@@ -21,15 +21,6 @@
     margin-bottom: 1rem;
 }
 
-.dashboard-stack {
-}
-
-.dashboard-card {
-}
-
-.dashboard-row {
-}
-
 .dashboard-avatar-image {
     width: 100%;
     height: 100%;
@@ -48,14 +39,8 @@
     margin-bottom: 1rem;
 }
 
-.dashboard-actions-row {
-}
-
 .dashboard-games-list {
     margin-bottom: 1.5rem;
-}
-
-.dashboard-join-game-card {
 }
 
 .dashboard-delete-dialog {

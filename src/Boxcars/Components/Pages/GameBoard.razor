@@ -70,7 +70,7 @@
 
             @if (_selectionMode == MapSelectionMode.Route)
             {
-                <MudStack Row="true" AlignItems="AlignItems.Center" Class="map-board-route-picker-row" Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                     <MudButton Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary"
                                OnClick="OnSuggestRouteClickedAsync"
@@ -97,7 +97,7 @@
                                  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                                  ObserverMessage="@ObserverTurnMessage" />
 
-                <MudStack Row="true" AlignItems="AlignItems.Center" Class="map-board-zoom-row" Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                     <MudText Typo="Typo.body2">Zoom:</MudText>
                     <MudSlider T="int"
                                Min="100"

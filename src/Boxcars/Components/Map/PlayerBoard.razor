@@ -16,7 +16,7 @@
                         @GetInitial(player.Name)
                     }
                 </MudAvatar>
-                <MudStack Class="player-card-header-text">
+                <MudStack>
                     <MudText Typo="Typo.subtitle1">@player.Name</MudText>
                     <MudText Typo="Typo.caption" Class="@(player.IsConnected ? "player-status-connected" : "player-status-disconnected")" Align="Align.Right">
                         @(player.IsConnected ? "Connected" : "Offline")
