@@ -21,9 +21,14 @@ public sealed class PlayerBoardModel
     public bool IsAtDestination { get; init; }
 
     /// <summary>
-    /// The city name if at destination, or the destination city name if en route.
+    /// The player's current trip origin or current city when not traveling.
     /// </summary>
-    public string LocationLabel { get; init; } = string.Empty;
+    public string TripStartLabel { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The player's current trip destination or current city when not traveling.
+    /// </summary>
+    public string TripDestinationLabel { get; init; } = string.Empty;
 
     /// <summary>
     /// Distance (nodes remaining) to destination. Relevant only when not at destination.

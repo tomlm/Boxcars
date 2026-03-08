@@ -1,7 +1,7 @@
 <!--
 Sync Impact Report
 ===================
-Version change: 1.5.0 → 1.6.0
+Version change: 1.6.0 → 1.7.0
 Modified principles: N/A
 Added sections:
   - N/A
@@ -157,6 +157,12 @@ architecture should reflect that simplicity.
 - **No inline CSS**: Styling MUST NOT be applied via inline
   `style` attributes. Use CSS classes, CSS isolation
   (`.razor.css` files), or MudBlazor theming/tokens instead.
+- **MudBlazor-first styling**: When customizing MudBlazor
+  components, contributors MUST prefer built-in MudBlazor
+  parameters, properties, variants, colors, spacing, and
+  theming options before falling back to custom CSS. Custom CSS
+  SHOULD be used only when MudBlazor does not provide an
+  appropriate built-in mechanism.
 - **Component decomposition**: Pages MUST NOT be monolithic.
   Major UI sections (e.g., map, player panel, dice controls,
   railroad list, chat) MUST be extracted into dedicated Blazor
@@ -216,4 +222,4 @@ architectural decisions MUST align with these principles.
   takes precedence. If Principle I is not involved, prefer
   Simplicity (Principle III).
 
-**Version**: 1.6.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-06
+**Version**: 1.7.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-08

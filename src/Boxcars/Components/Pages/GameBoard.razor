@@ -549,7 +549,8 @@
                     ThumbnailUrl = ResolveThumbnailUrl(selection?.DisplayName ?? player.Name),
                     Color = ResolvePlayerColor(selection, index),
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
-                    LocationLabel = string.IsNullOrWhiteSpace(player.DestinationCityName)
+                    TripStartLabel = player.CurrentCityName,
+                    TripDestinationLabel = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         ? player.CurrentCityName
                         : player.DestinationCityName,
                     DistanceToDestination = 0,

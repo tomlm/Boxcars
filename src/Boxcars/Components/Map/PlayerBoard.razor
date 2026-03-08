@@ -17,35 +17,26 @@
                     }
                 </MudAvatar>
                 <MudStack Class="player-card-header-text">
-                    <MudText Typo="Typo.subtitle2">@player.Name</MudText>
-                    <MudText Typo="Typo.caption" Class="@(player.IsConnected ? "player-status-connected" : "player-status-disconnected")">
+                    <MudText Typo="Typo.subtitle1">@player.Name</MudText>
+                    <MudText Typo="Typo.caption" Color="@(player.IsConnected ? MudBlazor.Color.Success : MudBlazor.Color.Error)">
                         @(player.IsConnected ? "Connected" : "Offline")
                     </MudText>
                 </MudStack>
             </MudStack>
 
             <MudStack Class="player-card-info">
-                <MudText Typo="Typo.body2">Home: @player.HomeCity</MudText>
-                <MudText Typo="Typo.body2">Engine: @player.LocomotiveLabel</MudText>
-                @if (player.IsAtDestination)
-                {
-                    <MudText Typo="Typo.body2">At: @player.LocationLabel</MudText>
-                }
-                else if (!string.IsNullOrWhiteSpace(player.LocationLabel))
-                {
-                    <MudText Typo="Typo.body2">@player.DistanceToDestination to @player.LocationLabel</MudText>
-                }
-                <MudText Typo="Typo.body2">
-                    @if (player.IsAtDestination)
-                    {
-                        @($"Payoff: ${player.Payoff:N0}")
-                    }
-                    else
-                    {
-                        @($"Get: ${player.Payoff:N0}")
-                    }
+                <MudText Typo="Typo.caption" Class="player-card-line">
+                    <span class="player-card-label">Home:</span> @player.HomeCity <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
                 </MudText>
-                <MudText Typo="Typo.body2">@player.GetMoneyDisplay()</MudText>
+                <MudText Typo="Typo.caption" Class="player-card-line">
+                    <span class="player-card-label">Trip:</span> @player.TripStartLabel => @player.TripDestinationLabel
+                </MudText>
+                <MudText Typo="Typo.caption" Class="player-card-line">
+                    <span class="player-card-label">Distance:</span> @player.DistanceToDestination <span class="player-card-label">Payout:</span> $@player.Payoff.ToString("N0")
+                </MudText>
+                <MudText Typo="Typo.caption" Class="player-card-line">
+                    <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
+                </MudText>
             </MudStack>
         </MudPaper>
     }

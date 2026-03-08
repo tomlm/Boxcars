@@ -6,7 +6,7 @@
 .player-card {
     display: flex;
     flex-direction: column;
-    min-height: 92px;
+    min-height: 88px;
     overflow: hidden;
     border-radius: 0;
     border-width: 2px;
@@ -43,15 +43,16 @@
 
 .player-card-info {
     gap: 0;
-    padding: 0 0.35rem 0.35rem;
+    padding: 0 0.35rem 0.3rem;
 }
 
-.player-status-connected {
-    color: var(--mud-palette-success);
+.player-card-line {
+    margin: 0;
+    line-height: 1.1;
 }
 
-.player-status-disconnected {
-    color: var(--mud-palette-error);
+.player-card-label {
+    font-weight: 700;
 }
 
 .player-color-blue {
