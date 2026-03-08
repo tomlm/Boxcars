@@ -276,7 +276,7 @@
     public string MapFileName { get; set; } = "U21MAP.RB3";
 
     [Parameter]
-    public MapSelectionMode SelectionMode { get; set; } = MapSelectionMode.Rail;
+    public MapSelectionMode SelectionMode { get; set; } = MapSelectionMode.Route;
 
     [Parameter]
     public EventCallback<MapSelectionMode> SelectionModeChanged { get; set; }
@@ -365,7 +365,7 @@
 
     private string? _loadedMapFileName;
     private int? _selectedRailroadIndex;
-    private MapSelectionMode _previousSelectionMode = MapSelectionMode.Rail;
+    private MapSelectionMode _previousSelectionMode = MapSelectionMode.Route;
     private readonly List<RouteNodeRenderItem> _routeNodes = new();
     private readonly List<RouteGraphEdge> _selectedRouteSegments = new();
     private readonly List<string> _selectedRouteNodeIds = new();
@@ -671,6 +671,7 @@
         }
 
         await RecalculateRouteSuggestionAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task NotifyViewportChanged()
@@ -1835,16 +1836,27 @@
 
         if (activePlayerState is null)
         {
-            _routeStartNodeId = null;
-            _routeStartNodeName = null;
-            _destinationNodeId = null;
-            _destinationCityName = null;
+            if (!string.IsNullOrWhiteSpace(_routeStartNodeId)
+                || !string.IsNullOrWhiteSpace(_destinationNodeId))
+            {
+                _routeStartNodeId = null;
+                _routeStartNodeName = null;
+                _destinationNodeId = null;
+                _destinationCityName = null;
+                _selectedRouteNodeIds.Clear();
+                _selectedRouteSegments.Clear();
+                _routeSuggestion = null;
+                _routeSuggestionHighlights.Clear();
+                ResetRouteCycleState();
+            }
+
             return;
         }
 
         var startNodeId = ResolveNodeIdForCurrentLocation(activePlayerState)
             ?? ResolveNodeIdForPlayerStart(activePlayerState);
-        if (!string.IsNullOrWhiteSpace(startNodeId))
+        if (!string.IsNullOrWhiteSpace(startNodeId)
+            && !string.Equals(startNodeId, _routeStartNodeId, StringComparison.OrdinalIgnoreCase))
         {
             SetRouteStartNode(startNodeId, publishStartCityChanged: false, publishRoutePreviewChanged: false);
         }
@@ -1852,12 +1864,15 @@
         var destinationNodeId = ResolveNodeIdForCityName(activePlayerState.DestinationCityName);
         if (!string.IsNullOrWhiteSpace(destinationNodeId))
         {
-            _destinationNodeId = destinationNodeId;
-            var destinationOption = _routeCityOptions.FirstOrDefault(option =>
-                string.Equals(option.NodeId, destinationNodeId, StringComparison.OrdinalIgnoreCase));
-            _destinationCityName = destinationOption.CityName;
+            if (!string.Equals(destinationNodeId, _destinationNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                _destinationNodeId = destinationNodeId;
+                var destinationOption = _routeCityOptions.FirstOrDefault(option =>
+                    string.Equals(option.NodeId, destinationNodeId, StringComparison.OrdinalIgnoreCase));
+                _destinationCityName = destinationOption.CityName;
+            }
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(_destinationNodeId))
         {
             _destinationNodeId = null;
             _destinationCityName = null;

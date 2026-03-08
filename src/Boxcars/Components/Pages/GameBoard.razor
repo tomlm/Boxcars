@@ -97,19 +97,6 @@
                                  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                                  ObserverMessage="@ObserverTurnMessage" />
 
-                <MudStack Row="true" Class="map-board-mode-row">
-                    <MudButton Variant="@GetModeButtonVariant(MapSelectionMode.Rail)"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="() => SetSelectionMode(MapSelectionMode.Rail)">
-                        Rail
-                    </MudButton>
-                    <MudButton Variant="@GetModeButtonVariant(MapSelectionMode.Route)"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="() => SetSelectionMode(MapSelectionMode.Route)">
-                        Move
-                    </MudButton>
-                </MudStack>
-
                 <MudStack Row="true" Class="map-board-zoom-row">
                     <MudText Typo="Typo.body2">Zoom:</MudText>
                     <MudSlider T="int"
@@ -138,7 +125,7 @@
     private bool _hubConnectionInitialized;
     private RailBaronGameState? _gameState;
     private BoardTurnViewState _turnViewState = new();
-    private MapSelectionMode _selectionMode = MapSelectionMode.Rail;
+    private MapSelectionMode _selectionMode = MapSelectionMode.Route;
     private int _zoomPercent = 100;
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
     private List<PlayerBoardModel> _players = new();
@@ -216,11 +203,6 @@
         Navigation.NavigateTo("/dashboard");
     }
 
-    private void SetSelectionMode(MapSelectionMode mode)
-    {
-        _selectionMode = mode;
-    }
-
     private void OnZoomPercentChanged(double zoomPercent)
     {
         _zoomPercent = (int)zoomPercent;
@@ -292,7 +274,6 @@
                 break;
 
             case "Roll":
-                _selectionMode = MapSelectionMode.Route;
                 await SharedGameEngine.EnqueueActionAsync(
                     GameId,
                     new RollDiceAction
@@ -502,11 +483,6 @@
         await _gameMap.SuggestRouteAsync();
     }
 
-    private Variant GetModeButtonVariant(MapSelectionMode mode)
-    {
-        return _selectionMode == mode ? Variant.Filled : Variant.Outlined;
-    }
-
     private async Task LoadGameStateAsync()
     {
         _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
@@ -541,6 +517,7 @@
     {
         _gameState = state;
         _turnViewState = GameBoardStateMapper.BuildTurnViewState(_game, state, _currentUserId);
+        _selectionMode = ResolveSelectionMode(_turnViewState.TurnPhase);
         _currentUserPlayerIndex = _turnViewState.CurrentUserPlayerIndex;
         _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_game, state, _currentUserId).ToList();
 
@@ -591,6 +568,13 @@
             ? _players[_currentUserPlayerIndex].Color
             : PlayerColorOptions.Colors[0];
         _pendingRestoredRouteSelection = true;
+    }
+
+    private static MapSelectionMode ResolveSelectionMode(string? turnPhase)
+    {
+        return string.Equals(turnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
+            ? MapSelectionMode.Rail
+            : MapSelectionMode.Route;
     }
 
     private async Task RefreshTimelineAsync()
