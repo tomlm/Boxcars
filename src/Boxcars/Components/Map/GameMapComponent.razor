@@ -13,6 +13,9 @@
 			  PanCenterYChanged="@PanCenterYChanged"
 			  PlayerId="@PlayerId"
 			  PlayerColor="@PlayerColor"
+			  PlayerStates="@PlayerStates"
+			  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+			  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
 			  MovementType="@MovementType"
 			  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
 			  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
@@ -54,6 +57,15 @@
 
 	[Parameter]
 	public string PlayerColor { get; set; } = "var(--accent-fill-rest)";
+
+	[Parameter]
+	public IReadOnlyList<PlayerMapState>? PlayerStates { get; set; }
+
+	[Parameter]
+	public int CurrentTurnMovementRemaining { get; set; }
+
+	[Parameter]
+	public bool IsCurrentUserActivePlayer { get; set; }
 
 	[Parameter]
 	public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;

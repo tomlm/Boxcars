@@ -1567,15 +1567,26 @@
 
     private string? ResolveNodeIdForCurrentLocation(PlayerMapState playerState)
     {
+        var hasTraveledForCurrentTrip = playerState.TraveledSegmentKeys.Count > 0;
+
+        if (!hasTraveledForCurrentTrip)
+        {
+            var currentCityNodeId = ResolveNodeIdForCityName(playerState.CurrentCityName);
+            if (!string.IsNullOrWhiteSpace(currentCityNodeId))
+            {
+                return currentCityNodeId;
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(playerState.CurrentNodeId))
         {
             return playerState.CurrentNodeId;
         }
 
-        var currentCityNodeId = ResolveNodeIdForCityName(playerState.CurrentCityName);
-        if (!string.IsNullOrWhiteSpace(currentCityNodeId))
+        var fallbackCurrentCityNodeId = ResolveNodeIdForCityName(playerState.CurrentCityName);
+        if (!string.IsNullOrWhiteSpace(fallbackCurrentCityNodeId))
         {
-            return currentCityNodeId;
+            return fallbackCurrentCityNodeId;
         }
 
         return ResolveNodeIdForCityName(playerState.HomeCityName);

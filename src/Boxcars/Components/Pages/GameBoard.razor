@@ -47,6 +47,9 @@
                               SelectionMode="@_selectionMode"
                               PlayerId="@(_currentUserId ?? string.Empty)"
                               PlayerColor="@_currentPlayerColor"
+                              PlayerStates="@_mapPlayerStates"
+                              CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+                              IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                               ZoomPercentChanged="OnZoomPercentChanged"
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync" />
         </div>
