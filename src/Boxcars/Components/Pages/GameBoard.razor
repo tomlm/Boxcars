@@ -24,7 +24,7 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
-<FluentStack Orientation="Orientation.Horizontal" Class="map-board-shell">
+<MudStack Row="true" Class="map-board-shell">
     <div class="map-board-sidebar">
         <PlayerBoard Players="_players" />
     </div>
@@ -60,6 +60,7 @@
                 {
                     <MudText Typo="Typo.body2" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</MudText>
                 }
+            }
 
             @if (_selectionMode == MapSelectionMode.Route && _gameMap?.RouteCityOptions.Count > 0)
             {
@@ -144,13 +145,12 @@
             </MudStack>
         </div>
     </div>
-</FluentStack>
+</MudStack>
 
 @code {
     private string? _currentUserId;
     private ApplicationUser? _currentUserProfile;
     private GameEntity? _game;
-    private List<GameSeat> _gamePlayers = new();
     private GameMapComponent? _gameMap;
     private HubConnection? _hubConnection;
     private bool _hubConnectionInitialized;
@@ -191,8 +191,6 @@
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
-    _gamePlayers = await GameService.GetGamePlayersAsync(GameId, CancellationToken.None);
-    _currentPlayerColor = ResolveCurrentPlayerColor();
         await LoadGameStateAsync();
     }
 
@@ -422,20 +420,29 @@
         _players = state.Players
             .Select((player, index) =>
             {
-                var gamePlayer = index < _gamePlayers.Count ? _gamePlayers[index] : null;
+                var selection = index < playerSelections.Count ? playerSelections[index] : null;
+                var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
+                var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
+                    && !string.IsNullOrWhiteSpace(resolvedUserId)
+                    && string.Equals(_currentUserId, resolvedUserId, StringComparison.OrdinalIgnoreCase);
+
+                if (isCurrentUser)
+                {
+                    _currentUserPlayerIndex = index;
+                }
 
                 return new PlayerBoardModel
                 {
                     Index = index,
-                    Name = gamePlayer?.DisplayName ?? player.Name,
-                    ThumbnailUrl = gamePlayer?.ThumbnailUrl ?? ResolveThumbnailUrl(player.Name),
-                    Color = gamePlayer?.AssignedColor ?? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length],
+                    Name = selection?.DisplayName ?? player.Name,
+                    ThumbnailUrl = ResolveThumbnailUrl(selection?.DisplayName ?? player.Name),
+                    Color = ResolvePlayerColor(selection, index),
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
                     LocationLabel = player.DestinationCityName ?? player.CurrentCityName,
                     DistanceToDestination = 0,
                     Payoff = 0,
                     Cash = player.Cash,
-                    IsCurrentUser = string.Equals(gamePlayer?.UserId, _currentUserId, StringComparison.Ordinal),
+                    IsCurrentUser = isCurrentUser,
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
                     IsConnected = player.IsActive,
@@ -443,6 +450,10 @@
                 };
             })
             .ToList();
+
+        _currentPlayerColor = _currentUserPlayerIndex >= 0
+            ? _players[_currentUserPlayerIndex].Color
+            : PlayerColorOptions.Colors[0];
 
         _mapPlayerStates = state.Players
             .Select((player, index) =>
@@ -473,6 +484,60 @@
         SyncRouteSelectionToActivePlayer();
     }
 
+    private async Task RefreshTimelineAsync()
+    {
+        if (string.IsNullOrWhiteSpace(GameId))
+        {
+            _gameEngineEvents = [];
+            return;
+        }
+
+        var events = await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
+        _gameEngineEvents = events
+            .Select(gameEvent => new GameEngineEventEntry
+            {
+                EventId = gameEvent.EventId,
+                Description = gameEvent.Description
+            })
+            .ToList();
+    }
+
+    private string ResolvePlayerColor(GamePlayerSelection? selection, int index)
+    {
+        return selection is null
+            ? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length]
+            : PlayerColorOptions.NormalizeOrDefault(selection.Color, PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length]);
+    }
+
+    private string ResolvePlayerUserId(
+        Boxcars.Engine.Persistence.PlayerState player,
+        GamePlayerSelection? selection,
+        IReadOnlyDictionary<string, string> playerUserIdsByDisplayName)
+    {
+        if (!string.IsNullOrWhiteSpace(selection?.UserId))
+        {
+            return selection.UserId;
+        }
+
+        if (playerUserIdsByDisplayName.TryGetValue(player.Name, out var selectedUserId))
+        {
+            return selectedUserId;
+        }
+
+        var matchesCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
+            && (
+                string.Equals(player.Name, _currentUserId, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(_currentUserProfile?.Nickname)
+                    && string.Equals(player.Name, _currentUserProfile.Nickname, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(_currentUserProfile?.Email)
+                    && string.Equals(player.Name, _currentUserProfile.Email, StringComparison.OrdinalIgnoreCase))
+            );
+
+        return matchesCurrentUser
+            ? _currentUserId ?? player.Name
+            : player.Name;
+    }
+
     private string ResolveCurrentPlayerColor()
     {
         if (string.IsNullOrWhiteSpace(_currentUserId))
@@ -480,10 +545,14 @@
             return PlayerColorOptions.Colors[0];
         }
 
-        var gamePlayer = _gamePlayers.FirstOrDefault(player => string.Equals(player.UserId, _currentUserId, StringComparison.Ordinal));
-        return gamePlayer is null
+        var playerSelections = string.IsNullOrWhiteSpace(_game?.PlayersJson)
+            ? []
+            : GamePlayerSelectionSerialization.Deserialize(_game.PlayersJson);
+
+        var currentSelection = playerSelections.FirstOrDefault(player => string.Equals(player.UserId, _currentUserId, StringComparison.OrdinalIgnoreCase));
+        return currentSelection is null
             ? PlayerColorOptions.Colors[0]
-            : PlayerColorOptions.NormalizeOrDefault(gamePlayer.AssignedColor);
+            : PlayerColorOptions.NormalizeOrDefault(currentSelection.Color);
     }
 
     private string ResolveThumbnailUrl(string playerName)

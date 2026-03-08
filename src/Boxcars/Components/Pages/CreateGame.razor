@@ -44,20 +44,19 @@
                 {
                     var slot = _playerSlots[index];
 
-                    <MudPaper Outlined="true" Class="create-game-player-row">
+                    <MudPaper @key="slot.SlotId" Outlined="true" Class="create-game-player-row">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Class="create-game-player-row-header">
-                            <MudText Typo="Typo.subtitle2">Turn @(index + 1)</MudText>
                             <MudSpacer />
                             <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowUp"
                                            Color="MudBlazor.Color.Primary"
                                            Size="Size.Small"
                                            Disabled="@(index == 0 || _creating)"
-                                           OnClick="@(() => MovePlayer(index, -1))" />
+                                           OnClick="@(() => MovePlayer(slot, -1))" />
                             <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowDown"
                                            Color="MudBlazor.Color.Primary"
                                            Size="Size.Small"
                                            Disabled="@(index == _playerSlots.Count - 1 || _creating)"
-                                           OnClick="@(() => MovePlayer(index, 1))" />
+                                           OnClick="@(() => MovePlayer(slot, 1))" />
                         </MudStack>
 
                         <MudGrid Class="create-game-player-grid">
@@ -252,15 +251,21 @@
         return Task.CompletedTask;
     }
 
-    private void MovePlayer(int index, int delta)
+    private void MovePlayer(PlayerSlot slot, int delta)
     {
-        var targetIndex = index + delta;
+        var currentIndex = _playerSlots.IndexOf(slot);
+        if (currentIndex < 0)
+        {
+            return;
+        }
+
+        var targetIndex = currentIndex + delta;
         if (targetIndex < 0 || targetIndex >= _playerSlots.Count)
         {
             return;
         }
 
-        (_playerSlots[index], _playerSlots[targetIndex]) = (_playerSlots[targetIndex], _playerSlots[index]);
+        (_playerSlots[currentIndex], _playerSlots[targetIndex]) = (_playerSlots[targetIndex], _playerSlots[currentIndex]);
     }
 
     private async Task CreateGameAsync()
@@ -281,13 +286,19 @@
 
         try
         {
-            var players = _playerSlots.Select(slot => new GameCreationPlayer
+            var request = new CreateGameRequest
             {
-                UserId = slot.UserId,
-                AssignedColor = slot.AssignedColor
-            }).ToList();
+                CreatorUserId = _currentUserId,
+                MapFileName = GameService.DefaultMapFileName,
+                Players = _playerSlots.Select(slot => new GamePlayerSelection
+                {
+                    UserId = slot.UserId,
+                    DisplayName = GetSelectedPlayerDisplayName(slot.UserId),
+                    Color = PlayerColorOptions.NormalizeOrDefault(slot.AssignedColor)
+                }).ToList()
+            };
 
-            var result = await GameService.CreateGameAsync(_currentUserId, players, CancellationToken.None);
+            var result = await GameService.CreateGameAsync(request, CancellationToken.None);
             if (!result.Success)
             {
                 await MessageService.ShowMessageBarAsync(result.Reason ?? "Failed to create game.", MessageIntent.Error, "CREATE-GAME");
@@ -363,8 +374,22 @@
             : $"{profile.Nickname} ({profile.Email})";
     }
 
+    private string GetSelectedPlayerDisplayName(string userId)
+    {
+        var selectedPlayer = _availablePlayers.FirstOrDefault(player => string.Equals(player.RowKey, userId, StringComparison.Ordinal));
+        if (selectedPlayer is null)
+        {
+            return userId;
+        }
+
+        return string.IsNullOrWhiteSpace(selectedPlayer.Nickname)
+            ? selectedPlayer.Email
+            : selectedPlayer.Nickname;
+    }
+
     private sealed class PlayerSlot
     {
+        public Guid SlotId { get; } = Guid.NewGuid();
         public string UserId { get; set; } = string.Empty;
         public string AssignedColor { get; set; } = PlayerColorOptions.Colors[0];
         public bool IsCreatorSeat { get; set; }
