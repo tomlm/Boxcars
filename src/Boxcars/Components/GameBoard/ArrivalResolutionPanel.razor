@@ -1,0 +1,31 @@
+@using Boxcars.Data
+@using MudBlazor
+
+@if (Arrival is not null && Arrival.IsVisible)
+{
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.h6">Arrival</MudText>
+            <MudAlert Severity="Severity.Success" Dense="true">
+                @Arrival.Message
+            </MudAlert>
+            <MudText Typo="Typo.body2">Destination: @Arrival.DestinationCityName</MudText>
+            <MudText Typo="Typo.body2">Payout: @FormatCurrency(Arrival.PayoutAmount)</MudText>
+            <MudText Typo="Typo.body2">Cash After Payout: @FormatCurrency(Arrival.CashAfterPayout)</MudText>
+            @if (Arrival.PurchaseOpportunityAvailable)
+            {
+                <MudText Typo="Typo.body2">Purchase opportunity is available for this arrival.</MudText>
+            }
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    [Parameter]
+    public ArrivalResolutionModel? Arrival { get; set; }
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+}

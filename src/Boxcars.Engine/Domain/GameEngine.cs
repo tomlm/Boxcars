@@ -282,6 +282,7 @@ public sealed class GameEngine : ObservableBase
         }
 
         CurrentTurn.DiceResult = result;
+        CurrentTurn.MovementAllowance = result.Total;
         CurrentTurn.MovementRemaining = result.Total;
 
         // Check bonus roll eligibility
@@ -376,6 +377,7 @@ public sealed class GameEngine : ObservableBase
                 // Roll bonus die
                 var bonusDice = _randomProvider.RollDiceIndividual(1);
                 int bonusMovement = bonusDice[0];
+                CurrentTurn.MovementAllowance = bonusMovement;
                 CurrentTurn.MovementRemaining = bonusMovement;
                 CurrentTurn.BonusRollAvailable = false;
                 // Stay in Move phase
@@ -572,6 +574,7 @@ public sealed class GameEngine : ObservableBase
         // Clear turn-specific tracking
         CurrentTurn.RailroadsRiddenThisTurn.Clear();
         CurrentTurn.DiceResult = null;
+        CurrentTurn.MovementAllowance = 0;
         CurrentTurn.MovementRemaining = 0;
         CurrentTurn.BonusRollAvailable = false;
 
@@ -621,6 +624,7 @@ public sealed class GameEngine : ObservableBase
             Turn = new TurnState
             {
                 Phase = CurrentTurn.Phase.ToString(),
+                MovementAllowance = CurrentTurn.MovementAllowance,
                 MovementRemaining = CurrentTurn.MovementRemaining,
                 BonusRollAvailable = CurrentTurn.BonusRollAvailable,
                 RailroadsRiddenThisTurn = CurrentTurn.RailroadsRiddenThisTurn.ToList(),
@@ -666,6 +670,18 @@ public sealed class GameEngine : ObservableBase
                         RailroadIndex = s.RailroadIndex
                     }).ToList()
                 };
+
+                var selectedRouteStartIndex = Math.Clamp(player.RouteProgressIndex, 0, Math.Max(0, player.ActiveRoute.NodeIds.Count - 1));
+                ps.SelectedRouteNodeIds = player.ActiveRoute.NodeIds.Skip(selectedRouteStartIndex).ToList();
+                ps.SelectedRouteSegmentKeys = player.ActiveRoute.Segments
+                    .Skip(Math.Clamp(player.RouteProgressIndex, 0, player.ActiveRoute.Segments.Count))
+                    .Select(static segment => SerializeSelectedRouteSegment(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex))
+                    .ToList();
+
+                if (ps.SelectedRouteNodeIds.Count == 0 && !string.IsNullOrWhiteSpace(player.CurrentNodeId))
+                {
+                    ps.SelectedRouteNodeIds.Add(player.CurrentNodeId);
+                }
             }
 
             snapshot.Players.Add(ps);
@@ -763,6 +779,7 @@ public sealed class GameEngine : ObservableBase
             ActivePlayer = engine.Players[snapshot.ActivePlayerIndex],
             TurnNumber = snapshot.TurnNumber,
             Phase = Enum.Parse<TurnPhase>(snapshot.Turn.Phase),
+            MovementAllowance = snapshot.Turn.MovementAllowance,
             MovementRemaining = snapshot.Turn.MovementRemaining,
             BonusRollAvailable = snapshot.Turn.BonusRollAvailable
         };
@@ -785,6 +802,11 @@ public sealed class GameEngine : ObservableBase
             engine._winner = engine.Players[snapshot.WinnerIndex.Value];
 
         return engine;
+    }
+
+    private static string SerializeSelectedRouteSegment(string fromNodeId, string toNodeId, int railroadIndex)
+    {
+        return string.Concat(fromNodeId, "|", toNodeId, "|", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     #endregion

@@ -18,6 +18,8 @@ public enum PlayerActionKind
 public abstract record PlayerAction
 {
     public required string PlayerId { get; init; }
+    public string ActorUserId { get; init; } = string.Empty;
+    public int? PlayerIndex { get; init; }
     public abstract PlayerActionKind Kind { get; }
     public DateTimeOffset EnqueuedAtUtc { get; init; } = DateTimeOffset.UtcNow;
 }
@@ -38,12 +40,14 @@ public sealed record RollDiceAction : PlayerAction
 public sealed record ChooseRouteAction : PlayerAction
 {
     public IReadOnlyList<string> RouteNodeIds { get; init; } = [];
+    public IReadOnlyList<string> RouteSegmentKeys { get; init; } = [];
     public override PlayerActionKind Kind => PlayerActionKind.ChooseRoute;
 }
 
 public sealed record MoveAction : PlayerAction
 {
     public IReadOnlyList<string> PointsTaken { get; init; } = [];
+    public IReadOnlyList<string> SelectedSegmentKeys { get; init; } = [];
     public override PlayerActionKind Kind => PlayerActionKind.Move;
 }
 

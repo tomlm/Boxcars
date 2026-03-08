@@ -9,6 +9,7 @@ public sealed class Turn : ObservableBase
     private int _turnNumber;
     private TurnPhase _phase;
     private DiceResult? _diceResult;
+    private int _movementAllowance;
     private int _movementRemaining;
     private bool _bonusRollAvailable;
 
@@ -38,6 +39,13 @@ public sealed class Turn : ObservableBase
     {
         get => _diceResult;
         internal set => SetField(ref _diceResult, value);
+    }
+
+    /// <summary>Total movement available for the current move window.</summary>
+    public int MovementAllowance
+    {
+        get => _movementAllowance;
+        internal set => SetField(ref _movementAllowance, value);
     }
 
     /// <summary>Mileposts left to move this roll.</summary>

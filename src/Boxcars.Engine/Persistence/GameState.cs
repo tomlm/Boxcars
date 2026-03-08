@@ -31,6 +31,8 @@ public sealed class PlayerState
     public bool HasDeclared { get; set; }
     public List<int> OwnedRailroadIndices { get; set; } = new();
     public RouteState? ActiveRoute { get; set; }
+    public List<string> SelectedRouteNodeIds { get; set; } = new();
+    public List<string> SelectedRouteSegmentKeys { get; set; } = new();
     public List<string> UsedSegments { get; set; } = new();
     public string? CurrentNodeId { get; set; }
     public int RouteProgressIndex { get; set; }
@@ -54,6 +56,7 @@ public sealed class TurnState
 {
     public string Phase { get; set; } = "DrawDestination";
     public DiceResultState? DiceResult { get; set; }
+    public int MovementAllowance { get; set; }
     public int MovementRemaining { get; set; }
     public bool BonusRollAvailable { get; set; }
     public List<int> RailroadsRiddenThisTurn { get; set; } = new();

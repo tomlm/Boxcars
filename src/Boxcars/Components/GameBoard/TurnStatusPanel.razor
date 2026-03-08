@@ -1,0 +1,26 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+        <MudText Typo="Typo.subtitle2">Turn Status</MudText>
+        <MudText Typo="Typo.body2">Active Player: @State.ActivePlayerName</MudText>
+        <MudText Typo="Typo.body2">Phase: @DisplayPhase</MudText>
+        <MudText Typo="Typo.body2">Roll: @State.CurrentRollTotal</MudText>
+        <MudText Typo="Typo.body2">Moves Left: @State.MovementRemaining / @State.MovementAllowance</MudText>
+        <MudText Typo="Typo.body2">Preview Cost: @FormatCurrency(State.PreviewFee)</MudText>
+        <MudText Typo="Typo.body2">Selected Segments: @State.SelectedRoutePreview.MoveCount</MudText>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public BoardTurnViewState State { get; set; } = new();
+
+    private string DisplayPhase => string.IsNullOrWhiteSpace(State.TurnPhase) ? "Unknown" : State.TurnPhase;
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+}

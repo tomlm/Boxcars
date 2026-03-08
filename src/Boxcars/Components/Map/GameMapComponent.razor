@@ -1,4 +1,5 @@
 @using Boxcars.Data.Maps
+@using Boxcars.Data
 @using Boxcars.Engine.Data.Maps
 
 <MapComponent @ref="_mapComponent"
@@ -21,6 +22,7 @@
 			  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
 			  RailroadSelected="@RailroadSelected"
 			  RouteSuggestionChanged="@RouteSuggestionChanged"
+			  RoutePreviewChanged="@RoutePreviewChanged"
 			  DestinationCityChanged="@DestinationCityChanged"
 			  StartCityChanged="@StartCityChanged" />
 
@@ -83,6 +85,9 @@
 	public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }
 
 	[Parameter]
+	public EventCallback<TurnMovementPreview> RoutePreviewChanged { get; set; }
+
+	[Parameter]
 	public EventCallback<string> DestinationCityChanged { get; set; }
 
 	[Parameter]
@@ -100,6 +105,16 @@
 	public int GetSelectedRouteMoveCount()
 	{
 		return _mapComponent?.GetSelectedRouteMoveCount() ?? 0;
+	}
+
+	public IReadOnlyList<string> GetSelectedRouteNodeIds()
+	{
+		return _mapComponent?.GetSelectedRouteNodeIds() ?? Array.Empty<string>();
+	}
+
+	public IReadOnlyList<string> GetSelectedRouteSegmentKeys()
+	{
+		return _mapComponent?.GetSelectedRouteSegmentKeys() ?? Array.Empty<string>();
 	}
 
 	public int GetSelectedRouteFeeEstimate()
@@ -121,6 +136,11 @@
 	{
 		_mapComponent?.SetStartCity(nodeId);
 	}
+
+		public void RestoreSelectedRoute(IReadOnlyList<string>? nodeIds, IReadOnlyList<string>? segmentKeys)
+		{
+			_mapComponent?.RestoreSelectedRoute(nodeIds, segmentKeys);
+		}
 
 	public void SetDestinationCity(string nodeId)
 	{

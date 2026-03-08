@@ -384,10 +384,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             GameId = gameId,
             EventKind = eventKind,
             EventData = GameEventSerialization.SerializeEventData(eventData),
+            PreviewRouteNodeIdsJson = GameEventSerialization.SerializeEventData(GetActivePlayerSelectedRouteNodeIds(snapshot)),
+            PreviewRouteSegmentKeysJson = GameEventSerialization.SerializeEventData(GetActivePlayerSelectedRouteSegmentKeys(snapshot)),
             SerializedGameState = GameEventSerialization.SerializeSnapshot(snapshot),
             ChangeSummary = changeSummary,
             OccurredUtc = DateTimeOffset.UtcNow,
-            CreatedBy = createdBy
+            CreatedBy = createdBy,
+            ActingUserId = eventData is PlayerAction playerAction ? playerAction.ActorUserId : string.Empty,
+            ActingPlayerIndex = eventData is PlayerAction actingAction ? actingAction.PlayerIndex : null
         };
 
         await _gamesTable.AddEntityAsync(entity, cancellationToken);
@@ -504,6 +508,18 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static void SavePlayerRoute(RailBaronGameEngine state, ChooseRouteAction action)
     {
+        if (action.RouteNodeIds.Count > 1)
+        {
+            if (action.RouteNodeIds.Count - 1 > state.CurrentTurn.MovementRemaining)
+            {
+                throw new InvalidOperationException("Selected route exceeds movement remaining.");
+            }
+
+            var selectedRoute = BuildSelectedRoute(state, action);
+            state.SaveRoute(selectedRoute);
+            return;
+        }
+
         var suggestedRoute = state.SuggestRoute();
         if (action.RouteNodeIds.Count > 0
             && !action.RouteNodeIds.SequenceEqual(suggestedRoute.NodeIds, StringComparer.OrdinalIgnoreCase))
@@ -514,5 +530,119 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         state.SaveRoute(suggestedRoute);
     }
 
+    private static Boxcars.Engine.Domain.Route BuildSelectedRoute(RailBaronGameEngine state, ChooseRouteAction action)
+    {
+        var player = state.CurrentTurn.ActivePlayer;
+        var nodeIds = action.RouteNodeIds.ToList();
+
+        var segments = new List<RouteSegment>(Math.Max(0, nodeIds.Count - 1));
+        for (var index = 0; index < nodeIds.Count - 1; index++)
+        {
+            var fromNodeId = nodeIds[index];
+            var toNodeId = nodeIds[index + 1];
+            var railroadIndex = TryParseSelectedSegmentKey(action.RouteSegmentKeys, index, fromNodeId, toNodeId);
+
+            var matchingDefinition = state.MapDefinition.RailroadRouteSegments.FirstOrDefault(segment =>
+                segment.RailroadIndex == railroadIndex
+                && IsSameEdge(segment, fromNodeId, toNodeId));
+
+            if (matchingDefinition is null)
+            {
+                throw new InvalidOperationException("Selected route contains an invalid railroad segment.");
+            }
+
+            segments.Add(new RouteSegment
+            {
+                FromNodeId = fromNodeId,
+                ToNodeId = toNodeId,
+                RailroadIndex = railroadIndex
+            });
+        }
+
+        return new Boxcars.Engine.Domain.Route(nodeIds, segments, CalculateRouteCost(state, player, segments));
+    }
+
+    private static int TryParseSelectedSegmentKey(
+        IReadOnlyList<string> selectedSegmentKeys,
+        int segmentIndex,
+        string fromNodeId,
+        string toNodeId)
+    {
+        if (segmentIndex < selectedSegmentKeys.Count)
+        {
+            var parts = selectedSegmentKeys[segmentIndex].Split('|', StringSplitOptions.TrimEntries);
+            if (parts.Length == 3
+                && int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedRailroadIndex)
+                && string.Equals(parts[0], fromNodeId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(parts[1], toNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                return parsedRailroadIndex;
+            }
+        }
+
+        throw new InvalidOperationException("Selected route is missing railroad metadata for one or more segments.");
+    }
+
+    private static bool IsSameEdge(RailroadRouteSegmentDefinition segment, string fromNodeId, string toNodeId)
+    {
+        var segmentFromNodeId = BuildNodeId(segment.StartRegionIndex, segment.StartDotIndex);
+        var segmentToNodeId = BuildNodeId(segment.EndRegionIndex, segment.EndDotIndex);
+
+        return string.Equals(segmentFromNodeId, fromNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segmentToNodeId, toNodeId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(segmentFromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segmentToNodeId, fromNodeId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildNodeId(int regionIndex, int dotIndex)
+    {
+        return string.Concat(regionIndex.ToString(CultureInfo.InvariantCulture), ":", dotIndex.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static int CalculateRouteCost(RailBaronGameEngine state, Player player, IReadOnlyList<RouteSegment> segments)
+    {
+        var usesBankRailroad = false;
+        var opposingOwnerIndices = new HashSet<int>();
+
+        foreach (var segment in segments)
+        {
+            var railroad = state.Railroads.FirstOrDefault(candidate => candidate.Index == segment.RailroadIndex);
+            if (railroad is null || railroad.Owner is null)
+            {
+                usesBankRailroad = true;
+                continue;
+            }
+
+            if (railroad.Owner != player)
+            {
+                opposingOwnerIndices.Add(railroad.Owner.Index);
+            }
+        }
+
+        var bankFee = usesBankRailroad ? 1000 : 0;
+        var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
+        return bankFee + (opposingOwnerIndices.Count * opponentRate);
+    }
+
     private readonly record struct QueuedAction(string GameId, PlayerAction Action);
+
+    private static List<string> GetActivePlayerSelectedRouteNodeIds(RailBaronGameState snapshot)
+    {
+        if (snapshot.ActivePlayerIndex < 0 || snapshot.ActivePlayerIndex >= snapshot.Players.Count)
+        {
+            return [];
+        }
+
+        return snapshot.Players[snapshot.ActivePlayerIndex].SelectedRouteNodeIds.ToList();
+    }
+
+    private static List<string> GetActivePlayerSelectedRouteSegmentKeys(RailBaronGameState snapshot)
+    {
+        if (snapshot.ActivePlayerIndex < 0 || snapshot.ActivePlayerIndex >= snapshot.Players.Count)
+        {
+            return [];
+        }
+
+        return snapshot.Players[snapshot.ActivePlayerIndex].SelectedRouteSegmentKeys.ToList();
+    }
 }
