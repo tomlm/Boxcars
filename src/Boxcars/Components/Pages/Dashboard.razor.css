@@ -6,7 +6,6 @@
     max-width: 37.5rem;
     margin: 2rem auto;
     text-align: center;
-    padding: 2rem;
 }
 
 .dashboard-error-message {
@@ -16,24 +15,19 @@
 .dashboard-nickname {
     max-width: 31.25rem;
     margin: 2rem auto;
-    padding: 2rem;
 }
 
-.dashboard-full {
-    width: 100%;
+.dashboard-field {
     margin-bottom: 1rem;
 }
 
 .dashboard-stack {
-    gap: 1.5rem;
 }
 
 .dashboard-card {
-    padding: 1.5rem;
 }
 
 .dashboard-row {
-    gap: 1rem;
 }
 
 .dashboard-avatar-image {
@@ -55,22 +49,18 @@
 }
 
 .dashboard-actions-row {
-    gap: 0.75rem;
 }
 
 .dashboard-games-list {
-    gap: 0.75rem;
     margin-bottom: 1.5rem;
 }
 
 .dashboard-join-game-card {
-    padding: 1rem;
 }
 
 .dashboard-delete-dialog {
     width: min(32rem, 90vw);
     margin: 10vh auto 0;
-    padding: 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;

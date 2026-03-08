@@ -1,7 +1,7 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Class="player-board">
+<MudStack Class="player-board" Spacing="2">
     @foreach (var player in Players)
     {
         <MudPaper Class="@GetCardClass(player)" Outlined="true">
@@ -18,13 +18,13 @@
                 </MudAvatar>
                 <MudStack Class="player-card-header-text">
                     <MudText Typo="Typo.subtitle1">@player.Name</MudText>
-                    <MudText Typo="Typo.caption" Color="@(player.IsConnected ? MudBlazor.Color.Success : MudBlazor.Color.Error)">
+                    <MudText Typo="Typo.caption" Class="@(player.IsConnected ? "player-status-connected" : "player-status-disconnected")" Align="Align.Right">
                         @(player.IsConnected ? "Connected" : "Offline")
                     </MudText>
                 </MudStack>
             </MudStack>
 
-            <MudStack Class="player-card-info">
+            <MudStack Class="player-card-info" Spacing="1">
                 <MudText Typo="Typo.caption" Class="player-card-line">
                     <span class="player-card-label">Home:</span> @player.HomeCity <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
                 </MudText>

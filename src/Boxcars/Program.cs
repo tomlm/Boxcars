@@ -9,7 +9,6 @@ using Boxcars.Services;
 using Boxcars.Services.Maps;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.FluentUI.AspNetCore.Components;
 using MudBlazor.Services;
 
 namespace Boxcars;
@@ -44,7 +43,6 @@ public class Program
         // UI component libraries
         builder.Services.AddHttpClient();
         builder.Services.AddMudServices();
-        builder.Services.AddFluentUIComponents();
 
         // Identity (custom table storage stores, no EF Core)
         builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)

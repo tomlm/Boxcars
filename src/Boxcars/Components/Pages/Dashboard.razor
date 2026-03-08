@@ -10,7 +10,7 @@
 @inject PlayerProfileService ProfileService
 @inject GameService GameService
 @inject NavigationManager Navigation
-@inject IMessageService MessageService
+@inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
 <PageTitle>Dashboard - BoxCars</PageTitle>
@@ -18,12 +18,12 @@
 @if (_loading)
 {
     <MudStack Class="dashboard-loading" Justify="Justify.Center" AlignItems="AlignItems.Center">
-        <MudProgressLinear Indeterminate="true" Color="MudBlazor.Color.Primary" Class="dashboard-full" />
+        <MudProgressLinear Indeterminate="true" Color="MudBlazor.Color.Primary" />
     </MudStack>
 }
 else if (_loadError)
 {
-    <MudPaper Class="dashboard-error">
+    <MudPaper Class="dashboard-error pa-8">
         <MudText Typo="Typo.h4">Something went wrong</MudText>
         <MudText Typo="Typo.body1" Class="dashboard-error-message">Unable to load your dashboard. Please try again.</MudText>
         <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadDataAsync">Retry</MudButton>
@@ -31,7 +31,7 @@ else if (_loadError)
 }
 else if (_needsNickname)
 {
-    <MudPaper Class="dashboard-nickname">
+    <MudPaper Class="dashboard-nickname pa-8">
         <MudText Typo="Typo.h4" Class="dashboard-section-title">Choose Your Nickname</MudText>
         <MudText Typo="Typo.body1" Class="dashboard-helper">
             Your nickname couldn't be auto-set during registration. Please choose one to continue.
@@ -40,7 +40,8 @@ else if (_needsNickname)
                       Label="Nickname"
                       Placeholder="Enter a unique nickname"
                       Variant="Variant.Outlined"
-                      Class="dashboard-full" />
+                      FullWidth="true"
+                      Class="dashboard-field" />
         @if (!string.IsNullOrEmpty(_nicknameError))
         {
             <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error" Class="dashboard-helper">@_nicknameError</MudText>
@@ -55,9 +56,9 @@ else if (_needsNickname)
 }
 else
 {
-    <MudStack Class="dashboard-stack">
-        <MudPaper Class="dashboard-card">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="dashboard-row">
+    <MudStack Class="dashboard-stack" Spacing="6">
+        <MudPaper Class="dashboard-card pa-6">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="dashboard-row" Spacing="4">
                 <MudAvatar Size="Size.Large">
                     @if (HasProfileThumbnail())
                     {
@@ -75,20 +76,20 @@ else
             </MudStack>
         </MudPaper>
 
-        <MudPaper Class="dashboard-card">
+        <MudPaper Class="dashboard-card pa-6">
             <MudText Typo="Typo.h5" Class="dashboard-section-title">Your Stats</MudText>
             <MudText Typo="Typo.body2" Class="dashboard-muted">
                 Welcome to BoxCars! Start your first game to begin tracking your stats.
             </MudText>
         </MudPaper>
 
-        <MudPaper Class="dashboard-card">
+        <MudPaper Class="dashboard-card pa-6">
             <MudText Typo="Typo.h5" Class="dashboard-section-title">Games</MudText>
 
             @if (_dashboardState!.HasActiveGame)
             {
                 <MudText Typo="Typo.body1" Class="dashboard-helper">You have an active game.</MudText>
-                <MudStack Row="true" Class="dashboard-actions-row">
+                <MudStack Row="true" Class="dashboard-actions-row" Spacing="3">
                     <MudButton Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary"
                                OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
@@ -106,10 +107,10 @@ else
                 @if (_dashboardState.JoinableGames.Any())
                 {
                     <MudText Typo="Typo.body1" Class="dashboard-helper">Available games to join:</MudText>
-                    <MudStack Class="dashboard-games-list">
+                    <MudStack Class="dashboard-games-list" Spacing="3">
                         @foreach (var game in _dashboardState.JoinableGames)
                         {
-                            <MudPaper Class="dashboard-join-game-card">
+                            <MudPaper Class="dashboard-join-game-card pa-4">
                                 <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                                     <MudStack>
                                         <MudText Typo="Typo.body1">
@@ -131,7 +132,7 @@ else
                 }
 
                 <MudText Typo="Typo.h6" Class="dashboard-section-title">Create a New Game</MudText>
-                <MudStack Row="true" Class="dashboard-actions-row">
+                <MudStack Row="true" Class="dashboard-actions-row" Spacing="3">
                     <MudButton Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary"
                                OnClick="@CreateGameAsync">
@@ -146,7 +147,7 @@ else
 @if (_dashboardState?.HasActiveGame == true && _showDeleteGameDialog)
 {
     <MudOverlay Visible="true" DarkBackground="true" AutoClose="false" ZIndex="1300">
-        <MudPaper Class="dashboard-delete-dialog">
+        <MudPaper Class="dashboard-delete-dialog pa-5">
             <MudText Typo="Typo.h5">Delete current game?</MudText>
             <MudText Typo="Typo.body1" Class="dashboard-helper">
                 This action cannot be undone here. Type "i am sure" to confirm.
@@ -161,7 +162,7 @@ else
             {
                 <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error">@_deleteGameError</MudText>
             }
-            <MudStack Row="true" Justify="Justify.FlexEnd" Class="dashboard-actions-row">
+            <MudStack Row="true" Justify="Justify.FlexEnd" Class="dashboard-actions-row" Spacing="3">
                 <MudButton Variant="Variant.Text"
                            Color="MudBlazor.Color.Default"
                            OnClick="CancelDeleteGameDialog"
@@ -246,7 +247,7 @@ else
 
             _hubConnection.On<object>("JoinConflict", async (conflict) =>
             {
-                await MessageService.ShowMessageBarAsync("Game is no longer available. The list has been refreshed.", MessageIntent.Error, "DASHBOARD");
+                Snackbar.Add("Game is no longer available. The list has been refreshed.", Severity.Error);
                 await RefreshDashboardStateAsync();
                 await InvokeAsync(StateHasChanged);
             });
@@ -424,7 +425,7 @@ else
         }
         else
         {
-            await MessageService.ShowMessageBarAsync(result.Reason ?? "Failed to join game.", MessageIntent.Error, "DASHBOARD");
+            Snackbar.Add(result.Reason ?? "Failed to join game.", Severity.Error);
             await RefreshDashboardStateAsync();
             StateHasChanged();
         }

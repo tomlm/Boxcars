@@ -1,5 +1,4 @@
 .player-board {
-    gap: 0;
     width: 100%;
 }
 
@@ -19,9 +18,6 @@
 }
 
 .player-card-portrait {
-    align-items: center;
-    justify-content: flex-start;
-    gap: 0.5rem;
     padding: 0.25rem 0.35rem;
 }
 
@@ -38,11 +34,9 @@
 }
 
 .player-card-header-text {
-    gap: 0;
 }
 
 .player-card-info {
-    gap: 0;
     padding: 0 0.35rem 0.3rem;
 }
 
