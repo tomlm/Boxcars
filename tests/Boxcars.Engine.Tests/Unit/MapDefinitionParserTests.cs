@@ -111,6 +111,41 @@ public class MapDefinitionParserTests
     }
 
     [Fact]
+    public void Parse_PaySection_BuildsSymmetricPayoutChart()
+    {
+        var content = MinimalValidMap + """
+
+            '[pay]
+            5.5,9
+            4
+            """;
+
+        var result = MapDefinition.Parse(content);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.Definition!.TryGetPayout(1, 2, out var payout12));
+        Assert.True(result.Definition.TryGetPayout(2, 1, out var payout21));
+        Assert.True(result.Definition.TryGetPayout(2, 3, out var payout23));
+        Assert.True(result.Definition.TryGetPayout(3, 3, out var sameCityPayout));
+
+        Assert.Equal(5_500, payout12);
+        Assert.Equal(5_500, payout21);
+        Assert.Equal(4_000, payout23);
+        Assert.Equal(0, sameCityPayout);
+        Assert.Equal(3, result.Definition.MaxPayoutIndex);
+    }
+
+    [Fact]
+    public void Parse_WithoutPaySection_FallsBackToLegacyPayoutTable()
+    {
+        var result = MapDefinition.Parse(MinimalValidMap);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.Definition!.TryGetPayout(0, 1, out var payout));
+        Assert.Equal(5_500, payout);
+    }
+
+    [Fact]
     public void Parse_MissingScaleValues_ReturnsError()
     {
         var content = """

@@ -4,12 +4,14 @@
 @using Boxcars.Components.Map
 @using Boxcars.Data
 @using Boxcars.Data.Maps
+@using Boxcars.Engine
 @using Boxcars.Engine.Data.Maps
 @using Boxcars.GameEngine
 @using Boxcars.Hubs
 @using Boxcars.Services
 @using Boxcars.Services.Maps
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.SignalR.Client
 @using MudBlazor
@@ -23,6 +25,7 @@
 @inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
 @inject ISnackbar Snackbar
+@inject IWebHostEnvironment WebHostEnvironment
 
 <PageTitle>Game - BoxCars</PageTitle>
 
@@ -124,6 +127,7 @@
     private HubConnection? _hubConnection;
     private bool _hubConnectionInitialized;
     private RailBaronGameState? _gameState;
+    private MapDefinition? _playerBoardMapDefinition;
     private BoardTurnViewState _turnViewState = new();
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
     private int _zoomPercent = 100;
@@ -161,6 +165,7 @@
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+        await EnsurePlayerBoardMapDefinitionAsync(CancellationToken.None);
         await LoadGameStateAsync();
     }
 
@@ -548,13 +553,15 @@
                     Name = selection?.DisplayName ?? player.Name,
                     ThumbnailUrl = ResolveThumbnailUrl(selection?.DisplayName ?? player.Name),
                     Color = ResolvePlayerColor(selection, index),
-                    IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName),
+                    IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName)
+                        ? string.Equals(player.CurrentCityName, player.HomeCityName, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase),
                     TripStartLabel = player.CurrentCityName,
                     TripDestinationLabel = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         ? player.CurrentCityName
                         : player.DestinationCityName,
-                    DistanceToDestination = 0,
-                    Payoff = 0,
+                    DistanceToDestination = CalculateDistanceToDestination(player),
+                    Payoff = CalculateTripPayoff(player),
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
                     HomeCity = player.HomeCityName,
@@ -569,6 +576,74 @@
             ? _players[_currentUserPlayerIndex].Color
             : PlayerColorOptions.Colors[0];
         _pendingRestoredRouteSelection = true;
+    }
+
+    private async Task EnsurePlayerBoardMapDefinitionAsync(CancellationToken cancellationToken)
+    {
+        if (_playerBoardMapDefinition is not null)
+        {
+            return;
+        }
+
+        var configuredMapFile = string.IsNullOrWhiteSpace(_game?.MapFileName)
+            ? GameService.DefaultMapFileName
+            : _game.MapFileName.Trim();
+        var mapPath = Path.Combine(WebHostEnvironment.ContentRootPath, configuredMapFile);
+
+        if (!File.Exists(mapPath))
+        {
+            return;
+        }
+
+        await using var stream = File.OpenRead(mapPath);
+        var loadResult = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream, cancellationToken);
+        if (loadResult.Succeeded)
+        {
+            _playerBoardMapDefinition = loadResult.Definition;
+        }
+    }
+
+    private static int CalculateDistanceToDestination(Boxcars.Engine.Persistence.PlayerState player)
+    {
+        if (string.IsNullOrWhiteSpace(player.DestinationCityName))
+        {
+            return 0;
+        }
+
+        if (player.SelectedRouteSegmentKeys.Count > 0)
+        {
+            return player.SelectedRouteSegmentKeys.Count;
+        }
+
+        if (player.ActiveRoute is null)
+        {
+            return 0;
+        }
+
+        var completedSegments = Math.Clamp(player.RouteProgressIndex, 0, player.ActiveRoute.Segments.Count);
+        return Math.Max(0, player.ActiveRoute.Segments.Count - completedSegments);
+    }
+
+    private int CalculateTripPayoff(Boxcars.Engine.Persistence.PlayerState player)
+    {
+        if (_playerBoardMapDefinition is null || string.IsNullOrWhiteSpace(player.DestinationCityName))
+        {
+            return 0;
+        }
+
+        var originCity = _playerBoardMapDefinition.Cities.FirstOrDefault(city =>
+            string.Equals(city.Name, player.CurrentCityName, StringComparison.OrdinalIgnoreCase));
+        var destinationCity = _playerBoardMapDefinition.Cities.FirstOrDefault(city =>
+            string.Equals(city.Name, player.DestinationCityName, StringComparison.OrdinalIgnoreCase));
+
+        if (originCity?.PayoutIndex is not int originPayoutIndex || destinationCity?.PayoutIndex is not int destinationPayoutIndex)
+        {
+            return 0;
+        }
+
+        return _playerBoardMapDefinition.TryGetPayout(originPayoutIndex, destinationPayoutIndex, out var payout)
+            ? payout
+            : 0;
     }
 
     private static MapSelectionMode ResolveSelectionMode(string? turnPhase)

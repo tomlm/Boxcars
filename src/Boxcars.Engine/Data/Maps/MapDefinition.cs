@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Boxcars.Engine;
 
 namespace Boxcars.Engine.Data.Maps;
 
@@ -13,6 +14,8 @@ public sealed class MapLoadResult
 
 public sealed class MapDefinition
 {
+    private int[,]? _payoutChart;
+
     public string? Name { get; set; }
     public string? Version { get; set; }
     public double ScaleLeft { get; set; }
@@ -28,6 +31,40 @@ public sealed class MapDefinition
     public List<LineSegment> MapLines { get; } = new();
     public List<LineSegment> Separators { get; } = new();
     public List<RegionLabelDefinition> RegionLabels { get; } = new();
+    public int MaxPayoutIndex { get; private set; }
+
+    public bool TryGetPayout(int fromPayoutIndex, int toPayoutIndex, out int payout)
+    {
+        if (_payoutChart is not null)
+        {
+            if (fromPayoutIndex < 1
+                || fromPayoutIndex > MaxPayoutIndex
+                || toPayoutIndex < 1
+                || toPayoutIndex > MaxPayoutIndex)
+            {
+                payout = 0;
+                return false;
+            }
+
+            payout = fromPayoutIndex == toPayoutIndex
+                ? 0
+                : _payoutChart[fromPayoutIndex, toPayoutIndex];
+
+            return true;
+        }
+
+        if (fromPayoutIndex >= 0
+            && fromPayoutIndex < 28
+            && toPayoutIndex >= 0
+            && toPayoutIndex < 28)
+        {
+            payout = PayoutTable.GetPayout(fromPayoutIndex, toPayoutIndex);
+            return true;
+        }
+
+        payout = 0;
+        return false;
+    }
 
     /// <summary>
     /// Loads a map definition from a .rb3 or .rbp file.
@@ -92,6 +129,7 @@ public sealed class MapDefinition
         var map = new MapDefinition();
         var headerValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var currentRouteRailroadIndex = 0;
+        var payoutRows = new List<List<int>>();
 
         var regionIndexByCode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var currentSection = string.Empty;
@@ -164,6 +202,9 @@ public sealed class MapDefinition
                 case "label":
                     ParseLabelLine(line, map);
                     break;
+                case "pay":
+                    ParsePayoutLine(line, payoutRows);
+                    break;
                 default:
                     if (currentSection.StartsWith("re", StringComparison.OrdinalIgnoreCase))
                     {
@@ -174,6 +215,7 @@ public sealed class MapDefinition
         }
 
         ApplyHeader(map, headerValues, errors);
+    ApplyPayoutChart(map, payoutRows);
         ValidateParsedMap(map, errors, warnings);
 
         if (errors.Count > 0)
@@ -555,6 +597,65 @@ public sealed class MapDefinition
         });
     }
 
+    private static void ParsePayoutLine(string line, List<List<int>> payoutRows)
+    {
+        var row = ParseCsvLine(line)
+            .Select(TryParsePayoutAmount)
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .ToList();
+
+        if (row.Count > 0)
+        {
+            payoutRows.Add(row);
+        }
+    }
+
+    private static void ApplyPayoutChart(MapDefinition map, List<List<int>> payoutRows)
+    {
+        if (payoutRows.Count == 0)
+        {
+            return;
+        }
+
+        var maxPayoutIndex = payoutRows[0].Count + 1;
+        if (maxPayoutIndex <= 1)
+        {
+            return;
+        }
+
+        var expectedRowCount = maxPayoutIndex - 1;
+        if (payoutRows.Count < expectedRowCount)
+        {
+            return;
+        }
+
+        for (var rowIndex = 0; rowIndex < expectedRowCount; rowIndex++)
+        {
+            var expectedValueCount = maxPayoutIndex - rowIndex - 1;
+            if (payoutRows[rowIndex].Count != expectedValueCount)
+            {
+                return;
+            }
+        }
+
+        var payoutChart = new int[maxPayoutIndex + 1, maxPayoutIndex + 1];
+        for (var fromPayoutIndex = 1; fromPayoutIndex < maxPayoutIndex; fromPayoutIndex++)
+        {
+            var row = payoutRows[fromPayoutIndex - 1];
+            for (var offset = 0; offset < row.Count; offset++)
+            {
+                var toPayoutIndex = fromPayoutIndex + offset + 1;
+                var payout = row[offset];
+                payoutChart[fromPayoutIndex, toPayoutIndex] = payout;
+                payoutChart[toPayoutIndex, fromPayoutIndex] = payout;
+            }
+        }
+
+        map._payoutChart = payoutChart;
+        map.MaxPayoutIndex = maxPayoutIndex;
+    }
+
     private static void ApplyHeader(MapDefinition map, Dictionary<string, string> headerValues, List<string> errors)
     {
         map.Name = headerValues.TryGetValue("name", out var name) ? name : null;
@@ -643,6 +744,17 @@ public sealed class MapDefinition
         return double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
+    }
+
+    private static int? TryParsePayoutAmount(string token)
+    {
+        var cleaned = token.Split('\'', 2)[0].Trim();
+        if (!decimal.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return null;
+        }
+
+        return decimal.ToInt32(parsed * 1000m);
     }
 }
 

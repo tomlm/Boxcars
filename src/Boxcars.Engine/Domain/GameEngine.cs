@@ -859,7 +859,13 @@ public sealed class GameEngine : ObservableBase
         int payout = 0;
         if (player.Destination != null && player.CurrentCity.PayoutIndex.HasValue && player.Destination.PayoutIndex.HasValue)
         {
-            payout = PayoutTable.GetPayout(player.CurrentCity.PayoutIndex.Value, player.Destination.PayoutIndex.Value);
+            var originPayoutIndex = player.CurrentCity.PayoutIndex.Value;
+            var destinationPayoutIndex = player.Destination.PayoutIndex.Value;
+            if (!MapDefinition.TryGetPayout(originPayoutIndex, destinationPayoutIndex, out payout))
+            {
+                throw new InvalidOperationException(
+                    $"Map payout chart does not define a payout from '{player.CurrentCity.Name}' ({originPayoutIndex}) to '{player.Destination.Name}' ({destinationPayoutIndex}).");
+            }
         }
 
         player.Cash += payout;
