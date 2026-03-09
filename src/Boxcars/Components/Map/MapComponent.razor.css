@@ -145,7 +145,7 @@
 }
 
 .game-map-route-suggestion-circle {
-    stroke-width: 0.9;
+    stroke-width: 0.45;
     stroke-linecap: round;
     pointer-events: none;
 }
@@ -155,7 +155,7 @@
 }
 
 .game-map-route-suggestion-circle-dashed {
-    stroke-dasharray: 1.2 0.9;
+    stroke-dasharray: 0.35 0.55;
 }
 
 .game-map-player-start-city {
