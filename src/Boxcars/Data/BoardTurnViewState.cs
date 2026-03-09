@@ -6,10 +6,15 @@ public sealed class BoardTurnViewState
     public int CurrentUserPlayerIndex { get; init; } = -1;
     public string ActivePlayerName { get; init; } = string.Empty;
     public string TurnPhase { get; init; } = string.Empty;
+    public int WhiteDieOne { get; init; }
+    public int WhiteDieTwo { get; init; }
+    public int? RedDie { get; init; }
     public int MovementAllowance { get; init; }
     public int MovementRemaining { get; init; }
     public int PreviewFee { get; init; }
     public int CurrentRollTotal { get; init; }
+    public bool IsActivePlayerAtDestination { get; init; }
+    public string ActivePlayerDestinationCity { get; init; } = string.Empty;
     public TurnMovementPreview SelectedRoutePreview { get; init; } = TurnMovementPreview.Empty;
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
     public bool IsCurrentUserActivePlayer { get; init; }

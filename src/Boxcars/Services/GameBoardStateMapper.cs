@@ -69,10 +69,15 @@ public sealed class GameBoardStateMapper
             CurrentUserPlayerIndex = currentUserPlayerIndex,
             ActivePlayerName = activePlayer.Name,
             TurnPhase = state.Turn.Phase,
+            WhiteDieOne = GetWhiteDie(state, 0),
+            WhiteDieTwo = GetWhiteDie(state, 1),
+            RedDie = state.Turn.DiceResult?.RedDie,
             MovementAllowance = movementAllowance,
             MovementRemaining = movementRemaining,
             PreviewFee = selectedRoutePreview.FeeEstimate,
             CurrentRollTotal = CalculateRollTotal(state),
+            IsActivePlayerAtDestination = IsPlayerAtDestination(activePlayer),
+            ActivePlayerDestinationCity = activePlayer.DestinationCityName ?? string.Empty,
             SelectedRoutePreview = selectedRoutePreview,
             TraveledSegmentKeys = activePlayer.UsedSegments,
             IsCurrentUserActivePlayer = PlayerControlRules.CanUserControlSlot(activePlayerSlotUserId, currentUserId)
@@ -224,6 +229,20 @@ public sealed class GameBoardStateMapper
         }
 
         return (state.Turn.DiceResult.WhiteDice?.Sum() ?? 0) + (state.Turn.DiceResult.RedDie ?? 0);
+    }
+
+    private static int GetWhiteDie(RailBaronGameState state, int index)
+    {
+        var whiteDice = state.Turn.DiceResult?.WhiteDice;
+        return whiteDice is { Length: > 0 } && index < whiteDice.Length
+            ? whiteDice[index]
+            : 0;
+    }
+
+    private static bool IsPlayerAtDestination(PlayerStateSnapshot player)
+    {
+        return !string.IsNullOrWhiteSpace(player.DestinationCityName)
+            && string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool CanEndTurn(RailBaronGameState state, TurnMovementPreview preview)
