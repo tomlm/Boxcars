@@ -47,62 +47,45 @@
         }
 
         <div class="map-board-map-area">
-            <GameMapComponent @ref="_gameMap"
-                              MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
-                              SelectionMode="@_selectionMode"
-                              PlayerId="@CurrentMapPlayerId"
-                              PlayerColor="@CurrentMapPlayerColor"
-                              PlayerStates="@_mapPlayerStates"
-                              CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
-                              IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
-                              ZoomPercentChanged="OnZoomPercentChanged"
+            <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
+                              SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
+                              PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+                              IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer" ZoomPercentChanged="OnZoomPercentChanged"
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync"
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
         </div>
 
-        @* ── Compact status strip above map ── *@
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="map-board-status-bar py-1 px-2" Spacing="3">
-            <TurnStatusPanel State="@_turnViewState" />
-        </MudStack>
+        @* ── Status strip: turn state left, zoom right ── *@
+        <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween"
+                  Class="map-board-status-bar px-3 py-2" Spacing="2">
+            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Class="map-board-status-main" Spacing="2">
+                <TurnStatusPanel State="@_turnViewState" />
 
-        @* ── Bottom bar: action log + zoom/OK controls ── *@
-        <div class="map-board-bottom-bar">
-            <div class="map-board-history-panel">
-                <EventTimelinePanel Items="@_gameEngineEvents" PlayerColors="@PlayerColorsByIndex" />
-            </div>
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Primary"
+                           Disabled="@(!CanPrimaryGameAction)"
+                           OnClick="OnPrimaryGameActionAsync"
+                           Class="map-board-primary-action">
+                    @PrimaryGameActionLabel
+                </MudButton>
+            </MudStack>
 
-            <MudStack Class="map-board-controls" AlignItems="AlignItems.Stretch" Justify="Justify.Center" Spacing="1">
-                <PurchaseOpportunityDialog IsOpen="@_isPurchaseOpportunityDialogOpen"
-                                           Arrival="@_turnViewState.ArrivalResolution"
-                                           OnConfirm="ClosePurchaseOpportunityDialog"
-                                           OnCancel="ClosePurchaseOpportunityDialog" />
-
-                <MudPaper Outlined="true" Square="true" Class="map-board-control-panel">
-                    <MudStack Spacing="1">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudText Typo="Typo.body2" Class="map-board-controls-label">Zoom</MudText>
-                        <MudText Typo="Typo.caption" Class="map-board-zoom-readout">@($"{_zoomPercent}%")</MudText>
-                    </MudStack>
-
-                    <MudSlider T="int"
-                               Min="100"
-                               Max="500"
-                               Step="50"
-                               Color="MudBlazor.Color.Primary"
+            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd"
+                      Class="map-board-zoom-bar" Spacing="2">
+                <MudText Typo="Typo.body2" Class="map-board-controls-label">Zoom</MudText>
+                <MudText Typo="Typo.caption" Class="map-board-zoom-readout">@($"{_zoomPercent}%")</MudText>
+                <div class="map-board-zoom-slider-host">
+                    <MudSlider T="int" Min="100" Max="500" Step="50" Color="MudBlazor.Color.Primary"
                                @bind-Value="@_zoomPercent"
                                @bind-Value:after="OnZoomSliderChangedAsync"
                                Class="map-board-zoom-slider" />
-                    </MudStack>
-                </MudPaper>
-
-                <TurnActionPanel PrimaryActionLabel="@PrimaryGameActionLabel"
-                                 CanPrimaryAction="@CanPrimaryGameAction"
-                                 OnPrimaryAction="OnPrimaryGameActionAsync"
-                                 IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
-                                 ObserverMessage="@ObserverTurnMessage" />
-
+                </div>
             </MudStack>
-        </div>
+        </MudStack>
+
+        <PurchaseOpportunityDialog IsOpen="@_isPurchaseOpportunityDialogOpen"
+                                   Arrival="@_turnViewState.ArrivalResolution" OnConfirm="ClosePurchaseOpportunityDialog"
+                                   OnCancel="ClosePurchaseOpportunityDialog" />
     </div>
 </div>
 
@@ -572,7 +555,8 @@
         var destinationCity = _playerBoardMapDefinition.Cities.FirstOrDefault(city =>
             string.Equals(city.Name, player.DestinationCityName, StringComparison.OrdinalIgnoreCase));
 
-        if (originCity?.PayoutIndex is not int originPayoutIndex || destinationCity?.PayoutIndex is not int destinationPayoutIndex)
+        if (originCity?.PayoutIndex is not int originPayoutIndex || destinationCity?.PayoutIndex is not int
+destinationPayoutIndex)
         {
             return 0;
         }
@@ -617,7 +601,8 @@
     {
         return selection is null
             ? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length]
-            : PlayerColorOptions.NormalizeOrDefault(selection.Color, PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length]);
+            : PlayerColorOptions.NormalizeOrDefault(selection.Color, PlayerColorOptions.Colors[index %
+PlayerColorOptions.Colors.Length]);
     }
 
     private string ResolvePlayerUserId(
@@ -660,7 +645,8 @@
             ? []
             : GamePlayerSelectionSerialization.Deserialize(_game.PlayersJson);
 
-        var currentSelection = playerSelections.FirstOrDefault(player => string.Equals(player.UserId, _currentUserId, StringComparison.OrdinalIgnoreCase));
+        var currentSelection = playerSelections.FirstOrDefault(player => string.Equals(player.UserId, _currentUserId,
+StringComparison.OrdinalIgnoreCase));
         return currentSelection is null
             ? PlayerColorOptions.Colors[0]
             : PlayerColorOptions.NormalizeOrDefault(currentSelection.Color);
@@ -771,7 +757,8 @@
         }
     }
 
-    private int CurrentRouteMoveCount => _gameMap?.GetSelectedRouteMoveCount() ?? _turnViewState.SelectedRoutePreview.MoveCount;
+    private int CurrentRouteMoveCount => _gameMap?.GetSelectedRouteMoveCount() ??
+_turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentRouteFees => _turnViewState.PreviewFee;
 
@@ -783,7 +770,11 @@
         && _testControlledPlayerIndex >= 0
         && _testControlledPlayerIndex == _gameState.ActivePlayerIndex;
 
-    private bool HasArrivalPurchaseOpportunity => _turnViewState.ArrivalResolution is { IsVisible: true, PurchaseOpportunityAvailable: true };
+    private bool HasArrivalPurchaseOpportunity => _turnViewState.ArrivalResolution is
+    {
+        IsVisible: true,
+        PurchaseOpportunityAvailable: true
+    };
 
     private string CurrentUserPlayerColor => _currentUserPlayerIndex >= 0
         ? _players[_currentUserPlayerIndex].Color
@@ -795,8 +786,6 @@
 
     private string CurrentMapPlayerColor => _mapPlayerStates.FirstOrDefault(playerState => playerState.IsActiveTurn)?.Color
         ?? _currentPlayerColor;
-
-    private IReadOnlyDictionary<int, string> PlayerColorsByIndex => _players.ToDictionary(player => player.Index, player => player.Color);
 
     private Task ClosePurchaseOpportunityDialog()
     {
