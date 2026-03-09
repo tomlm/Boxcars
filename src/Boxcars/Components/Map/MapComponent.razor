@@ -132,7 +132,7 @@
                                   height="4.4"
                                   fill="none"
                                   stroke="@marker.Color"
-                                  class="game-map-player-current-location" />
+                                  class="@GetPlayerCurrentLocationClass(marker)" />
                         }
 
                         @foreach (var marker in _playerTraveledSegmentMarkers)
@@ -184,6 +184,18 @@
                                     stroke="@highlight.Color"
                                     class="@GetRouteSuggestionCircleClass(highlight)" />
                         }
+                    </g>
+                }
+
+                @if (TryGetCurrentRouteEndpointMarker(out var currentRouteEndpointMarker))
+                {
+                    <g class="game-map-current-route-endpoint-highlights">
+                        <circle cx="@currentRouteEndpointMarker.X"
+                                cy="@currentRouteEndpointMarker.Y"
+                                r="2.2"
+                                fill="none"
+                                stroke="@currentRouteEndpointMarker.Color"
+                                class="game-map-current-route-endpoint" />
                     </g>
                 }
 
@@ -1547,7 +1559,7 @@
 
         var movementRemaining = Math.Max(0, CurrentTurnMovementRemaining);
 
-        for (var index = 0; index < suggestion.NodeIds.Count; index++)
+        for (var index = 1; index < suggestion.NodeIds.Count; index++)
         {
             var nodeId = suggestion.NodeIds[index];
             if (!_routeContext.DotLookup.TryGetValue(nodeId, out var dot))
@@ -1565,6 +1577,25 @@
                 IsDashed = index > movementRemaining
             });
         }
+    }
+
+    private bool TryGetCurrentRouteEndpointMarker(out PlayerNodeMarker marker)
+    {
+        marker = default;
+
+        if (_routeContext is null || _selectedRouteSegments.Count == 0 || _selectedRouteNodeIds.Count == 0)
+        {
+            return false;
+        }
+
+        var endpointNodeId = _selectedRouteNodeIds[^1];
+        if (!_routeContext.DotLookup.TryGetValue(endpointNodeId, out var endpointDot))
+        {
+            return false;
+        }
+
+        marker = new PlayerNodeMarker(endpointDot.X, endpointDot.Y, PlayerColor, true);
+        return true;
     }
 
     private void BuildPlayerOverlays()
@@ -1603,7 +1634,7 @@
             if (!string.IsNullOrWhiteSpace(currentNodeId)
                 && _routeContext.DotLookup.TryGetValue(currentNodeId, out var currentDot))
             {
-                _playerCurrentLocationMarkers.Add(new PlayerNodeMarker(currentDot.X, currentDot.Y, color));
+                _playerCurrentLocationMarkers.Add(new PlayerNodeMarker(currentDot.X, currentDot.Y, color, playerState.IsActiveTurn));
             }
 
             foreach (var segmentKey in playerState.TraveledSegmentKeys)
@@ -2118,6 +2149,13 @@
             : "game-map-route-suggestion-circle game-map-route-suggestion-circle-solid";
     }
 
+    private static string GetPlayerCurrentLocationClass(PlayerNodeMarker marker)
+    {
+        return marker.IsHighlighted
+            ? "game-map-player-current-location game-map-player-current-location-active"
+            : "game-map-player-current-location";
+    }
+
     private bool IsRailroadSegmentInSelectedRoute(RailroadRenderSegment segment)
     {
         var startNodeId = MapRouteService.NodeKey(segment.StartRegionIndex, segment.StartDotIndex);
@@ -2252,5 +2290,5 @@
 
     public readonly record struct RouteRailMenuOption(int RailroadIndex, string DisplayName);
     public readonly record struct RouteCityOption(string CityName, string NodeId);
-    private readonly record struct PlayerNodeMarker(double X, double Y, string Color);
+    private readonly record struct PlayerNodeMarker(double X, double Y, string Color, bool IsHighlighted = false);
 }

@@ -175,9 +175,45 @@
     pointer-events: none;
 }
 
+.game-map-player-current-location-active {
+    stroke-width: 1.15;
+    animation: game-map-player-current-location-pulse 1.15s ease-in-out infinite;
+    filter: drop-shadow(0 0 1.2px currentColor);
+}
+
+.game-map-current-route-endpoint {
+    stroke-width: 0.95;
+    animation: game-map-player-current-location-pulse 1.15s ease-in-out infinite;
+    filter: drop-shadow(0 0 1.2px currentColor);
+    pointer-events: none;
+}
+
 .game-map-player-traveled-segment {
     stroke-width: 0.45;
     pointer-events: none;
+}
+
+@keyframes game-map-player-current-location-pulse {
+    0% {
+        opacity: 0.65;
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 1;
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(1.18);
+    }
+
+    100% {
+        opacity: 0.7;
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(1);
+    }
 }
 
 .game-map-route-node-menu {
