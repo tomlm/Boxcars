@@ -820,7 +820,18 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         foreach (var item in notifyCandidates.Where(ShouldNotifyTimelineItem))
         {
             var message = item.Description;
-            if (item.EventKind == EventTimelineKind.Arrival
+            if (item.EventKind == EventTimelineKind.NewDestination
+                && item.ActingPlayerIndex.HasValue
+                && item.ActingPlayerIndex.Value >= 0
+                && item.ActingPlayerIndex.Value < _players.Count)
+            {
+                var payoff = _players[item.ActingPlayerIndex.Value].Payoff;
+                if (payoff > 0)
+                {
+                    message = $"{message}, Payoff ${payoff:N0}";
+                }
+            }
+            else if (item.EventKind == EventTimelineKind.Arrival
                 && purchaseOpportunitiesByBaseEventId.TryGetValue(GetTimelineEventBaseId(item), out var purchaseOpportunity))
             {
                 message = $"{item.Description} {purchaseOpportunity.Description}";
@@ -844,6 +855,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         return item.EventKind switch
         {
+            EventTimelineKind.NewDestination => true,
             EventTimelineKind.Move => true,
             EventTimelineKind.Arrival => true,
             EventTimelineKind.Purchase => true,

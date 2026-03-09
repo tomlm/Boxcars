@@ -2,7 +2,6 @@
 @using MudBlazor
 
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="turn-status-panel">
-    <MudText Typo="Typo.body2">@State.ActivePlayerName's Turn</MudText>
     <MudText Typo="Typo.body2">Roll: @State.CurrentRollTotal</MudText>
     <MudText Typo="Typo.body2">@State.MovementRemaining / @State.MovementAllowance</MudText>
     <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
