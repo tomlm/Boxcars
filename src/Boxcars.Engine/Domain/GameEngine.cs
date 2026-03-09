@@ -407,7 +407,19 @@ public sealed class GameEngine : ObservableBase
     /// </summary>
     public Route SuggestRoute()
     {
-        var player = CurrentTurn.ActivePlayer;
+        return SuggestRouteForPlayer(CurrentTurn.ActivePlayer.Index);
+    }
+
+    /// <summary>
+    /// Computes the cheapest route for the specified player from their current position to their destination.
+    /// Does NOT mutate state.
+    /// </summary>
+    public Route SuggestRouteForPlayer(int playerIndex)
+    {
+        if (playerIndex < 0 || playerIndex >= Players.Count)
+            throw new ArgumentOutOfRangeException(nameof(playerIndex));
+
+        var player = Players[playerIndex];
         if (player.Destination == null)
             throw new InvalidOperationException("No destination assigned.");
 

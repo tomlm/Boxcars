@@ -14,6 +14,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using MudBlazor
 @using System.Globalization
+@using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine
 @using RailBaronGameState = Boxcars.Engine.Persistence.GameState
 @attribute [Authorize]
 @implements IAsyncDisposable
@@ -397,6 +398,7 @@
         _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_game, state, _currentUserId).ToList();
 
         var playerSelections = GameBoardStateMapper.GetPlayerSelections(_game);
+        var suggestedRouteDistances = BuildSuggestedRouteDistances(state);
 
         var playerUserIdsByDisplayName = playerSelections
             .Where(selection => !string.IsNullOrWhiteSpace(selection.DisplayName) && !string.IsNullOrWhiteSpace(selection.UserId))
@@ -424,15 +426,16 @@
                     ThumbnailUrl = ResolveThumbnailUrl(selection?.DisplayName ?? player.Name),
                     Color = ResolvePlayerColor(selection, index),
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName)
-                        ? string.Equals(player.CurrentCityName, player.HomeCityName, StringComparison.OrdinalIgnoreCase)
-                        : string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase),
+                        || string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase),
                     TripStartLabel = string.IsNullOrWhiteSpace(player.TripStartCityName)
                         ? player.CurrentCityName
                         : player.TripStartCityName,
                     TripDestinationLabel = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         ? player.CurrentCityName
                         : player.DestinationCityName,
-                    DistanceToDestination = CalculateDistanceToDestination(player),
+                    DistanceToDestination = suggestedRouteDistances.TryGetValue(index, out var suggestedDistance)
+                        ? suggestedDistance
+                        : CalculateDistanceToDestination(player),
                     Payoff = CalculateTripPayoff(player),
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
@@ -449,6 +452,38 @@
         _currentPlayerColor = ResolveActionPlayerColor(state);
         UpdatePurchaseOpportunityDialogState();
         _pendingRestoredRouteSelection = true;
+    }
+
+    private IReadOnlyDictionary<int, int> BuildSuggestedRouteDistances(RailBaronGameState state)
+    {
+        if (_playerBoardMapDefinition is null)
+        {
+            return new Dictionary<int, int>();
+        }
+
+        try
+        {
+            var engine = RailBaronGameEngine.FromSnapshot(state, _playerBoardMapDefinition, new DefaultRandomProvider(0));
+            var distances = new Dictionary<int, int>(state.Players.Count);
+
+            for (var index = 0; index < state.Players.Count; index++)
+            {
+                var player = state.Players[index];
+                if (string.IsNullOrWhiteSpace(player.DestinationCityName))
+                {
+                    distances[index] = 0;
+                    continue;
+                }
+
+                distances[index] = engine.SuggestRouteForPlayer(index).Segments.Count;
+            }
+
+            return distances;
+        }
+        catch
+        {
+            return new Dictionary<int, int>();
+        }
     }
 
     private async Task EnsurePlayerBoardMapDefinitionAsync(CancellationToken cancellationToken)

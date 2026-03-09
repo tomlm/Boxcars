@@ -30,11 +30,23 @@
                     <span class="player-card-label">Home:</span> @player.HomeCity <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
                 </MudText>
                 <MudText Typo="Typo.caption" Class="player-card-line">
-                    <span class="player-card-label">Trip:</span> @player.TripStartLabel => @player.TripDestinationLabel
+                    @if (player.IsAtDestination)
+                    {
+                        <span class="player-card-label">At Destination:</span>
+                        <span>@player.TripDestinationLabel</span>
+                    }
+                    else
+                    {
+                        <span class="player-card-label">Trip:</span>
+                        <span>@player.TripStartLabel @("=>") @player.TripDestinationLabel</span>
+                    }
                 </MudText>
-                <MudText Typo="Typo.caption" Class="player-card-line">
-                    <span class="player-card-label">Distance:</span> @player.DistanceToDestination <span class="player-card-label">Payout:</span> $@player.Payoff.ToString("N0")
-                </MudText>
+                @if (!player.IsAtDestination)
+                {
+                    <MudText Typo="Typo.caption" Class="player-card-line">
+                        <span class="player-card-label">Distance:</span> @player.DistanceToDestination <span class="player-card-label">Payout:</span> $@player.Payoff.ToString("N0")
+                    </MudText>
+                }
                 <MudText Typo="Typo.caption" Class="player-card-line">
                     <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
                 </MudText>
