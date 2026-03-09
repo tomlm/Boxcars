@@ -436,6 +436,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         };
 
         await _gamesTable.AddEntityAsync(entity, cancellationToken);
+
     }
 
     private async Task<RailBaronGameState> AdvanceAutomaticTurnFlowAsync(

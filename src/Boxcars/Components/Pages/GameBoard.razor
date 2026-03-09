@@ -7,13 +7,11 @@
 @using Boxcars.Engine
 @using Boxcars.Engine.Data.Maps
 @using Boxcars.GameEngine
-@using Boxcars.Hubs
 @using Boxcars.Services
 @using Boxcars.Services.Maps
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
-@using Microsoft.AspNetCore.SignalR.Client
 @using MudBlazor
 @using System.Globalization
 @using RailBaronGameState = Boxcars.Engine.Persistence.GameState
@@ -82,8 +80,7 @@
     private ApplicationUser? _currentUserProfile;
     private GameEntity? _game;
     private GameMapComponent? _gameMap;
-    private HubConnection? _hubConnection;
-    private bool _hubConnectionInitialized;
+    private bool _gameStateSubscriptionInitialized;
     private RailBaronGameState? _gameState;
     private MapDefinition? _playerBoardMapDefinition;
     private BoardTurnViewState _turnViewState = new();
@@ -99,6 +96,7 @@
     private string? _lastPurchaseOpportunityKey;
     private string? _lastAutoSuggestKey;
     private int _testControlledPlayerIndex = -1;
+    private bool _awaitingAuthoritativeUpdate;
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -126,6 +124,12 @@
             return;
         }
 
+        if (!_gameStateSubscriptionInitialized)
+        {
+            _gameStateSubscriptionInitialized = true;
+            SharedGameEngine.OnStateChanged += OnSharedGameStateChanged;
+        }
+
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
         await EnsurePlayerBoardMapDefinitionAsync(CancellationToken.None);
         await LoadGameStateAsync();
@@ -136,20 +140,6 @@
         if (string.IsNullOrWhiteSpace(GameId))
         {
             return;
-        }
-
-        if (firstRender && !_hubConnectionInitialized)
-        {
-            _hubConnectionInitialized = true;
-
-            try
-            {
-                await ConnectToGameHubAsync();
-            }
-            catch
-            {
-                // Game board can still render from loaded state without live hub updates.
-            }
         }
 
         TryRestoreRouteSelection();
@@ -186,6 +176,7 @@
 
     private bool CanPrimaryGameAction => !string.IsNullOrWhiteSpace(GameId)
         && _gameState is not null
+        && !_awaitingAuthoritativeUpdate
         && IsCurrentUserActivePlayer
         && _turnViewState.TurnPhase switch
         {
@@ -244,23 +235,27 @@
             return;
         }
 
-        var movementRemainingBeforeCommit = _gameState.Turn.MovementRemaining;
+        MarkAuthoritativeUpdatePending();
 
-        await SharedGameEngine.EnqueueActionAsync(
-            GameId,
-            new MoveAction
-            {
-                PlayerId = CurrentTurnPlayerName,
-                ActorUserId = _currentUserId ?? string.Empty,
-                PlayerIndex = _gameState.ActivePlayerIndex,
-                PointsTaken = selectedNodeIds,
-                SelectedSegmentKeys = selectedSegmentKeys
-            },
-            CancellationToken.None);
-
-        await RefreshStateAfterTurnAsync(state =>
-            state.Turn.MovementRemaining != movementRemainingBeforeCommit
-            || !string.Equals(state.Turn.Phase, "Move", StringComparison.OrdinalIgnoreCase));
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new MoveAction
+                {
+                    PlayerId = CurrentTurnPlayerName,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = _gameState.ActivePlayerIndex,
+                    PointsTaken = selectedNodeIds,
+                    SelectedSegmentKeys = selectedSegmentKeys
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
     }
 
     private bool CanCommitMoveSelection()
@@ -290,20 +285,25 @@
             return;
         }
 
-        var purchasePhaseBeforeDecline = _gameState.Turn.Phase;
+        MarkAuthoritativeUpdatePending();
 
-        await SharedGameEngine.EnqueueActionAsync(
-            GameId,
-            new DeclinePurchaseAction
-            {
-                PlayerId = CurrentTurnPlayerName,
-                ActorUserId = _currentUserId ?? string.Empty,
-                PlayerIndex = _gameState.ActivePlayerIndex
-            },
-            CancellationToken.None);
-
-        await RefreshStateAfterTurnAsync(state =>
-            !string.Equals(state.Turn.Phase, purchasePhaseBeforeDecline, StringComparison.OrdinalIgnoreCase));
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new DeclinePurchaseAction
+                {
+                    PlayerId = CurrentTurnPlayerName,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = _gameState.ActivePlayerIndex
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
     }
 
     private async Task AdvanceToNextPlayerAsync()
@@ -313,22 +313,25 @@
             return;
         }
 
-        var activePlayerIndexBeforeEnd = _gameState.ActivePlayerIndex;
-        var turnNumberBeforeEnd = _gameState.TurnNumber;
+        MarkAuthoritativeUpdatePending();
 
-        await SharedGameEngine.EnqueueActionAsync(
-            GameId,
-            new EndTurnAction
-            {
-                PlayerId = CurrentTurnPlayerName,
-                ActorUserId = _currentUserId ?? string.Empty,
-                PlayerIndex = _gameState.ActivePlayerIndex
-            },
-            CancellationToken.None);
-
-        await RefreshStateAfterTurnAsync(state =>
-            state.TurnNumber > turnNumberBeforeEnd
-            || state.ActivePlayerIndex != activePlayerIndexBeforeEnd);
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new EndTurnAction
+                {
+                    PlayerId = CurrentTurnPlayerName,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = _gameState.ActivePlayerIndex
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
     }
 
     private Task OnRoutePreviewChangedAsync(TurnMovementPreview preview)
@@ -348,24 +351,6 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    private async Task RefreshStateAfterTurnAsync(Func<RailBaronGameState, bool> completion)
-    {
-        for (var attempt = 0; attempt < 15; attempt++)
-        {
-            await Task.Delay(100);
-
-            var updatedState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
-            ApplyGameState(updatedState);
-            SyncRouteSelectionToActivePlayer();
-
-            if (completion(updatedState))
-            {
-                await RefreshTimelineAsync(notifyNewItems: true);
-                return;
-            }
-        }
-    }
-
     private Task OnRouteSuggestionChangedAsync(RouteSuggestionResult _)
     {
         return InvokeAsync(StateHasChanged);
@@ -379,27 +364,28 @@
         await RefreshTimelineAsync();
     }
 
-    private async Task ConnectToGameHubAsync()
+    private void OnSharedGameStateChanged(string gameId, RailBaronGameState state)
     {
-        _hubConnection = new HubConnectionBuilder()
-            .WithUrl(Navigation.ToAbsoluteUri("/hubs/game"))
-            .WithAutomaticReconnect()
-            .Build();
-
-        _hubConnection.On<RailBaronGameState>(GameHubEvents.StateUpdated, state =>
+        if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
         {
-            ApplyGameState(state);
-            return InvokeAsync(async () =>
-            {
-                await RefreshTimelineAsync(notifyNewItems: true);
-                TryRestoreRouteSelection();
-                await AutoSuggestRouteIfNeededAsync();
-                StateHasChanged();
-            });
-        });
+            return;
+        }
 
-        await _hubConnection.StartAsync();
-        await _hubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
+        _ = InvokeAsync(async () =>
+        {
+            _awaitingAuthoritativeUpdate = false;
+            ApplyGameState(state);
+            await RefreshTimelineAsync(notifyNewItems: true);
+            TryRestoreRouteSelection();
+            await AutoSuggestRouteIfNeededAsync();
+            StateHasChanged();
+        });
+    }
+
+    private void MarkAuthoritativeUpdatePending()
+    {
+        _awaitingAuthoritativeUpdate = true;
+        StateHasChanged();
     }
 
     private void ApplyGameState(RailBaronGameState state)
@@ -557,7 +543,7 @@ destinationPayoutIndex)
             .Select(item => item.EventId)
             .ToHashSet(StringComparer.Ordinal);
 
-        var events = await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
+        var events = await LoadTimelineEventsAsync(existingEventIds, notifyNewItems && _timelineInitialized);
         _gameEngineEvents = events.ToList();
 
         if (notifyNewItems && _timelineInitialized)
@@ -566,6 +552,25 @@ destinationPayoutIndex)
         }
 
         _timelineInitialized = true;
+    }
+
+    private async Task<IReadOnlyList<EventTimelineItem>> LoadTimelineEventsAsync(HashSet<string> existingEventIds, bool waitForNewItems)
+    {
+        IReadOnlyList<EventTimelineItem> latestEvents = [];
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            latestEvents = await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
+
+            if (!waitForNewItems || latestEvents.Any(item => !existingEventIds.Contains(item.EventId)))
+            {
+                return latestEvents;
+            }
+
+            await Task.Delay(100);
+        }
+
+        return latestEvents;
     }
 
     private string ResolvePlayerColor(GamePlayerSelection? selection, int index)
@@ -803,10 +808,26 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
     {
-        foreach (var item in _gameEngineEvents.Where(item => !existingEventIds.Contains(item.EventId) && ShouldNotifyTimelineItem(item)))
+        var notifyCandidates = _gameEngineEvents
+            .Where(item => !existingEventIds.Contains(item.EventId))
+            .ToList();
+
+        var purchaseOpportunitiesByBaseEventId = notifyCandidates
+            .Where(item => item.EventKind == EventTimelineKind.PurchaseOpportunity)
+            .GroupBy(GetTimelineEventBaseId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+
+        foreach (var item in notifyCandidates.Where(ShouldNotifyTimelineItem))
         {
+            var message = item.Description;
+            if (item.EventKind == EventTimelineKind.Arrival
+                && purchaseOpportunitiesByBaseEventId.TryGetValue(GetTimelineEventBaseId(item), out var purchaseOpportunity))
+            {
+                message = $"{item.Description} {purchaseOpportunity.Description}";
+            }
+
             Snackbar.Add(
-                item.Description,
+                message,
                 ResolveTimelineSeverity(item),
                 options =>
                 {
@@ -825,11 +846,18 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         {
             EventTimelineKind.Move => true,
             EventTimelineKind.Arrival => true,
-            EventTimelineKind.PurchaseOpportunity => true,
             EventTimelineKind.Purchase => true,
             EventTimelineKind.DeclinedPurchase => true,
             _ => false
         };
+    }
+
+    private static string GetTimelineEventBaseId(EventTimelineItem item)
+    {
+        var separatorIndex = item.EventId.LastIndexOf(':');
+        return separatorIndex >= 0
+            ? item.EventId[..separatorIndex]
+            : item.EventId;
     }
 
     private static Severity ResolveTimelineSeverity(EventTimelineItem item)
@@ -928,14 +956,12 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     public async ValueTask DisposeAsync()
     {
-        if (_hubConnection is not null)
+        if (_gameStateSubscriptionInitialized)
         {
-            if (_hubConnection.State == HubConnectionState.Connected)
-            {
-                await _hubConnection.InvokeAsync(GameHubEvents.LeaveGame, GameId);
-            }
-
-            await _hubConnection.DisposeAsync();
+            SharedGameEngine.OnStateChanged -= OnSharedGameStateChanged;
+            _gameStateSubscriptionInitialized = false;
         }
+
+        await ValueTask.CompletedTask;
     }
 }

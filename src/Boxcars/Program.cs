@@ -46,6 +46,9 @@ public class Program
         builder.Services.AddMudServices(config =>
         {
             config.SnackbarConfiguration.PositionClass = $"{Defaults.Classes.Position.BottomLeft} boxcars-snackbar-zone";
+            config.SnackbarConfiguration.NewestOnTop = false;
+            config.SnackbarConfiguration.MaxDisplayedSnackbars = 4;
+            config.SnackbarConfiguration.PreventDuplicates = true;
         });
 
         // Identity (custom table storage stores, no EF Core)
