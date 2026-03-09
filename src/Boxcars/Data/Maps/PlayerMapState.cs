@@ -10,5 +10,7 @@ public sealed class PlayerMapState
     public string? DestinationCityName { get; init; }
     public string? CurrentNodeId { get; init; }
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
+    public IReadOnlyList<string> SelectedRouteSegmentKeys { get; init; } = [];
+    public bool IsActiveTurn { get; init; }
     public bool IsCurrentUser { get; init; }
 }

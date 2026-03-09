@@ -29,8 +29,8 @@ public static class GameEngineFixture
         };
 
         // Regions
-        map.Regions.Add(new RegionDefinition { Name = "Northeast", Code = "NE", Probability = 0.5 });
-        map.Regions.Add(new RegionDefinition { Name = "Southeast", Code = "SE", Probability = 0.5 });
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Northeast", Code = "NE", Probability = 0.5 });
+        map.Regions.Add(new RegionDefinition { Index = 1, Name = "Southeast", Code = "SE", Probability = 0.5 });
 
         // Cities (with payout indices for payout table)
         map.Cities.Add(new CityDefinition { Name = "New York", RegionCode = "NE", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
@@ -165,16 +165,34 @@ public static class GameEngineFixture
                 break;
 
             case TurnPhase.Purchase:
-                AdvanceToPhase(engine, random, TurnPhase.Move);
+                if (engine.CurrentTurn.Phase == TurnPhase.DrawDestination)
+                {
+                    var currentCityName = engine.CurrentTurn.ActivePlayer.CurrentCity.Name;
+                    if (string.Equals(currentCityName, "New York", StringComparison.OrdinalIgnoreCase))
+                    {
+                        random.QueueWeightedDraw(0);
+                        random.QueueWeightedDraw(1);
+                    }
+                    else
+                    {
+                        random.QueueWeightedDraw(1);
+                        random.QueueWeightedDraw(1);
+                    }
+
+                    engine.DrawDestination();
+                }
+
+                if (engine.CurrentTurn.Phase == TurnPhase.Roll)
+                {
+                    var route = engine.SuggestRoute();
+                    engine.SaveRoute(route);
+                    random.QueueDiceRoll(1, 1);
+                    engine.RollDice();
+                }
+
                 if (engine.CurrentTurn.Phase == TurnPhase.Move)
                 {
-                    // Move minimum to exhaust movement
-                    while (engine.CurrentTurn.Phase == TurnPhase.Move && engine.CurrentTurn.MovementRemaining > 0)
-                    {
-                        int steps = Math.Min(engine.CurrentTurn.MovementRemaining, 1);
-                        try { engine.MoveAlongRoute(steps); }
-                        catch { break; }
-                    }
+                    engine.MoveAlongRoute(1);
                 }
                 break;
 

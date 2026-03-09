@@ -56,6 +56,28 @@ public class RouteSuggestionTests
     }
 
     [Fact]
+    public void SuggestRouteForPlayer_UsesCurrentPositionAfterMovement()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(1);
+        random.QueueWeightedDraw(0);
+        engine.DrawDestination();
+
+        var initialRoute = engine.SuggestRouteForPlayer(0);
+        engine.SaveRoute(initialRoute);
+
+        random.QueueDiceRoll(1, 1);
+        engine.RollDice();
+        engine.MoveAlongRoute(2);
+
+        var updatedRoute = engine.SuggestRouteForPlayer(0);
+
+        Assert.Equal(engine.Players[0].CurrentNodeId, updatedRoute.NodeIds[0]);
+        Assert.Equal(initialRoute.Segments.Count - 2, updatedRoute.Segments.Count);
+    }
+
+    [Fact]
     public void SaveRoute_ValidRoute_SetsActiveRoute()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

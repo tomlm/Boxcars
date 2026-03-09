@@ -8,7 +8,7 @@
 @attribute [Authorize]
 @inject PlayerProfileService ProfileService
 @inject NavigationManager Navigation
-@inject IMessageService MessageService
+@inject ISnackbar Snackbar
 
 <PageTitle>Profile Settings - BoxCars</PageTitle>
 
@@ -143,13 +143,13 @@ else
                 switch (result)
                 {
                     case NicknameResult.Conflict:
-                        await MessageService.ShowMessageBarAsync("Nickname already taken. Please choose another.", MessageIntent.Error, "SETTINGS");
+                        Snackbar.Add("Nickname already taken. Please choose another.", Severity.Error);
                         _saving = false;
                         StateHasChanged();
                         return;
                     case NicknameResult.UpdateFailed:
                     case NicknameResult.UserNotFound:
-                        await MessageService.ShowMessageBarAsync("Save failed, please try again.", MessageIntent.Error, "SETTINGS");
+                        Snackbar.Add("Save failed, please try again.", Severity.Error);
                         _saving = false;
                         StateHasChanged();
                         return;
@@ -164,7 +164,7 @@ else
                 var updated = await ProfileService.UpdateThumbnailUrlAsync(_currentUserId, _thumbnailUrl.Trim(), CancellationToken.None);
                 if (!updated)
                 {
-                    await MessageService.ShowMessageBarAsync("Save failed, please try again.", MessageIntent.Error, "SETTINGS");
+                    Snackbar.Add("Save failed, please try again.", Severity.Error);
                     _saving = false;
                     StateHasChanged();
                     return;
@@ -177,7 +177,7 @@ else
                 var updated = await ProfileService.UpdatePreferredColorAsync(_currentUserId, _preferredColor, CancellationToken.None);
                 if (!updated)
                 {
-                    await MessageService.ShowMessageBarAsync("Save failed, please try again.", MessageIntent.Error, "SETTINGS");
+                    Snackbar.Add("Save failed, please try again.", Severity.Error);
                     _saving = false;
                     StateHasChanged();
                     return;
@@ -188,18 +188,18 @@ else
 
             if (nicknameChanged || thumbnailChanged || preferredColorChanged)
             {
-                await MessageService.ShowMessageBarAsync("Profile updated successfully!", MessageIntent.Success, "SETTINGS");
+                Snackbar.Add("Profile updated successfully!", Severity.Success);
                 // Force page refresh to update the header profile menu
                 Navigation.NavigateTo("/profile-settings", forceLoad: true);
             }
             else
             {
-                await MessageService.ShowMessageBarAsync("No changes to save.", MessageIntent.Info, "SETTINGS");
+                Snackbar.Add("No changes to save.", Severity.Info);
             }
         }
         catch
         {
-            await MessageService.ShowMessageBarAsync("Save failed, please try again.", MessageIntent.Error, "SETTINGS");
+            Snackbar.Add("Save failed, please try again.", Severity.Error);
         }
         finally
         {

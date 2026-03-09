@@ -1,3 +1,5 @@
+using Boxcars.Engine.Domain;
+
 namespace Boxcars.GameEngine;
 
 public enum PlayerActionKind
@@ -10,7 +12,7 @@ public enum PlayerActionKind
     StartAuction,
     Bid,
     SellRailroad,
-    BuySuperchief,
+    BuyEngine,
     DeclinePurchase,
     EndTurn
 }
@@ -18,6 +20,8 @@ public enum PlayerActionKind
 public abstract record PlayerAction
 {
     public required string PlayerId { get; init; }
+    public string ActorUserId { get; init; } = string.Empty;
+    public int? PlayerIndex { get; init; }
     public abstract PlayerActionKind Kind { get; }
     public DateTimeOffset EnqueuedAtUtc { get; init; } = DateTimeOffset.UtcNow;
 }
@@ -38,12 +42,14 @@ public sealed record RollDiceAction : PlayerAction
 public sealed record ChooseRouteAction : PlayerAction
 {
     public IReadOnlyList<string> RouteNodeIds { get; init; } = [];
+    public IReadOnlyList<string> RouteSegmentKeys { get; init; } = [];
     public override PlayerActionKind Kind => PlayerActionKind.ChooseRoute;
 }
 
 public sealed record MoveAction : PlayerAction
 {
     public IReadOnlyList<string> PointsTaken { get; init; } = [];
+    public IReadOnlyList<string> SelectedSegmentKeys { get; init; } = [];
     public override PlayerActionKind Kind => PlayerActionKind.Move;
 }
 
@@ -74,10 +80,11 @@ public sealed record SellRailroadAction : PlayerAction
     public override PlayerActionKind Kind => PlayerActionKind.SellRailroad;
 }
 
-public sealed record BuySuperchiefAction : PlayerAction
+public sealed record BuyEngineAction : PlayerAction
 {
+    public required LocomotiveType EngineType { get; init; }
     public required int AmountPaid { get; init; }
-    public override PlayerActionKind Kind => PlayerActionKind.BuySuperchief;
+    public override PlayerActionKind Kind => PlayerActionKind.BuyEngine;
 }
 
 public sealed record DeclinePurchaseAction : PlayerAction

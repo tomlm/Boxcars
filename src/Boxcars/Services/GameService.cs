@@ -1,11 +1,13 @@
 using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
+using Boxcars.Engine.Persistence;
 using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Microsoft.AspNetCore.SignalR;
 using System.Text.Json;
+using System.Globalization;
 
 namespace Boxcars.Services;
 
@@ -136,20 +138,216 @@ public class GameService
                 continue;
             }
 
-            events.Add(new EventTimelineItem
-            {
-                EventId = gameEvent.RowKey,
-                EventKind = gameEvent.EventKind,
-                Description = string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
-                    ? gameEvent.EventKind
-                    : gameEvent.ChangeSummary,
-                OccurredUtc = gameEvent.OccurredUtc
-            });
+            events.AddRange(BuildTimelineItems(gameEvent));
         }
 
         return events
             .OrderBy(item => item.EventId, StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent)
+    {
+        if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute"))
+        {
+            return [];
+        }
+
+        var snapshot = TryDeserializeSnapshot(gameEvent.SerializedGameState);
+        if (snapshot is null)
+        {
+            return [CreateTimelineItem(gameEvent, gameEvent.RowKey, ResolveTimelineKind(gameEvent.EventKind), gameEvent.ChangeSummary)];
+        }
+
+        var timelineItems = new List<EventTimelineItem>();
+        var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
+        var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+
+        switch (NormalizeEventKind(gameEvent.EventKind))
+        {
+            case "PickDestination":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:destination",
+                    EventTimelineKind.NewDestination,
+                    string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
+                        ? $"{actingPlayerName} has a new destination."
+                        : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"));
+                break;
+
+            case "RollDice":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:roll",
+                    EventTimelineKind.DiceRoll,
+                    $"{actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}"));
+                break;
+
+            case "Move" when snapshot.Turn.ArrivalResolution is not null:
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:arrival",
+                    EventTimelineKind.Arrival,
+                    snapshot.Turn.ArrivalResolution.Message));
+
+                if (snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable)
+                {
+                    timelineItems.Add(CreateTimelineItem(
+                        gameEvent,
+                        $"{gameEvent.RowKey}:purchase",
+                        EventTimelineKind.PurchaseOpportunity,
+                        $"{actingPlayerName} may buy a railroad or locomotive before ending the turn."));
+                }
+
+                break;
+
+            case "PurchaseRailroad":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:purchase",
+                    EventTimelineKind.Purchase,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary));
+                break;
+
+            case "BuyEngine":
+            case "BuySuperchief":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:purchase",
+                    EventTimelineKind.Purchase,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A locomotive was upgraded." : gameEvent.ChangeSummary));
+                break;
+
+            case "DeclinePurchase":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:decline",
+                    EventTimelineKind.DeclinedPurchase,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} declined the purchase opportunity"
+                        : gameEvent.ChangeSummary));
+                break;
+        }
+
+        if (timelineItems.Count == 0)
+        {
+            timelineItems.Add(CreateTimelineItem(
+                gameEvent,
+                gameEvent.RowKey,
+                ResolveTimelineKind(gameEvent.EventKind),
+                gameEvent.ChangeSummary));
+        }
+
+        return timelineItems;
+    }
+
+    private static bool MatchesEventKind(string? eventKind, string expectedKind)
+    {
+        return string.Equals(NormalizeEventKind(eventKind), expectedKind, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeEventKind(string? eventKind)
+    {
+        if (string.IsNullOrWhiteSpace(eventKind))
+        {
+            return string.Empty;
+        }
+
+        return eventKind.EndsWith("Action", StringComparison.Ordinal)
+            ? eventKind[..^"Action".Length]
+            : eventKind;
+    }
+
+    private static EventTimelineItem CreateTimelineItem(
+        GameEventEntity gameEvent,
+        string eventId,
+        EventTimelineKind eventKind,
+        string? description)
+    {
+        return new EventTimelineItem
+        {
+            EventId = eventId,
+            EventKind = eventKind,
+            Description = string.IsNullOrWhiteSpace(description)
+                ? gameEvent.EventKind
+                : description,
+            OccurredUtc = gameEvent.OccurredUtc,
+            ActingPlayerIndex = gameEvent.ActingPlayerIndex
+        };
+    }
+
+    private static EventTimelineKind ResolveTimelineKind(string? eventKind)
+    {
+        return NormalizeEventKind(eventKind) switch
+        {
+            "PickDestination" => EventTimelineKind.NewDestination,
+            "RollDice" => EventTimelineKind.DiceRoll,
+            "Move" => EventTimelineKind.Move,
+            "PurchaseRailroad" => EventTimelineKind.Purchase,
+            "BuyEngine" => EventTimelineKind.Purchase,
+            "BuySuperchief" => EventTimelineKind.Purchase,
+            "DeclinePurchase" => EventTimelineKind.DeclinedPurchase,
+            _ => EventTimelineKind.Other
+        };
+    }
+
+    private static GameState? TryDeserializeSnapshot(string serializedGameState)
+    {
+        if (string.IsNullOrWhiteSpace(serializedGameState))
+        {
+            return null;
+        }
+
+        try
+        {
+            return GameEventSerialization.DeserializeSnapshot(serializedGameState);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static PlayerState? ResolveActingPlayer(GameState snapshot, int? actingPlayerIndex)
+    {
+        var playerIndex = actingPlayerIndex ?? snapshot.ActivePlayerIndex;
+        return playerIndex >= 0 && playerIndex < snapshot.Players.Count
+            ? snapshot.Players[playerIndex]
+            : null;
+    }
+
+    private static string ResolveActingPlayerName(GameEventEntity gameEvent, PlayerState? actingPlayer)
+    {
+        if (!string.IsNullOrWhiteSpace(actingPlayer?.Name))
+        {
+            return actingPlayer.Name;
+        }
+
+        if (!string.IsNullOrWhiteSpace(gameEvent.CreatedBy))
+        {
+            return gameEvent.CreatedBy;
+        }
+
+        if (!string.IsNullOrWhiteSpace(gameEvent.ActingUserId))
+        {
+            return gameEvent.ActingUserId;
+        }
+
+        return "Unknown player";
+    }
+
+    private static string FormatDiceRoll(DiceResultState? diceResult)
+    {
+        if (diceResult?.WhiteDice is not { Length: >= 2 })
+        {
+            return "0";
+        }
+
+        var whiteDiceText = string.Join("+", diceResult.WhiteDice.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+
+        return diceResult.RedDie.HasValue
+            ? string.Concat(whiteDiceText, "+(", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")")
+            : whiteDiceText;
     }
 
     public async Task<GameActionResult> EndGameAsync(string playerId, string gameId, CancellationToken cancellationToken)

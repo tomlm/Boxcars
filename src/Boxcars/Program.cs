@@ -9,7 +9,7 @@ using Boxcars.Services;
 using Boxcars.Services.Maps;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.FluentUI.AspNetCore.Components;
+using MudBlazor;
 using MudBlazor.Services;
 
 namespace Boxcars;
@@ -43,8 +43,14 @@ public class Program
 
         // UI component libraries
         builder.Services.AddHttpClient();
-        builder.Services.AddMudServices();
-        builder.Services.AddFluentUIComponents();
+        builder.Services.AddMudServices(config =>
+        {
+            config.SnackbarConfiguration.PositionClass = $"{Defaults.Classes.Position.BottomLeft} boxcars-snackbar-zone";
+            config.SnackbarConfiguration.NewestOnTop = false;
+            config.SnackbarConfiguration.MaxDisplayedSnackbars = 4;
+            config.SnackbarConfiguration.PreventDuplicates = true;
+            config.SnackbarConfiguration.VisibleStateDuration = 8000;
+        });
 
         // Identity (custom table storage stores, no EF Core)
         builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
@@ -67,6 +73,7 @@ public class Program
         // Application services
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
+        builder.Services.AddScoped<GameBoardStateMapper>();
         builder.Services.AddScoped<MapBackgroundResolver>();
         builder.Services.AddScoped<BoardProjectionService>();
         builder.Services.AddScoped<BoardViewportService>();

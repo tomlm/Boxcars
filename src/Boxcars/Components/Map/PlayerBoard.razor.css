@@ -1,97 +1,97 @@
-.player-board {
-    gap: 0;
-    width: 100%;
+.player-board-scope {
+    display: contents;
 }
 
-.player-card {
+::deep .player-board {
+    width: 100%;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+::deep .player-card {
     display: flex;
     flex-direction: column;
-    min-height: 92px;
+    min-height: 88px;
     overflow: hidden;
     border-radius: 0;
-    border-width: 2px;
-    border-style: solid;
+    border: 1px solid transparent;
+    color: var(--mud-palette-text-primary);
+    transition: box-shadow 140ms ease, border-color 140ms ease;
+    margin: 0 0.2rem;
 }
 
-.player-card-active {
-    box-shadow: 0 0 6px var(--player-color, #888);
-    border-width: 3px;
+::deep .player-card-active {
+    border-color: var(--player-color, #888);
+    box-shadow: 0 0 8px 2px color-mix(in srgb, var(--player-color, #888) 60%, transparent), 0 0 20px 4px color-mix(in srgb, var(--player-color, #888) 30%, transparent);
 }
 
-.player-card-portrait {
-    align-items: center;
-    justify-content: flex-start;
-    gap: 0.5rem;
-    padding: 0.25rem 0.35rem;
+::deep .player-card-portrait {
+    padding: 0.4rem 0.5rem 0.25rem;
+    background-color: color-mix(in srgb, var(--player-color, #888) 28%, var(--mud-palette-surface));
 }
 
-.player-avatar {
+::deep .player-avatar {
     color: #ffffff;
     font-weight: 700;
     overflow: hidden;
+    flex-shrink: 0;
 }
 
-.player-avatar-image {
+::deep .player-avatar-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-.player-card-header-text {
-    gap: 0;
+::deep .player-card-info {
+    padding: 0.4rem 0.5rem 0.45rem;
 }
 
-.player-card-info {
-    gap: 0;
-    padding: 0 0.35rem 0.35rem;
+::deep .player-card-line {
+    margin: 0;
+    line-height: 1.1;
 }
 
-.player-status-connected {
-    color: var(--mud-palette-success);
+::deep .player-card-test-row {
+    margin-top: 0.2rem;
 }
 
-.player-status-disconnected {
-    color: var(--mud-palette-error);
+::deep .player-card-label {
+    font-weight: 700;
 }
 
-.player-color-blue {
+::deep .player-color-blue {
     --player-color: blue;
-    border-color: blue;
-    background-color: color-mix(in srgb, blue 14%, var(--mud-palette-surface));
 }
 
-.player-color-red {
+::deep .player-color-red {
     --player-color: red;
-    border-color: red;
-    background-color: color-mix(in srgb, red 14%, var(--mud-palette-surface));
 }
 
-.player-color-green {
+::deep .player-color-green {
     --player-color: green;
-    border-color: green;
-    background-color: color-mix(in srgb, green 14%, var(--mud-palette-surface));
 }
 
-.player-color-cyan {
+::deep .player-color-cyan {
     --player-color: cyan;
-    border-color: cyan;
-    background-color: color-mix(in srgb, cyan 14%, var(--mud-palette-surface));
 }
 
-.player-color-orange {
+::deep .player-color-orange {
     --player-color: orange;
-    border-color: orange;
-    background-color: color-mix(in srgb, orange 14%, var(--mud-palette-surface));
 }
 
-.player-color-purple {
+::deep .player-color-purple {
     --player-color: purple;
-    border-color: purple;
-    background-color: color-mix(in srgb, purple 14%, var(--mud-palette-surface));
 }
 
-.player-color-default {
+::deep .player-color-default {
     --player-color: #888;
-    border-color: #888;
-    background-color: var(--mud-palette-surface);
+}
+
+::deep .player-status-connected {
+    color: #4caf50;
+}
+
+::deep .player-status-disconnected {
+    color: #f44336;
 }

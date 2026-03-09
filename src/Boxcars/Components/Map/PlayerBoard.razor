@@ -1,10 +1,11 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Class="player-board">
+<div class="player-board-scope">
+<MudStack Class="player-board" Spacing="2">
     @foreach (var player in Players)
     {
-        <MudPaper Class="@GetCardClass(player)" Outlined="true">
+        <MudPaper Class="@GetCardClass(player)">
             <MudStack Row="true" Class="player-card-portrait">
                 <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
                     @if (HasThumbnail(player))
@@ -16,44 +17,66 @@
                         @GetInitial(player.Name)
                     }
                 </MudAvatar>
-                <MudStack Class="player-card-header-text">
-                    <MudText Typo="Typo.subtitle2">@player.Name</MudText>
-                    <MudText Typo="Typo.caption" Class="@(player.IsConnected ? "player-status-connected" : "player-status-disconnected")">
+                <MudStack>
+                    <MudText Typo="Typo.subtitle1">@player.Name</MudText>
+                    <MudText Typo="Typo.caption" Class="@(player.IsConnected ? "player-status-connected" : "player-status-disconnected")" Align="Align.Right">
                         @(player.IsConnected ? "Connected" : "Offline")
                     </MudText>
                 </MudStack>
             </MudStack>
 
-            <MudStack Class="player-card-info">
-                @if (player.IsAtDestination)
-                {
-                    <MudText Typo="Typo.body2">At: @player.LocationLabel</MudText>
-                }
-                else if (!string.IsNullOrWhiteSpace(player.LocationLabel))
-                {
-                    <MudText Typo="Typo.body2">@player.DistanceToDestination to @player.LocationLabel</MudText>
-                }
-                <MudText Typo="Typo.body2">
+            <MudStack Class="player-card-info" Spacing="1">
+                <MudText Typo="Typo.caption" Class="player-card-line">
+                    <span class="player-card-label">Home:</span> @player.HomeCity <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
+                </MudText>
+                <MudText Typo="Typo.caption" Class="player-card-line">
                     @if (player.IsAtDestination)
                     {
-                        @($"Payoff: ${player.Payoff:N0}")
+                        <span class="player-card-label">At Destination:</span>
+                        <span>@player.TripDestinationLabel</span>
                     }
                     else
                     {
-                        @($"Get: ${player.Payoff:N0}")
+                        <span class="player-card-label">Trip:</span>
+                        <span>@player.TripStartLabel @("=>") @player.TripDestinationLabel</span>
                     }
                 </MudText>
-                <MudText Typo="Typo.body2">@player.GetMoneyDisplay()</MudText>
-                <MudText Typo="Typo.body2">Home: @player.HomeCity</MudText>
-                <MudText Typo="Typo.body2">Engine: @player.LocomotiveLabel</MudText>
+                @if (!player.IsAtDestination)
+                {
+                    <MudText Typo="Typo.caption" Class="player-card-line">
+                        <span class="player-card-label">Distance:</span> @player.DistanceToDestination <span class="player-card-label">Payout:</span> $@player.Payoff.ToString("N0")
+                    </MudText>
+                }
+                <MudText Typo="Typo.caption" Class="player-card-line">
+                    <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
+                </MudText>
+
+                @if (player.CanUseTestControl)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="player-card-test-row">
+                        <MudText Typo="Typo.caption" Class="player-card-label">
+                            @(player.IsTestControlled ? "Test control enabled" : "Mock player")
+                        </MudText>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="MudBlazor.Color.Primary"
+                                   Size="Size.Small"
+                                   OnClick="() => OnToggleTestPlayer.InvokeAsync(player.Index)">
+                            @(player.IsTestControlled ? "TESTING" : "TEST")
+                        </MudButton>
+                    </MudStack>
+                }
             </MudStack>
         </MudPaper>
     }
 </MudStack>
+</div>
 
 @code {
     [Parameter]
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
+
+    [Parameter]
+    public EventCallback<int> OnToggleTestPlayer { get; set; }
 
     private static string GetInitial(string name)
     {

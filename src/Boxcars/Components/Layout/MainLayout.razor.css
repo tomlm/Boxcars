@@ -25,19 +25,22 @@
     padding: 1.5rem 2rem;
     max-width: 1200px;
     margin: 0 auto;
+    min-height: calc(100dvh - var(--mud-appbar-height));
+    background-color: var(--mud-palette-background);
+    color: var(--mud-palette-text-primary);
 }
 
 .content-area--full {
     padding: 0;
     max-width: none;
     margin: 0;
+    overflow: hidden;
 }
 
 .content-area--create-game {
     padding: 0;
     max-width: none;
     margin: 0;
-    block-size: calc(100dvh - 56px);
     overflow: hidden;
 }
 

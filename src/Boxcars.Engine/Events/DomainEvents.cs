@@ -20,12 +20,16 @@ public sealed class DestinationReachedEventArgs : EventArgs
     public Player Player { get; }
     public CityDefinition City { get; }
     public int PayoutAmount { get; }
+    public int CashAfterPayout { get; }
+    public bool PurchaseOpportunityAvailable { get; }
 
-    public DestinationReachedEventArgs(Player player, CityDefinition city, int payoutAmount)
+    public DestinationReachedEventArgs(Player player, CityDefinition city, int payoutAmount, int cashAfterPayout, bool purchaseOpportunityAvailable)
     {
         Player = player;
         City = city;
         PayoutAmount = payoutAmount;
+        CashAfterPayout = cashAfterPayout;
+        PurchaseOpportunityAvailable = purchaseOpportunityAvailable;
     }
 }
 

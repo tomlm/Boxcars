@@ -21,9 +21,14 @@ public sealed class PlayerBoardModel
     public bool IsAtDestination { get; init; }
 
     /// <summary>
-    /// The city name if at destination, or the destination city name if en route.
+    /// The player's current trip origin or current city when not traveling.
     /// </summary>
-    public string LocationLabel { get; init; } = string.Empty;
+    public string TripStartLabel { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The player's current trip destination or current city when not traveling.
+    /// </summary>
+    public string TripDestinationLabel { get; init; } = string.Empty;
 
     /// <summary>
     /// Distance (nodes remaining) to destination. Relevant only when not at destination.
@@ -38,6 +43,12 @@ public sealed class PlayerBoardModel
 
     /// <summary>True if this player is the currently logged-in user.</summary>
     public bool IsCurrentUser { get; init; }
+
+    /// <summary>True when this mock player is selected for local test control.</summary>
+    public bool IsTestControlled { get; init; }
+
+    /// <summary>True when this player supports the local test-control toggle.</summary>
+    public bool CanUseTestControl { get; init; }
 
     /// <summary>Home city name.</summary>
     public string HomeCity { get; init; } = string.Empty;
@@ -58,7 +69,7 @@ public sealed class PlayerBoardModel
     /// </summary>
     public string GetMoneyDisplay()
     {
-        if (IsCurrentUser)
+        if (IsCurrentUser || IsTestControlled)
         {
             return $"${Cash:N0}";
         }

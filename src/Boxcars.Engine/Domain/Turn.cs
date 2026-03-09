@@ -9,8 +9,10 @@ public sealed class Turn : ObservableBase
     private int _turnNumber;
     private TurnPhase _phase;
     private DiceResult? _diceResult;
+    private int _movementAllowance;
     private int _movementRemaining;
     private bool _bonusRollAvailable;
+    private ArrivalResolution? _arrivalResolution;
 
     /// <summary>Whose turn it is.</summary>
     public Player ActivePlayer
@@ -40,6 +42,13 @@ public sealed class Turn : ObservableBase
         internal set => SetField(ref _diceResult, value);
     }
 
+    /// <summary>Total movement available for the current move window.</summary>
+    public int MovementAllowance
+    {
+        get => _movementAllowance;
+        internal set => SetField(ref _movementAllowance, value);
+    }
+
     /// <summary>Mileposts left to move this roll.</summary>
     public int MovementRemaining
     {
@@ -54,6 +63,13 @@ public sealed class Turn : ObservableBase
         internal set => SetField(ref _bonusRollAvailable, value);
     }
 
+    /// <summary>Resolved arrival details that remain visible until the turn is completed.</summary>
+    public ArrivalResolution? ArrivalResolution
+    {
+        get => _arrivalResolution;
+        internal set => SetField(ref _arrivalResolution, value);
+    }
+
     /// <summary>Railroad indices used this turn (for use fee calculation).</summary>
     internal HashSet<int> RailroadsRiddenThisTurn { get; } = new();
 
@@ -62,4 +78,14 @@ public sealed class Turn : ObservableBase
         _turnNumber = 1;
         _phase = TurnPhase.DrawDestination;
     }
+}
+
+public sealed class ArrivalResolution
+{
+    public int PlayerIndex { get; init; } = -1;
+    public string DestinationCityName { get; init; } = string.Empty;
+    public int PayoutAmount { get; init; }
+    public int CashAfterPayout { get; init; }
+    public bool PurchaseOpportunityAvailable { get; init; }
+    public string Message { get; init; } = string.Empty;
 }

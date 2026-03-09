@@ -1,0 +1,38 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="turn-status-panel">
+    <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+    <MudText Typo="Typo.body2">Moves: @State.MovementRemaining / @State.MovementAllowance</MudText>
+    @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
+    {
+        <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
+    }
+    <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+</MudStack>
+
+@code {
+    [Parameter]
+    public BoardTurnViewState State { get; set; } = new();
+
+    private string DisplayPhase => string.IsNullOrWhiteSpace(State.TurnPhase) ? "Unknown" : State.TurnPhase;
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+
+    private static string FormatRoll(BoardTurnViewState state)
+    {
+        if (state.WhiteDieOne > 0 && state.WhiteDieTwo > 0)
+        {
+            return state.RedDie.HasValue
+                ? $"{state.WhiteDieOne}+{state.WhiteDieTwo} (+{state.RedDie.Value})"
+                : $"{state.WhiteDieOne}+{state.WhiteDieTwo}";
+        }
+
+        return state.CurrentRollTotal > 0
+            ? state.CurrentRollTotal.ToString()
+            : "-";
+    }
+}

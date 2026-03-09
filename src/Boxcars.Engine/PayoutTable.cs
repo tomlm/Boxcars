@@ -1,16 +1,14 @@
 namespace Boxcars.Engine;
 
 /// <summary>
-/// Static payout lookup table based on official Rail Baron payoff chart.
-/// Indexed by PayoutIndex values from CityDefinition.
-/// The table is symmetric: Payout(A, B) == Payout(B, A).
+/// Legacy static payout lookup table.
+/// Use the parsed map payout chart when a map provides a [pay] section.
 /// </summary>
 public static class PayoutTable
 {
     // Payout amounts in dollars, indexed by (fromPayoutIndex, toPayoutIndex).
-    // PayoutIndex values range from 0 to 27, matching city PayoutIndex in the map definition.
-    // Values sourced from the official Rail Baron payoff chart.
-    // Row/column indices correspond to PayoutIndex values.
+    // This table is retained as a compatibility fallback for legacy maps/tests that use
+    // the older 0..27 payout index scheme instead of the RB3 [pay] chart.
     private static readonly int[,] Payouts = new int[28, 28]
     {
         // Index:  0      1      2      3      4      5      6      7      8      9     10     11     12     13     14     15     16     17     18     19     20     21     22     23     24     25     26     27

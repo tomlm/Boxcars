@@ -1,0 +1,10 @@
+.purchase-opportunity-dialog-overlay {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+}
+
+.purchase-opportunity-dialog {
+    max-width: 28rem;
+    width: calc(100vw - 2rem);
+}

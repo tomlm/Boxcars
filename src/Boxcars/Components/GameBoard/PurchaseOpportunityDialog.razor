@@ -1,0 +1,45 @@
+@using Boxcars.Data
+@using MudBlazor
+
+@if (IsOpen)
+{
+    <MudOverlay Visible="true" DarkBackground="true" AutoClose="false" Class="purchase-opportunity-dialog-overlay">
+        <MudPaper Class="purchase-opportunity-dialog pa-4" Outlined="true" Elevation="8">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Purchase Opportunity</MudText>
+
+                @if (Arrival is not null)
+                {
+                    <MudText Typo="Typo.body2">@Arrival.Message</MudText>
+                }
+
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    TBD
+                </MudAlert>
+
+                <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
+                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" OnClick="OnCancel">
+                        CANCEL
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="OnConfirm">
+                        OK
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    </MudOverlay>
+}
+
+@code {
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    [Parameter]
+    public ArrivalResolutionModel? Arrival { get; set; }
+
+    [Parameter]
+    public EventCallback OnConfirm { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+}

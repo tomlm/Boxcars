@@ -1,0 +1,7 @@
+.turn-status-panel {
+    color: var(--mud-palette-text-primary);
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 0.82rem;
+    min-height: 1.75rem;
+    white-space: nowrap;
+}
