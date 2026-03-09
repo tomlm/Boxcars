@@ -40,10 +40,11 @@
 /* ── Status bar below map ── */
 .map-board-status-bar {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
     gap: 1rem;
     flex-shrink: 0;
+    position: relative;
     background: color-mix(in srgb, var(--mud-palette-surface) 70%, black 30%);
     color: var(--mud-palette-text-primary);
     font-size: 0.85rem;
@@ -52,8 +53,9 @@
 }
 
 .map-board-status-main {
-    flex: 1 1 auto;
+    justify-content: center;
     min-width: 0;
+    margin: 0 auto;
 }
 
 .status-bar-text {
@@ -83,13 +85,39 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
     flex: 0 0 auto;
     min-width: 0;
     max-width: 100%;
-    margin-left: auto;
     padding-left: 1rem;
     color: var(--mud-palette-text-primary);
     border-left: 1px solid var(--mud-palette-divider);
+}
+
+@media (max-width: 960px) {
+    .map-board-status-bar {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        position: static;
+    }
+
+    .map-board-status-main {
+        flex: 1 1 100%;
+        justify-content: center;
+        margin: 0;
+    }
+
+    .map-board-zoom-bar {
+        position: static;
+        top: auto;
+        right: auto;
+        transform: none;
+        margin-left: auto;
+    }
 }
 
 .map-board-controls-label,

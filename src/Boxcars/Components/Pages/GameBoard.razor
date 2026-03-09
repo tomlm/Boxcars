@@ -55,10 +55,10 @@
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
         </div>
 
-        @* ── Status strip: turn state left, zoom right ── *@
-        <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween"
+        @* ── Status strip: turn state center, zoom right ── *@
+        <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center"
                   Class="map-board-status-bar px-3 py-2" Spacing="2">
-            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Class="map-board-status-main" Spacing="2">
+            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
                 <TurnStatusPanel State="@_turnViewState" />
 
                 <MudButton Variant="Variant.Filled"
