@@ -80,6 +80,8 @@
                     {
                         <svg:text x="@(city.X + 2.2)"
                                   y="@(city.Y - 1.2)"
+                                  fill="#ffffff"
+                                  stroke="var(--mud-palette-surface)"
                                   transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 1.2)">@city.Name</svg:text>
                     }
                 </g>
@@ -94,26 +96,36 @@
                 <g class="game-map-cities">
                     @foreach (var city in _renderModel.Cities)
                     {
-                        <rect x="@(city.X - 1.4)" y="@(city.Y - 1.4)" width="2.8" height="2.8" rx="0.2" ry="0.2" />
+                        <rect x="@(city.X - 1.4)"
+                              y="@(city.Y - 1.4)"
+                              width="2.8"
+                              height="2.8"
+                              rx="0.2"
+                              ry="0.2" />
                     }
                 </g>
 
-                @if (_playerStartCityMarkers.Count > 0
-                    || _playerDestinationCityMarkers.Count > 0
+                @if (_renderModel.Cities.Any(city => IsHomeCity(city.Name)))
+                {
+                    <g class="game-map-home-cities">
+                        @foreach (var city in _renderModel.Cities.Where(city => IsHomeCity(city.Name)))
+                        {
+                            <rect x="@(city.X - 1.4)"
+                                  y="@(city.Y - 1.4)"
+                                  width="2.8"
+                                  height="2.8"
+                                  rx="0.2"
+                                  ry="0.2"
+                                  fill="@GetCityFillColor(city.Name)" />
+                        }
+                    </g>
+                    }
+
+                @if (_playerDestinationCityMarkers.Count > 0
                     || _playerCurrentLocationMarkers.Count > 0
                     || _playerTraveledSegmentMarkers.Count > 0)
                 {
                     <g class="game-map-player-overlays">
-                        @foreach (var marker in _playerStartCityMarkers)
-                        {
-                            <circle cx="@marker.X"
-                                    cy="@marker.Y"
-                                    r="2.2"
-                                    fill="none"
-                                    stroke="@marker.Color"
-                                    class="game-map-player-start-city" />
-                        }
-
                         @foreach (var marker in _playerDestinationCityMarkers)
                         {
                             <circle cx="@marker.X"
@@ -387,7 +399,6 @@
     private readonly List<RouteCityOption> _routeCityOptions = new();
     private readonly Dictionary<int, string> _railroadStrokeColors = new();
     private readonly List<RouteSuggestionHighlight> _routeSuggestionHighlights = new();
-    private readonly List<PlayerNodeMarker> _playerStartCityMarkers = new();
     private readonly List<PlayerNodeMarker> _playerDestinationCityMarkers = new();
     private readonly List<PlayerNodeMarker> _playerCurrentLocationMarkers = new();
     private readonly List<PlayerNodeMarker> _playerTraveledSegmentMarkers = new();
@@ -1600,7 +1611,6 @@
 
     private void BuildPlayerOverlays()
     {
-        _playerStartCityMarkers.Clear();
         _playerDestinationCityMarkers.Clear();
         _playerCurrentLocationMarkers.Clear();
         _playerTraveledSegmentMarkers.Clear();
@@ -1615,13 +1625,6 @@
             var color = string.IsNullOrWhiteSpace(playerState.Color)
                 ? "var(--accent-fill-rest)"
                 : playerState.Color;
-
-            var startNodeId = ResolveNodeIdForPlayerStart(playerState);
-            if (!string.IsNullOrWhiteSpace(startNodeId)
-                && _routeContext.DotLookup.TryGetValue(startNodeId, out var startDot))
-            {
-                _playerStartCityMarkers.Add(new PlayerNodeMarker(startDot.X, startDot.Y, color));
-            }
 
             var destinationNodeId = ResolveNodeIdForCityName(playerState.DestinationCityName);
             if (!string.IsNullOrWhiteSpace(destinationNodeId)
@@ -2154,6 +2157,22 @@
         return marker.IsHighlighted
             ? "game-map-player-current-location game-map-player-current-location-active"
             : "game-map-player-current-location";
+    }
+
+    private string GetCityFillColor(string cityName)
+    {
+        var homePlayer = PlayerStates?.FirstOrDefault(playerState =>
+            !string.IsNullOrWhiteSpace(playerState.HomeCityName)
+            && string.Equals(playerState.HomeCityName, cityName, StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(homePlayer?.Color)
+            ? "#000000"
+            : homePlayer.Color;
+    }
+
+    private bool IsHomeCity(string cityName)
+    {
+        return !string.Equals(GetCityFillColor(cityName), "#000000", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsRailroadSegmentInSelectedRoute(RailroadRenderSegment segment)

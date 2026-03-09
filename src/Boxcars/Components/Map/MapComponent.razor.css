@@ -105,11 +105,9 @@
 }
 
 .game-map-city-labels text {
-    fill: var(--mud-palette-text-primary);
     font-size: 2.5px;
     paint-order: stroke;
-    stroke: var(--mud-palette-surface);
-    stroke-width: 0.7;
+    stroke-width: 0.4;
     dominant-baseline: hanging;
     white-space: nowrap;
 }
@@ -156,12 +154,6 @@
 
 .game-map-route-suggestion-circle-dashed {
     stroke-dasharray: 0.35 0.55;
-}
-
-.game-map-player-start-city {
-    stroke-width: 0.75;
-    stroke-dasharray: 0.9 0.7;
-    pointer-events: none;
 }
 
 .game-map-player-destination-city {
