@@ -176,7 +176,7 @@
 }
 
 .game-map-player-traveled-segment {
-    stroke-width: 0.75;
+    stroke-width: 0.45;
     pointer-events: none;
 }
 

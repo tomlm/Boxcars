@@ -137,16 +137,16 @@
 
                         @foreach (var marker in _playerTraveledSegmentMarkers)
                         {
-                            <line x1="@(marker.X - 1.4)"
-                                  y1="@(marker.Y - 1.4)"
-                                  x2="@(marker.X + 1.4)"
-                                  y2="@(marker.Y + 1.4)"
+                            <line x1="@(marker.X - 1.0)"
+                                y1="@(marker.Y - 1.0)"
+                                x2="@(marker.X + 1.0)"
+                                y2="@(marker.Y + 1.0)"
                                   stroke="@marker.Color"
                                   class="game-map-player-traveled-segment" />
-                            <line x1="@(marker.X - 1.4)"
-                                  y1="@(marker.Y + 1.4)"
-                                  x2="@(marker.X + 1.4)"
-                                  y2="@(marker.Y - 1.4)"
+                            <line x1="@(marker.X - 1.0)"
+                                y1="@(marker.Y + 1.0)"
+                                x2="@(marker.X + 1.0)"
+                                y2="@(marker.Y - 1.0)"
                                   stroke="@marker.Color"
                                   class="game-map-player-traveled-segment" />
                         }
