@@ -185,6 +185,18 @@ public class MapDefinitionParserTests
         Assert.Equal(12.5, regions[1].Probability);
     }
 
+    [Fact]
+    public void Parse_RegionSection_PreservesParsedRegionIndices()
+    {
+        var result = MapDefinition.Parse(MinimalValidMap);
+
+        Assert.True(result.Succeeded);
+        var regions = result.Definition!.Regions;
+
+        Assert.Equal(1, regions[0].Index);
+        Assert.Equal(2, regions[1].Index);
+    }
+
     // ------------------------------------------------------------------
     // City parsing
     // ------------------------------------------------------------------

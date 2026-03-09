@@ -1,35 +1,28 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudPaper Class="pa-4" Outlined="true">
-    <MudStack Spacing="1">
-        <MudText Typo="Typo.h6">Game Timeline</MudText>
-
-        @if (!string.IsNullOrWhiteSpace(StatusText))
-        {
-            <MudText Typo="Typo.body2">@StatusText</MudText>
-        }
-
-        @if (Items.Count == 0)
-        {
-            <MudText Typo="Typo.body2">No events recorded yet.</MudText>
-        }
-        else
-        {
-            <MudList T="string" Dense="true">
-                @foreach (var item in Items)
-                {
-                    <MudListItem T="string" Text="@item.Description" />
-                }
-            </MudList>
-        }
-    </MudStack>
-</MudPaper>
+<MudStack Spacing="0">
+    @if (Items.Count == 0)
+    {
+        <MudText Typo="Typo.body2">No events recorded yet.</MudText>
+    }
+    else
+    {
+        <select class="event-timeline-listbox" size="12" aria-label="Activity log">
+            @foreach (var item in Items)
+            {
+                <option>@FormatTimelineText(item)</option>
+            }
+        </select>
+    }
+</MudStack>
 
 @code {
     [Parameter]
     public IReadOnlyList<EventTimelineItem> Items { get; set; } = [];
 
-    [Parameter]
-    public string StatusText { get; set; } = string.Empty;
+    private static string FormatTimelineText(EventTimelineItem item)
+    {
+        return $"{item.OccurredUtc.LocalDateTime:t}  {item.Description}";
+    }
 }

@@ -42,6 +42,10 @@
     line-height: 1.1;
 }
 
+.player-card-test-row {
+    margin-top: 0.2rem;
+}
+
 .player-card-label {
     font-weight: 700;
 }

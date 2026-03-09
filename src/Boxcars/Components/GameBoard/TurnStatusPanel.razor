@@ -1,17 +1,14 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudPaper Class="pa-4" Outlined="true">
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-        <MudText Typo="Typo.subtitle2">Turn Status</MudText>
-        <MudText Typo="Typo.body2">Active Player: @State.ActivePlayerName</MudText>
-        <MudText Typo="Typo.body2">Phase: @DisplayPhase</MudText>
-        <MudText Typo="Typo.body2">Roll: @State.CurrentRollTotal</MudText>
-        <MudText Typo="Typo.body2">Moves Left: @State.MovementRemaining / @State.MovementAllowance</MudText>
-        <MudText Typo="Typo.body2">Preview Cost: @FormatCurrency(State.PreviewFee)</MudText>
-        <MudText Typo="Typo.body2">Selected Segments: @State.SelectedRoutePreview.MoveCount</MudText>
-    </MudStack>
-</MudPaper>
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="turn-status-panel">
+    <MudText Typo="Typo.body2">Player: @State.ActivePlayerName</MudText>
+    <MudText Typo="Typo.body2">Phase: @DisplayPhase</MudText>
+    <MudText Typo="Typo.body2">Roll: @State.CurrentRollTotal</MudText>
+    <MudText Typo="Typo.body2">Moves Left: @State.MovementRemaining / @State.MovementAllowance</MudText>
+    <MudText Typo="Typo.body2">Preview Cost: @FormatCurrency(State.PreviewFee)</MudText>
+    <MudText Typo="Typo.body2">Selected Segments: @State.SelectedRoutePreview.MoveCount</MudText>
+</MudStack>
 
 @code {
     [Parameter]

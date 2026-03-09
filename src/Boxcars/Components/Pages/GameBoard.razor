@@ -31,7 +31,7 @@
 
 <MudStack Row="true" Class="map-board-shell">
     <div class="map-board-sidebar">
-        <PlayerBoard Players="_players" />
+        <PlayerBoard Players="_players" OnToggleTestPlayer="OnToggleTestPlayerAsync" />
     </div>
 
     <div class="map-board-main">
@@ -50,8 +50,8 @@
             <GameMapComponent @ref="_gameMap"
                               MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode"
-                              PlayerId="@(_currentUserId ?? string.Empty)"
-                              PlayerColor="@_currentPlayerColor"
+                              PlayerId="@CurrentMapPlayerId"
+                              PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates"
                               CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
@@ -60,39 +60,22 @@
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
         </div>
 
-        @* ── Status line below map ── *@
+        @* ── Compact status strip above map ── *@
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="map-board-status-bar py-1 px-2" Spacing="3">
-            @if (_players.Count > 0)
-            {
-                var active = _players.FirstOrDefault(p => p.IsActiveTurn);
-                if (active is not null)
-                {
-                    <MudText Typo="Typo.body2" Class="status-bar-text">@active.Name: @active.LocomotiveLabel engine</MudText>
-                }
-            }
-
-            @if (_selectionMode == MapSelectionMode.Route)
-            {
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudButton Variant="Variant.Filled"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="OnSuggestRouteClickedAsync"
-                               Disabled="@(_gameMap?.CanSuggestRoute != true)">
-                        Suggest
-                    </MudButton>
-                </MudStack>
-            }
+            <TurnStatusPanel State="@_turnViewState" />
         </MudStack>
 
         @* ── Bottom bar: action log + zoom/OK controls ── *@
         <div class="map-board-bottom-bar">
             <div class="map-board-history-panel">
-                <TurnStatusPanel State="@_turnViewState" />
-                <EventTimelinePanel Items="@_gameEngineEvents" StatusText="@TurnStatusText" />
+                <EventTimelinePanel Items="@_gameEngineEvents" />
             </div>
 
             <MudStack Class="map-board-controls" AlignItems="AlignItems.End" Justify="Justify.Center" Spacing="1">
-                <ArrivalResolutionPanel Arrival="@_turnViewState.ArrivalResolution" />
+                <PurchaseOpportunityDialog IsOpen="@_isPurchaseOpportunityDialogOpen"
+                                           Arrival="@_turnViewState.ArrivalResolution"
+                                           OnConfirm="ClosePurchaseOpportunityDialog"
+                                           OnCancel="ClosePurchaseOpportunityDialog" />
 
                 <TurnActionPanel PrimaryActionLabel="@PrimaryGameActionLabel"
                                  CanPrimaryAction="@CanPrimaryGameAction"
@@ -136,7 +119,12 @@
     private List<EventTimelineItem> _gameEngineEvents = new();
     private List<PlayerMapState> _mapPlayerStates = new();
     private int _currentUserPlayerIndex = -1;
+    private bool _timelineInitialized;
     private bool _pendingRestoredRouteSelection;
+    private bool _isPurchaseOpportunityDialogOpen;
+    private string? _lastPurchaseOpportunityKey;
+    private string? _lastAutoSuggestKey;
+    private int _testControlledPlayerIndex = -1;
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -171,23 +159,27 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _hubConnectionInitialized || string.IsNullOrWhiteSpace(GameId))
+        if (string.IsNullOrWhiteSpace(GameId))
         {
             return;
         }
 
-        _hubConnectionInitialized = true;
+        if (firstRender && !_hubConnectionInitialized)
+        {
+            _hubConnectionInitialized = true;
 
-        try
-        {
-            await ConnectToGameHubAsync();
-        }
-        catch
-        {
-            // Game board can still render from loaded state without live hub updates.
+            try
+            {
+                await ConnectToGameHubAsync();
+            }
+            catch
+            {
+                // Game board can still render from loaded state without live hub updates.
+            }
         }
 
         TryRestoreRouteSelection();
+        await AutoSuggestRouteIfNeededAsync();
     }
 
     private async Task EndGameAsync()
@@ -226,11 +218,11 @@
 
     private string PrimaryGameActionLabel => _turnViewState.TurnPhase switch
     {
-        "DrawDestination" => "DRAW DESTINATION",
-        "Roll" => "ROLL DICE",
+        "DrawDestination" => "AUTOMATIC",
+        "Roll" => "AUTOMATIC",
         "Move" => "COMMIT MOVE",
-        "Purchase" => "DECLINE PURCHASE",
-        "EndTurn" => "END TURN",
+        "Purchase" => "END TURN",
+        "EndTurn" => "AUTOMATIC",
         _ => "TURN ACTION"
     };
 
@@ -239,11 +231,11 @@
         && IsCurrentUserActivePlayer
         && _turnViewState.TurnPhase switch
         {
-            "DrawDestination" => true,
-            "Roll" => true,
-            "Move" => _turnViewState.SelectedRoutePreview.MoveCount > 0 && CanCommitMoveSelection(),
+            "DrawDestination" => false,
+            "Roll" => false,
+            "Move" => CurrentRouteMoveCount > 0 && CanCommitMoveSelection(),
             "Purchase" => true,
-            "EndTurn" => true,
+            "EndTurn" => false,
             _ => false
         };
 
@@ -266,43 +258,16 @@
         switch (_turnViewState.TurnPhase)
         {
             case "DrawDestination":
-                await SharedGameEngine.EnqueueActionAsync(
-                    GameId,
-                    new PickDestinationAction
-                    {
-                        PlayerId = CurrentTurnPlayerName,
-                        ActorUserId = _currentUserId ?? string.Empty,
-                        PlayerIndex = _gameState.ActivePlayerIndex
-                    },
-                    CancellationToken.None);
-                await RefreshStateAfterTurnAsync(state => !string.Equals(state.Turn.Phase, "DrawDestination", StringComparison.OrdinalIgnoreCase));
-                break;
-
             case "Roll":
-                await SharedGameEngine.EnqueueActionAsync(
-                    GameId,
-                    new RollDiceAction
-                    {
-                        PlayerId = CurrentTurnPlayerName,
-                        ActorUserId = _currentUserId ?? string.Empty,
-                        PlayerIndex = _gameState.ActivePlayerIndex,
-                        WhiteDieOne = 0,
-                        WhiteDieTwo = 0
-                    },
-                    CancellationToken.None);
-                await RefreshStateAfterTurnAsync(state => !string.Equals(state.Turn.Phase, "Roll", StringComparison.OrdinalIgnoreCase));
-                break;
+            case "EndTurn":
+                return;
 
             case "Move":
                 await CommitMovePhaseAsync();
                 break;
 
             case "Purchase":
-                await DeclinePurchaseAndAdvanceTurnAsync();
-                break;
-
-            case "EndTurn":
-                await AdvanceToNextPlayerAsync();
+                await DeclinePurchaseAsync();
                 break;
         }
     }
@@ -350,13 +315,6 @@
         await RefreshStateAfterTurnAsync(state =>
             state.Turn.MovementRemaining != movementRemainingBeforeCommit
             || !string.Equals(state.Turn.Phase, "Move", StringComparison.OrdinalIgnoreCase));
-
-        if (_gameState is not null
-            && string.Equals(_gameState.Turn.Phase, "Purchase", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(_gameState.Players[_gameState.ActivePlayerIndex].DestinationCityName))
-        {
-            await DeclinePurchaseAndAdvanceTurnAsync();
-        }
     }
 
     private bool CanCommitMoveSelection()
@@ -379,15 +337,14 @@
             && string.Equals(selectedNodeIds[^1], destinationNodeId, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task DeclinePurchaseAndAdvanceTurnAsync()
+    private async Task DeclinePurchaseAsync()
     {
         if (_gameState is null)
         {
             return;
         }
 
-        var activePlayerIndexBeforeAdvance = _gameState.ActivePlayerIndex;
-        var turnNumberBeforeAdvance = _gameState.TurnNumber;
+        var purchasePhaseBeforeDecline = _gameState.Turn.Phase;
 
         await SharedGameEngine.EnqueueActionAsync(
             GameId,
@@ -399,19 +356,8 @@
             },
             CancellationToken.None);
 
-        await SharedGameEngine.EnqueueActionAsync(
-            GameId,
-            new EndTurnAction
-            {
-                PlayerId = CurrentTurnPlayerName,
-                ActorUserId = _currentUserId ?? string.Empty,
-                PlayerIndex = _gameState.ActivePlayerIndex
-            },
-            CancellationToken.None);
-
         await RefreshStateAfterTurnAsync(state =>
-            state.TurnNumber > turnNumberBeforeAdvance
-            || state.ActivePlayerIndex != activePlayerIndexBeforeAdvance);
+            !string.Equals(state.Turn.Phase, purchasePhaseBeforeDecline, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task AdvanceToNextPlayerAsync()
@@ -468,6 +414,7 @@
 
             if (completion(updatedState))
             {
+                await RefreshTimelineAsync(notifyNewItems: true);
                 return;
             }
         }
@@ -476,16 +423,6 @@
     private Task OnRouteSuggestionChangedAsync(RouteSuggestionResult _)
     {
         return InvokeAsync(StateHasChanged);
-    }
-
-    private async Task OnSuggestRouteClickedAsync()
-    {
-        if (_gameMap is null)
-        {
-            return;
-        }
-
-        await _gameMap.SuggestRouteAsync();
     }
 
     private async Task LoadGameStateAsync()
@@ -508,8 +445,9 @@
             ApplyGameState(state);
             return InvokeAsync(async () =>
             {
-                await RefreshTimelineAsync();
+                await RefreshTimelineAsync(notifyNewItems: true);
                 TryRestoreRouteSelection();
+                await AutoSuggestRouteIfNeededAsync();
                 StateHasChanged();
             });
         });
@@ -556,7 +494,9 @@
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         ? string.Equals(player.CurrentCityName, player.HomeCityName, StringComparison.OrdinalIgnoreCase)
                         : string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase),
-                    TripStartLabel = player.CurrentCityName,
+                    TripStartLabel = string.IsNullOrWhiteSpace(player.TripStartCityName)
+                        ? player.CurrentCityName
+                        : player.TripStartCityName,
                     TripDestinationLabel = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         ? player.CurrentCityName
                         : player.DestinationCityName,
@@ -564,6 +504,8 @@
                     Payoff = CalculateTripPayoff(player),
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
+                    IsTestControlled = index == _testControlledPlayerIndex,
+                    CanUseTestControl = PlayerControlRules.IsBeatlesSlot(resolvedUserId),
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
                     IsConnected = player.IsActive,
@@ -572,9 +514,8 @@
             })
             .ToList();
 
-        _currentPlayerColor = _currentUserPlayerIndex >= 0
-            ? _players[_currentUserPlayerIndex].Color
-            : PlayerColorOptions.Colors[0];
+        _currentPlayerColor = ResolveActionPlayerColor(state);
+        UpdatePurchaseOpportunityDialogState();
         _pendingRestoredRouteSelection = true;
     }
 
@@ -631,8 +572,11 @@
             return 0;
         }
 
+        var tripStartCityName = string.IsNullOrWhiteSpace(player.TripStartCityName)
+            ? player.CurrentCityName
+            : player.TripStartCityName;
         var originCity = _playerBoardMapDefinition.Cities.FirstOrDefault(city =>
-            string.Equals(city.Name, player.CurrentCityName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(city.Name, tripStartCityName, StringComparison.OrdinalIgnoreCase));
         var destinationCity = _playerBoardMapDefinition.Cities.FirstOrDefault(city =>
             string.Equals(city.Name, player.DestinationCityName, StringComparison.OrdinalIgnoreCase));
 
@@ -653,16 +597,28 @@
             : MapSelectionMode.Route;
     }
 
-    private async Task RefreshTimelineAsync()
+    private async Task RefreshTimelineAsync(bool notifyNewItems = false)
     {
         if (string.IsNullOrWhiteSpace(GameId))
         {
             _gameEngineEvents = [];
+            _timelineInitialized = true;
             return;
         }
 
+        var existingEventIds = _gameEngineEvents
+            .Select(item => item.EventId)
+            .ToHashSet(StringComparer.Ordinal);
+
         var events = await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
         _gameEngineEvents = events.ToList();
+
+        if (notifyNewItems && _timelineInitialized)
+        {
+            NotifyNewTimelineItems(existingEventIds);
+        }
+
+        _timelineInitialized = true;
     }
 
     private string ResolvePlayerColor(GamePlayerSelection? selection, int index)
@@ -795,8 +751,6 @@
         SyncRouteSelectionToActivePlayer();
     }
 
-    private string TurnStatusText => $"{CurrentTurnPlayerName} Roll={CurrentRollTotalLabel} Moves={CurrentRouteMoveCount} Fees={FormatFee(CurrentRouteFees)} Sugg={FormatFee(SuggestedRouteFees)}";
-
     private string CurrentTurnPlayerName
     {
         get
@@ -825,21 +779,167 @@
         }
     }
 
-    private int CurrentRouteMoveCount => _turnViewState.SelectedRoutePreview.MoveCount;
+    private int CurrentRouteMoveCount => _gameMap?.GetSelectedRouteMoveCount() ?? _turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentRouteFees => _turnViewState.PreviewFee;
 
-    private int SuggestedRouteFees => _gameMap?.RouteSuggestion?.TotalCost ?? 0;
-
     private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
 
-    private bool IsCurrentUserActivePlayer => _gameState is not null
-        && _currentUserPlayerIndex >= 0
-        && _currentUserPlayerIndex == _gameState.ActivePlayerIndex;
+    private bool IsCurrentUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer || IsActivePlayerUnderTestControl;
+
+    private bool IsActivePlayerUnderTestControl => _gameState is not null
+        && _testControlledPlayerIndex >= 0
+        && _testControlledPlayerIndex == _gameState.ActivePlayerIndex;
+
+    private bool HasArrivalPurchaseOpportunity => _turnViewState.ArrivalResolution is { IsVisible: true, PurchaseOpportunityAvailable: true };
 
     private string CurrentUserPlayerColor => _currentUserPlayerIndex >= 0
         ? _players[_currentUserPlayerIndex].Color
         : "var(--accent-fill-rest)";
+
+    private string CurrentMapPlayerId => _mapPlayerStates.FirstOrDefault(playerState => playerState.IsActiveTurn)?.PlayerId
+        ?? _currentUserId
+        ?? string.Empty;
+
+    private string CurrentMapPlayerColor => _mapPlayerStates.FirstOrDefault(playerState => playerState.IsActiveTurn)?.Color
+        ?? _currentPlayerColor;
+
+    private Task ClosePurchaseOpportunityDialog()
+    {
+        _isPurchaseOpportunityDialogOpen = false;
+
+        if (string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
+            && IsCurrentUserActivePlayer)
+        {
+            Snackbar.Add("Click END TURN to finalize this turn.", Severity.Info);
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AutoSuggestRouteIfNeededAsync()
+    {
+        if (_gameMap is null || _gameState is null)
+        {
+            return;
+        }
+
+        if (!string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
+        {
+            _lastAutoSuggestKey = null;
+            return;
+        }
+
+        var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
+        if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName)
+            || _gameMap.CanSuggestRoute != true)
+        {
+            return;
+        }
+
+        var autoSuggestKey = string.Join(
+            ':',
+            _gameState.TurnNumber.ToString(CultureInfo.InvariantCulture),
+            _gameState.ActivePlayerIndex.ToString(CultureInfo.InvariantCulture),
+            activePlayer.CurrentNodeId ?? string.Empty,
+            activePlayer.DestinationCityName);
+
+        if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastAutoSuggestKey = autoSuggestKey;
+        await _gameMap.SuggestRouteAsync();
+    }
+
+    private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
+    {
+        foreach (var item in _gameEngineEvents.Where(item => !existingEventIds.Contains(item.EventId)))
+        {
+            Snackbar.Add(item.Description, ResolveTimelineSeverity(item));
+        }
+    }
+
+    private static Severity ResolveTimelineSeverity(EventTimelineItem item)
+    {
+        if (string.Equals(item.EventKind, "ARRIVING AT DESTINATION WITH PAYOUT", StringComparison.OrdinalIgnoreCase))
+        {
+            return Severity.Success;
+        }
+
+        if (string.Equals(item.EventKind, "PURCHASING SOMETHING", StringComparison.OrdinalIgnoreCase))
+        {
+            return Severity.Warning;
+        }
+
+        return Severity.Info;
+    }
+
+    private Task OnToggleTestPlayerAsync(int playerIndex)
+    {
+        var selectedPlayer = _players.FirstOrDefault(player => player.Index == playerIndex);
+        if (selectedPlayer is null || !selectedPlayer.CanUseTestControl)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (_testControlledPlayerIndex == playerIndex)
+        {
+            _testControlledPlayerIndex = -1;
+            Snackbar.Add($"Stopped local test control for {selectedPlayer.Name}.", Severity.Info);
+        }
+        else
+        {
+            _testControlledPlayerIndex = playerIndex;
+            Snackbar.Add($"Enabled local test control for {selectedPlayer.Name}.", Severity.Info);
+        }
+
+        if (_gameState is not null)
+        {
+            ApplyGameState(_gameState);
+            StateHasChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private string ResolveActionPlayerColor(RailBaronGameState state)
+    {
+        if (state.ActivePlayerIndex >= 0
+            && state.ActivePlayerIndex < _players.Count)
+        {
+            return _players[state.ActivePlayerIndex].Color;
+        }
+
+        return _currentUserPlayerIndex >= 0 && _currentUserPlayerIndex < _players.Count
+            ? _players[_currentUserPlayerIndex].Color
+            : PlayerColorOptions.Colors[0];
+    }
+
+    private void UpdatePurchaseOpportunityDialogState()
+    {
+        if (!HasArrivalPurchaseOpportunity || !IsCurrentUserActivePlayer || _gameState is null)
+        {
+            _isPurchaseOpportunityDialogOpen = false;
+            return;
+        }
+
+        var arrival = _turnViewState.ArrivalResolution!;
+        var purchaseOpportunityKey = string.Join(
+            ':',
+            _gameState.TurnNumber.ToString(CultureInfo.InvariantCulture),
+            _gameState.ActivePlayerIndex.ToString(CultureInfo.InvariantCulture),
+            arrival.DestinationCityName,
+            arrival.PayoutAmount.ToString(CultureInfo.InvariantCulture),
+            arrival.CashAfterPayout.ToString(CultureInfo.InvariantCulture));
+
+        if (!string.Equals(_lastPurchaseOpportunityKey, purchaseOpportunityKey, StringComparison.Ordinal))
+        {
+            _lastPurchaseOpportunityKey = purchaseOpportunityKey;
+            _isPurchaseOpportunityDialogOpen = true;
+        }
+    }
 
     private static string FormatFee(int fee)
     {

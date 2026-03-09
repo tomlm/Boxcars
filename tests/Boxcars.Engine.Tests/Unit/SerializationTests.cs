@@ -173,4 +173,43 @@ public class SerializationTests
 
         Assert.Equal(LocomotiveType.Express, restored.Players[0].LocomotiveType);
     }
+
+    [Fact]
+    public void Snapshot_RoundTrip_PreservesArrivalResolutionAndPayout()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        var destination = engine.DrawDestination();
+
+        var route = engine.SuggestRoute();
+        engine.SaveRoute(route);
+
+        random.QueueDiceRoll(1, 1);
+        engine.RollDice();
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var cashBeforeArrival = player.Cash;
+
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
+        Assert.NotNull(engine.CurrentTurn.ArrivalResolution);
+        Assert.Equal(destination.Name, engine.CurrentTurn.ArrivalResolution!.DestinationCityName);
+        Assert.True(engine.CurrentTurn.ArrivalResolution.PayoutAmount > 0);
+        Assert.Equal(cashBeforeArrival + engine.CurrentTurn.ArrivalResolution.PayoutAmount, player.Cash);
+
+        var snapshot = engine.ToSnapshot();
+        Assert.NotNull(snapshot.Turn.ArrivalResolution);
+        Assert.Equal(engine.CurrentTurn.ArrivalResolution.PayoutAmount, snapshot.Turn.ArrivalResolution!.PayoutAmount);
+
+        var restored = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.NotNull(restored.CurrentTurn.ArrivalResolution);
+        Assert.Equal(engine.CurrentTurn.ArrivalResolution.DestinationCityName, restored.CurrentTurn.ArrivalResolution!.DestinationCityName);
+        Assert.Equal(engine.CurrentTurn.ArrivalResolution.PayoutAmount, restored.CurrentTurn.ArrivalResolution.PayoutAmount);
+        Assert.Equal(engine.CurrentTurn.ArrivalResolution.CashAfterPayout, restored.CurrentTurn.ArrivalResolution.CashAfterPayout);
+        Assert.Equal(engine.CurrentTurn.ArrivalResolution.Message, restored.CurrentTurn.ArrivalResolution.Message);
+    }
 }

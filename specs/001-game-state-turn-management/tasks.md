@@ -71,9 +71,9 @@
 
 ### Implementation for User Story 3
 
-- [ ] T013 [P] [US3] Surface arrival-resolution data from engine snapshots and domain events in `src/Boxcars.Engine/Domain/GameEngine.cs`, `src/Boxcars.Engine/Events/DomainEvents.cs`, and `src/Boxcars/Data/ArrivalResolutionModel.cs`
-- [ ] T014 [P] [US3] Render arrival notification and purchase-opportunity prompt in `src/Boxcars/Components/GameBoard/ArrivalResolutionPanel.razor` and integrate it in `src/Boxcars/Components/Pages/GameBoard.razor`
-- [ ] T015 [US3] Update move commit, payout refresh, and next-player activation broadcasting in `src/Boxcars/GameEngine/GameEngineService.cs`, `src/Boxcars/Services/GameService.cs`, and `src/Boxcars/Components/Pages/GameBoard.razor`
+- [X] T013 [P] [US3] Surface arrival-resolution data from engine snapshots and domain events in `src/Boxcars.Engine/Domain/GameEngine.cs`, `src/Boxcars.Engine/Events/DomainEvents.cs`, and `src/Boxcars/Data/ArrivalResolutionModel.cs`
+- [X] T014 [P] [US3] Render arrival notification and purchase-opportunity prompt in `src/Boxcars/Components/GameBoard/ArrivalResolutionPanel.razor` and integrate it in `src/Boxcars/Components/Pages/GameBoard.razor`
+- [X] T015 [US3] Update move commit, payout refresh, and next-player activation broadcasting in `src/Boxcars/GameEngine/GameEngineService.cs`, `src/Boxcars/Services/GameService.cs`, and `src/Boxcars/Components/Pages/GameBoard.razor`
 - [ ] T016 [US3] Refresh player summary state for arrival and active-turn changes in `src/Boxcars/Components/Map/PlayerBoard.razor` and `src/Boxcars/Data/PlayerBoardModel.cs`
 
 **Checkpoint**: Arrival, payout, and next-player progression are visible and correct after a completed turn.
@@ -88,9 +88,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T017 [P] [US4] Resolve authenticated user-to-player bindings from game roster data in `src/Boxcars/Services/GameBoardStateMapper.cs` and `src/Boxcars/Data/PlayerControlBinding.cs`
-- [ ] T018 [US4] Validate mutating actions by controlling participant identity instead of display name alone in `src/Boxcars/GameEngine/PlayerAction.cs`, `src/Boxcars/GameEngine/IGameEngine.cs`, and `src/Boxcars/GameEngine/GameEngineService.cs`
-- [ ] T019 [P] [US4] Gate board and map interactivity for observers while preserving live state visibility in `src/Boxcars/Components/Pages/GameBoard.razor`, `src/Boxcars/Components/GameBoard/TurnActionPanel.razor`, and `src/Boxcars/Components/Map/MapComponent.razor`
+- [X] T017 [P] [US4] Resolve authenticated user-to-player bindings from game roster data in `src/Boxcars/Services/GameBoardStateMapper.cs` and `src/Boxcars/Data/PlayerControlBinding.cs`
+- [X] T018 [US4] Validate mutating actions by controlling participant identity instead of display name alone in `src/Boxcars/GameEngine/PlayerAction.cs`, `src/Boxcars/GameEngine/IGameEngine.cs`, and `src/Boxcars/GameEngine/GameEngineService.cs`
+- [X] T019 [P] [US4] Gate board and map interactivity for observers while preserving live state visibility in `src/Boxcars/Components/Pages/GameBoard.razor`, `src/Boxcars/Components/GameBoard/TurnActionPanel.razor`, and `src/Boxcars/Components/Map/MapComponent.razor`
 - [ ] T020 [US4] Preserve reconnect and SignalR observer behavior while rejecting unauthorized live mutations in `src/Boxcars/Hubs/GameHub.cs` and `src/Boxcars/Components/Pages/GameBoard.razor`
 
 **Checkpoint**: Multiplayer participants can observe all live board updates, but only the correct player can act.

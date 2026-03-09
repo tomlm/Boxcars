@@ -59,6 +59,26 @@ public class TurnPhaseTests
     }
 
     [Fact]
+    public void MoveAlongRoute_ExhaustedWithoutArrival_AdvancesToEndTurnAfterAutomaticFees()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(1);
+        random.QueueWeightedDraw(0);
+        engine.DrawDestination();
+
+        var route = engine.SuggestRoute();
+        engine.SaveRoute(route);
+
+        random.QueueDiceRoll(1, 1);
+        engine.RollDice();
+        engine.MoveAlongRoute(engine.CurrentTurn.MovementRemaining);
+
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+        Assert.Null(engine.CurrentTurn.ArrivalResolution);
+    }
+
+    [Fact]
     public void EndTurn_AdvancesToNextPlayer()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

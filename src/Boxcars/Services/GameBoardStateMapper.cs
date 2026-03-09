@@ -25,8 +25,7 @@ public sealed class GameBoardStateMapper
                 PlayerIndex = index,
                 DisplayName = string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName,
                 Color = selection.Color,
-                IsCurrentUser = !string.IsNullOrWhiteSpace(currentUserId)
-                    && string.Equals(selection.UserId, currentUserId, StringComparison.OrdinalIgnoreCase)
+                IsCurrentUser = PlayerControlRules.IsDirectlyBoundToUser(selection.UserId, currentUserId)
             })
             .ToList();
     }
@@ -54,6 +53,9 @@ public sealed class GameBoardStateMapper
         var activePlayer = activePlayerIndex >= 0 && activePlayerIndex < state.Players.Count
             ? state.Players[activePlayerIndex]
             : state.Players[0];
+        var activePlayerSlotUserId = activePlayerIndex >= 0 && activePlayerIndex < bindings.Count
+            ? bindings[activePlayerIndex].UserId
+            : null;
 
         var selectedRoutePreview = NormalizePreview(activePlayerIndex, state, preview ?? BuildSelectedRoutePreview(activePlayer, state));
         var movementAllowance = state.Turn.MovementAllowance > 0
@@ -73,9 +75,10 @@ public sealed class GameBoardStateMapper
             CurrentRollTotal = CalculateRollTotal(state),
             SelectedRoutePreview = selectedRoutePreview,
             TraveledSegmentKeys = activePlayer.UsedSegments,
-            IsCurrentUserActivePlayer = currentUserPlayerIndex >= 0 && currentUserPlayerIndex == activePlayerIndex,
+            IsCurrentUserActivePlayer = PlayerControlRules.CanUserControlSlot(activePlayerSlotUserId, currentUserId)
+                || (currentUserPlayerIndex >= 0 && currentUserPlayerIndex == activePlayerIndex),
             CanEndTurn = CanEndTurn(state, selectedRoutePreview),
-            ArrivalResolution = arrivalResolution
+            ArrivalResolution = arrivalResolution ?? BuildArrivalResolution(state)
         };
     }
 
@@ -102,9 +105,7 @@ public sealed class GameBoardStateMapper
                     DestinationCityName = player.DestinationCityName,
                     CurrentNodeId = player.CurrentNodeId,
                     TraveledSegmentKeys = player.UsedSegments,
-                    IsCurrentUser = !string.IsNullOrWhiteSpace(currentUserId)
-                        && !string.IsNullOrWhiteSpace(selection?.UserId)
-                        && string.Equals(selection.UserId, currentUserId, StringComparison.OrdinalIgnoreCase),
+                    IsCurrentUser = PlayerControlRules.IsDirectlyBoundToUser(selection?.UserId, currentUserId),
                     SelectedRouteSegmentKeys = BuildSelectedRouteSegmentKeys(player),
                     IsActiveTurn = index == state.ActivePlayerIndex
                 };
@@ -238,5 +239,24 @@ public sealed class GameBoardStateMapper
         }
 
         return Math.Max(0, state.Turn.MovementRemaining - preview.MoveCount) <= 0 || preview.ExhaustsMovement;
+    }
+
+    private static ArrivalResolutionModel? BuildArrivalResolution(RailBaronGameState state)
+    {
+        if (state.Turn.ArrivalResolution is null)
+        {
+            return null;
+        }
+
+        return new ArrivalResolutionModel
+        {
+            PlayerIndex = state.Turn.ArrivalResolution.PlayerIndex,
+            DestinationCityName = state.Turn.ArrivalResolution.DestinationCityName,
+            PayoutAmount = state.Turn.ArrivalResolution.PayoutAmount,
+            CashAfterPayout = state.Turn.ArrivalResolution.CashAfterPayout,
+            PurchaseOpportunityAvailable = state.Turn.ArrivalResolution.PurchaseOpportunityAvailable,
+            Message = state.Turn.ArrivalResolution.Message,
+            IsVisible = true
+        };
     }
 }

@@ -139,8 +139,7 @@ public sealed class GameEngine : ObservableBase
                 var region = mapDefinition.Regions.FirstOrDefault(r => r.Code == city.RegionCode);
                 if (region != null)
                 {
-                    int regionIndex = mapDefinition.Regions.IndexOf(region);
-                    var nodeId = NodeKey(regionIndex, city.MapDotIndex.Value);
+                    var nodeId = NodeKey(region.Index, city.MapDotIndex.Value);
                     _cityByNodeId[nodeId] = city;
                 }
             }
@@ -169,8 +168,7 @@ public sealed class GameEngine : ObservableBase
                 var region = mapDefinition.Regions.FirstOrDefault(r => r.Code == homeCity.RegionCode);
                 if (region != null)
                 {
-                    int regionIndex = mapDefinition.Regions.IndexOf(region);
-                    player.CurrentNodeId = NodeKey(regionIndex, homeCity.MapDotIndex.Value);
+                    player.CurrentNodeId = NodeKey(region.Index, homeCity.MapDotIndex.Value);
                 }
             }
 
@@ -212,8 +210,7 @@ public sealed class GameEngine : ObservableBase
                 var region = mapDefinition.Regions.FirstOrDefault(r => r.Code == city.RegionCode);
                 if (region != null)
                 {
-                    int regionIndex = mapDefinition.Regions.IndexOf(region);
-                    _cityByNodeId[NodeKey(regionIndex, city.MapDotIndex.Value)] = city;
+                    _cityByNodeId[NodeKey(region.Index, city.MapDotIndex.Value)] = city;
                 }
             }
             _cityByName[city.Name] = city;
@@ -247,6 +244,7 @@ public sealed class GameEngine : ObservableBase
         }
 
         player.Destination = city;
+        player.TripOriginCity = player.CurrentCity;
         DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
 
         // Advance to Roll phase
@@ -360,13 +358,25 @@ public sealed class GameEngine : ObservableBase
 
         CurrentTurn.MovementRemaining -= actualSteps;
 
-        // Check if arrived at destination
-        bool arrivedAtDestination = player.Destination != null &&
-            _cityByNodeId.TryGetValue(newNodeId, out var arrivalCity) &&
-            string.Equals(arrivalCity.Name, player.Destination.Name, StringComparison.OrdinalIgnoreCase);
+        // Check if arrived at destination.
+        // Use the destination's canonical node id first, then fall back to city-name resolution.
+        var destinationNodeId = player.Destination is null ? null : FindCityNodeId(player.Destination);
+        var arrivedAtDestination = player.Destination != null &&
+            (
+                (!string.IsNullOrWhiteSpace(destinationNodeId)
+                    && string.Equals(newNodeId, destinationNodeId, StringComparison.OrdinalIgnoreCase))
+                || (_cityByNodeId.TryGetValue(newNodeId, out var arrivalCity)
+                    && string.Equals(arrivalCity.Name, player.Destination.Name, StringComparison.OrdinalIgnoreCase))
+                || string.Equals(player.CurrentCity.Name, player.Destination.Name, StringComparison.OrdinalIgnoreCase)
+            );
 
         if (arrivedAtDestination)
         {
+            if (!string.Equals(player.CurrentCity.Name, player.Destination!.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                player.CurrentCity = player.Destination;
+            }
+
             HandleArrival(player);
         }
         else if (CurrentTurn.MovementRemaining <= 0)
@@ -384,8 +394,9 @@ public sealed class GameEngine : ObservableBase
             }
             else
             {
-                // Movement complete, advance to Purchase phase (skip Arrival if not arrived)
-                CurrentTurn.Phase = TurnPhase.Purchase;
+                // Movement complete without arrival: resolve fees immediately and finish the turn flow.
+                CurrentTurn.Phase = TurnPhase.UseFees;
+                ResolveUseFees();
             }
         }
     }
@@ -452,6 +463,7 @@ public sealed class GameEngine : ObservableBase
         player.Cash -= railroad.PurchasePrice;
         railroad.Owner = player;
         player.OwnedRailroads.Add(railroad);
+        CurrentTurn.ArrivalResolution = null;
 
         CheckAllRailroadsSold();
 
@@ -481,6 +493,7 @@ public sealed class GameEngine : ObservableBase
         var oldType = player.LocomotiveType;
         player.Cash -= cost;
         player.LocomotiveType = target;
+        CurrentTurn.ArrivalResolution = null;
 
         LocomotiveUpgraded?.Invoke(this, new LocomotiveUpgradedEventArgs(player, oldType, target));
 
@@ -557,6 +570,7 @@ public sealed class GameEngine : ObservableBase
         if (CurrentTurn.Phase != TurnPhase.Purchase)
             throw new InvalidOperationException("Not in Purchase phase.");
 
+        CurrentTurn.ArrivalResolution = null;
         CurrentTurn.Phase = TurnPhase.UseFees;
         ResolveUseFees();
     }
@@ -577,6 +591,7 @@ public sealed class GameEngine : ObservableBase
         CurrentTurn.MovementAllowance = 0;
         CurrentTurn.MovementRemaining = 0;
         CurrentTurn.BonusRollAvailable = false;
+        CurrentTurn.ArrivalResolution = null;
 
         // Find next active player
         int currentIndex = CurrentTurn.ActivePlayer.Index;
@@ -628,6 +643,17 @@ public sealed class GameEngine : ObservableBase
                 MovementRemaining = CurrentTurn.MovementRemaining,
                 BonusRollAvailable = CurrentTurn.BonusRollAvailable,
                 RailroadsRiddenThisTurn = CurrentTurn.RailroadsRiddenThisTurn.ToList(),
+                ArrivalResolution = CurrentTurn.ArrivalResolution is null
+                    ? null
+                    : new ArrivalResolutionState
+                    {
+                        PlayerIndex = CurrentTurn.ArrivalResolution.PlayerIndex,
+                        DestinationCityName = CurrentTurn.ArrivalResolution.DestinationCityName,
+                        PayoutAmount = CurrentTurn.ArrivalResolution.PayoutAmount,
+                        CashAfterPayout = CurrentTurn.ArrivalResolution.CashAfterPayout,
+                        PurchaseOpportunityAvailable = CurrentTurn.ArrivalResolution.PurchaseOpportunityAvailable,
+                        Message = CurrentTurn.ArrivalResolution.Message
+                    },
                 DiceResult = CurrentTurn.DiceResult != null
                     ? new DiceResultState
                     {
@@ -646,6 +672,7 @@ public sealed class GameEngine : ObservableBase
                 Cash = player.Cash,
                 HomeCityName = player.HomeCity.Name,
                 CurrentCityName = player.CurrentCity.Name,
+                TripStartCityName = player.TripOriginCity?.Name,
                 DestinationCityName = player.Destination?.Name,
                 LocomotiveType = player.LocomotiveType.ToString(),
                 IsActive = player.IsActive,
@@ -733,6 +760,8 @@ public sealed class GameEngine : ObservableBase
                 player.HomeCity = homeCity;
             if (engine._cityByName.TryGetValue(ps.CurrentCityName, out var currentCity))
                 player.CurrentCity = currentCity;
+            if (ps.TripStartCityName != null && engine._cityByName.TryGetValue(ps.TripStartCityName, out var tripStartCity))
+                player.TripOriginCity = tripStartCity;
             if (ps.DestinationCityName != null && engine._cityByName.TryGetValue(ps.DestinationCityName, out var destCity))
                 player.Destination = destCity;
 
@@ -781,7 +810,18 @@ public sealed class GameEngine : ObservableBase
             Phase = Enum.Parse<TurnPhase>(snapshot.Turn.Phase),
             MovementAllowance = snapshot.Turn.MovementAllowance,
             MovementRemaining = snapshot.Turn.MovementRemaining,
-            BonusRollAvailable = snapshot.Turn.BonusRollAvailable
+            BonusRollAvailable = snapshot.Turn.BonusRollAvailable,
+            ArrivalResolution = snapshot.Turn.ArrivalResolution is null
+                ? null
+                : new ArrivalResolution
+                {
+                    PlayerIndex = snapshot.Turn.ArrivalResolution.PlayerIndex,
+                    DestinationCityName = snapshot.Turn.ArrivalResolution.DestinationCityName,
+                    PayoutAmount = snapshot.Turn.ArrivalResolution.PayoutAmount,
+                    CashAfterPayout = snapshot.Turn.ArrivalResolution.CashAfterPayout,
+                    PurchaseOpportunityAvailable = snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable,
+                    Message = snapshot.Turn.ArrivalResolution.Message
+                }
         };
 
         if (snapshot.Turn.DiceResult != null)
@@ -857,25 +897,36 @@ public sealed class GameEngine : ObservableBase
     {
         // Calculate payout
         int payout = 0;
-        if (player.Destination != null && player.CurrentCity.PayoutIndex.HasValue && player.Destination.PayoutIndex.HasValue)
+        var tripOriginCity = player.TripOriginCity ?? player.CurrentCity;
+        if (player.Destination != null && tripOriginCity.PayoutIndex.HasValue && player.Destination.PayoutIndex.HasValue)
         {
-            var originPayoutIndex = player.CurrentCity.PayoutIndex.Value;
+            var originPayoutIndex = tripOriginCity.PayoutIndex.Value;
             var destinationPayoutIndex = player.Destination.PayoutIndex.Value;
             if (!MapDefinition.TryGetPayout(originPayoutIndex, destinationPayoutIndex, out payout))
             {
                 throw new InvalidOperationException(
-                    $"Map payout chart does not define a payout from '{player.CurrentCity.Name}' ({originPayoutIndex}) to '{player.Destination.Name}' ({destinationPayoutIndex}).");
+                    $"Map payout chart does not define a payout from '{tripOriginCity.Name}' ({originPayoutIndex}) to '{player.Destination.Name}' ({destinationPayoutIndex}).");
             }
         }
 
         player.Cash += payout;
 
         var destination = player.Destination!;
+        CurrentTurn.ArrivalResolution = new ArrivalResolution
+        {
+            PlayerIndex = player.Index,
+            DestinationCityName = destination.Name,
+            PayoutAmount = payout,
+            CashAfterPayout = player.Cash,
+            PurchaseOpportunityAvailable = true,
+            Message = $"{player.Name} arrived in {destination.Name} and collected ${payout:N0}."
+        };
         player.Destination = null;
+        player.TripOriginCity = null;
         player.ActiveRoute = null;
         player.UsedSegments.Clear();
 
-        DestinationReached?.Invoke(this, new DestinationReachedEventArgs(player, destination, payout));
+        DestinationReached?.Invoke(this, new DestinationReachedEventArgs(player, destination, payout, player.Cash, purchaseOpportunityAvailable: true));
 
         // Check win condition: $200,000+ and at home city
         if (player.Cash >= 200_000 &&
@@ -1004,8 +1055,7 @@ public sealed class GameEngine : ObservableBase
             var region = MapDefinition.Regions.FirstOrDefault(r => r.Code == city.RegionCode);
             if (region != null)
             {
-                int regionIndex = MapDefinition.Regions.IndexOf(region);
-                return NodeKey(regionIndex, city.MapDotIndex.Value);
+                return NodeKey(region.Index, city.MapDotIndex.Value);
             }
         }
         return null;

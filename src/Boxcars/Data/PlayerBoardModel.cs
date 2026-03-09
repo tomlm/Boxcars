@@ -44,6 +44,12 @@ public sealed class PlayerBoardModel
     /// <summary>True if this player is the currently logged-in user.</summary>
     public bool IsCurrentUser { get; init; }
 
+    /// <summary>True when this mock player is selected for local test control.</summary>
+    public bool IsTestControlled { get; init; }
+
+    /// <summary>True when this player supports the local test-control toggle.</summary>
+    public bool CanUseTestControl { get; init; }
+
     /// <summary>Home city name.</summary>
     public string HomeCity { get; init; } = string.Empty;
 
@@ -63,7 +69,7 @@ public sealed class PlayerBoardModel
     /// </summary>
     public string GetMoneyDisplay()
     {
-        if (IsCurrentUser)
+        if (IsCurrentUser || IsTestControlled)
         {
             return $"${Cash:N0}";
         }

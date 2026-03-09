@@ -37,6 +37,21 @@
                 <MudText Typo="Typo.caption" Class="player-card-line">
                     <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
                 </MudText>
+
+                @if (player.CanUseTestControl)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="player-card-test-row">
+                        <MudText Typo="Typo.caption" Class="player-card-label">
+                            @(player.IsTestControlled ? "Test control enabled" : "Mock player")
+                        </MudText>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="MudBlazor.Color.Primary"
+                                   Size="Size.Small"
+                                   OnClick="() => OnToggleTestPlayer.InvokeAsync(player.Index)">
+                            @(player.IsTestControlled ? "TESTING" : "TEST")
+                        </MudButton>
+                    </MudStack>
+                }
             </MudStack>
         </MudPaper>
     }
@@ -45,6 +60,9 @@
 @code {
     [Parameter]
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
+
+    [Parameter]
+    public EventCallback<int> OnToggleTestPlayer { get; set; }
 
     private static string GetInitial(string name)
     {

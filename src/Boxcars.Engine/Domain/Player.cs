@@ -11,6 +11,7 @@ public sealed class Player : ObservableBase
     private int _cash;
     private CityDefinition _currentCity = null!;
     private CityDefinition? _destination;
+    private CityDefinition? _tripOriginCity;
     private Route? _activeRoute;
     private LocomotiveType _locomotiveType;
     private bool _isActive;
@@ -45,6 +46,13 @@ public sealed class Player : ObservableBase
     {
         get => _destination;
         internal set => SetField(ref _destination, value);
+    }
+
+    /// <summary>Starting city for the current trip, used for payout calculation.</summary>
+    public CityDefinition? TripOriginCity
+    {
+        get => _tripOriginCity;
+        internal set => SetField(ref _tripOriginCity, value);
     }
 
     /// <summary>Currently planned route to destination.</summary>

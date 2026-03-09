@@ -1,11 +1,13 @@
 using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
+using Boxcars.Engine.Persistence;
 using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Microsoft.AspNetCore.SignalR;
 using System.Text.Json;
+using System.Globalization;
 
 namespace Boxcars.Services;
 
@@ -136,20 +138,163 @@ public class GameService
                 continue;
             }
 
-            events.Add(new EventTimelineItem
-            {
-                EventId = gameEvent.RowKey,
-                EventKind = gameEvent.EventKind,
-                Description = string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
-                    ? gameEvent.EventKind
-                    : gameEvent.ChangeSummary,
-                OccurredUtc = gameEvent.OccurredUtc
-            });
+            events.AddRange(BuildTimelineItems(gameEvent));
         }
 
         return events
             .OrderBy(item => item.EventId, StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent)
+    {
+        var snapshot = TryDeserializeSnapshot(gameEvent.SerializedGameState);
+        if (snapshot is null)
+        {
+            return [CreateTimelineItem(gameEvent, gameEvent.RowKey, gameEvent.EventKind, gameEvent.ChangeSummary)];
+        }
+
+        var timelineItems = new List<EventTimelineItem>();
+        var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
+        var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+
+        switch (gameEvent.EventKind)
+        {
+            case "PickDestinationAction":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:destination",
+                    "NEW DESTINATION",
+                    $"NEW DESTINATION: {actingPlayerName} -> {actingPlayer?.DestinationCityName ?? "Unknown"}"));
+                break;
+
+            case "RollDiceAction":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:roll",
+                    "DICE ROLL",
+                    $"DICE ROLL: {actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}"));
+                break;
+
+            case "MoveAction" when snapshot.Turn.ArrivalResolution is not null:
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:arrival",
+                    "ARRIVING AT DESTINATION WITH PAYOUT",
+                    $"ARRIVING AT DESTINATION WITH PAYOUT: {snapshot.Turn.ArrivalResolution.Message}"));
+
+                if (snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable)
+                {
+                    timelineItems.Add(CreateTimelineItem(
+                        gameEvent,
+                        $"{gameEvent.RowKey}:purchase",
+                        "PURCHASING SOMETHING",
+                        $"PURCHASING SOMETHING: {actingPlayerName} may buy a railroad or locomotive before ending the turn."));
+                }
+
+                break;
+
+            case "PurchaseRailroadAction":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:purchase",
+                    "PURCHASING SOMETHING",
+                    $"PURCHASING SOMETHING: {(string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary)}"));
+                break;
+
+            case "BuySuperchiefAction":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:purchase",
+                    "PURCHASING SOMETHING",
+                    $"PURCHASING SOMETHING: {(string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A locomotive was upgraded." : gameEvent.ChangeSummary)}"));
+                break;
+        }
+
+        if (timelineItems.Count == 0)
+        {
+            timelineItems.Add(CreateTimelineItem(gameEvent, gameEvent.RowKey, gameEvent.EventKind, gameEvent.ChangeSummary));
+        }
+
+        return timelineItems;
+    }
+
+    private static EventTimelineItem CreateTimelineItem(
+        GameEventEntity gameEvent,
+        string eventId,
+        string eventKind,
+        string? description)
+    {
+        return new EventTimelineItem
+        {
+            EventId = eventId,
+            EventKind = eventKind,
+            Description = string.IsNullOrWhiteSpace(description)
+                ? gameEvent.EventKind
+                : description,
+            OccurredUtc = gameEvent.OccurredUtc
+        };
+    }
+
+    private static GameState? TryDeserializeSnapshot(string serializedGameState)
+    {
+        if (string.IsNullOrWhiteSpace(serializedGameState))
+        {
+            return null;
+        }
+
+        try
+        {
+            return GameEventSerialization.DeserializeSnapshot(serializedGameState);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static PlayerState? ResolveActingPlayer(GameState snapshot, int? actingPlayerIndex)
+    {
+        var playerIndex = actingPlayerIndex ?? snapshot.ActivePlayerIndex;
+        return playerIndex >= 0 && playerIndex < snapshot.Players.Count
+            ? snapshot.Players[playerIndex]
+            : null;
+    }
+
+    private static string ResolveActingPlayerName(GameEventEntity gameEvent, PlayerState? actingPlayer)
+    {
+        if (!string.IsNullOrWhiteSpace(actingPlayer?.Name))
+        {
+            return actingPlayer.Name;
+        }
+
+        if (!string.IsNullOrWhiteSpace(gameEvent.CreatedBy))
+        {
+            return gameEvent.CreatedBy;
+        }
+
+        if (!string.IsNullOrWhiteSpace(gameEvent.ActingUserId))
+        {
+            return gameEvent.ActingUserId;
+        }
+
+        return "Unknown player";
+    }
+
+    private static string FormatDiceRoll(DiceResultState? diceResult)
+    {
+        if (diceResult is null)
+        {
+            return "0";
+        }
+
+        var total = diceResult.WhiteDice.Sum();
+        if (diceResult.RedDie.HasValue)
+        {
+            total += diceResult.RedDie.Value;
+        }
+
+        return total.ToString(CultureInfo.InvariantCulture);
     }
 
     public async Task<GameActionResult> EndGameAsync(string playerId, string gameId, CancellationToken cancellationToken)

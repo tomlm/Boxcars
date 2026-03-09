@@ -95,6 +95,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             request.Players
         }, cancellationToken);
 
+        snapshot = await AdvanceAutomaticTurnFlowAsync(gameId, createdGameEngine, cancellationToken);
+
         OnStateChanged?.Invoke(gameId, snapshot);
         return gameId;
     }
@@ -104,7 +106,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         ValidateGameId(gameId);
         await _mapReady.Task.WaitAsync(cancellationToken);
         var gameEngine = await GetOrCreateGameEngineAsync(gameId, cancellationToken);
-        return gameEngine.ToSnapshot();
+        return await AdvanceAutomaticTurnFlowAsync(gameId, gameEngine, cancellationToken);
     }
 
     public ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default)
@@ -156,7 +158,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 try
                 {
                     var gameEngine = await GetOrCreateGameEngineAsync(queuedAction.GameId, stoppingToken);
-                    ProcessTurn(gameEngine, queuedAction.Action);
+                    var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
+                        ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
+
+                    ProcessTurn(gameEntity, gameEngine, queuedAction.Action);
                     var snapshot = gameEngine.ToSnapshot();
 
                     await PersistEventAsync(
@@ -167,6 +172,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.Action.PlayerId,
                         queuedAction.Action,
                         stoppingToken);
+
+                    snapshot = await AdvanceAutomaticTurnFlowAsync(queuedAction.GameId, gameEngine, stoppingToken);
 
                     OnStateChanged?.Invoke(queuedAction.GameId, snapshot);
                 }
@@ -196,7 +203,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         _mapDefinition = loadResult.Definition;
     }
 
-    private static void ProcessTurn(RailBaronGameEngine gameEngine, PlayerAction action)
+    private static void ProcessTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
     {
         var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
         if (action is not BidAction
@@ -204,6 +211,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         {
             throw new InvalidOperationException($"Action player '{action.PlayerId}' does not match active player '{activePlayer.Name}'.");
         }
+
+        ValidateActionAuthorization(gameEntity, gameEngine, action);
 
         switch (action)
         {
@@ -282,6 +291,32 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action.GetType().Name, "Unsupported player action.");
+        }
+    }
+
+    private static void ValidateActionAuthorization(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
+    {
+        if (action is BidAction)
+        {
+            return;
+        }
+
+        var activePlayerIndex = gameEngine.CurrentTurn.ActivePlayer.Index;
+        if (action.PlayerIndex.HasValue && action.PlayerIndex.Value != activePlayerIndex)
+        {
+            throw new InvalidOperationException($"Action player index '{action.PlayerIndex.Value}' does not match active player index '{activePlayerIndex}'.");
+        }
+
+        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
+        if (activePlayerIndex < 0 || activePlayerIndex >= selections.Count)
+        {
+            throw new InvalidOperationException("Unable to resolve the active player's roster binding.");
+        }
+
+        var slotUserId = selections[activePlayerIndex].UserId;
+        if (!PlayerControlRules.CanUserControlSlot(slotUserId, action.ActorUserId))
+        {
+            throw new InvalidOperationException("Only the controlling participant for the active player may perform this action.");
         }
     }
 
@@ -397,6 +432,37 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         await _gamesTable.AddEntityAsync(entity, cancellationToken);
     }
 
+    private async Task<RailBaronGameState> AdvanceAutomaticTurnFlowAsync(
+        string gameId,
+        RailBaronGameEngine gameEngine,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = gameEngine.ToSnapshot();
+
+        for (var step = 0; step < 8; step++)
+        {
+            var automaticAction = CreateAutomaticTurnAction(gameEngine);
+            if (automaticAction is null)
+            {
+                return snapshot;
+            }
+
+            ProcessAutomaticTurnAction(gameEngine, automaticAction);
+            snapshot = gameEngine.ToSnapshot();
+
+            await PersistEventAsync(
+                gameId,
+                snapshot,
+                automaticAction.Kind.ToString(),
+                DescribeAction(automaticAction),
+                automaticAction.PlayerId,
+                automaticAction,
+                cancellationToken);
+        }
+
+        throw new InvalidOperationException("Automatic turn flow did not stabilize within the expected number of steps.");
+    }
+
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
     {
         GameEventEntity? latest = null;
@@ -459,6 +525,59 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         if (string.IsNullOrWhiteSpace(gameId))
         {
             throw new ArgumentException("GameId is required.", nameof(gameId));
+        }
+    }
+
+    private static PlayerAction? CreateAutomaticTurnAction(RailBaronGameEngine gameEngine)
+    {
+        var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
+        var playerIndex = activePlayer.Index;
+
+        return gameEngine.CurrentTurn.Phase switch
+        {
+            TurnPhase.DrawDestination => new PickDestinationAction
+            {
+                PlayerId = activePlayer.Name,
+                PlayerIndex = playerIndex,
+                ActorUserId = string.Empty
+            },
+            TurnPhase.Roll => new RollDiceAction
+            {
+                PlayerId = activePlayer.Name,
+                PlayerIndex = playerIndex,
+                ActorUserId = string.Empty,
+                WhiteDieOne = 0,
+                WhiteDieTwo = 0
+            },
+            TurnPhase.EndTurn => new EndTurnAction
+            {
+                PlayerId = activePlayer.Name,
+                PlayerIndex = playerIndex,
+                ActorUserId = string.Empty
+            },
+            _ => null
+        };
+    }
+
+    private static void ProcessAutomaticTurnAction(RailBaronGameEngine gameEngine, PlayerAction action)
+    {
+        switch (action)
+        {
+            case PickDestinationAction:
+                gameEngine.DrawDestination();
+                break;
+
+            case RollDiceAction rollDiceAction:
+                var diceResult = gameEngine.RollDice();
+                ValidateDiceRoll(rollDiceAction, diceResult);
+                break;
+
+            case EndTurnAction:
+                gameEngine.EndTurn();
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action.GetType().Name, "Unsupported automatic turn action.");
         }
     }
 

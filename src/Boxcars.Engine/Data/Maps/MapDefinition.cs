@@ -286,6 +286,7 @@ public sealed class MapDefinition
 
         map.Regions.Add(new RegionDefinition
         {
+            Index = map.Regions.Count + 1,
             Name = name,
             Code = code,
             Probability = probability
@@ -760,6 +761,7 @@ public sealed class MapDefinition
 
 public sealed class RegionDefinition
 {
+    public required int Index { get; init; }
     public required string Name { get; init; }
     public required string Code { get; init; }
     public double? Probability { get; init; }
