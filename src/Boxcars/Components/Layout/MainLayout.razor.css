@@ -25,6 +25,9 @@
     padding: 1.5rem 2rem;
     max-width: 1200px;
     margin: 0 auto;
+    min-height: calc(100dvh - var(--mud-appbar-height));
+    background-color: var(--mud-palette-background);
+    color: var(--mud-palette-text-primary);
 }
 
 .content-area--full {

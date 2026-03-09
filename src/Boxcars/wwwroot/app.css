@@ -2,8 +2,8 @@ html, body {
     margin: 0;
     min-height: 100%;
     font-family: var(--body-font), 'Segoe UI', sans-serif;
-    color: var(--neutral-foreground-rest);
-    background-color: var(--neutral-fill-layer-rest);
+    color: var(--mud-palette-text-primary);
+    background-color: var(--mud-palette-background);
 }
 
 body {
@@ -11,7 +11,7 @@ body {
 }
 
 a {
-    color: var(--accent-foreground-rest);
+    color: var(--mud-palette-primary);
 }
 
 .content {
