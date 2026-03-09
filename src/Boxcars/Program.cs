@@ -49,6 +49,7 @@ public class Program
             config.SnackbarConfiguration.NewestOnTop = false;
             config.SnackbarConfiguration.MaxDisplayedSnackbars = 4;
             config.SnackbarConfiguration.PreventDuplicates = true;
+            config.SnackbarConfiguration.VisibleStateDuration = 8000;
         });
 
         // Identity (custom table storage stores, no EF Core)
