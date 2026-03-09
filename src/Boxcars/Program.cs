@@ -9,6 +9,7 @@ using Boxcars.Services;
 using Boxcars.Services.Maps;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
+using MudBlazor;
 using MudBlazor.Services;
 
 namespace Boxcars;
@@ -42,7 +43,10 @@ public class Program
 
         // UI component libraries
         builder.Services.AddHttpClient();
-        builder.Services.AddMudServices();
+        builder.Services.AddMudServices(config =>
+        {
+            config.SnackbarConfiguration.PositionClass = $"{Defaults.Classes.Position.BottomLeft} boxcars-snackbar-zone";
+        });
 
         // Identity (custom table storage stores, no EF Core)
         builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)

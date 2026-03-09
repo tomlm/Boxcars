@@ -545,9 +545,101 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var steps = Math.Max(0, action.PointsTaken.Count - 1);
-        return steps == 1
+        var moveSummary = steps == 1
             ? $"{actorName} moved 1 space"
             : $"{actorName} moved {steps} spaces";
+
+        var feeSummary = DescribeMoveFeeSummary(action, snapshot);
+        return string.IsNullOrWhiteSpace(feeSummary)
+            ? moveSummary
+            : $"{moveSummary} and paid {feeSummary}";
+    }
+
+    private static string DescribeMoveFeeSummary(MoveAction action, RailBaronGameState snapshot)
+    {
+        if (action.PointsTaken.Count < 2 || action.SelectedSegmentKeys.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var activePlayerIndex = ResolvePlayerIndex(action, snapshot);
+        var movedSegmentCount = Math.Min(action.PointsTaken.Count - 1, action.SelectedSegmentKeys.Count);
+        var usedPublicRailroad = false;
+        var opposingOwnerIndices = new HashSet<int>();
+
+        for (var index = 0; index < movedSegmentCount; index++)
+        {
+            var fromNodeId = action.PointsTaken[index];
+            var toNodeId = action.PointsTaken[index + 1];
+
+            int railroadIndex;
+            try
+            {
+                railroadIndex = TryParseSelectedSegmentKey(action.SelectedSegmentKeys, index, fromNodeId, toNodeId);
+            }
+            catch (InvalidOperationException)
+            {
+                return string.Empty;
+            }
+
+            if (!snapshot.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
+            {
+                usedPublicRailroad = true;
+                continue;
+            }
+
+            if (activePlayerIndex.HasValue && ownerIndex.Value == activePlayerIndex.Value)
+            {
+                continue;
+            }
+
+            opposingOwnerIndices.Add(ownerIndex.Value);
+        }
+
+        var feeParts = new List<string>();
+        if (usedPublicRailroad)
+        {
+            feeParts.Add($"{FormatCurrency(1000)} public fees");
+        }
+
+        var opponentRate = snapshot.AllRailroadsSold ? 10000 : 5000;
+        foreach (var ownerIndex in opposingOwnerIndices.OrderBy(index => index))
+        {
+            feeParts.Add($"{FormatCurrency(opponentRate)} to {ResolvePlayerName(snapshot, ownerIndex)}");
+        }
+
+        return FormatReadableList(feeParts);
+    }
+
+    private static int? ResolvePlayerIndex(PlayerAction action, RailBaronGameState snapshot)
+    {
+        if (action.PlayerIndex.HasValue
+            && action.PlayerIndex.Value >= 0
+            && action.PlayerIndex.Value < snapshot.Players.Count)
+        {
+            return action.PlayerIndex.Value;
+        }
+
+        var playerIndex = snapshot.Players.FindIndex(player => string.Equals(player.Name, action.PlayerId, StringComparison.Ordinal));
+        return playerIndex >= 0 ? playerIndex : null;
+    }
+
+    private static string ResolvePlayerName(RailBaronGameState snapshot, int playerIndex)
+    {
+        return playerIndex >= 0 && playerIndex < snapshot.Players.Count && !string.IsNullOrWhiteSpace(snapshot.Players[playerIndex].Name)
+            ? snapshot.Players[playerIndex].Name
+            : $"player {playerIndex + 1}";
+    }
+
+    private static string FormatReadableList(List<string> items)
+    {
+        return items.Count switch
+        {
+            0 => string.Empty,
+            1 => items[0],
+            2 => string.Concat(items[0], " and ", items[1]),
+            _ => string.Concat(string.Join(", ", items.Take(items.Count - 1)), ", and ", items[^1])
+        };
     }
 
     private static string DescribeRailroadSale(string actorName, SellRailroadAction action, RailBaronGameEngine gameEngine)

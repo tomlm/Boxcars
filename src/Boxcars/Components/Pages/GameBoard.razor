@@ -832,7 +832,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
     {
-        foreach (var item in _gameEngineEvents.Where(item => !existingEventIds.Contains(item.EventId)))
+        foreach (var item in _gameEngineEvents.Where(item => !existingEventIds.Contains(item.EventId) && ShouldNotifyTimelineItem(item)))
         {
             Snackbar.Add(
                 item.Description,
@@ -848,19 +848,28 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
     }
 
+    private static bool ShouldNotifyTimelineItem(EventTimelineItem item)
+    {
+        return item.EventKind switch
+        {
+            EventTimelineKind.Move => true,
+            EventTimelineKind.Arrival => true,
+            EventTimelineKind.PurchaseOpportunity => true,
+            EventTimelineKind.Purchase => true,
+            EventTimelineKind.DeclinedPurchase => true,
+            _ => false
+        };
+    }
+
     private static Severity ResolveTimelineSeverity(EventTimelineItem item)
     {
-        if (string.Equals(item.EventKind, "ARRIVING AT DESTINATION WITH PAYOUT", StringComparison.OrdinalIgnoreCase))
+        return item.EventKind switch
         {
-            return Severity.Success;
-        }
-
-        if (string.Equals(item.EventKind, "PURCHASING SOMETHING", StringComparison.OrdinalIgnoreCase))
-        {
-            return Severity.Warning;
-        }
-
-        return Severity.Info;
+            EventTimelineKind.Arrival => Severity.Success,
+            EventTimelineKind.PurchaseOpportunity => Severity.Warning,
+            EventTimelineKind.Purchase => Severity.Warning,
+            _ => Severity.Info
+        };
     }
 
     private string? ResolveTimelineSnackbarClass(EventTimelineItem item)

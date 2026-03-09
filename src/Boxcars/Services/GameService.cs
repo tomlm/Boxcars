@@ -148,7 +148,7 @@ public class GameService
 
     private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent)
     {
-        if (string.Equals(gameEvent.EventKind, "ChooseRouteAction", StringComparison.Ordinal))
+        if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute"))
         {
             return [];
         }
@@ -156,79 +156,112 @@ public class GameService
         var snapshot = TryDeserializeSnapshot(gameEvent.SerializedGameState);
         if (snapshot is null)
         {
-            return [CreateTimelineItem(gameEvent, gameEvent.RowKey, gameEvent.EventKind, gameEvent.ChangeSummary)];
+            return [CreateTimelineItem(gameEvent, gameEvent.RowKey, ResolveTimelineKind(gameEvent.EventKind), gameEvent.ChangeSummary)];
         }
 
         var timelineItems = new List<EventTimelineItem>();
         var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
         var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
 
-        switch (gameEvent.EventKind)
+        switch (NormalizeEventKind(gameEvent.EventKind))
         {
-            case "PickDestinationAction":
+            case "PickDestination":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:destination",
-                    "NEW DESTINATION",
-                    $"NEW DESTINATION: {actingPlayerName} -> {actingPlayer?.DestinationCityName ?? "Unknown"}"));
+                    EventTimelineKind.NewDestination,
+                    string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
+                        ? $"{actingPlayerName} has a new destination."
+                        : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"));
                 break;
 
-            case "RollDiceAction":
+            case "RollDice":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:roll",
-                    "DICE ROLL",
-                    $"DICE ROLL: {actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}"));
+                    EventTimelineKind.DiceRoll,
+                    $"{actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}"));
                 break;
 
-            case "MoveAction" when snapshot.Turn.ArrivalResolution is not null:
+            case "Move" when snapshot.Turn.ArrivalResolution is not null:
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:arrival",
-                    "ARRIVING AT DESTINATION WITH PAYOUT",
-                    $"ARRIVING AT DESTINATION WITH PAYOUT: {snapshot.Turn.ArrivalResolution.Message}"));
+                    EventTimelineKind.Arrival,
+                    snapshot.Turn.ArrivalResolution.Message));
 
                 if (snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable)
                 {
                     timelineItems.Add(CreateTimelineItem(
                         gameEvent,
                         $"{gameEvent.RowKey}:purchase",
-                        "PURCHASING SOMETHING",
-                        $"PURCHASING SOMETHING: {actingPlayerName} may buy a railroad or locomotive before ending the turn."));
+                        EventTimelineKind.PurchaseOpportunity,
+                        $"{actingPlayerName} may buy a railroad or locomotive before ending the turn."));
                 }
 
                 break;
 
-            case "PurchaseRailroadAction":
+            case "PurchaseRailroad":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:purchase",
-                    "PURCHASING SOMETHING",
-                    $"PURCHASING SOMETHING: {(string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary)}"));
+                    EventTimelineKind.Purchase,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary));
                 break;
 
-            case "BuyEngineAction":
-            case "BuySuperchiefAction":
+            case "BuyEngine":
+            case "BuySuperchief":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:purchase",
-                    "PURCHASING SOMETHING",
-                    $"PURCHASING SOMETHING: {(string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A locomotive was upgraded." : gameEvent.ChangeSummary)}"));
+                    EventTimelineKind.Purchase,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A locomotive was upgraded." : gameEvent.ChangeSummary));
+                break;
+
+            case "DeclinePurchase":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:decline",
+                    EventTimelineKind.DeclinedPurchase,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} declined the purchase opportunity"
+                        : gameEvent.ChangeSummary));
                 break;
         }
 
         if (timelineItems.Count == 0)
         {
-            timelineItems.Add(CreateTimelineItem(gameEvent, gameEvent.RowKey, gameEvent.EventKind, gameEvent.ChangeSummary));
+            timelineItems.Add(CreateTimelineItem(
+                gameEvent,
+                gameEvent.RowKey,
+                ResolveTimelineKind(gameEvent.EventKind),
+                gameEvent.ChangeSummary));
         }
 
         return timelineItems;
     }
 
+    private static bool MatchesEventKind(string? eventKind, string expectedKind)
+    {
+        return string.Equals(NormalizeEventKind(eventKind), expectedKind, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeEventKind(string? eventKind)
+    {
+        if (string.IsNullOrWhiteSpace(eventKind))
+        {
+            return string.Empty;
+        }
+
+        return eventKind.EndsWith("Action", StringComparison.Ordinal)
+            ? eventKind[..^"Action".Length]
+            : eventKind;
+    }
+
     private static EventTimelineItem CreateTimelineItem(
         GameEventEntity gameEvent,
         string eventId,
-        string eventKind,
+        EventTimelineKind eventKind,
         string? description)
     {
         return new EventTimelineItem
@@ -240,6 +273,21 @@ public class GameService
                 : description,
             OccurredUtc = gameEvent.OccurredUtc,
             ActingPlayerIndex = gameEvent.ActingPlayerIndex
+        };
+    }
+
+    private static EventTimelineKind ResolveTimelineKind(string? eventKind)
+    {
+        return NormalizeEventKind(eventKind) switch
+        {
+            "PickDestination" => EventTimelineKind.NewDestination,
+            "RollDice" => EventTimelineKind.DiceRoll,
+            "Move" => EventTimelineKind.Move,
+            "PurchaseRailroad" => EventTimelineKind.Purchase,
+            "BuyEngine" => EventTimelineKind.Purchase,
+            "BuySuperchief" => EventTimelineKind.Purchase,
+            "DeclinePurchase" => EventTimelineKind.DeclinedPurchase,
+            _ => EventTimelineKind.Other
         };
     }
 
