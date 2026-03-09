@@ -1,9 +1,7 @@
 @using MudBlazor
 
-<MudPaper Class="pa-4" Outlined="true">
+<MudPaper Class="turn-action-panel" Outlined="true" Square="true">
     <MudStack Spacing="2">
-        <MudText Typo="Typo.h6">Turn Actions</MudText>
-
         @if (!IsCurrentUserActivePlayer)
         {
             <MudAlert Severity="Severity.Info" Dense="true">
@@ -12,7 +10,8 @@
         }
 
         <MudButton Variant="Variant.Filled"
-               Color="MudBlazor.Color.Primary"
+                   Color="MudBlazor.Color.Primary"
+                   FullWidth="true"
                    Disabled="@(!CanPrimaryAction)"
                    OnClick="OnPrimaryAction">
             @PrimaryActionLabel
@@ -22,6 +21,7 @@
         {
             <MudButton Variant="Variant.Text"
                        Color="MudBlazor.Color.Default"
+                       FullWidth="true"
                        Disabled="@(!CanSecondaryAction)"
                        OnClick="OnSecondaryAction">
                 @SecondaryActionLabel

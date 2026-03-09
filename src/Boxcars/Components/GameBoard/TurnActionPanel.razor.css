@@ -1,0 +1,6 @@
+.turn-action-panel {
+    padding: 0.75rem;
+    background: var(--mud-palette-background-grey);
+    border-color: var(--mud-palette-divider);
+    margin: 0;
+}

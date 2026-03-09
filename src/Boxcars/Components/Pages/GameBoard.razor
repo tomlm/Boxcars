@@ -68,14 +68,31 @@
         @* ── Bottom bar: action log + zoom/OK controls ── *@
         <div class="map-board-bottom-bar">
             <div class="map-board-history-panel">
-                <EventTimelinePanel Items="@_gameEngineEvents" />
+                <EventTimelinePanel Items="@_gameEngineEvents" PlayerColors="@PlayerColorsByIndex" />
             </div>
 
-            <MudStack Class="map-board-controls" AlignItems="AlignItems.End" Justify="Justify.Center" Spacing="1">
+            <MudStack Class="map-board-controls" AlignItems="AlignItems.Stretch" Justify="Justify.Center" Spacing="1">
                 <PurchaseOpportunityDialog IsOpen="@_isPurchaseOpportunityDialogOpen"
                                            Arrival="@_turnViewState.ArrivalResolution"
                                            OnConfirm="ClosePurchaseOpportunityDialog"
                                            OnCancel="ClosePurchaseOpportunityDialog" />
+
+                <MudPaper Outlined="true" Square="true" Class="map-board-control-panel">
+                    <MudStack Spacing="1">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.body2" Class="map-board-controls-label">Zoom</MudText>
+                        <MudText Typo="Typo.caption" Class="map-board-zoom-readout">@($"{_zoomPercent}%")</MudText>
+                    </MudStack>
+
+                    <MudSlider T="int"
+                               Min="100"
+                               Max="500"
+                               Step="50"
+                               Color="MudBlazor.Color.Primary"
+                               @bind-Value="@_zoomPercent"
+                               @bind-Value:after="OnZoomSliderChangedAsync" />
+                    </MudStack>
+                </MudPaper>
 
                 <TurnActionPanel PrimaryActionLabel="@PrimaryGameActionLabel"
                                  CanPrimaryAction="@CanPrimaryGameAction"
@@ -83,20 +100,6 @@
                                  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                                  ObserverMessage="@ObserverTurnMessage" />
 
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudText Typo="Typo.body2">Zoom:</MudText>
-                    <MudSlider T="int"
-                               Min="100"
-                               Max="500"
-                               Step="50"
-                               @bind-Value="@_zoomPercent"
-                               @bind-Value:after="OnZoomSliderChangedAsync"
-                               Class="map-board-zoom-slider" />
-                </MudStack>
-
-                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" OnClick="EndGameAsync">
-                    End Game
-                </MudButton>
             </MudStack>
         </div>
     </div>
@@ -220,7 +223,7 @@
     {
         "DrawDestination" => "AUTOMATIC",
         "Roll" => "AUTOMATIC",
-        "Move" => "COMMIT MOVE",
+        "Move" => "MOVE",
         "Purchase" => "END TURN",
         "EndTurn" => "AUTOMATIC",
         _ => "TURN ACTION"
@@ -792,15 +795,11 @@
     private string CurrentMapPlayerColor => _mapPlayerStates.FirstOrDefault(playerState => playerState.IsActiveTurn)?.Color
         ?? _currentPlayerColor;
 
+    private IReadOnlyDictionary<int, string> PlayerColorsByIndex => _players.ToDictionary(player => player.Index, player => player.Color);
+
     private Task ClosePurchaseOpportunityDialog()
     {
         _isPurchaseOpportunityDialogOpen = false;
-
-        if (string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
-            && IsCurrentUserActivePlayer)
-        {
-            Snackbar.Add("Click END TURN to finalize this turn.", Severity.Info);
-        }
 
         return InvokeAsync(StateHasChanged);
     }

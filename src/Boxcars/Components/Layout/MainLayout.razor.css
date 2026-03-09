@@ -31,6 +31,8 @@
     padding: 0;
     max-width: none;
     margin: 0;
+    block-size: calc(100dvh - 56px);
+    overflow: hidden;
 }
 
 .content-area--create-game {

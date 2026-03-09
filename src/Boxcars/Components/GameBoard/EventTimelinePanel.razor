@@ -1,28 +1,70 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Spacing="0">
+<MudPaper Class="event-timeline-panel" Outlined="true" Square="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="event-timeline-header">
+        <MudText Typo="Typo.overline" Class="event-timeline-title">History</MudText>
+        <MudText Typo="Typo.caption" Class="event-timeline-count">@GetCountLabel()</MudText>
+    </MudStack>
+
     @if (Items.Count == 0)
     {
-        <MudText Typo="Typo.body2">No events recorded yet.</MudText>
+        <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Class="event-timeline-empty-state">
+            <MudText Typo="Typo.body2">No events recorded yet.</MudText>
+        </MudStack>
     }
     else
     {
-        <select class="event-timeline-listbox" size="12" aria-label="Activity log">
-            @foreach (var item in Items)
-            {
-                <option>@FormatTimelineText(item)</option>
-            }
-        </select>
+        <div class="event-timeline-virtualize">
+            <MudVirtualize T="EventTimelineItem" Items="@Items" Context="item" ItemSize="60" OverscanCount="8">
+                <MudPaper Elevation="0" Square="true" Class="@GetItemClass(item)">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.caption" Class="event-timeline-time">@item.OccurredUtc.LocalDateTime.ToString("t")</MudText>
+                        <MudText Typo="Typo.body2" Class="event-timeline-description">@item.Description</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudVirtualize>
+        </div>
     }
-</MudStack>
+</MudPaper>
 
 @code {
     [Parameter]
-    public IReadOnlyList<EventTimelineItem> Items { get; set; } = [];
+    public ICollection<EventTimelineItem> Items { get; set; } = [];
 
-    private static string FormatTimelineText(EventTimelineItem item)
+    [Parameter]
+    public IReadOnlyDictionary<int, string> PlayerColors { get; set; } = new Dictionary<int, string>();
+
+    private string GetCountLabel()
     {
-        return $"{item.OccurredUtc.LocalDateTime:t}  {item.Description}";
+        return Items.Count == 1 ? "1 event" : $"{Items.Count} events";
+    }
+
+    private string GetItemClass(EventTimelineItem item)
+    {
+        var colorClass = ResolvePlayerColorClass(item.ActingPlayerIndex);
+        return string.IsNullOrWhiteSpace(colorClass)
+            ? "event-timeline-item"
+            : $"event-timeline-item {colorClass}";
+    }
+
+    private string ResolvePlayerColorClass(int? actingPlayerIndex)
+    {
+        if (!actingPlayerIndex.HasValue
+            || !PlayerColors.TryGetValue(actingPlayerIndex.Value, out var playerColor))
+        {
+            return "event-timeline-item-default";
+        }
+
+        return PlayerColorOptions.NormalizeOrDefault(playerColor) switch
+        {
+            "blue" => "event-timeline-item-blue",
+            "red" => "event-timeline-item-red",
+            "green" => "event-timeline-item-green",
+            "cyan" => "event-timeline-item-cyan",
+            "orange" => "event-timeline-item-orange",
+            "purple" => "event-timeline-item-purple",
+            _ => "event-timeline-item-default"
+        };
     }
 }

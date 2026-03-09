@@ -2,7 +2,7 @@
 .map-board-shell {
     display: flex;
     flex-direction: row;
-    height: calc(100dvh - 56px);
+    height: 100%;
     width: 100%;
     overflow: hidden;
 }
@@ -59,13 +59,13 @@
 /* ── Bottom bar: log left, controls right ── */
 .map-board-bottom-bar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
     grid-row: 3;
     align-items: stretch;
     column-gap: 0;
     flex-shrink: 0;
     width: 100%;
-    background: color-mix(in srgb, var(--mud-palette-surface) 55%, black 45%);
+    background: color-mix(in srgb, var(--mud-palette-surface) 82%, black 18%);
     border-top: 1px solid var(--mud-palette-divider);
     min-height: 120px;
     max-height: 180px;
@@ -76,6 +76,8 @@
     height: 100%;
     min-height: 0;
     gap: 0;
+    padding: 0.35rem;
+    background: color-mix(in srgb, var(--mud-palette-surface) 86%, black 14%);
 }
 
 .map-board-turn-status {
@@ -121,20 +123,29 @@
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    padding: 0.5rem 0.75rem;
+    padding: 0.75rem;
     border-left: 1px solid var(--mud-palette-divider);
-    white-space: nowrap;
+    color: var(--mud-palette-text-primary);
+    background: var(--mud-palette-surface);
+    min-width: 0;
+    gap: 0.75rem;
 }
 
-.map-board-mode-row {
-    gap: 0.35rem;
-    align-items: center;
+.map-board-controls-label,
+.map-board-zoom-readout {
+    color: var(--mud-palette-text-primary);
 }
 
-.map-board-zoom-slider {
-    width: 100px;
-    min-width: 100px;
-    max-width: 100px;
+.map-board-control-panel {
+    padding: 0.75rem;
+    background: var(--mud-palette-background-grey);
+    border-color: var(--mud-palette-divider);
+}
+
+.map-board-zoom-readout {
+    min-width: 3.25rem;
+    text-align: right;
+    font-family: Consolas, "Courier New", monospace;
 }
 
 /* ── Route picker (inline in status bar) ── */
