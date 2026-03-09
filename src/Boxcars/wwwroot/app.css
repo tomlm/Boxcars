@@ -1,7 +1,13 @@
 html, body {
+    margin: 0;
+    min-height: 100%;
     font-family: var(--body-font), 'Segoe UI', sans-serif;
     color: var(--neutral-foreground-rest);
     background-color: var(--neutral-fill-layer-rest);
+}
+
+body {
+    min-height: 100dvh;
 }
 
 a {
@@ -40,44 +46,6 @@ h1:focus {
 
 .darker-border-checkbox.form-check-input {
     border-color: #929292;
-}
-
-.map-board-shell {
-    display: flex;
-    flex-direction: row;
-    height: calc(100dvh - 56px);
-    width: 100%;
-    overflow: hidden;
-}
-
-.map-board-sidebar {
-    width: 270px;
-    flex-shrink: 0;
-    overflow-y: auto;
-    border-right: 1px solid #ccc;
-}
-
-.map-board-main {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.map-board-map-area {
-    display: flex;
-    flex: 1;
-    flex-basis: 0;
-    overflow: hidden;
-    position: relative;
-    min-height: 0;
-}
-
-.game-map-viewport {
-    width: 100%;
-    height: 100%;
 }
 
 .player-snackbar {

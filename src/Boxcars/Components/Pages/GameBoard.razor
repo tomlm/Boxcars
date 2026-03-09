@@ -29,7 +29,7 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
-<MudStack Row="true" Class="map-board-shell">
+<div class="map-board-shell">
     <div class="map-board-sidebar">
         <PlayerBoard Players="_players" OnToggleTestPlayer="OnToggleTestPlayerAsync" />
     </div>
@@ -90,7 +90,8 @@
                                Step="50"
                                Color="MudBlazor.Color.Primary"
                                @bind-Value="@_zoomPercent"
-                               @bind-Value:after="OnZoomSliderChangedAsync" />
+                               @bind-Value:after="OnZoomSliderChangedAsync"
+                               Class="map-board-zoom-slider" />
                     </MudStack>
                 </MudPaper>
 
@@ -103,7 +104,7 @@
             </MudStack>
         </div>
     </div>
-</MudStack>
+</div>
 
 @code {
     private string? _currentUserId;

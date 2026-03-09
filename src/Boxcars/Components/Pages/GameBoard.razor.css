@@ -2,7 +2,7 @@
 .map-board-shell {
     display: flex;
     flex-direction: row;
-    height: 100%;
+    height: calc(100dvh - 64px);
     width: 100%;
     overflow: hidden;
 }
@@ -30,15 +30,11 @@
 /* ── Map fills available space ── */
 .map-board-map-area {
     display: flex;
-    grid-row: 1;
+    flex: 1;
+    flex-basis: 0;
     overflow: hidden;
     position: relative;
     min-height: 0;
-}
-
-.game-map-viewport {
-    width: 100%;
-    height: 100%;
 }
 
 /* ── Status bar below map ── */
@@ -140,12 +136,20 @@
     padding: 0.75rem;
     background: var(--mud-palette-background-grey);
     border-color: var(--mud-palette-divider);
+    min-width: 0;
+    overflow: hidden;
 }
 
 .map-board-zoom-readout {
     min-width: 3.25rem;
     text-align: right;
     font-family: Consolas, "Courier New", monospace;
+}
+
+.map-board-zoom-slider {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
 }
 
 /* ── Route picker (inline in status bar) ── */
