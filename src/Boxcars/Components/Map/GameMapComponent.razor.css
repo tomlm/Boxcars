@@ -1,0 +1,82 @@
+.game-map-shell {
+    position: relative;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+
+.game-map-host {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.game-map-host ::deep .game-map-viewport {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.game-map-host ::deep .game-map-zoom-overlay {
+    position: absolute !important;
+    right: 1rem !important;
+    bottom: 1rem !important;
+    left: auto !important;
+    top: auto !important;
+    z-index: 40;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 75%, transparent);
+    background: color-mix(in srgb, var(--mud-palette-surface) 88%, rgba(0, 0, 0, 0.12));
+    backdrop-filter: blur(6px);
+    pointer-events: auto;
+}
+
+.game-map-host ::deep .game-map-zoom-overlay-content {
+    display: flex;
+    align-items: center;
+}
+
+.game-map-host ::deep .game-map-zoom-overlay-label,
+.game-map-host ::deep .game-map-zoom-overlay-readout {
+    color: var(--mud-palette-text-primary);
+}
+
+.game-map-host ::deep .game-map-zoom-overlay-readout {
+    min-width: 3.25rem;
+    text-align: right;
+    font-family: Consolas, "Courier New", monospace;
+}
+
+.game-map-host ::deep .game-map-zoom-overlay-slider-host {
+    width: clamp(140px, 18vw, 220px);
+    min-width: 0;
+}
+
+.game-map-host ::deep .game-map-zoom-overlay-slider {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+}
+
+@media (max-width: 960px) {
+    .game-map-host ::deep .game-map-zoom-overlay {
+        right: 0.75rem;
+        bottom: 0.75rem;
+        max-width: calc(100% - 1.5rem);
+    }
+
+    .game-map-host ::deep .game-map-zoom-overlay-content {
+        gap: 0.5rem;
+    }
+
+    .game-map-host ::deep .game-map-zoom-overlay-slider-host {
+        width: clamp(120px, 34vw, 180px);
+    }
+}

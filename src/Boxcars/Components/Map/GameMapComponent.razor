@@ -2,29 +2,54 @@
 @using Boxcars.Data
 @using Boxcars.Engine.Data.Maps
 
-<MapComponent @ref="_mapComponent"
-			  MapFileName="@MapFileName"
-			  SelectionMode="@SelectionMode"
-			  SelectionModeChanged="@SelectionModeChanged"
-			  ZoomPercent="@ZoomPercent"
-			  ZoomPercentChanged="@ZoomPercentChanged"
-			  PanCenterX="@PanCenterX"
-			  PanCenterXChanged="@PanCenterXChanged"
-			  PanCenterY="@PanCenterY"
-			  PanCenterYChanged="@PanCenterYChanged"
-			  PlayerId="@PlayerId"
-			  PlayerColor="@PlayerColor"
-			  PlayerStates="@PlayerStates"
-			  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
-			  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
-			  MovementType="@MovementType"
-			  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
-			  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
-			  RailroadSelected="@RailroadSelected"
-			  RouteSuggestionChanged="@RouteSuggestionChanged"
-			  RoutePreviewChanged="@RoutePreviewChanged"
-			  DestinationCityChanged="@DestinationCityChanged"
-			  StartCityChanged="@StartCityChanged" />
+@using System.Globalization
+@using MudBlazor
+
+<div class="game-map-shell">
+	<div class="game-map-host">
+		<MapComponent @ref="_mapComponent"
+				  MapFileName="@MapFileName"
+				  SelectionMode="@SelectionMode"
+				  SelectionModeChanged="@SelectionModeChanged"
+				  ZoomPercent="@_zoomPercent"
+				  ZoomPercentChanged="@OnZoomPercentChangedAsync"
+				  PanCenterX="@PanCenterX"
+				  PanCenterXChanged="@PanCenterXChanged"
+				  PanCenterY="@PanCenterY"
+				  PanCenterYChanged="@PanCenterYChanged"
+				  PlayerId="@PlayerId"
+				  PlayerColor="@PlayerColor"
+				  PlayerStates="@PlayerStates"
+				  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+				  MovementType="@MovementType"
+				  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
+				  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
+				  RailroadSelected="@RailroadSelected"
+				  RouteSuggestionChanged="@RouteSuggestionChanged"
+				  RoutePreviewChanged="@RoutePreviewChanged"
+				  DestinationCityChanged="@DestinationCityChanged"
+				  StartCityChanged="@StartCityChanged" />
+
+
+		<MudPaper Class="game-map-zoom-overlay" Outlined="true" Square="false">
+			<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="game-map-zoom-overlay-content">
+				<MudText Typo="Typo.caption" Class="game-map-zoom-overlay-label">Zoom</MudText>
+				<MudText Typo="Typo.caption" Class="game-map-zoom-overlay-readout">@GetZoomPercentLabel()</MudText>
+				<div class="game-map-zoom-overlay-slider-host">
+					<MudSlider T="double"
+							   Min="100"
+							   Max="500"
+							   Step="50"
+							   Color="MudBlazor.Color.Primary"
+							   Value="@_zoomPercent"
+							   ValueChanged="OnZoomOverlayChangedAsync"
+							   Class="game-map-zoom-overlay-slider" />
+				</div>
+			</MudStack>
+		</MudPaper>
+	</div>
+</div>
 
 @code {
 	[Parameter]
@@ -94,6 +119,15 @@
 	public EventCallback<string> StartCityChanged { get; set; }
 
 	private MapComponent? _mapComponent;
+	private double _zoomPercent = 100;
+
+	protected override void OnParametersSet()
+	{
+		if (_mapComponent is null)
+		{
+			_zoomPercent = ZoomPercent;
+		}
+	}
 
 	public IReadOnlyList<string> Errors => _mapComponent?.Errors ?? Array.Empty<string>();
 	public IReadOnlyList<MapComponent.RouteCityOption> RouteCityOptions => _mapComponent?.RouteCityOptions ?? Array.Empty<MapComponent.RouteCityOption>();
@@ -130,6 +164,26 @@
 		}
 
 		await _mapComponent.SetZoom(zoomPercent);
+	}
+
+	private async Task OnZoomPercentChangedAsync(double zoomPercent)
+	{
+		_zoomPercent = zoomPercent;
+
+		if (ZoomPercentChanged.HasDelegate)
+		{
+			await ZoomPercentChanged.InvokeAsync(zoomPercent);
+		}
+	}
+
+	private Task OnZoomOverlayChangedAsync(double zoomPercent)
+	{
+		return SetZoom(zoomPercent);
+	}
+
+	private string GetZoomPercentLabel()
+	{
+		return string.Concat(Math.Round(_zoomPercent).ToString(CultureInfo.InvariantCulture), "%");
 	}
 
 	public void SetStartCity(string nodeId)

@@ -50,7 +50,7 @@
             <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
-                              IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer" ZoomPercentChanged="OnZoomPercentChanged"
+                              IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync"
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
         </div>
@@ -68,18 +68,6 @@
                            Class="map-board-primary-action">
                     @PrimaryGameActionLabel
                 </MudButton>
-            </MudStack>
-
-            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd"
-                      Class="map-board-zoom-bar" Spacing="2">
-                <MudText Typo="Typo.body2" Class="map-board-controls-label">Zoom</MudText>
-                <MudText Typo="Typo.caption" Class="map-board-zoom-readout">@($"{_zoomPercent}%")</MudText>
-                <div class="map-board-zoom-slider-host">
-                    <MudSlider T="int" Min="100" Max="500" Step="50" Color="MudBlazor.Color.Primary"
-                               @bind-Value="@_zoomPercent"
-                               @bind-Value:after="OnZoomSliderChangedAsync"
-                               Class="map-board-zoom-slider" />
-                </div>
             </MudStack>
         </MudStack>
 
@@ -100,7 +88,6 @@
     private MapDefinition? _playerBoardMapDefinition;
     private BoardTurnViewState _turnViewState = new();
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
-    private int _zoomPercent = 100;
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
     private List<PlayerBoardModel> _players = new();
     private List<EventTimelineItem> _gameEngineEvents = new();
@@ -185,22 +172,6 @@
         }
 
         Navigation.NavigateTo("/dashboard");
-    }
-
-    private void OnZoomPercentChanged(double zoomPercent)
-    {
-        _zoomPercent = (int)zoomPercent;
-        StateHasChanged();
-    }
-
-    private async Task OnZoomSliderChangedAsync()
-    {
-        if (_gameMap is null)
-        {
-            return;
-        }
-
-        await _gameMap.SetZoom(_zoomPercent);
     }
 
     private string PrimaryGameActionLabel => _turnViewState.TurnPhase switch
