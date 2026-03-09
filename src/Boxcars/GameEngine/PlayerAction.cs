@@ -1,3 +1,5 @@
+using Boxcars.Engine.Domain;
+
 namespace Boxcars.GameEngine;
 
 public enum PlayerActionKind
@@ -10,7 +12,7 @@ public enum PlayerActionKind
     StartAuction,
     Bid,
     SellRailroad,
-    BuySuperchief,
+    BuyEngine,
     DeclinePurchase,
     EndTurn
 }
@@ -78,10 +80,11 @@ public sealed record SellRailroadAction : PlayerAction
     public override PlayerActionKind Kind => PlayerActionKind.SellRailroad;
 }
 
-public sealed record BuySuperchiefAction : PlayerAction
+public sealed record BuyEngineAction : PlayerAction
 {
+    public required LocomotiveType EngineType { get; init; }
     public required int AmountPaid { get; init; }
-    public override PlayerActionKind Kind => PlayerActionKind.BuySuperchief;
+    public override PlayerActionKind Kind => PlayerActionKind.BuyEngine;
 }
 
 public sealed record DeclinePurchaseAction : PlayerAction

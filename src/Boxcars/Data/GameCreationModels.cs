@@ -24,6 +24,7 @@ public sealed record EventTimelineItem
     public string EventKind { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public DateTimeOffset OccurredUtc { get; init; }
+    public int? ActingPlayerIndex { get; init; }
 }
 
 public static class GamePlayerSelectionSerialization

@@ -290,18 +290,6 @@
 
         await SharedGameEngine.EnqueueActionAsync(
             GameId,
-            new ChooseRouteAction
-            {
-                PlayerId = CurrentTurnPlayerName,
-                ActorUserId = _currentUserId ?? string.Empty,
-                PlayerIndex = _gameState.ActivePlayerIndex,
-                RouteNodeIds = selectedNodeIds,
-                RouteSegmentKeys = selectedSegmentKeys
-            },
-            CancellationToken.None);
-
-        await SharedGameEngine.EnqueueActionAsync(
-            GameId,
             new MoveAction
             {
                 PlayerId = CurrentTurnPlayerName,
@@ -857,7 +845,17 @@
     {
         foreach (var item in _gameEngineEvents.Where(item => !existingEventIds.Contains(item.EventId)))
         {
-            Snackbar.Add(item.Description, ResolveTimelineSeverity(item));
+            Snackbar.Add(
+                item.Description,
+                ResolveTimelineSeverity(item),
+                options =>
+                {
+                    var snackbarClass = ResolveTimelineSnackbarClass(item);
+                    if (!string.IsNullOrWhiteSpace(snackbarClass))
+                    {
+                        options.SnackbarTypeClass = snackbarClass;
+                    }
+                });
         }
     }
 
@@ -874,6 +872,19 @@
         }
 
         return Severity.Info;
+    }
+
+    private string? ResolveTimelineSnackbarClass(EventTimelineItem item)
+    {
+        if (!item.ActingPlayerIndex.HasValue
+            || item.ActingPlayerIndex.Value < 0
+            || item.ActingPlayerIndex.Value >= _players.Count)
+        {
+            return null;
+        }
+
+        var playerColor = PlayerColorOptions.NormalizeOrDefault(_players[item.ActingPlayerIndex.Value].Color);
+        return $"player-snackbar player-snackbar-{playerColor}";
     }
 
     private Task OnToggleTestPlayerAsync(int playerIndex)

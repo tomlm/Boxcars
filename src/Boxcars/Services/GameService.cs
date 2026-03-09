@@ -148,6 +148,11 @@ public class GameService
 
     private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent)
     {
+        if (string.Equals(gameEvent.EventKind, "ChooseRouteAction", StringComparison.Ordinal))
+        {
+            return [];
+        }
+
         var snapshot = TryDeserializeSnapshot(gameEvent.SerializedGameState);
         if (snapshot is null)
         {
@@ -202,6 +207,7 @@ public class GameService
                     $"PURCHASING SOMETHING: {(string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary)}"));
                 break;
 
+            case "BuyEngineAction":
             case "BuySuperchiefAction":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
@@ -232,7 +238,8 @@ public class GameService
             Description = string.IsNullOrWhiteSpace(description)
                 ? gameEvent.EventKind
                 : description,
-            OccurredUtc = gameEvent.OccurredUtc
+            OccurredUtc = gameEvent.OccurredUtc,
+            ActingPlayerIndex = gameEvent.ActingPlayerIndex
         };
     }
 
@@ -283,18 +290,16 @@ public class GameService
 
     private static string FormatDiceRoll(DiceResultState? diceResult)
     {
-        if (diceResult is null)
+        if (diceResult?.WhiteDice is not { Length: >= 2 })
         {
             return "0";
         }
 
-        var total = diceResult.WhiteDice.Sum();
-        if (diceResult.RedDie.HasValue)
-        {
-            total += diceResult.RedDie.Value;
-        }
+        var whiteDiceText = string.Join("+", diceResult.WhiteDice.Select(value => value.ToString(CultureInfo.InvariantCulture)));
 
-        return total.ToString(CultureInfo.InvariantCulture);
+        return diceResult.RedDie.HasValue
+            ? string.Concat(whiteDiceText, "+(", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")")
+            : whiteDiceText;
     }
 
     public async Task<GameActionResult> EndGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
