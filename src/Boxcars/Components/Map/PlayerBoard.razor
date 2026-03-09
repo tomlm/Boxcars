@@ -1,10 +1,11 @@
 @using Boxcars.Data
 @using MudBlazor
 
+<div class="player-board-scope">
 <MudStack Class="player-board" Spacing="2">
     @foreach (var player in Players)
     {
-        <MudPaper Class="@GetCardClass(player)" Outlined="true">
+        <MudPaper Class="@GetCardClass(player)">
             <MudStack Row="true" Class="player-card-portrait">
                 <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
                     @if (HasThumbnail(player))
@@ -56,6 +57,7 @@
         </MudPaper>
     }
 </MudStack>
+</div>
 
 @code {
     [Parameter]
