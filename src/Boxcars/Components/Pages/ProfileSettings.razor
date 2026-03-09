@@ -1,16 +1,19 @@
-@page "/profile-settings"
-@rendermode InteractiveServer
+@page "/Account/Manage"
+@page "/Account/Manage/Preferences"
+@using Boxcars.Components.Account.Shared
+@using System.ComponentModel.DataAnnotations
+@layout ManageLayout
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using MudBlazor
 @using Boxcars.Data
 @using Boxcars.Services
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject PlayerProfileService ProfileService
 @inject NavigationManager Navigation
-@inject ISnackbar Snackbar
 
-<PageTitle>Profile Settings - BoxCars</PageTitle>
+<PageTitle>Preferences - BoxCars</PageTitle>
 
 @if (_loading)
 {
@@ -22,54 +25,69 @@ else if (_profile == null)
 {
     <MudPaper Class="profile-error">
         <MudText Typo="Typo.h4">Unable to load profile</MudText>
-        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadProfileAsync" Class="profile-retry">Retry</MudButton>
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <MudAlert Class="manage-status-message" Dense="true" Variant="Variant.Outlined" Severity="@messageSeverity">
+                @message
+            </MudAlert>
+        }
+        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadProfileAsync"
+                   Class="profile-retry">Retry</MudButton>
     </MudPaper>
 }
 else
 {
     <MudStack Class="profile-container">
-        <MudText Typo="Typo.h3">Profile Settings</MudText>
+        <MudText Typo="Typo.h3">Preferences</MudText>
+
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <MudAlert Class="manage-status-message" Dense="true" Variant="Variant.Outlined" Severity="@messageSeverity">
+                @message
+            </MudAlert>
+        }
 
         <MudPaper Class="profile-card">
-            <MudStack Class="profile-fields">
-                <MudTextField @bind-Value="_nickname"
-                              Label="Nickname"
-                              Placeholder="Enter your display name"
-                              Variant="Variant.Outlined"
-                              Class="profile-field" />
+            <EditForm Model="CurrentInput" OnValidSubmit="OnValidSubmitAsync">
+                <DataAnnotationsValidator />
+                <MudStack Class="profile-fields">
+                    <ValidationSummary class="auth-validation" role="alert" />
 
-                <MudTextField @bind-Value="_thumbnailUrl"
-                              Label="Thumbnail URL"
-                              Placeholder="https://example.com/avatar.png"
-                              Variant="Variant.Outlined"
-                              Class="profile-field" />
+                    <MudTextField @bind-Value="CurrentInput.Nickname" Label="Nickname" Placeholder="Enter your display name"
+                                  Variant="Variant.Outlined" Class="profile-field" />
 
-                <MudSelect T="string"
-                           Label="Preferred Color"
-                           Value="@_preferredColor"
-                           ValueChanged="OnPreferredColorChanged"
-                           Variant="Variant.Outlined"
-                           Class="profile-field">
-                    @foreach (var color in PlayerColorOptions.Colors)
-                    {
-                        <MudSelectItem Value="@color">@PlayerColorOptions.ToLabel(color)</MudSelectItem>
-                    }
-                </MudSelect>
+                    <MudTextField @bind-Value="CurrentInput.ThumbnailUrl" Label="Thumbnail URL"
+                                  Placeholder="https://example.com/avatar.png" Variant="Variant.Outlined" Class="profile-field" />
 
-                <MudStack Row="true" Class="profile-actions">
-                    <MudButton Variant="Variant.Filled"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="@SaveAsync"
-                               Disabled="@_saving">
-                        @(_saving ? "Saving..." : "Save Changes")
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
-                        Back to Dashboard
-                    </MudButton>
+                    <MudText Typo="Typo.body2" Class="manage-page-helper">
+                        Choose your preferred color:
+                    </MudText>
+
+                    <div class="profile-color-options">
+                        <MudRadioGroup T="string" @bind-Value="CurrentInput.PreferredColor">
+                            @foreach (var color in PlayerColorOptions.Colors)
+                            {
+                                <span class="@GetColorOptionClass(color)">
+                                    <MudRadio T="string" Value="@color" Class="profile-color-radio">
+                                        @PlayerColorOptions.ToLabel(color)
+                                    </MudRadio>
+                                </span>
+                            }
+                        </MudRadioGroup>
+                    </div>
+
+                    <MudStack Row="true" Class="profile-actions">
+                        <MudButton ButtonType="MudBlazor.ButtonType.Submit" Variant="Variant.Filled"
+                                   Color="MudBlazor.Color.Primary" Disabled="@_saving">
+                            Save Changes
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Primary"
+                                   OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
+                            Back to Dashboard
+                        </MudButton>
+                    </MudStack>
                 </MudStack>
-            </MudStack>
+            </EditForm>
         </MudPaper>
     </MudStack>
 }
@@ -77,24 +95,25 @@ else
 @code {
     private bool _loading = true;
     private bool _saving;
+    private string? message;
+    private Severity messageSeverity = Severity.Info;
     private ApplicationUser? _profile;
-    private string _nickname = string.Empty;
-    private string _thumbnailUrl = string.Empty;
-    private string _preferredColor = PlayerColorOptions.Colors[0];
-    private string? _currentUserId;
-    private string _originalNickname = string.Empty;
-    private string _originalThumbnailUrl = string.Empty;
-    private string _originalPreferredColor = PlayerColorOptions.Colors[0];
+    private string? currentUserId;
+    private string originalNickname = string.Empty;
+    private string originalThumbnailUrl = string.Empty;
+    private string originalPreferredColor = PlayerColorOptions.Colors[0];
 
     [CascadingParameter]
-    private Task<AuthenticationState>? AuthState { get; set; }
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private InputModel CurrentInput { get; } = new();
 
     protected override async Task OnInitializedAsync()
     {
-        if (AuthState != null)
+        if (AuthenticationStateTask is not null)
         {
-            var state = await AuthState;
-            _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var authenticationState = await AuthenticationStateTask;
+            currentUserId = authenticationState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         }
 
         await LoadProfileAsync();
@@ -103,114 +122,147 @@ else
     private async Task LoadProfileAsync()
     {
         _loading = true;
-        StateHasChanged();
+        message = null;
 
-        if (_currentUserId != null)
+        if (string.IsNullOrWhiteSpace(currentUserId))
         {
-            _profile = await ProfileService.GetProfileAsync(_currentUserId, CancellationToken.None);
-            if (_profile != null)
-            {
-                _nickname = _profile.Nickname;
-                _thumbnailUrl = _profile.ThumbnailUrl;
-                _preferredColor = PlayerColorOptions.NormalizeOrDefault(_profile.PreferredColor);
-                _originalNickname = _profile.Nickname;
-                _originalThumbnailUrl = _profile.ThumbnailUrl;
-                _originalPreferredColor = _preferredColor;
-            }
+            _profile = null;
+            message = "Error: Unable to determine the current user.";
+            messageSeverity = Severity.Error;
+            _loading = false;
+            return;
         }
 
+        _profile = await ProfileService.GetProfileAsync(currentUserId, CancellationToken.None);
+
+        if (_profile == null)
+        {
+            message = "Error: Unable to load your preferences.";
+            messageSeverity = Severity.Error;
+            _loading = false;
+            return;
+        }
+
+        CurrentInput.Nickname = _profile.Nickname;
+        CurrentInput.ThumbnailUrl = _profile.ThumbnailUrl;
+        CurrentInput.PreferredColor = PlayerColorOptions.NormalizeOrDefault(_profile.PreferredColor);
+        originalNickname = CurrentInput.Nickname ?? string.Empty;
+        originalThumbnailUrl = CurrentInput.ThumbnailUrl ?? string.Empty;
+        originalPreferredColor = CurrentInput.PreferredColor ?? PlayerColorOptions.Colors[0];
         _loading = false;
-        StateHasChanged();
     }
 
-    private async Task SaveAsync()
+    private async Task OnValidSubmitAsync()
     {
-        if (_currentUserId == null || _profile == null) return;
+        if (_profile == null || string.IsNullOrWhiteSpace(currentUserId))
+        {
+            message = "Error: Unable to load your preferences.";
+            messageSeverity = Severity.Error;
+            return;
+        }
 
         _saving = true;
-        StateHasChanged();
 
-        var nicknameChanged = _nickname.Trim() != _originalNickname;
-        var thumbnailChanged = _thumbnailUrl.Trim() != _originalThumbnailUrl;
-        var preferredColorChanged = _preferredColor != _originalPreferredColor;
+        var nickname = CurrentInput.Nickname?.Trim() ?? string.Empty;
+        var thumbnailUrl = CurrentInput.ThumbnailUrl?.Trim() ?? string.Empty;
+        var preferredColor = PlayerColorOptions.NormalizeOrDefault(CurrentInput.PreferredColor);
+        var nicknameChanged = !string.Equals(nickname, originalNickname, StringComparison.Ordinal);
+        var thumbnailChanged = !string.Equals(thumbnailUrl, originalThumbnailUrl, StringComparison.Ordinal);
+        var preferredColorChanged = !string.Equals(preferredColor, originalPreferredColor, StringComparison.Ordinal);
 
         try
         {
-            if (nicknameChanged && !string.IsNullOrWhiteSpace(_nickname))
+            if (!nicknameChanged && !thumbnailChanged && !preferredColorChanged)
             {
-                var result = await ProfileService.UpdateNicknameAsync(_currentUserId, _nickname.Trim(), CancellationToken.None);
+                message = "No changes to save.";
+                messageSeverity = Severity.Info;
+                return;
+            }
 
-                switch (result)
+            if (nicknameChanged)
+            {
+                if (string.IsNullOrWhiteSpace(nickname))
+                {
+                    message = "Error: Nickname cannot be empty.";
+                    messageSeverity = Severity.Error;
+                    return;
+                }
+
+                var nicknameResult = await ProfileService.UpdateNicknameAsync(currentUserId, nickname, CancellationToken.None);
+                switch (nicknameResult)
                 {
                     case NicknameResult.Conflict:
-                        Snackbar.Add("Nickname already taken. Please choose another.", Severity.Error);
-                        _saving = false;
-                        StateHasChanged();
+                        message = "Error: Nickname already taken. Please choose another.";
+                        messageSeverity = Severity.Error;
                         return;
                     case NicknameResult.UpdateFailed:
                     case NicknameResult.UserNotFound:
-                        Snackbar.Add("Save failed, please try again.", Severity.Error);
-                        _saving = false;
-                        StateHasChanged();
+                        message = "Error: Save failed, please try again.";
+                        messageSeverity = Severity.Error;
                         return;
-                    case NicknameResult.Success:
-                        _originalNickname = _nickname.Trim();
-                        break;
                 }
+
+                _profile.Nickname = nickname;
             }
 
             if (thumbnailChanged)
             {
-                var updated = await ProfileService.UpdateThumbnailUrlAsync(_currentUserId, _thumbnailUrl.Trim(), CancellationToken.None);
-                if (!updated)
+                var thumbnailUpdated = await ProfileService.UpdateThumbnailUrlAsync(currentUserId, thumbnailUrl,
+CancellationToken.None);
+                if (!thumbnailUpdated)
                 {
-                    Snackbar.Add("Save failed, please try again.", Severity.Error);
-                    _saving = false;
-                    StateHasChanged();
+                    message = "Error: Save failed, please try again.";
+                    messageSeverity = Severity.Error;
                     return;
                 }
-                _originalThumbnailUrl = _thumbnailUrl.Trim();
+
+                _profile.ThumbnailUrl = thumbnailUrl;
             }
 
             if (preferredColorChanged)
             {
-                var updated = await ProfileService.UpdatePreferredColorAsync(_currentUserId, _preferredColor, CancellationToken.None);
-                if (!updated)
+                var preferredColorUpdated = await ProfileService.UpdatePreferredColorAsync(currentUserId, preferredColor,
+CancellationToken.None);
+                if (!preferredColorUpdated)
                 {
-                    Snackbar.Add("Save failed, please try again.", Severity.Error);
-                    _saving = false;
-                    StateHasChanged();
+                    message = "Error: Save failed, please try again.";
+                    messageSeverity = Severity.Error;
                     return;
                 }
 
-                _originalPreferredColor = _preferredColor;
+                _profile.PreferredColor = preferredColor;
             }
 
-            if (nicknameChanged || thumbnailChanged || preferredColorChanged)
-            {
-                Snackbar.Add("Profile updated successfully!", Severity.Success);
-                // Force page refresh to update the header profile menu
-                Navigation.NavigateTo("/profile-settings", forceLoad: true);
-            }
-            else
-            {
-                Snackbar.Add("No changes to save.", Severity.Info);
-            }
+            originalNickname = nickname;
+            originalThumbnailUrl = thumbnailUrl;
+            originalPreferredColor = preferredColor;
+            message = "Your preferences have been updated.";
+            messageSeverity = Severity.Success;
         }
         catch
         {
-            Snackbar.Add("Save failed, please try again.", Severity.Error);
+            message = "Error: Save failed, please try again.";
+            messageSeverity = Severity.Error;
         }
         finally
         {
             _saving = false;
-            StateHasChanged();
         }
     }
 
-    private Task OnPreferredColorChanged(string value)
+    private sealed class InputModel
     {
-        _preferredColor = PlayerColorOptions.NormalizeOrDefault(value);
-        return Task.CompletedTask;
+        [Display(Name = "Nickname")]
+        public string? Nickname { get; set; }
+
+        [Display(Name = "Thumbnail URL")]
+        public string? ThumbnailUrl { get; set; }
+
+        [Required]
+        [Display(Name = "Preferred rail color")]
+        public string? PreferredColor { get; set; }
     }
+
+    private static string GetColorOptionClass(string color) =>
+        $"profile-color-pill profile-color-pill--{PlayerColorOptions.NormalizeOrDefault(color)}";
 }

@@ -163,6 +163,16 @@ architecture should reflect that simplicity.
   theming options before falling back to custom CSS. Custom CSS
   SHOULD be used only when MudBlazor does not provide an
   appropriate built-in mechanism.
+- **CSS isolation scope anchors**: Blazor scoped CSS
+  (`.razor.css`) only applies to elements rendered directly by
+  the component — MudBlazor components render their own internal
+  DOM that lacks the parent's scope attribute. When scoped styles
+  need to target a MudBlazor component or its internals,
+  contributors MUST wrap it in a plain HTML element (`<div>`,
+  `<span>`) that carries the CSS class. Use `::deep` from that
+  scope anchor to reach into MudBlazor internals. Placing
+  `Class="..."` directly on a MudBlazor component will NOT work
+  with scoped CSS.
 - **Component decomposition**: Pages MUST NOT be monolithic.
   Major UI sections (e.g., map, player panel, dice controls,
   railroad list, chat) MUST be extracted into dedicated Blazor

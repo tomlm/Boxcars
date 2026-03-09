@@ -105,14 +105,18 @@
 
     private static string GetColorClass(string color)
     {
-        return color.Trim().ToLowerInvariant() switch
+        return PlayerColorOptions.NormalizeOrDefault(color) switch
         {
+            "darkblue" => "player-color-darkblue",
             "blue" => "player-color-blue",
-            "red" => "player-color-red",
-            "green" => "player-color-green",
             "cyan" => "player-color-cyan",
+            "red" => "player-color-red",
+            "darkred" => "player-color-darkred",
             "orange" => "player-color-orange",
+            "yellow" => "player-color-yellow",
             "purple" => "player-color-purple",
+            "green" => "player-color-green",
+            "darkgreen" => "player-color-darkgreen",
             _ => "player-color-default"
         };
     }

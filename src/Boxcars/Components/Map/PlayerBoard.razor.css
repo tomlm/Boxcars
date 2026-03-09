@@ -60,28 +60,44 @@
     font-weight: 700;
 }
 
+::deep .player-color-darkblue {
+    --player-color: darkblue;
+}
+
 ::deep .player-color-blue {
     --player-color: blue;
-}
-
-::deep .player-color-red {
-    --player-color: red;
-}
-
-::deep .player-color-green {
-    --player-color: green;
 }
 
 ::deep .player-color-cyan {
     --player-color: cyan;
 }
 
+::deep .player-color-red {
+    --player-color: red;
+}
+
+::deep .player-color-darkred {
+    --player-color: darkred;
+}
+
 ::deep .player-color-orange {
     --player-color: orange;
 }
 
+::deep .player-color-yellow {
+    --player-color: yellow;
+}
+
 ::deep .player-color-purple {
     --player-color: purple;
+}
+
+::deep .player-color-green {
+    --player-color: green;
+}
+
+::deep .player-color-darkgreen {
+    --player-color: darkgreen;
 }
 
 ::deep .player-color-default {

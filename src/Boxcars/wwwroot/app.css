@@ -61,28 +61,44 @@ h1:focus {
     color: #fff;
 }
 
+.player-snackbar-darkblue {
+    --player-snackbar-color: darkblue;
+}
+
 .player-snackbar-blue {
     --player-snackbar-color: blue;
-}
-
-.player-snackbar-red {
-    --player-snackbar-color: red;
-}
-
-.player-snackbar-green {
-    --player-snackbar-color: green;
 }
 
 .player-snackbar-cyan {
     --player-snackbar-color: cyan;
 }
 
+.player-snackbar-red {
+    --player-snackbar-color: red;
+}
+
+.player-snackbar-darkred {
+    --player-snackbar-color: darkred;
+}
+
 .player-snackbar-orange {
     --player-snackbar-color: orange;
 }
 
+.player-snackbar-yellow {
+    --player-snackbar-color: yellow;
+}
+
 .player-snackbar-purple {
     --player-snackbar-color: purple;
+}
+
+.player-snackbar-green {
+    --player-snackbar-color: green;
+}
+
+.player-snackbar-darkgreen {
+    --player-snackbar-color: darkgreen;
 }
 
 .boxcars-snackbar-zone {

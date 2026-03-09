@@ -1,27 +1,34 @@
 ﻿@page "/Account/Manage/PersonalData"
 
 @inject IdentityUserAccessor UserAccessor
+@using MudBlazor
 
 <PageTitle>Personal Data</PageTitle>
 
-<StatusMessage />
-<h3>Personal Data</h3>
+<MudStack Class="manage-page-container">
+    <MudText Typo="Typo.h3">Personal Data</MudText>
+    <StatusMessage />
 
-<div class="row">
-    <div class="col-md-6">
-        <p>Your account contains personal data that you have given us. This page allows you to download or delete that data.</p>
-        <p>
-            <strong>Deleting this data will permanently remove your account, and this cannot be recovered.</strong>
-        </p>
-        <form action="Account/Manage/DownloadPersonalData" method="post">
-            <AntiforgeryToken />
-            <button class="btn btn-primary" type="submit">Download</button>
-        </form>
-        <p>
-            <a href="Account/Manage/DeletePersonalData" class="btn btn-danger">Delete</a>
-        </p>
-    </div>
-</div>
+    <MudPaper Class="manage-page-card">
+        <MudStack Class="manage-page-fields">
+            <MudText Typo="Typo.body1">
+                Your account contains personal data that you have given us. This page allows you to permanently delete that data by closing your account.
+            </MudText>
+
+            <MudAlert Dense="true" Variant="Variant.Outlined" Severity="Severity.Warning">
+                Deleting this data will permanently remove your account, and this cannot be recovered.
+            </MudAlert>
+
+            <MudStack Row="true" Class="manage-page-actions">
+                <MudButton Href="Account/Manage/DeletePersonalData"
+                           Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Error">
+                    Delete Account
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+</MudStack>
 
 @code {
     [CascadingParameter]

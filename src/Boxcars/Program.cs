@@ -53,7 +53,7 @@ public class Program
         });
 
         // Identity (custom table storage stores, no EF Core)
-        builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
+        builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = false)
             .AddSignInManager()
             .AddDefaultTokenProviders();
 

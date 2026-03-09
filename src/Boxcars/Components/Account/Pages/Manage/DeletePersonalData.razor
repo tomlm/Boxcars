@@ -3,6 +3,7 @@
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Identity
 @using Boxcars.Data
+@using MudBlazor
 
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
@@ -12,31 +13,41 @@
 
 <PageTitle>Delete Personal Data</PageTitle>
 
-<StatusMessage Message="@message" />
+<MudStack Class="manage-page-container">
+    <MudText Typo="Typo.h3">Delete Personal Data</MudText>
+    <StatusMessage Message="@message" />
 
-<h3>Delete Personal Data</h3>
+    <MudPaper Class="manage-page-card">
+        <MudStack Class="manage-page-fields">
+            <MudAlert Dense="true" Variant="Variant.Outlined" Severity="Severity.Warning">
+                Deleting this data will permanently remove your account, and this cannot be recovered.
+            </MudAlert>
 
-<div class="alert alert-warning" role="alert">
-    <p>
-        <strong>Deleting this data will permanently remove your account, and this cannot be recovered.</strong>
-    </p>
-</div>
+            <EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post">
+                <DataAnnotationsValidator />
+                <MudStack Class="manage-page-fields">
+                    <ValidationSummary class="auth-validation" role="alert" />
 
-<div>
-    <EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post">
-        <DataAnnotationsValidator />
-        <ValidationSummary class="text-danger" role="alert" />
-        @if (requirePassword)
-        {
-            <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="Please enter your password." />
-                <label for="password" class="form-label">Password</label>
-                <ValidationMessage For="() => Input.Password" class="text-danger" />
-            </div>
-        }
-        <button class="w-100 btn btn-lg btn-danger" type="submit">Delete data and close my account</button>
-    </EditForm>
-</div>
+                    @if (requirePassword)
+                    {
+                        <MudTextField @bind-Value="Input.Password"
+                                      Label="Password"
+                                      Placeholder="Enter your password"
+                                      InputType="InputType.Password"
+                                      Variant="Variant.Outlined"
+                                      Class="manage-page-field" />
+                    }
+
+                    <MudButton ButtonType="MudBlazor.ButtonType.Submit"
+                               Variant="Variant.Filled"
+                               Color="MudBlazor.Color.Error">
+                        Delete Data and Close My Account
+                    </MudButton>
+                </MudStack>
+            </EditForm>
+        </MudStack>
+    </MudPaper>
+</MudStack>
 
 @code {
     private string? message;

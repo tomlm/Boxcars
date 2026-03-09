@@ -37,7 +37,7 @@
                 }
 
                 <MudDivider />
-                <MudMenuItem OnClick="@(() => NavigateToProfile())">View account</MudMenuItem>
+                <MudMenuItem OnClick="@(() => NavigateToAccountSettings())">Account settings</MudMenuItem>
                 <MudMenuItem OnClick="@(() => SignOut())">Sign out</MudMenuItem>
             </ChildContent>
         </MudMenu>
@@ -85,9 +85,9 @@
 
     private bool HasThumbnail => !string.IsNullOrWhiteSpace(_thumbnailUrl);
 
-    private void NavigateToProfile()
+    private void NavigateToAccountSettings()
     {
-        Navigation.NavigateTo("/profile-settings");
+        Navigation.NavigateTo("/Account/Manage");
     }
 
     private void SignOut()
