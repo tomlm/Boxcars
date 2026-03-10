@@ -94,6 +94,21 @@
     stroke-width: 1.2;
 }
 
+.game-map-route-selection-overlay {
+    stroke-linecap: round;
+    pointer-events: none;
+}
+
+.game-map-route-selection-overlay-active {
+    stroke-dasharray: none;
+    stroke-width: 1.2;
+}
+
+.game-map-route-selection-overlay-inactive {
+    stroke-dasharray: 1.2 0.8;
+    stroke-width: 1.2;
+}
+
 .game-map-route-overlay line {
     stroke-width: 1.5;
     stroke-dasharray: none;

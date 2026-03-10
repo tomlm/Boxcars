@@ -64,6 +64,16 @@
                             y2="@railroadSegment.Y2"
                             stroke="@GetRailroadSegmentStrokeColor(railroadSegment)"
                             class="@GetRailroadSegmentClass(railroadSegment)" />
+                        @if (ShouldOverlayPlayerRouteColor(railroadSegment))
+                        {
+                            <line x1="@railroadSegment.X1"
+                                  y1="@railroadSegment.Y1"
+                                  x2="@railroadSegment.X2"
+                                  y2="@railroadSegment.Y2"
+                                  stroke="@PlayerColor"
+                                  stroke-opacity="0.5"
+                                  class="@GetRouteOverlaySegmentClass(railroadSegment)" />
+                        }
                         <line x1="@railroadSegment.X1"
                               y1="@railroadSegment.Y1"
                               x2="@railroadSegment.X2"
@@ -1969,10 +1979,9 @@
         return null;
     }
 
-    private static bool IsRailroadOwnedByPlayer(int railroadIndex)
+    private bool IsRailroadOwnedByPlayer(int railroadIndex)
     {
-        _ = railroadIndex;
-        return false;
+        return PlayerOwnedRailroadIndices?.Contains(railroadIndex) == true;
     }
 
     private static bool AreCoLocated(RouteNodeRenderItem left, RouteNodeRenderItem right)
@@ -2333,6 +2342,20 @@
             && !string.IsNullOrWhiteSpace(ownerColor)
                 ? ownerColor
                 : segment.StrokeColor;
+    }
+
+    private string GetRouteOverlaySegmentClass(RailroadRenderSegment segment)
+    {
+        return IsCurrentUserActivePlayer
+            ? "game-map-route-selection-overlay game-map-route-selection-overlay-active"
+            : "game-map-route-selection-overlay game-map-route-selection-overlay-inactive";
+    }
+
+    private bool ShouldOverlayPlayerRouteColor(RailroadRenderSegment segment)
+    {
+        return SelectionMode == MapSelectionMode.Route
+            && IsRailroadSegmentInSelectedRoute(segment)
+            && !IsRailroadOwnedByPlayer(segment.RailroadIndex);
     }
 
     private bool IsRailroadOwned(int railroadIndex)
