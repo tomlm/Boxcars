@@ -44,9 +44,13 @@ public sealed class CityAccessRow
 {
     public string RegionCode { get; init; } = string.Empty;
 
+    public string RegionName { get; init; } = string.Empty;
+
     public string CityName { get; init; } = string.Empty;
 
-    public decimal AccessPercentage { get; init; }
+    public decimal WithinRegionPercentage { get; init; }
+
+    public decimal GlobalAccessPercentage { get; init; }
 }
 
 public sealed class RegionProbabilityRow

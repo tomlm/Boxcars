@@ -61,7 +61,14 @@ public sealed class RailroadOverlayInfo
 
     public int PurchasePrice { get; init; }
 
-    public decimal AccessChangePercent { get; init; }
+    public IReadOnlyList<RailroadOverlayMetricRow> MetricRows { get; init; } = [];
+}
 
-    public decimal MonopolyChangePercent { get; init; }
+public sealed class RailroadOverlayMetricRow
+{
+    public string Label { get; init; } = string.Empty;
+
+    public decimal CurrentValuePercent { get; init; }
+
+    public decimal DeltaPercent { get; init; }
 }

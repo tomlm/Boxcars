@@ -8,8 +8,24 @@
             <MudStack Spacing="1">
                 <MudText Typo="Typo.subtitle2">@Overlay.RailroadName</MudText>
                 <MudText Typo="Typo.body2">Price: @FormatCurrency(Overlay.PurchasePrice)</MudText>
-                <MudText Typo="Typo.body2">Access Change: @FormatPercent(Overlay.AccessChangePercent)</MudText>
-                <MudText Typo="Typo.body2">Monopoly Change: @FormatPercent(Overlay.MonopolyChangePercent)</MudText>
+
+                @if (VisibleMetricRows.Count > 0)
+                {
+                    <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true" Class="railroad-purchase-overlay-table">
+                        <HeaderContent>
+                            <MudTh>Metric</MudTh>
+                            <MudTh>Current</MudTh>
+                            <MudTh>Delta</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.Label</MudTd>
+                            <MudTd>@FormatPercent(context.CurrentValuePercent, showSign: false)</MudTd>
+                            <MudTd>
+                                <span class="@GetDeltaClass(context.DeltaPercent)">@FormatPercent(context.DeltaPercent, showSign: true)</span>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
             </MudStack>
         </MudPaper>
     </div>
@@ -19,13 +35,33 @@
     [Parameter]
     public RailroadOverlayInfo? Overlay { get; set; }
 
+    private IReadOnlyList<RailroadOverlayMetricRow> VisibleMetricRows => Overlay?.MetricRows
+        .Where(row => row.DeltaPercent != 0m)
+        .ToArray()
+        ?? [];
+
     private static string FormatCurrency(int value)
     {
         return $"${Math.Max(0, value):N0}";
     }
 
-    private static string FormatPercent(decimal value)
+    private static string FormatPercent(decimal value, bool showSign)
     {
-        return $"{value:N1}%";
+        return showSign && value >= 0m ? $"+{value:N1}%" : $"{value:N1}%";
+    }
+
+    private static string GetDeltaClass(decimal value)
+    {
+        if (value > 0m)
+        {
+            return "railroad-purchase-overlay-delta-positive";
+        }
+
+        if (value < 0m)
+        {
+            return "railroad-purchase-overlay-delta-negative";
+        }
+
+        return "railroad-purchase-overlay-delta-neutral";
     }
 }

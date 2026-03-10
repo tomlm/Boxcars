@@ -120,6 +120,56 @@ public class MapAnalysisTests
         Assert.Equal(17_000, greatNorthern!.PurchasePrice);
     }
 
+    [Fact]
+    public async Task MapDefinition_StandardMap_NewYorkWeightedAccess_Is405Percent()
+    {
+        var mapPath = FindStandardMapPath();
+        if (mapPath is null) return;
+
+        await using var stream = File.OpenRead(mapPath);
+        var result = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream);
+
+        Assert.True(result.Succeeded);
+
+        var newYork = result.Definition!.Cities.FirstOrDefault(city =>
+            string.Equals(city.Name, "New York", StringComparison.OrdinalIgnoreCase));
+        var northEast = result.Definition.Regions.FirstOrDefault(region =>
+            string.Equals(region.Code, "NE", StringComparison.OrdinalIgnoreCase));
+
+        Assert.NotNull(newYork);
+        Assert.NotNull(northEast);
+        Assert.NotNull(newYork!.Probability);
+        Assert.NotNull(northEast!.Probability);
+
+        var weightedAccess = Math.Round((decimal)(northEast.Probability!.Value * newYork.Probability!.Value / 100d), 2, MidpointRounding.AwayFromZero);
+        Assert.Equal(4.05m, weightedAccess);
+    }
+
+    [Fact]
+    public async Task MapDefinition_StandardMap_ButteWeightedAccess_Is077Percent()
+    {
+        var mapPath = FindStandardMapPath();
+        if (mapPath is null) return;
+
+        await using var stream = File.OpenRead(mapPath);
+        var result = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream);
+
+        Assert.True(result.Succeeded);
+
+        var butte = result.Definition!.Cities.FirstOrDefault(city =>
+            string.Equals(city.Name, "Butte", StringComparison.OrdinalIgnoreCase));
+        var northWest = result.Definition.Regions.FirstOrDefault(region =>
+            string.Equals(region.Code, "NW", StringComparison.OrdinalIgnoreCase));
+
+        Assert.NotNull(butte);
+        Assert.NotNull(northWest);
+        Assert.NotNull(butte!.Probability);
+        Assert.NotNull(northWest!.Probability);
+
+        var weightedAccess = Math.Round((decimal)(northWest.Probability!.Value * butte.Probability!.Value / 100d), 2, MidpointRounding.AwayFromZero);
+        Assert.Equal(0.77m, weightedAccess);
+    }
+
     private static string? FindStandardMapPath()
     {
         // Walk up from test binary to find the map file in the source tree

@@ -73,13 +73,18 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
     private static List<CityAccessRow> BuildCityAccessRows(MapDefinition mapDefinition, List<CityEntry> cityEntries)
     {
         var cityWeights = NormalizeCityWeights(mapDefinition, cityEntries);
+        var regionNameByCode = mapDefinition.Regions.ToDictionary(region => region.Code, region => region.Name, StringComparer.OrdinalIgnoreCase);
 
         return cityEntries
             .Select(city => new CityAccessRow
             {
                 RegionCode = city.RegionCode,
+                RegionName = regionNameByCode.TryGetValue(city.RegionCode, out var regionName) ? regionName : city.RegionCode,
                 CityName = city.Name,
-                AccessPercentage = cityWeights.TryGetValue(BuildCityKey(city.RegionCode, city.Name), out var weight)
+                WithinRegionPercentage = city.Probability.HasValue
+                    ? Math.Round((decimal)city.Probability.Value, 2, MidpointRounding.AwayFromZero)
+                    : 0m,
+                GlobalAccessPercentage = cityWeights.TryGetValue(BuildCityKey(city.RegionCode, city.Name), out var weight)
                     ? weight
                     : 0m
             })
@@ -300,18 +305,27 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
 
     private static Dictionary<string, decimal> NormalizeCityWeights(MapDefinition mapDefinition, List<CityEntry> cityEntries)
     {
-        var weightedCities = cityEntries.Where(city => city.Probability.HasValue && city.Probability.Value > 0).ToList();
+        var regionWeights = mapDefinition.Regions
+            .Where(region => region.Probability.HasValue && region.Probability.Value > 0)
+            .ToDictionary(region => region.Code, region => region.Probability!.Value, StringComparer.OrdinalIgnoreCase);
+        var weightedCities = cityEntries
+            .Where(city => city.Probability.HasValue
+                && city.Probability.Value > 0
+                && regionWeights.ContainsKey(city.RegionCode))
+            .ToList();
+
         if (weightedCities.Count == 0)
         {
             var uniformWeight = cityEntries.Count == 0 ? 0m : Math.Round(100m / cityEntries.Count, 1, MidpointRounding.AwayFromZero);
             return cityEntries.ToDictionary(city => BuildCityKey(city.RegionCode, city.Name), _ => uniformWeight, StringComparer.OrdinalIgnoreCase);
         }
 
-        var totalWeight = weightedCities.Sum(city => city.Probability!.Value);
         return cityEntries.ToDictionary(
             city => BuildCityKey(city.RegionCode, city.Name),
-            city => city.Probability.HasValue && totalWeight > 0
-                ? Math.Round((decimal)(city.Probability.Value / totalWeight) * 100m, 1, MidpointRounding.AwayFromZero)
+            city => city.Probability.HasValue
+                && city.Probability.Value > 0
+                && regionWeights.TryGetValue(city.RegionCode, out var regionWeight)
+                ? Math.Round((decimal)(regionWeight * city.Probability.Value / 100d), 2, MidpointRounding.AwayFromZero)
                 : 0m,
             StringComparer.OrdinalIgnoreCase);
     }

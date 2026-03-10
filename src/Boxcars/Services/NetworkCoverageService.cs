@@ -19,16 +19,36 @@ public sealed class NetworkCoverageService
             return NetworkCoverageSnapshot.Empty;
         }
 
-        var accessibleCityCount = cityCoverage.Count(entry => entry.Value.Overlaps(ownedIndices));
-        var monopolyCityCount = cityCoverage.Count(entry => entry.Value.Count > 0 && entry.Value.All(ownedIndices.Contains));
+        var accessibleCityCount = cityCoverage.Count(entry => entry.ServingRailroads.Overlaps(ownedIndices));
+        var monopolyCityCount = cityCoverage.Count(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains));
+        var accessibleDestinationPercent = Math.Round(cityCoverage
+            .Where(entry => entry.ServingRailroads.Overlaps(ownedIndices))
+            .Sum(entry => entry.GlobalAccessPercentage), 1, MidpointRounding.AwayFromZero);
+        var monopolyDestinationPercent = Math.Round(cityCoverage
+            .Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains))
+            .Sum(entry => entry.GlobalAccessPercentage), 1, MidpointRounding.AwayFromZero);
+        var regionAccess = cityCoverage
+            .GroupBy(entry => entry.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new RegionCoverageSnapshot
+            {
+                RegionCode = group.Key,
+                AccessibleDestinationPercent = Math.Round(group
+                    .Where(entry => entry.ServingRailroads.Overlaps(ownedIndices))
+                    .Sum(entry => entry.WithinRegionPercentage), 1, MidpointRounding.AwayFromZero)
+            })
+            .OrderBy(region => region.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         return new NetworkCoverageSnapshot
         {
             AccessibleCityCount = accessibleCityCount,
             TotalCityCount = totalCityCount,
             AccessibleCityPercent = CalculatePercent(accessibleCityCount, totalCityCount),
+            AccessibleDestinationPercent = accessibleDestinationPercent,
             MonopolyCityCount = monopolyCityCount,
-            MonopolyCityPercent = CalculatePercent(monopolyCityCount, totalCityCount)
+            MonopolyCityPercent = CalculatePercent(monopolyCityCount, totalCityCount),
+            MonopolyDestinationPercent = monopolyDestinationPercent,
+            RegionAccess = regionAccess
         };
     }
 
@@ -56,17 +76,56 @@ public sealed class NetworkCoverageService
             RailroadIndex = railroadOption.RailroadIndex,
             RailroadName = railroadOption.RailroadName,
             PurchasePrice = railroadOption.PurchasePrice,
-            AccessChangePercent = projectedCoverage.AccessibleCityPercent - currentCoverage.AccessibleCityPercent,
-            MonopolyChangePercent = projectedCoverage.MonopolyCityPercent - currentCoverage.MonopolyCityPercent
+            MetricRows = BuildOverlayMetricRows(currentCoverage, projectedCoverage, mapDefinition)
         };
     }
 
-    private static Dictionary<string, HashSet<int>> BuildCityCoverage(MapDefinition mapDefinition)
+    private static List<RailroadOverlayMetricRow> BuildOverlayMetricRows(
+        NetworkCoverageSnapshot currentCoverage,
+        NetworkCoverageSnapshot projectedCoverage,
+        MapDefinition mapDefinition)
+    {
+        var currentRegionAccessByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedRegionAccessByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var rows = new List<RailroadOverlayMetricRow>
+        {
+            new()
+            {
+                Label = "Monopoly",
+                CurrentValuePercent = currentCoverage.MonopolyDestinationPercent,
+                DeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
+            },
+            new()
+            {
+                Label = "Total",
+                CurrentValuePercent = currentCoverage.AccessibleDestinationPercent,
+                DeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero)
+            }
+        };
+
+        rows.AddRange(mapDefinition.Regions.Select(region =>
+        {
+            var currentPercent = currentRegionAccessByCode.TryGetValue(region.Code, out var currentValue) ? currentValue : 0m;
+            var projectedPercent = projectedRegionAccessByCode.TryGetValue(region.Code, out var projectedValue) ? projectedValue : 0m;
+            return new RailroadOverlayMetricRow
+            {
+                Label = region.Code,
+                CurrentValuePercent = currentPercent,
+                DeltaPercent = Math.Round(projectedPercent - currentPercent, 1, MidpointRounding.AwayFromZero)
+            };
+        }));
+
+        return rows;
+    }
+
+    private static List<CityCoverageEntry> BuildCityCoverage(MapDefinition mapDefinition)
     {
         var regionIndexByCode = mapDefinition.Regions
             .ToDictionary(region => region.Code, region => region.Index, StringComparer.OrdinalIgnoreCase);
 
-        var coverage = new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+        var globalAccessByCity = BuildGlobalCityAccessPercentages(mapDefinition, regionIndexByCode);
+        var withinRegionAccessByCity = BuildWithinRegionCityAccessPercentages(mapDefinition, regionIndexByCode);
+        var coverage = new List<CityCoverageEntry>();
 
         foreach (var city in mapDefinition.Cities)
         {
@@ -80,10 +139,88 @@ public sealed class NetworkCoverageService
                 .Select(segment => segment.RailroadIndex)
                 .ToHashSet();
 
-            coverage[BuildCityKey(city)] = servingRailroads;
+            var cityKey = BuildCityKey(city);
+            coverage.Add(new CityCoverageEntry(
+                city.RegionCode,
+                cityKey,
+                servingRailroads,
+                withinRegionAccessByCity.TryGetValue(cityKey, out var withinRegionPercent) ? withinRegionPercent : 0m,
+                globalAccessByCity.TryGetValue(cityKey, out var globalPercent) ? globalPercent : 0m));
         }
 
         return coverage;
+    }
+
+    private static Dictionary<string, decimal> BuildGlobalCityAccessPercentages(
+        MapDefinition mapDefinition,
+        IReadOnlyDictionary<string, int> regionIndexByCode)
+    {
+        var regionWeights = BuildRegionProbabilityByCode(mapDefinition, regionIndexByCode);
+        var withinRegionWeights = BuildWithinRegionCityAccessPercentages(mapDefinition, regionIndexByCode);
+
+        return withinRegionWeights.ToDictionary(
+            entry => entry.Key,
+            entry =>
+            {
+                var separatorIndex = entry.Key.IndexOf(':');
+                var regionCode = separatorIndex >= 0 ? entry.Key[..separatorIndex] : string.Empty;
+                return regionWeights.TryGetValue(regionCode, out var regionWeight)
+                    ? Math.Round(regionWeight * entry.Value / 100m, 2, MidpointRounding.AwayFromZero)
+                    : 0m;
+            },
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, decimal> BuildWithinRegionCityAccessPercentages(
+        MapDefinition mapDefinition,
+        IReadOnlyDictionary<string, int> regionIndexByCode)
+    {
+        return mapDefinition.Cities
+            .Where(city => city.MapDotIndex.HasValue && regionIndexByCode.ContainsKey(city.RegionCode))
+            .GroupBy(city => city.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group =>
+            {
+                var weightedCities = group.Where(city => city.Probability.HasValue && city.Probability.Value > 0).ToList();
+                if (weightedCities.Count > 0)
+                {
+                    return group.Select(city => new KeyValuePair<string, decimal>(
+                        BuildCityKey(city),
+                        city.Probability.HasValue
+                            ? Math.Round((decimal)city.Probability.Value, 2, MidpointRounding.AwayFromZero)
+                            : 0m));
+                }
+
+                var uniformWeight = group.Any()
+                    ? Math.Round(100m / group.Count(), 2, MidpointRounding.AwayFromZero)
+                    : 0m;
+                return group.Select(city => new KeyValuePair<string, decimal>(BuildCityKey(city), uniformWeight));
+            })
+            .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, decimal> BuildRegionProbabilityByCode(
+        MapDefinition mapDefinition,
+        IReadOnlyDictionary<string, int> regionIndexByCode)
+    {
+        var weightedRegions = mapDefinition.Regions.Where(region => region.Probability.HasValue && region.Probability.Value > 0).ToList();
+        if (weightedRegions.Count > 0)
+        {
+            return weightedRegions.ToDictionary(
+                region => region.Code,
+                region => Math.Round((decimal)region.Probability!.Value, 3, MidpointRounding.AwayFromZero),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        var cityCountByRegion = mapDefinition.Cities
+            .Where(city => city.MapDotIndex.HasValue && regionIndexByCode.ContainsKey(city.RegionCode))
+            .GroupBy(city => city.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+        var totalCityCount = cityCountByRegion.Values.Sum();
+
+        return cityCountByRegion.ToDictionary(
+            entry => entry.Key,
+            entry => totalCityCount == 0 ? 0m : Math.Round(entry.Value * 100m / totalCityCount, 3, MidpointRounding.AwayFromZero),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool SegmentTouchesCity(RailroadRouteSegmentDefinition segment, int regionIndex, int dotIndex)
@@ -103,4 +240,11 @@ public sealed class NetworkCoverageService
             ? 0m
             : Math.Round((decimal)value * 100m / total, 1, MidpointRounding.AwayFromZero);
     }
+
+    private sealed record CityCoverageEntry(
+        string RegionCode,
+        string CityKey,
+        HashSet<int> ServingRailroads,
+        decimal WithinRegionPercentage,
+        decimal GlobalAccessPercentage);
 }

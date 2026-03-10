@@ -6,14 +6,8 @@
     max-width: 100%;
 }
 
-.purchase-analysis-top-row {
-    display: grid;
-    grid-template-columns: max-content max-content;
-    gap: 0.75rem;
-    align-items: start;
-    justify-content: start;
-    width: fit-content;
-    max-width: 100%;
+.purchase-analysis-tab-panel {
+    padding-top: 0.75rem;
 }
 
 .purchase-analysis-table-host {
@@ -31,7 +25,8 @@
     max-width: 100%;
 }
 
-.purchase-analysis-table-host-region ::deep .mud-table-root {
+.purchase-analysis-table-host-region-city ::deep .mud-table-root,
+.purchase-analysis-table-host-map-city ::deep .mud-table-root {
     width: auto;
     max-width: 100%;
 }
@@ -47,10 +42,18 @@
     table-layout: auto;
 }
 
-.purchase-analysis-table-host-region ::deep table {
+.purchase-analysis-table-host-region-city ::deep table,
+.purchase-analysis-table-host-map-city ::deep table {
     width: auto;
     min-width: min-content;
     table-layout: auto;
+}
+
+.purchase-analysis-region-table-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, max-content));
+    gap: 0.75rem;
+    align-items: start;
 }
 
 .purchase-analysis-city-section {
@@ -63,6 +66,15 @@
     font-weight: 700;
 }
 
+.purchase-analysis-region-title {
+    margin-bottom: 0.2rem;
+}
+
+.purchase-analysis-region-probability {
+    display: block;
+    margin-bottom: 0.6rem;
+}
+
 .purchase-analysis-city-columns {
     column-width: 15rem;
     column-gap: 1rem;
@@ -71,8 +83,7 @@
 .purchase-analysis-city-entry {
     break-inside: avoid;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.75rem;
+    gap: 0.2rem;
     padding: 0.35rem 0;
     border-bottom: 1px solid var(--mud-palette-divider);
 }
@@ -93,20 +104,16 @@
     .purchase-analysis-layout {
         width: 100%;
     }
-
-    .purchase-analysis-top-row {
-        grid-template-columns: minmax(0, 1fr);
-        width: 100%;
-    }
 }
 
 @media (max-width: 960px) {
-    .purchase-analysis-top-row {
-        gap: 0.5rem;
-    }
-
     .purchase-analysis-table-host {
         width: 100%;
+    }
+
+    .purchase-analysis-region-table-grid {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
     }
 
     .purchase-analysis-table-host ::deep .mud-table-root,

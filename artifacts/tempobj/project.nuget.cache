@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "dgSpecHash": "2mYRXnl5sg8=",
+  "success": true,
+  "projectFilePath": "S:\\github\\Boxcars\\src\\Boxcars\\Boxcars.csproj",
+  "expectedPackageFiles": [
+    "s:\\packages\\nuget\\azure.core\\1.47.3\\azure.core.1.47.3.nupkg.sha512",
+    "s:\\packages\\nuget\\azure.data.tables\\12.11.0\\azure.data.tables.12.11.0.nupkg.sha512",
+    "s:\\packages\\nuget\\azure.identity\\1.16.0\\azure.identity.1.16.0.nupkg.sha512",
+    "s:\\packages\\nuget\\azure.storage.blobs\\12.25.1\\azure.storage.blobs.12.25.1.nupkg.sha512",
+    "s:\\packages\\nuget\\azure.storage.common\\12.24.0\\azure.storage.common.12.24.0.nupkg.sha512",
+    "s:\\packages\\nuget\\azure.storage.files.shares\\12.23.0\\azure.storage.files.shares.12.23.0.nupkg.sha512",
+    "s:\\packages\\nuget\\azure.storage.queues\\12.23.0\\azure.storage.queues.12.23.0.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.aspnetcore.app.internal.assets\\10.0.3\\microsoft.aspnetcore.app.internal.assets.10.0.3.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.aspnetcore.authentication.microsoftaccount\\8.0.25\\microsoft.aspnetcore.authentication.microsoftaccount.8.0.25.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.aspnetcore.http.connections.client\\8.0.25\\microsoft.aspnetcore.http.connections.client.8.0.25.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.aspnetcore.signalr.client\\8.0.25\\microsoft.aspnetcore.signalr.client.8.0.25.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.aspnetcore.signalr.client.core\\8.0.25\\microsoft.aspnetcore.signalr.client.core.8.0.25.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.bcl.asyncinterfaces\\8.0.0\\microsoft.bcl.asyncinterfaces.8.0.0.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.extensions.azure\\1.13.0\\microsoft.extensions.azure.1.13.0.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.identity.client\\4.76.0\\microsoft.identity.client.4.76.0.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.identity.client.extensions.msal\\4.76.0\\microsoft.identity.client.extensions.msal.4.76.0.nupkg.sha512",
+    "s:\\packages\\nuget\\microsoft.identitymodel.abstractions\\6.35.0\\microsoft.identitymodel.abstractions.6.35.0.nupkg.sha512",
+    "s:\\packages\\nuget\\mudblazor\\8.15.0\\mudblazor.8.15.0.nupkg.sha512",
+    "s:\\packages\\nuget\\system.clientmodel\\1.6.1\\system.clientmodel.1.6.1.nupkg.sha512",
+    "s:\\packages\\nuget\\system.io.hashing\\8.0.0\\system.io.hashing.8.0.0.nupkg.sha512",
+    "s:\\packages\\nuget\\system.memory.data\\8.0.1\\system.memory.data.8.0.1.nupkg.sha512",
+    "s:\\packages\\nuget\\system.security.cryptography.protecteddata\\4.5.0\\system.security.cryptography.protecteddata.4.5.0.nupkg.sha512"
+  ],
+  "logs": []
+}

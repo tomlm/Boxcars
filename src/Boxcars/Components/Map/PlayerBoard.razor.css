@@ -95,6 +95,15 @@
     filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.55));
 }
 
+.player-card-tooltip {
+    min-width: 16rem;
+}
+
+.player-card-tooltip-table ::deep .mud-table-root,
+.player-card-tooltip-table ::deep table {
+    width: 100%;
+}
+
 ::deep .player-color-darkblue {
     --player-color: #0b3d91;
     --player-glow-color: #7ea7ff;

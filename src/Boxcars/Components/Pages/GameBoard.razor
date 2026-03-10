@@ -23,6 +23,7 @@
 @inject GameService GameService
 @inject GamePresenceService GamePresenceService
 @inject GameBoardStateMapper GameBoardStateMapper
+@inject NetworkCoverageService NetworkCoverageService
 @inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
 @inject ISnackbar Snackbar
@@ -632,7 +633,8 @@
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
                     IsConnected = IsPlayerConnected(resolvedUserId),
-                    LocomotiveLabel = player.LocomotiveType
+                    LocomotiveLabel = player.LocomotiveType,
+                    CoverageMetrics = BuildPlayerCoverageMetricRows(player)
                 };
             })
             .ToList();
@@ -1123,10 +1125,83 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 RailroadIndex = railroadOption.RailroadIndex,
                 RailroadName = railroadOption.RailroadName,
                 PurchasePrice = railroadOption.PurchasePrice,
-                AccessChangePercent = projectedCoverage.AccessibleCityPercent - CurrentPurchasePhase.CurrentCoverage.AccessibleCityPercent,
-                MonopolyChangePercent = projectedCoverage.MonopolyCityPercent - CurrentPurchasePhase.CurrentCoverage.MonopolyCityPercent
+                MetricRows = BuildOverlayMetricRows(CurrentPurchasePhase.CurrentCoverage, projectedCoverage, CurrentPurchasePhase.MapAnalysisReport)
             };
         }
+    }
+
+    private static List<RailroadOverlayMetricRow> BuildOverlayMetricRows(
+        NetworkCoverageSnapshot currentCoverage,
+        NetworkCoverageSnapshot projectedCoverage,
+        MapAnalysisReport? report)
+    {
+        var currentByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var rows = new List<RailroadOverlayMetricRow>
+        {
+            new()
+            {
+                Label = "Monopoly",
+                CurrentValuePercent = currentCoverage.MonopolyDestinationPercent,
+                DeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
+            },
+            new()
+            {
+                Label = "Total",
+                CurrentValuePercent = currentCoverage.AccessibleDestinationPercent,
+                DeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero)
+            }
+        };
+
+        rows.AddRange((report?.RegionProbabilityRows ?? Array.Empty<RegionProbabilityRow>())
+            .Select(region =>
+            {
+                var currentPercent = currentByCode.TryGetValue(region.RegionCode, out var currentValue) ? currentValue : 0m;
+                var projectedPercent = projectedByCode.TryGetValue(region.RegionCode, out var projectedValue) ? projectedValue : 0m;
+                return new RailroadOverlayMetricRow
+                {
+                    Label = region.RegionCode,
+                    CurrentValuePercent = currentPercent,
+                    DeltaPercent = Math.Round(projectedPercent - currentPercent, 1, MidpointRounding.AwayFromZero)
+                };
+            }));
+
+        return rows;
+    }
+
+    private IReadOnlyList<RailroadOverlayMetricRow> BuildPlayerCoverageMetricRows(Boxcars.Engine.Persistence.PlayerState player)
+    {
+        if (_playerBoardMapDefinition is null)
+        {
+            return Array.Empty<RailroadOverlayMetricRow>();
+        }
+
+        var coverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, player.OwnedRailroadIndices);
+        var regionByCode = coverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var rows = new List<RailroadOverlayMetricRow>
+        {
+            new()
+            {
+                Label = "Monopoly",
+                CurrentValuePercent = coverage.MonopolyDestinationPercent,
+                DeltaPercent = 0m
+            },
+            new()
+            {
+                Label = "Total",
+                CurrentValuePercent = coverage.AccessibleDestinationPercent,
+                DeltaPercent = 0m
+            }
+        };
+
+        rows.AddRange(_playerBoardMapDefinition.Regions.Select(region => new RailroadOverlayMetricRow
+        {
+            Label = region.Code,
+            CurrentValuePercent = regionByCode.TryGetValue(region.Code, out var value) ? value : 0m,
+            DeltaPercent = 0m
+        }));
+
+        return rows;
     }
 
     private string SelectedRailroadOverlayStyle
@@ -1316,7 +1391,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 HomeCity = player.HomeCity,
                 IsActiveTurn = player.IsActiveTurn,
                 IsConnected = IsPlayerConnected(_playerUserIdsByIndex.GetValueOrDefault(player.Index)),
-                LocomotiveLabel = player.LocomotiveLabel
+                LocomotiveLabel = player.LocomotiveLabel,
+                CoverageMetrics = player.CoverageMetrics
             })
             .ToList();
 

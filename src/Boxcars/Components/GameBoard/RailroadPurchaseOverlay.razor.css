@@ -1,7 +1,26 @@
 .railroad-purchase-overlay-scope {
-    max-width: 18rem;
+    max-width: 24rem;
 }
 
 .railroad-purchase-overlay {
     width: 100%;
+}
+
+.railroad-purchase-overlay-table ::deep .mud-table-root,
+.railroad-purchase-overlay-table ::deep table {
+    width: 100%;
+}
+
+.railroad-purchase-overlay-delta-positive {
+    color: var(--mud-palette-success);
+    font-weight: 700;
+}
+
+.railroad-purchase-overlay-delta-negative {
+    color: var(--mud-palette-error);
+    font-weight: 700;
+}
+
+.railroad-purchase-overlay-delta-neutral {
+    color: var(--mud-palette-text-primary);
 }

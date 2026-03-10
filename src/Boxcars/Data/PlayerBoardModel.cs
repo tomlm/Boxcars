@@ -65,6 +65,9 @@ public sealed class PlayerBoardModel
     /// <summary>Locomotive type label (e.g. "Freight", "Express", "Superchief").</summary>
     public string LocomotiveLabel { get; init; } = "Freight";
 
+    /// <summary>Coverage metrics shown in the player tooltip.</summary>
+    public IReadOnlyList<RailroadOverlayMetricRow> CoverageMetrics { get; init; } = [];
+
     /// <summary>
     /// Returns a money display string.
     /// For the current user, returns the exact formatted amount.
