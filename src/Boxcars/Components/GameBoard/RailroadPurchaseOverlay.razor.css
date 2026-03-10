@@ -1,6 +1,6 @@
 .railroad-purchase-overlay-scope {
-    width: min(44rem, calc(100vw - 2rem));
-    max-width: min(44rem, calc(100vw - 2rem));
+    width: fit-content;
+    max-width: min(36rem, calc(100vw - 2rem));
     max-height: calc(100dvh - 2rem);
     overflow: auto;
     overscroll-behavior: contain;
@@ -8,13 +8,31 @@
 }
 
 .railroad-purchase-overlay {
-    width: 100%;
+    width: fit-content;
+    min-width: 18rem;
+    max-width: 100%;
     pointer-events: auto;
 }
 
 .railroad-purchase-overlay-table ::deep .mud-table-root,
 .railroad-purchase-overlay-table ::deep table {
-    width: 100%;
+    width: auto;
+}
+
+.railroad-purchase-overlay-table ::deep th,
+.railroad-purchase-overlay-table ::deep td {
+    padding: 0.35rem 0.55rem;
+    white-space: nowrap;
+}
+
+.railroad-purchase-overlay-header,
+.railroad-purchase-overlay-area,
+.railroad-purchase-overlay-new-value {
+    font-weight: 700;
+}
+
+.railroad-purchase-overlay-arrow {
+    color: var(--mud-palette-text-secondary);
 }
 
 .railroad-purchase-overlay-delta-positive {

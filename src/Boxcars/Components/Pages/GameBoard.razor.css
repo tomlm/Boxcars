@@ -63,7 +63,7 @@
 .map-board-purchase-overlay {
     position: fixed;
     z-index: 30;
-    max-width: min(44rem, calc(100vw - 2rem));
+    max-width: min(36rem, calc(100vw - 2rem));
     pointer-events: auto;
 }
 
