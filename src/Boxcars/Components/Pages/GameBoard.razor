@@ -95,7 +95,8 @@
         @if (ShouldShowPurchaseExperienceTabs)
         {
             <div class="@AnalysisAreaClass">
-                <PurchaseAnalysisReport Report="@CurrentPurchasePhase?.MapAnalysisReport" />
+                <PurchaseAnalysisReport Report="@CurrentPurchasePhase?.MapAnalysisReport"
+                                        RecommendationInputs="@CurrentPurchasePhase?.RecommendationInputs" />
             </div>
         }
 
@@ -293,18 +294,33 @@
         }
     }
 
-    private Task OnSelectedPurchaseOptionChangedAsync(string? optionKey)
+    private async Task OnSelectedPurchaseOptionChangedAsync(string? optionKey)
     {
         _selectedPurchaseOptionKey = optionKey;
 
-        if (SelectedRailroadIndex is null
-            || !string.Equals(optionKey, BuildRailroadOptionKey(SelectedRailroadIndex.Value), StringComparison.Ordinal))
+        var selectedRailroad = CurrentPurchasePhase?.RailroadOptions.FirstOrDefault(option =>
+            string.Equals(BuildRailroadOptionKey(option.RailroadIndex), optionKey, StringComparison.Ordinal));
+
+        if (selectedRailroad is not null && _gameMap is not null)
+        {
+            var selectionEvent = await _gameMap.GetRailroadClientAnchorAsync(selectedRailroad.RailroadIndex);
+            if (selectionEvent is not null)
+            {
+                await PositionPurchaseOverlayAsync(selectionEvent);
+            }
+            else
+            {
+                _selectedRailroadOverlayClientX = null;
+                _selectedRailroadOverlayClientY = null;
+            }
+        }
+        else
         {
             _selectedRailroadOverlayClientX = null;
             _selectedRailroadOverlayClientY = null;
         }
 
-        return InvokeAsync(StateHasChanged);
+        await InvokeAsync(StateHasChanged);
     }
 
     private Task OnPurchaseTabSelected(PurchaseExperienceTab tab)
@@ -342,6 +358,11 @@
             string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal));
         if (selectedRailroad is not null)
         {
+            if (!selectedRailroad.IsAffordable)
+            {
+                return;
+            }
+
             await EnqueuePurchaseActionAsync(new PurchaseRailroadAction
             {
                 PlayerId = CurrentTurnPlayerName,
@@ -1049,7 +1070,12 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool CanBuySelectedPurchaseOption => CurrentPurchasePhase is not null
         && !string.IsNullOrWhiteSpace(_selectedPurchaseOptionKey)
-        && CurrentPurchasePhase.TaskbarOptions.Any(option => string.Equals(option.OptionKey, _selectedPurchaseOptionKey, StringComparison.Ordinal));
+        && (
+            CurrentPurchasePhase.RailroadOptions.Any(option =>
+                string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal)
+                && option.IsAffordable)
+            || CurrentPurchasePhase.EngineOptions.Any(option =>
+                string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal)));
 
     private EngineUpgradeOption? SelectedEngineOption => CurrentPurchasePhase?.EngineOptions.FirstOrDefault(option =>
         string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal));

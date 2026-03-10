@@ -10,6 +10,10 @@
     min-width: 18rem;
 }
 
+.purchase-taskbar-option-too-expensive {
+    font-style: italic;
+}
+
 @media (max-width: 960px) {
     .purchase-taskbar-select {
         min-width: 10rem;

@@ -314,9 +314,12 @@ public sealed class GameBoardStateMapper(
             ? null
             : networkCoverageService.BuildSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices);
         var engineOptions = BuildEligibleEngineOptions(activePlayer);
-        var railroadOptions = mapDefinition is null
+        var affordableRailroadOptions = mapDefinition is null
             ? []
             : BuildAffordableRailroadOptions(state, mapDefinition, activePlayer.Cash);
+        var railroadOptions = mapDefinition is null
+            ? []
+            : BuildAvailableRailroadOptions(state, mapDefinition, activePlayer.Cash);
         var taskbarOptions = railroadOptions
             .Select(railroadOption => new PurchaseOptionModel
             {
@@ -324,7 +327,8 @@ public sealed class GameBoardStateMapper(
                 OptionKind = PurchaseOptionKind.Railroad,
                 DisplayName = railroadOption.RailroadName,
                 PurchasePrice = railroadOption.PurchasePrice,
-                SortPriceDescendingKey = railroadOption.PurchasePrice
+                SortPriceDescendingKey = railroadOption.PurchasePrice,
+                IsAffordable = railroadOption.IsAffordable
             })
             .Concat(engineOptions.Select(engineOption => new PurchaseOptionModel
             {
@@ -332,7 +336,8 @@ public sealed class GameBoardStateMapper(
                 OptionKind = PurchaseOptionKind.EngineUpgrade,
                 DisplayName = engineOption.DisplayName,
                 PurchasePrice = engineOption.PurchasePrice,
-                SortPriceDescendingKey = engineOption.PurchasePrice
+                SortPriceDescendingKey = engineOption.PurchasePrice,
+                IsAffordable = true
             }))
             .OrderByDescending(option => option.SortPriceDescendingKey)
             .ThenBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -346,11 +351,16 @@ public sealed class GameBoardStateMapper(
             ? networkCoverageService.BuildProjectedSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices, selectedRailroad.RailroadIndex)
             : null;
         var mapAnalysisReport = mapDefinition is null ? null : mapAnalysisService.BuildReport(mapDefinition);
+        var unownedRailroads = mapDefinition is null
+            ? []
+            : mapDefinition.Railroads
+                .Where(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
+                .ToList();
         var projectedCoverageByRailroad = mapDefinition is null
             ? new Dictionary<int, NetworkCoverageSnapshot>()
-            : railroadOptions.ToDictionary(
-                option => option.RailroadIndex,
-                option => networkCoverageService.BuildProjectedSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices, option.RailroadIndex));
+            : unownedRailroads.ToDictionary(
+                railroad => railroad.Index,
+                railroad => networkCoverageService.BuildProjectedSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices, railroad.Index));
 
         var allEligibleEngineTypes = GetEligibleUpgradeTargets(ParseLocomotiveType(activePlayer.LocomotiveType)).ToList();
         var hasUpgradeableEngine = allEligibleEngineTypes.Count > 0;
@@ -393,14 +403,15 @@ public sealed class GameBoardStateMapper(
                 ? null
                 : purchaseRecommendationService.BuildInputSet(
                     mapAnalysisReport,
-                    railroadOptions.Select(option => option.RailroadIndex),
+                    affordableRailroadOptions.Select(option => option.RailroadIndex),
+                    unownedRailroads.Select(railroad => railroad.Index),
                     allEligibleEngineTypes,
                     currentCoverage,
                     projectedCoverageByRailroad)
         };
     }
 
-    private static List<RailroadPurchaseOption> BuildAffordableRailroadOptions(RailBaronGameState state, MapDefinition mapDefinition, int cashAvailable)
+    private static List<RailroadPurchaseOption> BuildAvailableRailroadOptions(RailBaronGameState state, MapDefinition mapDefinition, int cashAvailable)
     {
         return mapDefinition.Railroads
             .Where(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
@@ -412,9 +423,15 @@ public sealed class GameBoardStateMapper(
                 PurchasePrice = railroad.PurchasePrice ?? Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(railroad.Index),
                 IsAffordable = cashAvailable >= (railroad.PurchasePrice ?? Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(railroad.Index))
             })
-            .Where(option => option.IsAffordable)
             .OrderByDescending(option => option.PurchasePrice)
             .ThenBy(option => option.RailroadName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<RailroadPurchaseOption> BuildAffordableRailroadOptions(RailBaronGameState state, MapDefinition mapDefinition, int cashAvailable)
+    {
+        return BuildAvailableRailroadOptions(state, mapDefinition, cashAvailable)
+            .Where(option => option.IsAffordable)
             .ToList();
     }
 

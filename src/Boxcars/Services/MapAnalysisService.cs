@@ -55,6 +55,7 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
 
                 return new RailroadAnalysisRow
                 {
+                    RailroadIndex = railroad.Index,
                     RailroadCode = string.IsNullOrWhiteSpace(railroad.ShortName) ? railroad.Name : railroad.ShortName,
                     FullName = railroad.Name,
                     PurchasePrice = railroad.PurchasePrice ?? RailBaronGameEngine.GetRailroadPurchasePrice(railroad.Index),

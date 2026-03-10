@@ -20,13 +20,15 @@
                 <MudTabPanel Text="Railroads">
                     <div class="purchase-analysis-layout">
                         <div class="purchase-analysis-table-host purchase-analysis-table-host-railroad">
-                            <MudTable T="RailroadAnalysisRow" Items="Report.RailroadRows" Dense="true" Hover="true">
+                            <MudTable T="RailroadAnalysisRow" Items="UnownedRailroadRows" Dense="true" Hover="true">
                                 <HeaderContent>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.FullName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.PurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.CitiesServedCount)"><strong>Cities</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ServicePercentage)"><strong>Service %</strong></MudTableSortLabel></MudTh>
+                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ServicePercentage)"><strong>Access %</strong></MudTableSortLabel></MudTh>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.MonopolyPercentage)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
+                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerAccessDelta(row))"><strong>Player Access</strong></MudTableSortLabel></MudTh>
+                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerMonopolyDelta(row))"><strong>Player Monopoly</strong></MudTableSortLabel></MudTh>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ConnectionCount)"><strong>Connections</strong></MudTableSortLabel></MudTh>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ExpectedIncome)"><strong>Income</strong></MudTableSortLabel></MudTh>
                                 </HeaderContent>
@@ -36,6 +38,8 @@
                                     <MudTd>@context.CitiesServedCount</MudTd>
                                     <MudTd>@FormatPercent(context.ServicePercentage)</MudTd>
                                     <MudTd>@FormatPercent(context.MonopolyPercentage)</MudTd>
+                                    <MudTd>@FormatSignedOptionalPercent(GetPlayerAccessDelta(context))</MudTd>
+                                    <MudTd>@FormatSignedOptionalPercent(GetPlayerMonopolyDelta(context))</MudTd>
                                     <MudTd>@context.ConnectionCount</MudTd>
                                     <MudTd>@context.ExpectedIncome.ToString("N1")</MudTd>
                                 </RowTemplate>
@@ -103,7 +107,14 @@
     [Parameter]
     public MapAnalysisReport? Report { get; set; }
 
+    [Parameter]
+    public RecommendationInputSet? RecommendationInputs { get; set; }
+
     private int _activeTabIndex;
+
+    private IReadOnlyList<RailroadAnalysisRow> UnownedRailroadRows => (Report?.RailroadRows ?? Array.Empty<RailroadAnalysisRow>())
+        .Where(IsUnownedRailroad)
+        .ToArray();
 
     private IReadOnlyList<CityAccessRow> SortedCityRows => Report?.CityAccessRows
         .OrderByDescending(row => row.GlobalAccessPercentage)
@@ -134,6 +145,21 @@
         return $"{value:N1}%";
     }
 
+    private static string FormatOptionalPercent(decimal? value)
+    {
+        return value.HasValue ? $"{value.Value:N1}%" : "-";
+    }
+
+    private static string FormatSignedOptionalPercent(decimal? value)
+    {
+        if (!value.HasValue)
+        {
+            return "-";
+        }
+
+        return value.Value >= 0m ? $"+{value.Value:N1}%" : $"{value.Value:N1}%";
+    }
+
     private static string FormatCityPercent(decimal value)
     {
         return $"{value:N1}%";
@@ -144,4 +170,45 @@
         string RegionName,
         decimal RegionProbabilityPercentage,
         IReadOnlyList<CityAccessRow> Cities);
+
+    private NetworkCoverageSnapshot? GetPlayerCoverage(RailroadAnalysisRow row)
+    {
+        if (RecommendationInputs?.ProjectedCoverageByRailroad is null)
+        {
+            return null;
+        }
+
+        return RecommendationInputs.ProjectedCoverageByRailroad.TryGetValue(row.RailroadIndex, out var coverage)
+            ? coverage
+            : null;
+    }
+
+    private decimal? GetPlayerAccessDelta(RailroadAnalysisRow row)
+    {
+        var projectedCoverage = GetPlayerCoverage(row);
+        var currentCoverage = RecommendationInputs?.CurrentCoverage;
+        if (projectedCoverage is null || currentCoverage is null)
+        {
+            return null;
+        }
+
+        return Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero);
+    }
+
+    private decimal? GetPlayerMonopolyDelta(RailroadAnalysisRow row)
+    {
+        var projectedCoverage = GetPlayerCoverage(row);
+        var currentCoverage = RecommendationInputs?.CurrentCoverage;
+        if (projectedCoverage is null || currentCoverage is null)
+        {
+            return null;
+        }
+
+        return Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero);
+    }
+
+    private bool IsUnownedRailroad(RailroadAnalysisRow row)
+    {
+        return RecommendationInputs?.UnownedRailroadIndices.Contains(row.RailroadIndex) == true;
+    }
 }

@@ -212,6 +212,16 @@
 		await _mapComponent.ShiftViewportByPixels(deltaX, deltaY);
 	}
 
+	public async Task<RailroadSelectionEvent?> GetRailroadClientAnchorAsync(int railroadIndex)
+	{
+		if (_mapComponent is null)
+		{
+			return null;
+		}
+
+		return await _mapComponent.GetRailroadClientAnchorAsync(railroadIndex);
+	}
+
 	public async Task FocusRouteAsync(IReadOnlyList<string>? nodeIds)
 	{
 		if (_mapComponent is null)

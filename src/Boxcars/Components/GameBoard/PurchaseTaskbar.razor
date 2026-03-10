@@ -9,7 +9,9 @@
             <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0">
                 @foreach (var option in TaskbarState.Options)
                 {
-                    <MudSelectItem T="string" Value="@option.OptionKey">@option.DisplayName (@FormatCurrency(option.PurchasePrice))</MudSelectItem>
+                    <MudSelectItem T="string" Value="@option.OptionKey">
+                        <span class="@GetOptionClass(option)">@option.DisplayName (@FormatCurrency(option.PurchasePrice))</span>
+                    </MudSelectItem>
                 }
             </MudSelect>
 
@@ -68,6 +70,13 @@
     private static string FormatCurrency(int value)
     {
         return $"${Math.Max(0, value):N0}";
+    }
+
+    private static string GetOptionClass(PurchaseOptionModel option)
+    {
+        return option.OptionKind == PurchaseOptionKind.Railroad && !option.IsAffordable
+            ? "purchase-taskbar-option-too-expensive"
+            : string.Empty;
     }
 
     private static string FormatPercent(decimal? value)

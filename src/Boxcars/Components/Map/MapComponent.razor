@@ -695,6 +695,39 @@
         StateHasChanged();
     }
 
+    public async Task<RailroadSelectionEvent?> GetRailroadClientAnchorAsync(int railroadIndex)
+    {
+        if (_mapDefinition is null || _renderModel is null)
+        {
+            return null;
+        }
+
+        var segments = _renderModel.RailroadSegments
+            .Where(segment => segment.RailroadIndex == railroadIndex)
+            .ToList();
+
+        if (segments.Count == 0)
+        {
+            return null;
+        }
+
+        var averageX = segments.Average(segment => (segment.X1 + segment.X2) / 2.0);
+        var averageY = segments.Average(segment => (segment.Y1 + segment.Y2) / 2.0);
+        var (relativeX, relativeY) = GetViewportRelativePoint(averageX, averageY);
+        var origin = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _boardViewportElement,
+            0,
+            0);
+
+        return new RailroadSelectionEvent
+        {
+            RailroadIndex = railroadIndex,
+            ClientX = relativeX - origin.X,
+            ClientY = relativeY - origin.Y
+        };
+    }
+
     public async Task FocusRouteAsync(IReadOnlyList<string>? nodeIds, double? targetAspectRatio = null, double maxZoomPercent = 200)
     {
         if (_mapDefinition is null || nodeIds is null || nodeIds.Count == 0)
@@ -922,6 +955,25 @@
 
         return FormattableString.Invariant(
             $"translate({x:F4} {y:F4}) scale({compensationScaleX:F6} 1) translate({-x:F4} {-y:F4})");
+    }
+
+    private (double X, double Y) GetViewportRelativePoint(double boardX, double boardY)
+    {
+        if (_mapDefinition is null)
+        {
+            return (0, 0);
+        }
+
+        var zoomScale = _viewport.ZoomPercent / 100.0;
+        var mapCenterX = _mapDefinition.ScaleLeft + (_mapDefinition.ScaleWidth / 2.0);
+        var mapCenterY = _mapDefinition.ScaleTop + (_mapDefinition.ScaleHeight / 2.0);
+        var cameraX = mapCenterX + (zoomScale * (boardX - _viewport.CenterX));
+        var cameraY = mapCenterY + (zoomScale * (boardY - _viewport.CenterY));
+        var correctedY = mapCenterY + (VerticalAspectCorrectionFactor * (cameraY - mapCenterY));
+        var viewBox = GetAspectCorrectedViewBox();
+        var relativeX = ((cameraX - viewBox.X) / Math.Max(0.0001, viewBox.Width)) * _viewportRenderWidth;
+        var relativeY = ((correctedY - viewBox.Y) / Math.Max(0.0001, viewBox.Height)) * _viewportRenderHeight;
+        return (relativeX, relativeY);
     }
 
     private void OnRailroadSegmentClicked(int railroadIndex, MouseEventArgs args)

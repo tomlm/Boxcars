@@ -20,6 +20,8 @@ public sealed class PurchaseOptionModel
 
     public int SortPriceDescendingKey { get; init; }
 
+    public bool IsAffordable { get; init; } = true;
+
     public bool IsSelected { get; init; }
 }
 

@@ -23,6 +23,8 @@ public sealed class MapAnalysisReport
 
 public sealed class RailroadAnalysisRow
 {
+    public int RailroadIndex { get; init; } = -1;
+
     public string RailroadCode { get; init; } = string.Empty;
 
     public string FullName { get; init; } = string.Empty;
@@ -67,6 +69,8 @@ public sealed class RecommendationInputSet
     public MapAnalysisReport MapAnalysisReport { get; init; } = new();
 
     public IReadOnlyList<int> AffordableRailroadIndices { get; init; } = [];
+
+    public IReadOnlyList<int> UnownedRailroadIndices { get; init; } = [];
 
     public IReadOnlyList<LocomotiveType> EligibleEngineTypes { get; init; } = [];
 
