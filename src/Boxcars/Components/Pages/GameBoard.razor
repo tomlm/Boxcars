@@ -357,7 +357,7 @@
 
     private async Task OnRouteSuggestionChangedAsync(RouteSuggestionResult suggestion)
     {
-        if (_autoZoomEnabled && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
+        if (ShouldApplyAutoZoom() && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
         {
             var focusNodeIds = suggestion.NodeIds.Count > 0
                 ? suggestion.NodeIds
@@ -878,6 +878,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
+        if (!ShouldApplyAutoZoom())
+        {
+            return;
+        }
+
         var routeSuggestion = _gameMap.RouteSuggestion;
         if (routeSuggestion?.Status == RouteSuggestionStatus.Success)
         {
@@ -887,6 +892,13 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             await _gameMap.FocusRouteAsync(focusNodeIds);
         }
+    }
+
+    private bool ShouldApplyAutoZoom()
+    {
+        return _autoZoomEnabled
+            && IsCurrentUserActivePlayer
+            && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase);
     }
 
     private IReadOnlyList<string> BuildFallbackRouteNodeIds()
