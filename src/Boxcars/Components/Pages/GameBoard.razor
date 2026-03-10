@@ -402,12 +402,14 @@
         {
             var priorTurnNumber = _gameState?.TurnNumber ?? -1;
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
+            var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
             ApplyGameState(state);
 
             if (_autoZoomEnabled
                 && _gameMap is not null
-                && (priorTurnNumber != state.TurnNumber || priorActivePlayerIndex != state.ActivePlayerIndex))
+                && (priorTurnNumber != state.TurnNumber || priorActivePlayerIndex != state.ActivePlayerIndex)
+                && (wasAuthenticatedUserActivePlayer || IsAuthenticatedUserActivePlayer))
             {
                 await _gameMap.ResetZoom();
             }
@@ -830,6 +832,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool IsCurrentUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer || IsActivePlayerUnderTestControl;
 
+    private bool IsAuthenticatedUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer;
+
     private bool IsActivePlayerUnderTestControl => _gameState is not null
         && _testControlledPlayerIndex >= 0
         && _testControlledPlayerIndex == _gameState.ActivePlayerIndex;
@@ -928,7 +932,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool ShouldApplyAutoZoom()
     {
         return _autoZoomEnabled
-            && IsCurrentUserActivePlayer
+            && IsAuthenticatedUserActivePlayer
             && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase);
     }
 
