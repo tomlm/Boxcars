@@ -22,7 +22,7 @@
 
 ::deep .player-card-active {
     border-color: var(--player-color, #888);
-    box-shadow: 0 0 8px 2px color-mix(in srgb, var(--player-color, #888) 60%, transparent), 0 0 20px 4px color-mix(in srgb, var(--player-color, #888) 30%, transparent);
+    box-shadow: 0 0 10px 3px color-mix(in srgb, var(--player-color, #888) 60%, transparent), 0 0 24px 6px color-mix(in srgb, var(--player-color, #888) 30%, transparent);
 }
 
 ::deep .player-card-portrait {
