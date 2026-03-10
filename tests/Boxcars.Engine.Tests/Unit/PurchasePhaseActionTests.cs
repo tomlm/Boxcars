@@ -1,4 +1,5 @@
 using Boxcars.Engine.Domain;
+using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine;
 using Boxcars.Engine.Tests.Fixtures;
 using Boxcars.Engine.Tests.TestDoubles;
 
@@ -12,56 +13,56 @@ public class PurchasePhaseActionTests
     [Fact]
     public void GetRailroadPurchasePrice_ValidIndex_ReturnsPrice()
     {
-        var price = GameEngine.GetRailroadPurchasePrice(1);
+        var price = RailBaronGameEngine.GetRailroadPurchasePrice(1);
         Assert.True(price > 0);
     }
 
     [Fact]
     public void GetRailroadPurchasePrice_ZeroIndex_ReturnsFirstPrice()
     {
-        var price = GameEngine.GetRailroadPurchasePrice(0);
+        var price = RailBaronGameEngine.GetRailroadPurchasePrice(0);
         Assert.True(price > 0);
     }
 
     [Fact]
     public void GetRailroadPurchasePrice_OutOfRange_ReturnsFallback()
     {
-        var price = GameEngine.GetRailroadPurchasePrice(999);
+        var price = RailBaronGameEngine.GetRailroadPurchasePrice(999);
         Assert.Equal(10_000, price);
     }
 
     [Fact]
     public void GetUpgradeCost_FreightToExpress_Returns4000()
     {
-        var cost = GameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Express, 40_000);
+        var cost = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Express, 40_000);
         Assert.Equal(4_000, cost);
     }
 
     [Fact]
     public void GetUpgradeCost_FreightToSuperchief_ReturnsConfiguredPrice()
     {
-        var cost = GameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Superchief, 45_000);
+        var cost = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Superchief, 45_000);
         Assert.Equal(45_000, cost);
     }
 
     [Fact]
     public void GetUpgradeCost_ExpressToSuperchief_ReturnsConfiguredPrice()
     {
-        var cost = GameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Superchief, 35_000);
+        var cost = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Superchief, 35_000);
         Assert.Equal(35_000, cost);
     }
 
     [Fact]
     public void GetUpgradeCost_Downgrade_ReturnsNegativeOne()
     {
-        var cost = GameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Freight, 40_000);
+        var cost = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Freight, 40_000);
         Assert.Equal(-1, cost);
     }
 
     [Fact]
     public void GetUpgradeCost_SameType_ReturnsNegativeOne()
     {
-        var cost = GameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Freight, 40_000);
+        var cost = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Freight, 40_000);
         Assert.Equal(-1, cost);
     }
 
@@ -79,7 +80,7 @@ public class PurchasePhaseActionTests
         var player = engine.CurrentTurn.ActivePlayer;
         player.Cash = 100_000;
         int cashBefore = player.Cash;
-        int expectedPrice = GameEngine.GetRailroadPurchasePrice(rr.Index);
+        int expectedPrice = RailBaronGameEngine.GetRailroadPurchasePrice(rr.Index);
 
         engine.BuyRailroad(rr);
 
@@ -124,9 +125,9 @@ public class PurchasePhaseActionTests
     [Fact]
     public void GetRailroadPurchasePrice_ConsecutiveIndices_ReturnsDifferingPrices()
     {
-        var price1 = GameEngine.GetRailroadPurchasePrice(1);
-        var price5 = GameEngine.GetRailroadPurchasePrice(5);
-        var price10 = GameEngine.GetRailroadPurchasePrice(10);
+        var price1 = RailBaronGameEngine.GetRailroadPurchasePrice(1);
+        var price5 = RailBaronGameEngine.GetRailroadPurchasePrice(5);
+        var price10 = RailBaronGameEngine.GetRailroadPurchasePrice(10);
 
         // Prices should all be positive; at least some should differ
         Assert.True(price1 > 0);

@@ -11,12 +11,14 @@
                         <MudText Typo="Typo.subtitle2">@player.Name Coverage</MudText>
                         <MudTable T="RailroadOverlayMetricRow" Items="player.CoverageMetrics" Dense="true" Hover="true" Class="player-card-tooltip-table">
                             <HeaderContent>
-                                <MudTh>Metric</MudTh>
-                                <MudTh>Current</MudTh>
+                                <MudTh>Area</MudTh>
+                                <MudTh>Access</MudTh>
+                                <MudTh>Monopoly</MudTh>
                             </HeaderContent>
                             <RowTemplate>
                                 <MudTd>@context.Label</MudTd>
-                                <MudTd>@FormatPercent(context.CurrentValuePercent)</MudTd>
+                                <MudTd>@FormatPercent(context.AccessPercent)</MudTd>
+                                <MudTd>@FormatPercent(context.MonopolyPercent)</MudTd>
                             </RowTemplate>
                         </MudTable>
                     </MudPaper>

@@ -13,16 +13,22 @@
                 {
                     <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true" Class="railroad-purchase-overlay-table">
                         <HeaderContent>
-                            <MudTh>Metric</MudTh>
-                            <MudTh>Current</MudTh>
-                            <MudTh>Delta</MudTh>
+                            <MudTh>Area</MudTh>
+                            <MudTh>Access Old</MudTh>
+                            <MudTh>Access New</MudTh>
+                            <MudTh>Access +/-</MudTh>
+                            <MudTh>Monopoly Old</MudTh>
+                            <MudTh>Monopoly New</MudTh>
+                            <MudTh>Monopoly +/-</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd>@context.Label</MudTd>
-                            <MudTd>@FormatPercent(context.CurrentValuePercent, showSign: false)</MudTd>
-                            <MudTd>
-                                <span class="@GetDeltaClass(context.DeltaPercent)">@FormatPercent(context.DeltaPercent, showSign: true)</span>
-                            </MudTd>
+                            <MudTd>@FormatPercent(context.AccessPercent, showSign: false)</MudTd>
+                            <MudTd>@FormatPercent(context.ProjectedAccessPercent, showSign: false)</MudTd>
+                            <MudTd><span class="@GetDeltaClass(context.AccessDeltaPercent)">@FormatPercent(context.AccessDeltaPercent, showSign: true)</span></MudTd>
+                            <MudTd>@FormatPercent(context.MonopolyPercent, showSign: false)</MudTd>
+                            <MudTd>@FormatPercent(context.ProjectedMonopolyPercent, showSign: false)</MudTd>
+                            <MudTd><span class="@GetDeltaClass(context.MonopolyDeltaPercent)">@FormatPercent(context.MonopolyDeltaPercent, showSign: true)</span></MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -35,10 +41,7 @@
     [Parameter]
     public RailroadOverlayInfo? Overlay { get; set; }
 
-    private IReadOnlyList<RailroadOverlayMetricRow> VisibleMetricRows => Overlay?.MetricRows
-        .Where(row => row.DeltaPercent != 0m)
-        .ToArray()
-        ?? [];
+    private IReadOnlyList<RailroadOverlayMetricRow> VisibleMetricRows => Overlay?.MetricRows ?? [];
 
     private static string FormatCurrency(int value)
     {

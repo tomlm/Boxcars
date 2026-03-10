@@ -13,6 +13,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
 @using MudBlazor
 @using System.Globalization
 @using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine
@@ -27,6 +28,7 @@
 @inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
 @inject ISnackbar Snackbar
+@inject IJSRuntime JavaScriptRuntime
 @inject IWebHostEnvironment WebHostEnvironment
 
 <PageTitle>Game - BoxCars</PageTitle>
@@ -66,7 +68,7 @@
             </div>
         }
 
-        <div class="@MapAreaClass">
+        <div class="@MapAreaClass" @ref="_mapAreaElement">
             <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
@@ -152,6 +154,7 @@
     private string? _lastPurchaseResolutionKey;
     private double? _selectedRailroadOverlayClientX;
     private double? _selectedRailroadOverlayClientY;
+    private ElementReference _mapAreaElement;
     private PurchaseExperienceTab _selectedPurchaseTab = PurchaseExperienceTab.Map;
     private bool _wasPurchasePhaseActive;
     private int _testControlledPlayerIndex = -1;
@@ -310,23 +313,22 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    private Task OnRailroadSelectedAsync(RailroadSelectionEvent selectionEvent)
+    private async Task OnRailroadSelectedAsync(RailroadSelectionEvent selectionEvent)
     {
         if (CurrentPurchasePhase is null)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         var matchingRailroad = CurrentPurchasePhase.RailroadOptions.FirstOrDefault(option => option.RailroadIndex == selectionEvent.RailroadIndex);
         if (matchingRailroad is null)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         _selectedPurchaseOptionKey = BuildRailroadOptionKey(selectionEvent.RailroadIndex);
-        _selectedRailroadOverlayClientX = selectionEvent.ClientX;
-        _selectedRailroadOverlayClientY = selectionEvent.ClientY;
-        return InvokeAsync(StateHasChanged);
+        await PositionPurchaseOverlayAsync(selectionEvent);
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnBuyPurchaseAsync()
@@ -1135,34 +1137,40 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         NetworkCoverageSnapshot projectedCoverage,
         MapAnalysisReport? report)
     {
-        var currentByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
-        var projectedByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var currentAccessByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedAccessByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var currentMonopolyByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedMonopolyByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
         var rows = new List<RailroadOverlayMetricRow>
         {
             new()
             {
-                Label = "Monopoly",
-                CurrentValuePercent = currentCoverage.MonopolyDestinationPercent,
-                DeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
-            },
-            new()
-            {
                 Label = "Total",
-                CurrentValuePercent = currentCoverage.AccessibleDestinationPercent,
-                DeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero)
+                AccessPercent = currentCoverage.AccessibleDestinationPercent,
+                ProjectedAccessPercent = projectedCoverage.AccessibleDestinationPercent,
+                MonopolyPercent = currentCoverage.MonopolyDestinationPercent,
+                ProjectedMonopolyPercent = projectedCoverage.MonopolyDestinationPercent,
+                AccessDeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
+                MonopolyDeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
             }
         };
 
         rows.AddRange((report?.RegionProbabilityRows ?? Array.Empty<RegionProbabilityRow>())
             .Select(region =>
             {
-                var currentPercent = currentByCode.TryGetValue(region.RegionCode, out var currentValue) ? currentValue : 0m;
-                var projectedPercent = projectedByCode.TryGetValue(region.RegionCode, out var projectedValue) ? projectedValue : 0m;
+                var currentAccessPercent = currentAccessByCode.TryGetValue(region.RegionCode, out var currentAccessValue) ? currentAccessValue : 0m;
+                var projectedAccessPercent = projectedAccessByCode.TryGetValue(region.RegionCode, out var projectedAccessValue) ? projectedAccessValue : 0m;
+                var currentMonopolyPercent = currentMonopolyByCode.TryGetValue(region.RegionCode, out var currentMonopolyValue) ? currentMonopolyValue : 0m;
+                var projectedMonopolyPercent = projectedMonopolyByCode.TryGetValue(region.RegionCode, out var projectedMonopolyValue) ? projectedMonopolyValue : 0m;
                 return new RailroadOverlayMetricRow
                 {
                     Label = region.RegionCode,
-                    CurrentValuePercent = currentPercent,
-                    DeltaPercent = Math.Round(projectedPercent - currentPercent, 1, MidpointRounding.AwayFromZero)
+                    AccessPercent = currentAccessPercent,
+                    ProjectedAccessPercent = projectedAccessPercent,
+                    MonopolyPercent = currentMonopolyPercent,
+                    ProjectedMonopolyPercent = projectedMonopolyPercent,
+                    AccessDeltaPercent = Math.Round(projectedAccessPercent - currentAccessPercent, 1, MidpointRounding.AwayFromZero),
+                    MonopolyDeltaPercent = Math.Round(projectedMonopolyPercent - currentMonopolyPercent, 1, MidpointRounding.AwayFromZero)
                 };
             }));
 
@@ -1177,28 +1185,31 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         var coverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, player.OwnedRailroadIndices);
-        var regionByCode = coverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var regionAccessByCode = coverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var regionMonopolyByCode = coverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
         var rows = new List<RailroadOverlayMetricRow>
         {
             new()
             {
-                Label = "Monopoly",
-                CurrentValuePercent = coverage.MonopolyDestinationPercent,
-                DeltaPercent = 0m
-            },
-            new()
-            {
                 Label = "Total",
-                CurrentValuePercent = coverage.AccessibleDestinationPercent,
-                DeltaPercent = 0m
+                AccessPercent = coverage.AccessibleDestinationPercent,
+                ProjectedAccessPercent = coverage.AccessibleDestinationPercent,
+                MonopolyPercent = coverage.MonopolyDestinationPercent,
+                ProjectedMonopolyPercent = coverage.MonopolyDestinationPercent,
+                AccessDeltaPercent = 0m,
+                MonopolyDeltaPercent = 0m
             }
         };
 
         rows.AddRange(_playerBoardMapDefinition.Regions.Select(region => new RailroadOverlayMetricRow
         {
             Label = region.Code,
-            CurrentValuePercent = regionByCode.TryGetValue(region.Code, out var value) ? value : 0m,
-            DeltaPercent = 0m
+            AccessPercent = regionAccessByCode.TryGetValue(region.Code, out var accessValue) ? accessValue : 0m,
+            ProjectedAccessPercent = regionAccessByCode.TryGetValue(region.Code, out accessValue) ? accessValue : 0m,
+            MonopolyPercent = regionMonopolyByCode.TryGetValue(region.Code, out var monopolyValue) ? monopolyValue : 0m,
+            ProjectedMonopolyPercent = regionMonopolyByCode.TryGetValue(region.Code, out monopolyValue) ? monopolyValue : 0m,
+            AccessDeltaPercent = 0m,
+            MonopolyDeltaPercent = 0m
         }));
 
         return rows;
@@ -1215,6 +1226,46 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             return "left:1rem;top:1rem;";
         }
+    }
+
+    private async Task PositionPurchaseOverlayAsync(RailroadSelectionEvent selectionEvent)
+    {
+        const double overlayGapPixels = 12;
+        const double overlayMarginPixels = 16;
+        const double overlayMaxWidthPixels = 704;
+        const double overlayEstimatedHeightPixels = 480;
+
+        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _mapAreaElement,
+            selectionEvent.ClientX,
+            selectionEvent.ClientY);
+
+        var areaLeft = selectionEvent.ClientX - relativePoint.X;
+        var areaTop = selectionEvent.ClientY - relativePoint.Y;
+        var areaRight = areaLeft + relativePoint.Width;
+        var areaBottom = areaTop + relativePoint.Height;
+        var overlayWidth = Math.Min(overlayMaxWidthPixels, Math.Max(320, relativePoint.Width - (overlayMarginPixels * 2)));
+        var desiredLeft = selectionEvent.ClientX + overlayGapPixels;
+        var desiredTop = selectionEvent.ClientY + overlayGapPixels;
+        var rightOverflow = desiredLeft + overlayWidth + overlayMarginPixels - areaRight;
+
+        if (rightOverflow > 0 && _gameMap is not null)
+        {
+            await _gameMap.ShiftViewportByPixels(rightOverflow, 0);
+            desiredLeft -= rightOverflow;
+        }
+
+        var maxLeft = Math.Max(areaLeft + overlayMarginPixels, areaRight - overlayWidth - overlayMarginPixels);
+        desiredLeft = Math.Clamp(desiredLeft, areaLeft + overlayMarginPixels, maxLeft);
+
+        if (desiredTop + overlayEstimatedHeightPixels + overlayMarginPixels > areaBottom)
+        {
+            desiredTop = Math.Max(areaTop + overlayMarginPixels, areaBottom - overlayEstimatedHeightPixels - overlayMarginPixels);
+        }
+
+        _selectedRailroadOverlayClientX = desiredLeft;
+        _selectedRailroadOverlayClientY = Math.Max(areaTop + overlayMarginPixels, desiredTop);
     }
 
     private string CurrentUserPlayerColor => _currentUserPlayerIndex >= 0

@@ -34,6 +34,9 @@ public sealed class NetworkCoverageService
                 RegionCode = group.Key,
                 AccessibleDestinationPercent = Math.Round(group
                     .Where(entry => entry.ServingRailroads.Overlaps(ownedIndices))
+                    .Sum(entry => entry.WithinRegionPercentage), 1, MidpointRounding.AwayFromZero),
+                MonopolyDestinationPercent = Math.Round(group
+                    .Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains))
                     .Sum(entry => entry.WithinRegionPercentage), 1, MidpointRounding.AwayFromZero)
             })
             .OrderBy(region => region.RegionCode, StringComparer.OrdinalIgnoreCase)
@@ -87,31 +90,37 @@ public sealed class NetworkCoverageService
     {
         var currentRegionAccessByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
         var projectedRegionAccessByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var currentRegionMonopolyByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedRegionMonopolyByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
         var rows = new List<RailroadOverlayMetricRow>
         {
             new()
             {
-                Label = "Monopoly",
-                CurrentValuePercent = currentCoverage.MonopolyDestinationPercent,
-                DeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
-            },
-            new()
-            {
                 Label = "Total",
-                CurrentValuePercent = currentCoverage.AccessibleDestinationPercent,
-                DeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero)
+                AccessPercent = currentCoverage.AccessibleDestinationPercent,
+                ProjectedAccessPercent = projectedCoverage.AccessibleDestinationPercent,
+                MonopolyPercent = currentCoverage.MonopolyDestinationPercent,
+                ProjectedMonopolyPercent = projectedCoverage.MonopolyDestinationPercent,
+                AccessDeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
+                MonopolyDeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
             }
         };
 
         rows.AddRange(mapDefinition.Regions.Select(region =>
         {
-            var currentPercent = currentRegionAccessByCode.TryGetValue(region.Code, out var currentValue) ? currentValue : 0m;
-            var projectedPercent = projectedRegionAccessByCode.TryGetValue(region.Code, out var projectedValue) ? projectedValue : 0m;
+            var currentAccessPercent = currentRegionAccessByCode.TryGetValue(region.Code, out var currentAccessValue) ? currentAccessValue : 0m;
+            var projectedAccessPercent = projectedRegionAccessByCode.TryGetValue(region.Code, out var projectedAccessValue) ? projectedAccessValue : 0m;
+            var currentMonopolyPercent = currentRegionMonopolyByCode.TryGetValue(region.Code, out var currentMonopolyValue) ? currentMonopolyValue : 0m;
+            var projectedMonopolyPercent = projectedRegionMonopolyByCode.TryGetValue(region.Code, out var projectedMonopolyValue) ? projectedMonopolyValue : 0m;
             return new RailroadOverlayMetricRow
             {
                 Label = region.Code,
-                CurrentValuePercent = currentPercent,
-                DeltaPercent = Math.Round(projectedPercent - currentPercent, 1, MidpointRounding.AwayFromZero)
+                AccessPercent = currentAccessPercent,
+                ProjectedAccessPercent = projectedAccessPercent,
+                MonopolyPercent = currentMonopolyPercent,
+                ProjectedMonopolyPercent = projectedMonopolyPercent,
+                AccessDeltaPercent = Math.Round(projectedAccessPercent - currentAccessPercent, 1, MidpointRounding.AwayFromZero),
+                MonopolyDeltaPercent = Math.Round(projectedMonopolyPercent - currentMonopolyPercent, 1, MidpointRounding.AwayFromZero)
             };
         }));
 

@@ -1,4 +1,5 @@
 using Boxcars.Engine.Domain;
+using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine;
 
 namespace Boxcars.Engine.Tests.Unit;
 
@@ -15,7 +16,7 @@ public class PurchaseRulesConfigurationTests
     [InlineData(100_000)]
     public void GetUpgradeCost_SuperchiefPrice_ReflectsConfiguration(int configuredPrice)
     {
-        var cost = GameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Superchief, configuredPrice);
+        var cost = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Superchief, configuredPrice);
         Assert.Equal(configuredPrice, cost);
     }
 
@@ -25,7 +26,7 @@ public class PurchaseRulesConfigurationTests
     [InlineData(50_000)]
     public void GetUpgradeCost_ExpressToSuperchief_ReflectsConfiguration(int configuredPrice)
     {
-        var cost = GameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Superchief, configuredPrice);
+        var cost = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Superchief, configuredPrice);
         Assert.Equal(configuredPrice, cost);
     }
 
@@ -33,8 +34,8 @@ public class PurchaseRulesConfigurationTests
     public void GetUpgradeCost_FreightToExpress_IgnoresSuperchiefPrice()
     {
         // Express always costs $4,000 regardless of Superchief configuration
-        var cost1 = GameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Express, 30_000);
-        var cost2 = GameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Express, 100_000);
+        var cost1 = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Express, 30_000);
+        var cost2 = RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Express, 100_000);
 
         Assert.Equal(4_000, cost1);
         Assert.Equal(4_000, cost2);
@@ -43,10 +44,10 @@ public class PurchaseRulesConfigurationTests
     [Fact]
     public void GetUpgradeCost_InvalidPaths_ReturnNegativeOne()
     {
-        Assert.Equal(-1, GameEngine.GetUpgradeCost(LocomotiveType.Superchief, LocomotiveType.Freight, 40_000));
-        Assert.Equal(-1, GameEngine.GetUpgradeCost(LocomotiveType.Superchief, LocomotiveType.Express, 40_000));
-        Assert.Equal(-1, GameEngine.GetUpgradeCost(LocomotiveType.Superchief, LocomotiveType.Superchief, 40_000));
-        Assert.Equal(-1, GameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Express, 40_000));
-        Assert.Equal(-1, GameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Freight, 40_000));
+        Assert.Equal(-1, RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Superchief, LocomotiveType.Freight, 40_000));
+        Assert.Equal(-1, RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Superchief, LocomotiveType.Express, 40_000));
+        Assert.Equal(-1, RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Superchief, LocomotiveType.Superchief, 40_000));
+        Assert.Equal(-1, RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Express, LocomotiveType.Express, 40_000));
+        Assert.Equal(-1, RailBaronGameEngine.GetUpgradeCost(LocomotiveType.Freight, LocomotiveType.Freight, 40_000));
     }
 }

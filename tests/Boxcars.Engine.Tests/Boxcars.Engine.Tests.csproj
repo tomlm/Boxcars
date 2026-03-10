@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Boxcars\Boxcars.csproj" />
     <ProjectReference Include="..\..\src\Boxcars.Engine\Boxcars.Engine.csproj" />
   </ItemGroup>
 

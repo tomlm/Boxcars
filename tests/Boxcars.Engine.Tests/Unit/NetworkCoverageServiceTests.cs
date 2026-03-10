@@ -1,0 +1,76 @@
+using Boxcars.Engine.Data.Maps;
+using Boxcars.Services;
+
+namespace Boxcars.Engine.Tests.Unit;
+
+public class NetworkCoverageServiceTests
+{
+    [Fact]
+    public async Task BuildProjectedSnapshot_OverlapUsesRealDeltaInsteadOfNaiveAddition()
+    {
+        var mapPath = FindStandardMapPath();
+        if (mapPath is null)
+        {
+            return;
+        }
+
+        await using var stream = File.OpenRead(mapPath);
+        var result = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream);
+
+        Assert.True(result.Succeeded, $"Map load failed: {string.Join(", ", result.Errors)}");
+
+        var mapDefinition = result.Definition!;
+        var service = new NetworkCoverageService();
+        var foundOverlapCase = false;
+
+        for (var ownedIndex = 0; ownedIndex < mapDefinition.Railroads.Count && !foundOverlapCase; ownedIndex++)
+        {
+            var currentCoverage = service.BuildSnapshot(mapDefinition, [ownedIndex]);
+
+            for (var candidateIndex = 0; candidateIndex < mapDefinition.Railroads.Count; candidateIndex++)
+            {
+                if (candidateIndex == ownedIndex)
+                {
+                    continue;
+                }
+
+                var candidateCoverage = service.BuildSnapshot(mapDefinition, [candidateIndex]);
+                var projectedCoverage = service.BuildProjectedSnapshot(mapDefinition, [ownedIndex], candidateIndex);
+                var actualDelta = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero);
+
+                if (actualDelta > 0m && actualDelta < candidateCoverage.AccessibleDestinationPercent)
+                {
+                    foundOverlapCase = true;
+                    Assert.True(actualDelta < candidateCoverage.AccessibleDestinationPercent,
+                        $"Owned railroad {ownedIndex} and candidate railroad {candidateIndex} should demonstrate overlap. Actual delta {actualDelta:N1}% must be less than naive candidate-only access {candidateCoverage.AccessibleDestinationPercent:N1}%.");
+                    break;
+                }
+            }
+        }
+
+        Assert.True(foundOverlapCase, "Expected to find at least one overlapping railroad pair where projected access gain is smaller than naive candidate-only access.");
+    }
+
+    private static string? FindStandardMapPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (var i = 0; i < 8; i++)
+        {
+            var candidate = Path.Combine(dir, "src", "Boxcars", "U21MAP.RB3");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            var parent = Directory.GetParent(dir);
+            if (parent is null)
+            {
+                break;
+            }
+
+            dir = parent.FullName;
+        }
+
+        return null;
+    }
+}

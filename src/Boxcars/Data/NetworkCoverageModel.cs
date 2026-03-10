@@ -26,4 +26,6 @@ public sealed class RegionCoverageSnapshot
     public string RegionCode { get; init; } = string.Empty;
 
     public decimal AccessibleDestinationPercent { get; init; }
+
+    public decimal MonopolyDestinationPercent { get; init; }
 }

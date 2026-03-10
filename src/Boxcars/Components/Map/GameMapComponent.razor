@@ -202,6 +202,16 @@
 		await _mapComponent.ResetZoom();
 	}
 
+	public async Task ShiftViewportByPixels(double deltaX, double deltaY)
+	{
+		if (_mapComponent is null)
+		{
+			return;
+		}
+
+		await _mapComponent.ShiftViewportByPixels(deltaX, deltaY);
+	}
+
 	public async Task FocusRouteAsync(IReadOnlyList<string>? nodeIds)
 	{
 		if (_mapComponent is null)

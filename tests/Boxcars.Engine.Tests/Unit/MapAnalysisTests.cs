@@ -1,5 +1,6 @@
 using Boxcars.Engine.Domain;
 using Boxcars.Engine.Data.Maps;
+using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine;
 
 namespace Boxcars.Engine.Tests.Unit;
 
@@ -15,7 +16,7 @@ public class MapAnalysisTests
         // Standard Rail Baron has 28 railroads (indices 0-27)
         for (var index = 0; index < 28; index++)
         {
-            var price = GameEngine.GetRailroadPurchasePrice(index);
+            var price = RailBaronGameEngine.GetRailroadPurchasePrice(index);
             Assert.True(price > 0, $"Railroad index {index} should have a positive price, got {price}");
         }
     }
@@ -26,7 +27,7 @@ public class MapAnalysisTests
         var previousPrice = 0;
         for (var index = 0; index < 28; index++)
         {
-            var price = GameEngine.GetRailroadPurchasePrice(index);
+            var price = RailBaronGameEngine.GetRailroadPurchasePrice(index);
             Assert.True(price >= previousPrice,
                 $"Railroad index {index} price ({price}) should be >= previous price ({previousPrice})");
             previousPrice = price;
@@ -36,14 +37,14 @@ public class MapAnalysisTests
     [Fact]
     public void GetRailroadPurchasePrice_CheapestIs4000()
     {
-        var price = GameEngine.GetRailroadPurchasePrice(0);
+        var price = RailBaronGameEngine.GetRailroadPurchasePrice(0);
         Assert.Equal(4_000, price);
     }
 
     [Fact]
     public void GetRailroadPurchasePrice_MostExpensiveIs40000()
     {
-        var price = GameEngine.GetRailroadPurchasePrice(27);
+        var price = RailBaronGameEngine.GetRailroadPurchasePrice(27);
         Assert.Equal(40_000, price);
     }
 

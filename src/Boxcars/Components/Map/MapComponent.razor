@@ -664,6 +664,37 @@
         StateHasChanged();
     }
 
+    public async Task ShiftViewportByPixels(double deltaX, double deltaY)
+    {
+        if (_mapDefinition is null)
+        {
+            return;
+        }
+
+        var zoomScale = _viewport.ZoomPercent / 100.0;
+        var currentViewWidth = _mapDefinition.ScaleWidth / Math.Max(0.0001, zoomScale);
+        var currentViewHeight = _mapDefinition.ScaleHeight / Math.Max(0.0001, zoomScale);
+        var boardDeltaX = deltaX * (currentViewWidth / Math.Max(1.0, _viewportRenderWidth));
+        var boardDeltaY = deltaY * (currentViewHeight / Math.Max(1.0, _viewportRenderHeight));
+        var halfViewWidth = currentViewWidth / 2.0;
+        var halfViewHeight = currentViewHeight / 2.0;
+        var minCenterX = _mapDefinition.ScaleLeft + halfViewWidth;
+        var maxCenterX = _mapDefinition.ScaleLeft + _mapDefinition.ScaleWidth - halfViewWidth;
+        var minCenterY = _mapDefinition.ScaleTop + halfViewHeight;
+        var maxCenterY = _mapDefinition.ScaleTop + _mapDefinition.ScaleHeight - halfViewHeight;
+
+        _viewport = new BoardViewport
+        {
+            ZoomPercent = _viewport.ZoomPercent,
+            CenterX = ClampViewportCenter(_viewport.CenterX + boardDeltaX, minCenterX, maxCenterX),
+            CenterY = ClampViewportCenter(_viewport.CenterY + boardDeltaY, minCenterY, maxCenterY),
+            ZoomAnchor = ZoomAnchor.ViewportCenter
+        };
+
+        await NotifyViewportChanged();
+        StateHasChanged();
+    }
+
     public async Task FocusRouteAsync(IReadOnlyList<string>? nodeIds, double? targetAspectRatio = null, double maxZoomPercent = 200)
     {
         if (_mapDefinition is null || nodeIds is null || nodeIds.Count == 0)
@@ -759,6 +790,16 @@
         {
             await PanCenterYChanged.InvokeAsync(_viewport.CenterY);
         }
+    }
+
+    private static double ClampViewportCenter(double value, double minimum, double maximum)
+    {
+        if (minimum > maximum)
+        {
+            return (minimum + maximum) / 2.0;
+        }
+
+        return Math.Clamp(value, minimum, maximum);
     }
 
     private async Task InitializeCameraInteropAsync()

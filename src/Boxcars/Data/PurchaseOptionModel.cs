@@ -68,7 +68,15 @@ public sealed class RailroadOverlayMetricRow
 {
     public string Label { get; init; } = string.Empty;
 
-    public decimal CurrentValuePercent { get; init; }
+    public decimal AccessPercent { get; init; }
 
-    public decimal DeltaPercent { get; init; }
+    public decimal ProjectedAccessPercent { get; init; }
+
+    public decimal MonopolyPercent { get; init; }
+
+    public decimal ProjectedMonopolyPercent { get; init; }
+
+    public decimal AccessDeltaPercent { get; init; }
+
+    public decimal MonopolyDeltaPercent { get; init; }
 }
