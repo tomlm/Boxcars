@@ -87,7 +87,8 @@
             @if (SelectedRailroadOverlay is not null && ShouldShowPurchaseTaskbar && IsMapPurchaseTabActive)
             {
                 <div class="map-board-purchase-overlay" style="@SelectedRailroadOverlayStyle">
-                    <RailroadPurchaseOverlay Overlay="SelectedRailroadOverlay" />
+                    <RailroadPurchaseOverlay Overlay="SelectedRailroadOverlay"
+                                             DismissRequested="DismissSelectedRailroadOverlayAsync" />
                 </div>
             }
         </div>
@@ -152,6 +153,7 @@
     private bool _pendingRestoredRouteSelection;
     private string? _lastAutoSuggestKey;
     private string? _selectedPurchaseOptionKey;
+    private string? _dismissedRailroadOverlayOptionKey;
     private string? _lastPurchaseResolutionKey;
     private double? _selectedRailroadOverlayClientX;
     private double? _selectedRailroadOverlayClientY;
@@ -303,6 +305,11 @@
 
         if (selectedRailroad is not null && _gameMap is not null)
         {
+            if (!string.Equals(optionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
+            {
+                _dismissedRailroadOverlayOptionKey = null;
+            }
+
             var selectionEvent = await _gameMap.GetRailroadClientAnchorAsync(selectedRailroad.RailroadIndex);
             if (selectionEvent is not null)
             {
@@ -342,7 +349,13 @@
             return;
         }
 
-        _selectedPurchaseOptionKey = BuildRailroadOptionKey(selectionEvent.RailroadIndex);
+        var optionKey = BuildRailroadOptionKey(selectionEvent.RailroadIndex);
+        if (!string.Equals(optionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
+        {
+            _dismissedRailroadOverlayOptionKey = null;
+        }
+
+        _selectedPurchaseOptionKey = optionKey;
         await PositionPurchaseOverlayAsync(selectionEvent);
         await InvokeAsync(StateHasChanged);
     }
@@ -690,6 +703,7 @@
         {
             // Exiting purchase phase: reset zoom and clear selection artifacts
             _selectedPurchaseOptionKey = null;
+            _dismissedRailroadOverlayOptionKey = null;
             _selectedRailroadOverlayClientX = null;
             _selectedRailroadOverlayClientY = null;
             _selectedPurchaseTab = PurchaseExperienceTab.Map;
@@ -1131,7 +1145,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         get
         {
-            if (CurrentPurchasePhase?.CurrentCoverage is null || SelectedRailroadIndex is not int railroadIndex)
+            if (CurrentPurchasePhase?.CurrentCoverage is null
+                || SelectedRailroadIndex is not int railroadIndex
+                || string.Equals(_selectedPurchaseOptionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
             {
                 return null;
             }
@@ -1254,6 +1270,16 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
     }
 
+    private Task DismissSelectedRailroadOverlayAsync()
+    {
+        if (SelectedRailroadIndex is int)
+        {
+            _dismissedRailroadOverlayOptionKey = _selectedPurchaseOptionKey;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
     private async Task PositionPurchaseOverlayAsync(RailroadSelectionEvent selectionEvent)
     {
         const double overlayGapPixels = 12;
@@ -1310,6 +1336,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         if (CurrentPurchasePhase is null)
         {
             _selectedPurchaseTab = PurchaseExperienceTab.Map;
+            _dismissedRailroadOverlayOptionKey = null;
             _selectedRailroadOverlayClientX = null;
             _selectedRailroadOverlayClientY = null;
         }
@@ -1320,6 +1347,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 && !CurrentPurchasePhase.TaskbarOptions.Any(option => string.Equals(option.OptionKey, _selectedPurchaseOptionKey, StringComparison.Ordinal)))
             {
                 _selectedPurchaseOptionKey = null;
+                _dismissedRailroadOverlayOptionKey = null;
                 _selectedRailroadOverlayClientX = null;
                 _selectedRailroadOverlayClientY = null;
             }
@@ -1328,6 +1356,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         _selectedPurchaseOptionKey = null;
+        _dismissedRailroadOverlayOptionKey = null;
         _selectedRailroadOverlayClientX = null;
         _selectedRailroadOverlayClientY = null;
     }

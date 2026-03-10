@@ -4,7 +4,7 @@
 
 @if (Overlay is not null)
 {
-    <div class="railroad-purchase-overlay-scope">
+    <div class="railroad-purchase-overlay-scope" @onclick="OnDismissRequestedAsync">
         <MudPaper Class="railroad-purchase-overlay pa-3" Outlined="true" Elevation="2">
             <MudStack Spacing="1">
                 <MudText Typo="Typo.subtitle2">@Overlay.RailroadName</MudText>
@@ -58,6 +58,9 @@
     [Parameter]
     public RailroadOverlayInfo? Overlay { get; set; }
 
+    [Parameter]
+    public EventCallback DismissRequested { get; set; }
+
     private IReadOnlyList<RailroadOverlayMetricRow> VisibleMetricRows => Overlay?.MetricRows
         .Where(row => row.AccessDeltaPercent != 0m || row.MonopolyDeltaPercent != 0m)
         .ToArray()
@@ -87,5 +90,10 @@
         }
 
         return "railroad-purchase-overlay-delta-neutral";
+    }
+
+    private Task OnDismissRequestedAsync()
+    {
+        return DismissRequested.InvokeAsync();
     }
 }
