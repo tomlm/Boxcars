@@ -75,6 +75,16 @@
     margin-bottom: 0.6rem;
 }
 
+.purchase-analysis-railroad-price-too-expensive {
+    color: var(--mud-palette-error);
+    font-weight: 700;
+}
+
+.purchase-analysis-railroad-price-affordable {
+    color: var(--mud-palette-success);
+    font-weight: 700;
+}
+
 .purchase-analysis-city-columns {
     column-width: 15rem;
     column-gap: 1rem;

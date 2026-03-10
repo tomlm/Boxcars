@@ -1,5 +1,7 @@
 using Boxcars.Engine.Domain;
 using Boxcars.Engine.Data.Maps;
+using Boxcars.Services;
+using Boxcars.Services.Maps;
 using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine;
 
 namespace Boxcars.Engine.Tests.Unit;
@@ -169,6 +171,66 @@ public class MapAnalysisTests
 
         var weightedAccess = Math.Round((decimal)(northWest.Probability!.Value * butte.Probability!.Value / 100d), 2, MidpointRounding.AwayFromZero);
         Assert.Equal(0.77m, weightedAccess);
+    }
+
+    [Fact]
+    public async Task MapAnalysisReport_StandardMap_SouthernPacificWeightedAccess_Is2097Percent()
+    {
+        var mapPath = FindStandardMapPath();
+        if (mapPath is null) return;
+
+        await using var stream = File.OpenRead(mapPath);
+        var result = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream);
+
+        Assert.True(result.Succeeded, $"Map load failed: {string.Join(", ", result.Errors)}");
+
+        var service = new MapAnalysisService(new MapRouteService());
+        var report = service.BuildReport(result.Definition!);
+        var southernPacific = report.RailroadRows.FirstOrDefault(row =>
+            string.Equals(row.FullName, "Southern Pacific", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(row.RailroadCode, "SP", StringComparison.OrdinalIgnoreCase));
+
+        Assert.NotNull(southernPacific);
+        Assert.Equal(20.97m, southernPacific!.ServicePercentage);
+        Assert.Equal(0m, southernPacific.MonopolyPercentage);
+    }
+
+    [Theory]
+    [InlineData("SP", "Southern Pacific", 42000, 12, 20.97, 0.00, 12)]
+    [InlineData("AT&SF", "Atchison, Topeka, and Santa Fe", 40000, 11, 23.51, 1.62, 17)]
+    [InlineData("UP", "Union Pacific", 40000, 9, 16.44, 2.01, 13)]
+    [InlineData("PA", "Pennsylvania RR", 30000, 13, 28.09, 0.00, 17)]
+    [InlineData("CRI&P", "Chicago, Rock Island, and Pacific", 29000, 10, 15.07, 0.77, 20)]
+    [InlineData("NYC", "New York Central", 28000, 9, 19.46, 0.00, 16)]
+    public async Task MapAnalysisReport_StandardMap_ReferenceRailroadRows_MatchExpected(
+        string railroadCode,
+        string railroadName,
+        int purchasePrice,
+        int cityCount,
+        decimal servicePercent,
+        decimal monopolyPercent,
+        int connectionCount)
+    {
+        var mapPath = FindStandardMapPath();
+        if (mapPath is null) return;
+
+        await using var stream = File.OpenRead(mapPath);
+        var result = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream);
+
+        Assert.True(result.Succeeded, $"Map load failed: {string.Join(", ", result.Errors)}");
+
+        var service = new MapAnalysisService(new MapRouteService());
+        var report = service.BuildReport(result.Definition!);
+        var railroad = report.RailroadRows.FirstOrDefault(row =>
+            string.Equals(row.RailroadCode, railroadCode, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(row.FullName, railroadName, StringComparison.OrdinalIgnoreCase));
+
+        Assert.NotNull(railroad);
+        Assert.Equal(purchasePrice, railroad!.PurchasePrice);
+        Assert.Equal(cityCount, railroad.CitiesServedCount);
+        Assert.Equal(servicePercent, railroad.ServicePercentage);
+        Assert.Equal(monopolyPercent, railroad.MonopolyPercentage);
+        Assert.Equal(connectionCount, railroad.ConnectionCount);
     }
 
     private static string? FindStandardMapPath()

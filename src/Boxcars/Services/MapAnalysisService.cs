@@ -33,7 +33,7 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
         List<CityEntry> cityEntries,
         Dictionary<int, HashSet<string>> railroadCityCoverage)
     {
-        var cityCount = cityEntries.Count;
+        var exactCityWeights = BuildExactCityWeights(mapDefinition, cityEntries);
         var allRailroadCityCoverage = railroadCityCoverage
             .SelectMany(entry => entry.Value.Select(cityKey => new { entry.Key, CityKey = cityKey }))
             .GroupBy(entry => entry.CityKey, StringComparer.OrdinalIgnoreCase)
@@ -50,6 +50,15 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
                     allRailroadCityCoverage.TryGetValue(cityKey, out var servingRailroads)
                     && servingRailroads.Count == 1
                     && servingRailroads.Contains(railroad.Index));
+                var weightedAccessPercent = Math.Round(servedCities
+                    .Where(exactCityWeights.ContainsKey)
+                    .Sum(cityKey => exactCityWeights[cityKey]), 2, MidpointRounding.AwayFromZero);
+                var weightedMonopolyPercent = Math.Round(servedCities
+                    .Where(cityKey => allRailroadCityCoverage.TryGetValue(cityKey, out var servingRailroads)
+                        && servingRailroads.Count == 1
+                        && servingRailroads.Contains(railroad.Index)
+                        && exactCityWeights.ContainsKey(cityKey))
+                    .Sum(cityKey => exactCityWeights[cityKey]), 2, MidpointRounding.AwayFromZero);
 
                 var connectionCount = CountRailroadConnections(railroad.Index, mapDefinition, nodeRailroadCoverage);
 
@@ -60,10 +69,9 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
                     FullName = railroad.Name,
                     PurchasePrice = railroad.PurchasePrice ?? RailBaronGameEngine.GetRailroadPurchasePrice(railroad.Index),
                     CitiesServedCount = servedCities.Count,
-                    ServicePercentage = CalculatePercent(servedCities.Count, cityCount),
-                    MonopolyPercentage = CalculatePercent(monopolyCityCount, cityCount),
-                    ConnectionCount = connectionCount,
-                    ExpectedIncome = BuildExpectedIncome(mapDefinition, cityEntries, servedCities)
+                    ServicePercentage = weightedAccessPercent,
+                    MonopolyPercentage = weightedMonopolyPercent,
+                    ConnectionCount = connectionCount
                 };
             })
             .OrderByDescending(row => row.PurchasePrice)
@@ -211,31 +219,31 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
         return tripLengths;
     }
 
-    private static decimal BuildExpectedIncome(MapDefinition mapDefinition, List<CityEntry> cityEntries, HashSet<string> servedCities)
+    private static Dictionary<string, decimal> BuildExactCityWeights(MapDefinition mapDefinition, List<CityEntry> cityEntries)
     {
-        var payoffs = new List<decimal>();
+        var regionWeights = mapDefinition.Regions
+            .Where(region => region.Probability.HasValue && region.Probability.Value > 0)
+            .ToDictionary(region => region.Code, region => (decimal)region.Probability!.Value, StringComparer.OrdinalIgnoreCase);
+        var weightedCities = cityEntries
+            .Where(city => city.Probability.HasValue
+                && city.Probability.Value > 0
+                && regionWeights.ContainsKey(city.RegionCode))
+            .ToList();
 
-        foreach (var origin in cityEntries.Where(city => servedCities.Contains(BuildCityKey(city.RegionCode, city.Name))))
+        if (weightedCities.Count == 0)
         {
-            foreach (var destination in cityEntries)
-            {
-                if (string.Equals(origin.Name, destination.Name, StringComparison.OrdinalIgnoreCase)
-                    || !origin.PayoutIndex.HasValue
-                    || !destination.PayoutIndex.HasValue)
-                {
-                    continue;
-                }
-
-                if (mapDefinition.TryGetPayout(origin.PayoutIndex.Value, destination.PayoutIndex.Value, out var payout))
-                {
-                    payoffs.Add(payout);
-                }
-            }
+            var uniformWeight = cityEntries.Count == 0 ? 0m : 100m / cityEntries.Count;
+            return cityEntries.ToDictionary(city => BuildCityKey(city.RegionCode, city.Name), _ => uniformWeight, StringComparer.OrdinalIgnoreCase);
         }
 
-        return payoffs.Count == 0
-            ? 0m
-            : Math.Round(payoffs.Average(), 1, MidpointRounding.AwayFromZero);
+        return cityEntries.ToDictionary(
+            city => BuildCityKey(city.RegionCode, city.Name),
+            city => city.Probability.HasValue
+                && city.Probability.Value > 0
+                && regionWeights.TryGetValue(city.RegionCode, out var regionWeight)
+                    ? regionWeight * (decimal)city.Probability.Value / 100m
+                    : 0m,
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, HashSet<int>> BuildNodeRailroadCoverage(MapDefinition mapDefinition)

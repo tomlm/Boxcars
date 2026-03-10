@@ -14,6 +14,16 @@
     pointer-events: auto;
 }
 
+.railroad-purchase-overlay-price-too-expensive {
+    color: var(--mud-palette-error);
+    font-weight: 700;
+}
+
+.railroad-purchase-overlay-price-affordable {
+    color: var(--mud-palette-success);
+    font-weight: 700;
+}
+
 .railroad-purchase-overlay-table ::deep .mud-table-root,
 .railroad-purchase-overlay-table ::deep table {
     width: auto;

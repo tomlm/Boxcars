@@ -63,6 +63,8 @@ public sealed class RailroadOverlayInfo
 
     public int PurchasePrice { get; init; }
 
+    public bool IsAffordable { get; init; } = true;
+
     public IReadOnlyList<RailroadOverlayMetricRow> MetricRows { get; init; } = [];
 }
 

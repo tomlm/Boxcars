@@ -38,8 +38,6 @@ public sealed class RailroadAnalysisRow
     public decimal MonopolyPercentage { get; init; }
 
     public int ConnectionCount { get; init; }
-
-    public decimal ExpectedIncome { get; init; }
 }
 
 public sealed class CityAccessRow

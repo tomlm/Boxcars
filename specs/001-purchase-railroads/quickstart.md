@@ -32,7 +32,7 @@
 2. Confirm the purchase experience exposes `Map` and `Information` tabs.
 3. Open the `Information` tab.
 4. Verify the analysis report includes:
-   - railroad summary rows with railroad name/code, price, city count, service %, monopoly %, connection count, and income metric
+   - railroad summary rows with railroad name/code, price, city count, service %, monopoly %, and connection count
    - city access percentage rows
    - region probability rows
    - average trip length, average payoff, and average payoff-per-dot metrics

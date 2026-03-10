@@ -30,18 +30,20 @@
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerAccessDelta(row))"><strong>Player Access</strong></MudTableSortLabel></MudTh>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerMonopolyDelta(row))"><strong>Player Monopoly</strong></MudTableSortLabel></MudTh>
                                     <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ConnectionCount)"><strong>Connections</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ExpectedIncome)"><strong>Income</strong></MudTableSortLabel></MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
-                                    <MudTd>@context.FullName</MudTd>
-                                    <MudTd>@FormatCurrency(context.PurchasePrice)</MudTd>
+                                    <MudTd>
+                                        <span class="@GetRailroadRowTextClass(context)">@context.FullName</span>
+                                    </MudTd>
+                                    <MudTd>
+                                        <span class="@GetRailroadPriceClass(context)">@FormatCurrency(context.PurchasePrice)</span>
+                                    </MudTd>
                                     <MudTd>@context.CitiesServedCount</MudTd>
-                                    <MudTd>@FormatPercent(context.ServicePercentage)</MudTd>
-                                    <MudTd>@FormatPercent(context.MonopolyPercentage)</MudTd>
+                                    <MudTd>@FormatRailroadPercent(context.ServicePercentage)</MudTd>
+                                    <MudTd>@FormatRailroadPercent(context.MonopolyPercentage)</MudTd>
                                     <MudTd>@FormatSignedOptionalPercent(GetPlayerAccessDelta(context))</MudTd>
                                     <MudTd>@FormatSignedOptionalPercent(GetPlayerMonopolyDelta(context))</MudTd>
                                     <MudTd>@context.ConnectionCount</MudTd>
-                                    <MudTd>@context.ExpectedIncome.ToString("N1")</MudTd>
                                 </RowTemplate>
                             </MudTable>
                         </div>
@@ -145,6 +147,11 @@
         return $"{value:N1}%";
     }
 
+    private static string FormatRailroadPercent(decimal value)
+    {
+        return $"{value:N2}%";
+    }
+
     private static string FormatOptionalPercent(decimal? value)
     {
         return value.HasValue ? $"{value.Value:N1}%" : "-";
@@ -210,5 +217,22 @@
     private bool IsUnownedRailroad(RailroadAnalysisRow row)
     {
         return RecommendationInputs?.UnownedRailroadIndices.Contains(row.RailroadIndex) == true;
+    }
+
+    private bool IsAffordableRailroad(RailroadAnalysisRow row)
+    {
+        return RecommendationInputs?.AffordableRailroadIndices.Contains(row.RailroadIndex) == true;
+    }
+
+    private string GetRailroadRowTextClass(RailroadAnalysisRow row)
+    {
+        return "purchase-analysis-railroad-text";
+    }
+
+    private string GetRailroadPriceClass(RailroadAnalysisRow row)
+    {
+        return IsAffordableRailroad(row)
+            ? "purchase-analysis-railroad-text purchase-analysis-railroad-price-affordable"
+            : "purchase-analysis-railroad-text purchase-analysis-railroad-price-too-expensive";
     }
 }

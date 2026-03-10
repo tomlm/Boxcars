@@ -10,8 +10,14 @@
     min-width: 18rem;
 }
 
-.purchase-taskbar-option-too-expensive {
-    font-style: italic;
+.purchase-taskbar-option-price-affordable {
+    color: var(--mud-palette-success);
+    font-weight: 700;
+}
+
+.purchase-taskbar-option-price-too-expensive {
+    color: var(--mud-palette-error);
+    font-weight: 700;
 }
 
 @media (max-width: 960px) {

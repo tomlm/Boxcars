@@ -97,7 +97,7 @@
         {
             <div class="@AnalysisAreaClass">
                 <PurchaseAnalysisReport Report="@CurrentPurchasePhase?.MapAnalysisReport"
-                                        RecommendationInputs="@CurrentPurchasePhase?.RecommendationInputs" />
+                                        RecommendationInputs="@DisplayRecommendationInputs" />
             </div>
         }
 
@@ -1053,6 +1053,69 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private PurchasePhaseModel? CurrentPurchasePhase => _turnViewState.PurchasePhase;
 
+    private int EffectiveRecommendationPlayerIndex
+    {
+        get
+        {
+            if (_gameState is null)
+            {
+                return -1;
+            }
+
+            if (IsActivePlayerUnderTestControl)
+            {
+                return _gameState.ActivePlayerIndex;
+            }
+
+            if (_currentUserPlayerIndex >= 0 && _currentUserPlayerIndex < _gameState.Players.Count)
+            {
+                return _currentUserPlayerIndex;
+            }
+
+            return _gameState.ActivePlayerIndex;
+        }
+    }
+
+    private RecommendationInputSet? DisplayRecommendationInputs
+    {
+        get
+        {
+            var baseInputs = CurrentPurchasePhase?.RecommendationInputs;
+            if (baseInputs is null || _gameState is null || _playerBoardMapDefinition is null)
+            {
+                return baseInputs;
+            }
+
+            var effectivePlayerIndex = EffectiveRecommendationPlayerIndex;
+            if (effectivePlayerIndex < 0 || effectivePlayerIndex >= _gameState.Players.Count)
+            {
+                return baseInputs;
+            }
+
+            if (effectivePlayerIndex == _gameState.ActivePlayerIndex)
+            {
+                return baseInputs;
+            }
+
+            var ownedRailroadIndices = _gameState.Players[effectivePlayerIndex].OwnedRailroadIndices;
+            var currentCoverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, ownedRailroadIndices);
+            var projectedCoverageByRailroad = CurrentPurchasePhase?.RailroadOptions.ToDictionary(
+                option => option.RailroadIndex,
+                option => NetworkCoverageService.BuildProjectedSnapshot(_playerBoardMapDefinition, ownedRailroadIndices, option.RailroadIndex))
+                ?? new Dictionary<int, NetworkCoverageSnapshot>();
+
+            return new RecommendationInputSet
+            {
+                MapAnalysisReport = baseInputs.MapAnalysisReport,
+                AffordableRailroadIndices = baseInputs.AffordableRailroadIndices,
+                UnownedRailroadIndices = baseInputs.UnownedRailroadIndices,
+                EligibleEngineTypes = baseInputs.EligibleEngineTypes,
+                CurrentCoverage = currentCoverage,
+                ProjectedCoverageByRailroad = projectedCoverageByRailroad
+            };
+        }
+    }
+
     private bool ShouldShowPurchaseExperienceTabs => CurrentPurchasePhase is { HasActivePurchaseControls: true };
 
     private bool IsMapPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Map;
@@ -1169,6 +1232,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 RailroadIndex = railroadOption.RailroadIndex,
                 RailroadName = railroadOption.RailroadName,
                 PurchasePrice = railroadOption.PurchasePrice,
+                IsAffordable = railroadOption.IsAffordable,
                 MetricRows = BuildOverlayMetricRows(CurrentPurchasePhase.CurrentCoverage, projectedCoverage, CurrentPurchasePhase.MapAnalysisReport)
             };
         }

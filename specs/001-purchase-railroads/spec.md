@@ -129,7 +129,7 @@ As the active player, I want purchase controls anchored to the map page instead 
 - **FR-008H**: When an unowned railroad is selected on the map, the system MUST show an overlay info box for that railroad containing purchase price, access change, and monopoly change.
 - **FR-008A**: For a selected engine upgrade, the purchase controls MUST show the upgrade's purchase price and resulting engine level.
 - **FR-008B**: The system MUST analyze the loaded map data and compute the information needed to populate a railroad and city reference report.
-- **FR-008C**: The railroad section of the analysis report MUST include, for each railroad, its code or short name, full name, purchase price, cities served count, city service percentage, city monopoly percentage, railroad connection count, and expected income metric.
+- **FR-008C**: The railroad section of the analysis report MUST include, for each railroad, its code or short name, full name, purchase price, cities served count, city service percentage, city monopoly percentage, and railroad connection count.
 - **FR-008D**: The city section of the analysis report MUST include destination access percentages derived from the loaded map data.
 - **FR-008E**: The report MUST include region probability summaries for the map's destination regions.
 - **FR-008F**: The report MUST include aggregate trip metrics, including average trip length, average payoff, and average payoff per dot traveled.
@@ -151,7 +151,7 @@ As the active player, I want purchase controls anchored to the map page instead 
 - **Purchase Decision**: The active player's current purchase-phase choice, including the selected railroad or engine upgrade, whether it is affordable, and whether it can still be confirmed.
 - **Railroad Overlay Info**: The map overlay shown for a selected railroad, including the railroad's purchase price, access change, and monopoly change.
 - **Map Analysis Report**: A structured summary computed from the loaded map data, including railroad summary rows, city access percentages, region probabilities, and trip-level averages.
-- **Railroad Analysis Row**: One railroad's analysis entry, including railroad code, full name, purchase price, cities served, service percentage, monopoly percentage, railroad connections, and expected income.
+- **Railroad Analysis Row**: One railroad's analysis entry, including railroad code, full name, purchase price, cities served, service percentage, monopoly percentage, and railroad connections.
 - **Recommendation Input Set**: The normalized map-analysis dataset that recommendation logic consumes when generating purchase suggestions.
 
 ## Assumptions

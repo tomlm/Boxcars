@@ -79,6 +79,7 @@ public sealed class NetworkCoverageService
             RailroadIndex = railroadOption.RailroadIndex,
             RailroadName = railroadOption.RailroadName,
             PurchasePrice = railroadOption.PurchasePrice,
+            IsAffordable = railroadOption.IsAffordable,
             MetricRows = BuildOverlayMetricRows(currentCoverage, projectedCoverage, mapDefinition)
         };
     }

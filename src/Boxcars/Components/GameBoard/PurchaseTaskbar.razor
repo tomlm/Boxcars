@@ -10,7 +10,8 @@
                 @foreach (var option in TaskbarState.Options)
                 {
                     <MudSelectItem T="string" Value="@option.OptionKey">
-                        <span class="@GetOptionClass(option)">@option.DisplayName (@FormatCurrency(option.PurchasePrice))</span>
+                        <span class="purchase-taskbar-option-label">@option.DisplayName</span>
+                        <span class="@GetOptionPriceClass(option)"> (@FormatCurrency(option.PurchasePrice))</span>
                     </MudSelectItem>
                 }
             </MudSelect>
@@ -72,11 +73,16 @@
         return $"${Math.Max(0, value):N0}";
     }
 
-    private static string GetOptionClass(PurchaseOptionModel option)
+    private static string GetOptionPriceClass(PurchaseOptionModel option)
     {
-        return option.OptionKind == PurchaseOptionKind.Railroad && !option.IsAffordable
-            ? "purchase-taskbar-option-too-expensive"
-            : string.Empty;
+        if (option.OptionKind != PurchaseOptionKind.Railroad)
+        {
+            return "purchase-taskbar-option-price";
+        }
+
+        return option.IsAffordable
+            ? "purchase-taskbar-option-price purchase-taskbar-option-price-affordable"
+            : "purchase-taskbar-option-price purchase-taskbar-option-price-too-expensive";
     }
 
     private static string FormatPercent(decimal? value)

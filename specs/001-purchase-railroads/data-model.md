@@ -124,7 +124,6 @@
   - `ServicePercentage` (decimal, required)
   - `MonopolyPercentage` (decimal, required)
   - `ConnectionCount` (int, required)
-  - `ExpectedIncome` (decimal, required)
 
 ## Entity: CityAccessRow
 - **Purpose**: One city's destination-frequency summary used in the Information tab report.
