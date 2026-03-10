@@ -27,9 +27,7 @@
 }
 
 .game-map-svg-default-zoom {
-    margin: 5px;
-    width: calc(100% - 10px);
-    height: calc(100% - 10px);
+    margin: 0;
 }
 
 .game-map-regions path {

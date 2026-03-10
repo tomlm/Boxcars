@@ -29,10 +29,11 @@
     else
     {
         <svg class="@GetMapSvgClass()"
-             viewBox="@GetMapViewBoxValue()"
-             preserveAspectRatio="none"
+               viewBox="@GetMapViewBoxValue()"
+               preserveAspectRatio="xMidYMid meet"
              aria-label="Rail Baron game board">
             <g class="game-map-camera" transform="@GetCameraTransform()">
+                <g class="game-map-aspect-correction" transform="@GetAspectCorrectionTransform()">
                 <g class="game-map-regions">
                     @foreach (var regionFill in _renderModel.RegionFills)
                     {
@@ -245,6 +246,7 @@
                                   transform="@GetTextUnstretchTransform(label.X, label.Y)">@label.Text</svg:text>
                     }
                 </g>
+                </g>
             </g>
         </svg>
 
@@ -372,6 +374,8 @@
     public IReadOnlyList<RouteCityOption> RouteCityOptions => _routeCityOptions;
     public string? RouteStartNodeId => _routeStartNodeId;
     public string? DestinationNodeId => _destinationNodeId;
+
+    private const double VerticalAspectCorrectionFactor = 1.5;
 
     private readonly List<string> _errors = new();
     private readonly List<string> _warnings = new();
@@ -648,6 +652,35 @@
         StateHasChanged();
     }
 
+    public async Task FocusRouteAsync(IReadOnlyList<string>? nodeIds, double? targetAspectRatio = null, double maxZoomPercent = 200)
+    {
+        if (_mapDefinition is null || nodeIds is null || nodeIds.Count == 0)
+        {
+            return;
+        }
+
+        var focusPoints = nodeIds
+            .Where(nodeId => !string.IsNullOrWhiteSpace(nodeId))
+            .Select(nodeId => _routeNodes.FirstOrDefault(candidate =>
+                string.Equals(candidate.NodeId, nodeId, StringComparison.OrdinalIgnoreCase)))
+            .Where(node => node is not null)
+            .Select(node => (node!.X, node.Y))
+            .Distinct()
+            .ToList();
+
+        if (focusPoints.Count == 0)
+        {
+            return;
+        }
+
+        var effectiveAspectRatio = targetAspectRatio
+            ?? ((_viewportRenderWidth / Math.Max(0.0001, _viewportRenderHeight)) * VerticalAspectCorrectionFactor);
+
+        _viewport = BoardViewportService.FitToPoints(_mapDefinition, focusPoints, effectiveAspectRatio, maxZoomPercent);
+        await NotifyViewportChanged();
+        StateHasChanged();
+    }
+
     public void SetStartCity(string nodeId)
     {
         SetRouteStartNode(nodeId);
@@ -758,8 +791,7 @@
             return "0 0 1 1";
         }
 
-        return FormattableString.Invariant(
-            $"{_mapDefinition.ScaleLeft:F4} {_mapDefinition.ScaleTop:F4} {_mapDefinition.ScaleWidth:F4} {_mapDefinition.ScaleHeight:F4}");
+        return GetAspectCorrectedViewBox().ToSvgValue();
     }
 
     private string GetMapSvgClass()
@@ -782,6 +814,20 @@
 
         return FormattableString.Invariant(
             $"translate({mapCenterX:F4} {mapCenterY:F4}) scale({zoomScale:F6}) translate({-_viewport.CenterX:F4} {-_viewport.CenterY:F4})");
+    }
+
+    private string? GetAspectCorrectionTransform()
+    {
+        if (_mapDefinition is null)
+        {
+            return null;
+        }
+
+        var centerX = _mapDefinition.ScaleLeft + (_mapDefinition.ScaleWidth / 2.0);
+        var centerY = _mapDefinition.ScaleTop + (_mapDefinition.ScaleHeight / 2.0);
+
+        return FormattableString.Invariant(
+            $"translate({centerX:F4} {centerY:F4}) scale(1 {VerticalAspectCorrectionFactor.ToString("F6", CultureInfo.InvariantCulture)}) translate({-centerX:F4} {-centerY:F4})");
     }
 
     private bool UpdateViewportRenderSize(RelativePoint relativePoint)
@@ -1860,7 +1906,26 @@
 
         var viewBox = BoardViewportService.GetViewBox(_viewport, _mapDefinition);
         var mapUnitsPerPixelY = viewBox.Height / Math.Max(1, _viewportRenderHeight);
+        mapUnitsPerPixelY /= VerticalAspectCorrectionFactor;
         return RouteClickRegionSizePixels * mapUnitsPerPixelY;
+    }
+
+    private ViewBox GetAspectCorrectedViewBox()
+    {
+        if (_mapDefinition is null)
+        {
+            return new ViewBox(0, 0, 1, 1);
+        }
+
+        var centerX = _mapDefinition.ScaleLeft + (_mapDefinition.ScaleWidth / 2.0);
+        var centerY = _mapDefinition.ScaleTop + (_mapDefinition.ScaleHeight / 2.0);
+        var correctedHeight = _mapDefinition.ScaleHeight * VerticalAspectCorrectionFactor;
+
+        return new ViewBox(
+            _mapDefinition.ScaleLeft,
+            centerY - (correctedHeight / 2.0),
+            _mapDefinition.ScaleWidth,
+            correctedHeight);
     }
 
     private void InitializeRouteSelectionFromPlayerStates()

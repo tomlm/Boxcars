@@ -50,6 +50,8 @@
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+                              AutoZoomEnabled="@_autoZoomEnabled"
+                              AutoZoomEnabledChanged="OnAutoZoomEnabledChangedAsync"
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync"
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
         </div>
@@ -98,6 +100,7 @@
     private string? _lastAutoSuggestKey;
     private int _testControlledPlayerIndex = -1;
     private bool _awaitingAuthoritativeUpdate;
+    private bool _autoZoomEnabled;
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -352,9 +355,18 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    private Task OnRouteSuggestionChangedAsync(RouteSuggestionResult _)
+    private async Task OnRouteSuggestionChangedAsync(RouteSuggestionResult suggestion)
     {
-        return InvokeAsync(StateHasChanged);
+        if (_autoZoomEnabled && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
+        {
+            var focusNodeIds = suggestion.NodeIds.Count > 0
+                ? suggestion.NodeIds
+                : BuildFallbackRouteNodeIds();
+
+            await _gameMap.FocusRouteAsync(focusNodeIds);
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadGameStateAsync()
@@ -374,8 +386,18 @@
 
         _ = InvokeAsync(async () =>
         {
+            var priorTurnNumber = _gameState?.TurnNumber ?? -1;
+            var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             _awaitingAuthoritativeUpdate = false;
             ApplyGameState(state);
+
+            if (_autoZoomEnabled
+                && _gameMap is not null
+                && (priorTurnNumber != state.TurnNumber || priorActivePlayerIndex != state.ActivePlayerIndex))
+            {
+                await _gameMap.ResetZoom();
+            }
+
             await RefreshTimelineAsync(notifyNewItems: true);
             TryRestoreRouteSelection();
             await AutoSuggestRouteIfNeededAsync();
@@ -839,6 +861,59 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         _lastAutoSuggestKey = autoSuggestKey;
         await _gameMap.SuggestRouteAsync();
+    }
+
+    private async Task OnAutoZoomEnabledChangedAsync(bool enabled)
+    {
+        _autoZoomEnabled = enabled;
+
+        if (_gameMap is null)
+        {
+            return;
+        }
+
+        if (!enabled)
+        {
+            await _gameMap.ResetZoom();
+            return;
+        }
+
+        var routeSuggestion = _gameMap.RouteSuggestion;
+        if (routeSuggestion?.Status == RouteSuggestionStatus.Success)
+        {
+            var focusNodeIds = routeSuggestion.NodeIds.Count > 0
+                ? routeSuggestion.NodeIds
+                : BuildFallbackRouteNodeIds();
+
+            await _gameMap.FocusRouteAsync(focusNodeIds);
+        }
+    }
+
+    private IReadOnlyList<string> BuildFallbackRouteNodeIds()
+    {
+        if (_gameMap is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (_turnViewState.SelectedRoutePreview.NodeIds.Count > 0)
+        {
+            return _turnViewState.SelectedRoutePreview.NodeIds;
+        }
+
+        var fallbackNodeIds = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_gameMap.RouteStartNodeId))
+        {
+            fallbackNodeIds.Add(_gameMap.RouteStartNodeId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_gameMap.DestinationNodeId)
+            && !fallbackNodeIds.Contains(_gameMap.DestinationNodeId, StringComparer.OrdinalIgnoreCase))
+        {
+            fallbackNodeIds.Add(_gameMap.DestinationNodeId);
+        }
+
+        return fallbackNodeIds;
     }
 
     private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
