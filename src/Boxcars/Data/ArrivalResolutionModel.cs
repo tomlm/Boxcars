@@ -9,4 +9,7 @@ public sealed class ArrivalResolutionModel
     public bool PurchaseOpportunityAvailable { get; init; }
     public string Message { get; init; } = string.Empty;
     public bool IsVisible { get; init; }
+    public PurchasePhaseModel? PurchasePhase { get; init; }
+    public bool HasActivePurchaseControls { get; init; }
+    public string? NoPurchaseNotification { get; init; }
 }

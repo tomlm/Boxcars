@@ -23,6 +23,7 @@ public sealed class GameEngine : ObservableBase
     private readonly Dictionary<string, List<RouteGraphEdge>> _adjacency;
     private readonly Dictionary<string, CityDefinition> _cityByNodeId;
     private readonly Dictionary<string, CityDefinition> _cityByName;
+    private readonly int _superchiefPrice;
 
     // Railroad purchase prices (based on official Rail Baron rules)
     private static readonly int[] RailroadPrices = new int[]
@@ -99,7 +100,7 @@ public sealed class GameEngine : ObservableBase
     /// <summary>
     /// Creates a new game with the given map, players, and random provider.
     /// </summary>
-    public GameEngine(MapDefinition mapDefinition, IReadOnlyList<string> playerNames, IRandomProvider randomProvider)
+    public GameEngine(MapDefinition mapDefinition, IReadOnlyList<string> playerNames, IRandomProvider randomProvider, int superchiefPrice = 40_000)
     {
         ArgumentNullException.ThrowIfNull(mapDefinition);
         ArgumentNullException.ThrowIfNull(playerNames);
@@ -121,6 +122,9 @@ public sealed class GameEngine : ObservableBase
 
         MapDefinition = mapDefinition;
         _randomProvider = randomProvider;
+        _superchiefPrice = superchiefPrice > 0
+            ? superchiefPrice
+            : throw new ArgumentOutOfRangeException(nameof(superchiefPrice), "Superchief price must be greater than zero.");
 
         // Build map graph
         _dotLookup = mapDefinition.TrainDots.ToDictionary(
@@ -149,7 +153,7 @@ public sealed class GameEngine : ObservableBase
         // Initialize railroads
         foreach (var rd in mapDefinition.Railroads)
         {
-            int price = rd.Index < RailroadPrices.Length ? RailroadPrices[rd.Index] : 10000;
+            int price = rd.PurchasePrice ?? GetRailroadPurchasePrice(rd.Index);
             bool isPublic = PublicRailroadIndices.Contains(rd.Index);
             Railroads.Add(new Railroad(rd, price, isPublic));
         }
@@ -189,10 +193,13 @@ public sealed class GameEngine : ObservableBase
     /// <summary>
     /// Private constructor for snapshot restoration.
     /// </summary>
-    private GameEngine(MapDefinition mapDefinition, IRandomProvider randomProvider)
+    private GameEngine(MapDefinition mapDefinition, IRandomProvider randomProvider, int superchiefPrice)
     {
         MapDefinition = mapDefinition;
         _randomProvider = randomProvider;
+        _superchiefPrice = superchiefPrice > 0
+            ? superchiefPrice
+            : throw new ArgumentOutOfRangeException(nameof(superchiefPrice), "Superchief price must be greater than zero.");
 
         _dotLookup = mapDefinition.TrainDots.ToDictionary(
             d => NodeKey(d.RegionIndex, d.DotIndex),
@@ -496,7 +503,7 @@ public sealed class GameEngine : ObservableBase
 
         var player = CurrentTurn.ActivePlayer;
 
-        int cost = GetUpgradeCost(player.LocomotiveType, target);
+        int cost = GetUpgradeCost(player.LocomotiveType, target, _superchiefPrice);
         if (cost < 0)
             throw new InvalidOperationException("Invalid upgrade path.");
         if (player.Cash < cost)
@@ -737,18 +744,18 @@ public sealed class GameEngine : ObservableBase
     /// <summary>
     /// Restores a fully functional GameEngine from a snapshot.
     /// </summary>
-    public static GameEngine FromSnapshot(GameState snapshot, MapDefinition mapDefinition, IRandomProvider randomProvider)
+    public static GameEngine FromSnapshot(GameState snapshot, MapDefinition mapDefinition, IRandomProvider randomProvider, int superchiefPrice = 40_000)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(mapDefinition);
         ArgumentNullException.ThrowIfNull(randomProvider);
 
-        var engine = new GameEngine(mapDefinition, randomProvider);
+        var engine = new GameEngine(mapDefinition, randomProvider, superchiefPrice);
 
         // Restore railroads
         foreach (var rd in mapDefinition.Railroads)
         {
-            int price = rd.Index < RailroadPrices.Length ? RailroadPrices[rd.Index] : 10000;
+            int price = rd.PurchasePrice ?? GetRailroadPurchasePrice(rd.Index);
             bool isPublic = PublicRailroadIndices.Contains(rd.Index);
             engine.Railroads.Add(new Railroad(rd, price, isPublic));
         }
@@ -859,6 +866,32 @@ public sealed class GameEngine : ObservableBase
     private static string SerializeSelectedRouteSegment(string fromNodeId, string toNodeId, int railroadIndex)
     {
         return string.Concat(fromNodeId, "|", toNodeId, "|", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    public static int GetRailroadPurchasePrice(int railroadIndex)
+    {
+        if (railroadIndex == 0)
+        {
+            return RailroadPrices[0];
+        }
+
+        if (railroadIndex > 0 && railroadIndex <= RailroadPrices.Length)
+        {
+            return RailroadPrices[railroadIndex - 1];
+        }
+
+        return 10_000;
+    }
+
+    public static int GetUpgradeCost(LocomotiveType currentEngineType, LocomotiveType targetEngineType, int superchiefPrice)
+    {
+        return (currentEngineType, targetEngineType) switch
+        {
+            (LocomotiveType.Freight, LocomotiveType.Express) => 4_000,
+            (LocomotiveType.Freight, LocomotiveType.Superchief) => superchiefPrice,
+            (LocomotiveType.Express, LocomotiveType.Superchief) => superchiefPrice,
+            _ => -1
+        };
     }
 
     #endregion

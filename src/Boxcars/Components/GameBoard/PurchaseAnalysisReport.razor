@@ -1,0 +1,101 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<div class="purchase-analysis-report-scope">
+    @if (Report is null)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">
+            Map analysis is not available yet.
+        </MudAlert>
+    }
+    else
+    {
+        <MudStack Spacing="3">
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.h6">Map Analysis</MudText>
+                <MudText Typo="Typo.body2">@Report.MapName</MudText>
+            </MudStack>
+
+            <div class="purchase-analysis-layout">
+                <div class="purchase-analysis-top-row">
+                    <div class="purchase-analysis-table-host purchase-analysis-table-host-railroad">
+                        <MudTable T="RailroadAnalysisRow" Items="Report.RailroadRows" Dense="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.FullName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.PurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.CitiesServedCount)"><strong>Cities</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ServicePercentage)"><strong>Service %</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.MonopolyPercentage)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ConnectionCount)"><strong>Connections</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ExpectedIncome)"><strong>Income</strong></MudTableSortLabel></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@context.FullName</MudTd>
+                                <MudTd>@FormatCurrency(context.PurchasePrice)</MudTd>
+                                <MudTd>@context.CitiesServedCount</MudTd>
+                                <MudTd>@FormatPercent(context.ServicePercentage)</MudTd>
+                                <MudTd>@FormatPercent(context.MonopolyPercentage)</MudTd>
+                                <MudTd>@context.ConnectionCount</MudTd>
+                                <MudTd>@context.ExpectedIncome.ToString("N1")</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </div>
+
+                    <div class="purchase-analysis-table-host purchase-analysis-table-host-region">
+                        <MudTable T="RegionProbabilityRow" Items="Report.RegionProbabilityRows" Dense="true">
+                            <HeaderContent>
+                                <MudTh><MudTableSortLabel T="RegionProbabilityRow" SortBy="@(row => row.RegionName)"><strong>Region</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RegionProbabilityRow" SortBy="@(row => row.ProbabilityPercentage)"><strong>Probability %</strong></MudTableSortLabel></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@context.RegionName</MudTd>
+                                <MudTd>@FormatPercent(context.ProbabilityPercentage)</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </div>
+                </div>
+
+                <MudPaper Class="purchase-analysis-city-section pa-3" Outlined="true">
+                    <MudText Typo="Typo.subtitle2" Class="purchase-analysis-city-heading">Cities by Access</MudText>
+
+                    <div class="purchase-analysis-city-columns">
+                        @foreach (var city in SortedCityRows)
+                        {
+                            <div class="purchase-analysis-city-entry">
+                                <MudText Typo="Typo.body2">@city.CityName</MudText>
+                                <MudText Typo="Typo.body2">@FormatPercent(city.AccessPercentage)</MudText>
+                            </div>
+                        }
+                    </div>
+                </MudPaper>
+            </div>
+
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                <MudChip T="string">Avg Trip Length: @Report.AverageTripLengthDots.ToString("N1")</MudChip>
+                <MudChip T="string">Avg Payoff: @FormatCurrency((int)Math.Round(Report.AveragePayoff))</MudChip>
+                <MudChip T="string">Avg Payoff/Dot: @Report.AveragePayoffPerDot.ToString("N2")</MudChip>
+            </MudStack>
+        </MudStack>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public MapAnalysisReport? Report { get; set; }
+
+    private IReadOnlyList<CityAccessRow> SortedCityRows => Report?.CityAccessRows
+        .OrderByDescending(row => row.AccessPercentage)
+        .ThenBy(row => row.CityName, StringComparer.OrdinalIgnoreCase)
+        .ToArray()
+        ?? [];
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+
+    private static string FormatPercent(decimal value)
+    {
+        return $"{value:N1}%";
+    }
+}

@@ -1,0 +1,31 @@
+@using Boxcars.Data
+@using MudBlazor
+
+@if (Overlay is not null)
+{
+    <div class="railroad-purchase-overlay-scope">
+        <MudPaper Class="railroad-purchase-overlay pa-3" Outlined="true" Elevation="2">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.subtitle2">@Overlay.RailroadName</MudText>
+                <MudText Typo="Typo.body2">Price: @FormatCurrency(Overlay.PurchasePrice)</MudText>
+                <MudText Typo="Typo.body2">Access Change: @FormatPercent(Overlay.AccessChangePercent)</MudText>
+                <MudText Typo="Typo.body2">Monopoly Change: @FormatPercent(Overlay.MonopolyChangePercent)</MudText>
+            </MudStack>
+        </MudPaper>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public RailroadOverlayInfo? Overlay { get; set; }
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+
+    private static string FormatPercent(decimal value)
+    {
+        return $"{value:N1}%";
+    }
+}

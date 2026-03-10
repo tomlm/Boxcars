@@ -20,4 +20,5 @@ public sealed class BoardTurnViewState
     public bool IsCurrentUserActivePlayer { get; init; }
     public bool CanEndTurn { get; init; }
     public ArrivalResolutionModel? ArrivalResolution { get; init; }
+    public PurchasePhaseModel? PurchasePhase { get; init; }
 }

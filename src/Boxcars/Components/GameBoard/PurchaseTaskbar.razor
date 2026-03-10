@@ -1,0 +1,77 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<div class="purchase-taskbar-scope">
+    <MudPaper Class="purchase-taskbar pa-3" Outlined="true">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+            <MudText Typo="Typo.subtitle2">@TaskbarState.Label</MudText>
+
+            <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0">
+                @foreach (var option in TaskbarState.Options)
+                {
+                    <MudSelectItem T="string" Value="@option.OptionKey">@option.DisplayName (@FormatCurrency(option.PurchasePrice))</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy" OnClick="OnBuyRequestedAsync">
+                BUY
+            </MudButton>
+
+            <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline" OnClick="OnDeclineRequestedAsync">
+                DECLINE
+            </MudButton>
+        </MudStack>
+
+    </MudPaper>
+</div>
+
+@code {
+    [Parameter]
+    public PurchaseTaskbarState TaskbarState { get; set; } = new();
+
+    [Parameter]
+    public string? SelectedOptionKey { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> SelectedOptionKeyChanged { get; set; }
+
+    [Parameter]
+    public EventCallback BuyRequested { get; set; }
+
+    [Parameter]
+    public EventCallback DeclineRequested { get; set; }
+
+    [Parameter]
+    public NetworkCoverageSnapshot? CurrentCoverage { get; set; }
+
+    [Parameter]
+    public NetworkCoverageSnapshot? ProjectedCoverage { get; set; }
+
+    [Parameter]
+    public EngineUpgradeOption? SelectedEngineOption { get; set; }
+
+    private async Task OnSelectedOptionChangedAsync(string? optionKey)
+    {
+        await SelectedOptionKeyChanged.InvokeAsync(optionKey);
+    }
+
+    private async Task OnBuyRequestedAsync()
+    {
+        await BuyRequested.InvokeAsync();
+    }
+
+    private async Task OnDeclineRequestedAsync()
+    {
+        await DeclineRequested.InvokeAsync();
+    }
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+
+    private static string FormatPercent(decimal? value)
+    {
+        return value.HasValue ? $"{value.Value:N1}%" : "-";
+    }
+}

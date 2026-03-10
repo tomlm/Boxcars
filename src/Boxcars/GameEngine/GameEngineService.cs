@@ -8,8 +8,10 @@ using Boxcars.Engine;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
 using Boxcars.Identity;
+using Boxcars.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using RailBaronGameEngine = global::Boxcars.Engine.Domain.GameEngine;
 using RailBaronGameState = global::Boxcars.Engine.Persistence.GameState;
 
@@ -30,13 +32,15 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly TableClient _gamesTable;
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly PurchaseRulesOptions _purchaseRulesOptions;
     private long _eventSequence;
     private MapDefinition? _mapDefinition;
 
-    public GameEngineService(IWebHostEnvironment webHostEnvironment, TableServiceClient tableServiceClient)
+    public GameEngineService(IWebHostEnvironment webHostEnvironment, TableServiceClient tableServiceClient, IOptions<PurchaseRulesOptions> purchaseRulesOptions)
     {
         _webHostEnvironment = webHostEnvironment;
         _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
+        _purchaseRulesOptions = purchaseRulesOptions.Value;
     }
 
     public event Action<string, RailBaronGameState>? OnStateChanged;
@@ -203,7 +207,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         _mapDefinition = loadResult.Definition;
     }
 
-    private static void ProcessTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
+    private void ProcessTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
     {
         var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
         if (action is not BidAction
@@ -273,7 +277,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 break;
 
             case BuyEngineAction buyEngineAction:
-                var expectedEnginePrice = GetEngineUpgradeCost(gameEngine.CurrentTurn.ActivePlayer.LocomotiveType, buyEngineAction.EngineType);
+                var expectedEnginePrice = RailBaronGameEngine.GetUpgradeCost(
+                    gameEngine.CurrentTurn.ActivePlayer.LocomotiveType,
+                    buyEngineAction.EngineType,
+                    _purchaseRulesOptions.SuperchiefPrice);
                 if (expectedEnginePrice < 0)
                 {
                     throw new InvalidOperationException($"Cannot upgrade from {gameEngine.CurrentTurn.ActivePlayer.LocomotiveType} to {buyEngineAction.EngineType}.");
@@ -392,7 +399,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             normalizedPlayers.Add($"Open Seat {normalizedPlayers.Count + 1}");
         }
 
-        return new RailBaronGameEngine(_mapDefinition, normalizedPlayers, new DefaultRandomProvider());
+        return new RailBaronGameEngine(_mapDefinition, normalizedPlayers, new DefaultRandomProvider(), _purchaseRulesOptions.SuperchiefPrice);
     }
 
     private RailBaronGameEngine RestoreGameEngine(RailBaronGameState snapshot)
@@ -402,7 +409,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
-        return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider());
+        return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider(), _purchaseRulesOptions.SuperchiefPrice);
     }
 
     private async Task PersistEventAsync(
@@ -682,17 +689,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private static int ResolveAmountPaid(int amountPaid, int fallbackAmount)
     {
         return amountPaid > 0 ? amountPaid : fallbackAmount;
-    }
-
-    private static int GetEngineUpgradeCost(LocomotiveType currentEngineType, LocomotiveType targetEngineType)
-    {
-        return (currentEngineType, targetEngineType) switch
-        {
-            (LocomotiveType.Freight, LocomotiveType.Express) => 4000,
-            (LocomotiveType.Freight, LocomotiveType.Superchief) => 20000,
-            (LocomotiveType.Express, LocomotiveType.Superchief) => 20000,
-            _ => -1
-        };
     }
 
     private static string GetRailroadDisplayName(Railroad railroad)

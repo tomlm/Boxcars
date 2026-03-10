@@ -29,6 +29,13 @@
     overflow: hidden;
 }
 
+.map-board-purchase-tab-strip {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 0.75rem 0;
+    flex-shrink: 0;
+}
+
 /* ── Map fills available space ── */
 .map-board-map-area {
     display: flex;
@@ -39,6 +46,25 @@
     min-height: 0;
     align-items: center;
     justify-content: center;
+}
+
+.map-board-analysis-area {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0.75rem;
+    background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%);
+}
+
+.map-board-panel-hidden {
+    display: none;
+}
+
+.map-board-purchase-overlay {
+    position: fixed;
+    z-index: 30;
+    max-width: min(20rem, calc(100% - 2rem));
+    pointer-events: none;
 }
 
 /* ── Status bar below map ── */
@@ -84,6 +110,11 @@
 }
 
 @media (max-width: 960px) {
+    .map-board-purchase-tab-strip {
+        padding: 0.5rem 0.5rem 0;
+        gap: 0.35rem;
+    }
+
     .map-board-status-bar {
         display: flex;
         justify-content: center;
@@ -91,6 +122,30 @@
 
     .map-board-status-main {
         justify-content: center;
+    }
+
+    .map-board-purchase-overlay {
+        top: 0.75rem;
+        left: 0.75rem;
+        max-width: calc(100% - 1.5rem);
+    }
+}
+
+@media (max-width: 600px) {
+    .map-board-sidebar {
+        width: 0;
+        padding: 0;
+        border-right: none;
+        overflow: hidden;
+    }
+
+    .map-board-purchase-tab-strip {
+        padding: 0.35rem 0.35rem 0;
+        gap: 0.25rem;
+    }
+
+    .map-board-analysis-area {
+        padding: 0.5rem;
     }
 }
 

@@ -59,11 +59,11 @@
                     @foreach (var railroadSegment in _renderModel.RailroadSegments)
                     {
                         <line x1="@railroadSegment.X1"
-                              y1="@railroadSegment.Y1"
-                              x2="@railroadSegment.X2"
-                              y2="@railroadSegment.Y2"
-                              stroke="@railroadSegment.StrokeColor"
-                              class="@GetRailroadSegmentClass(railroadSegment)" />
+                            y1="@railroadSegment.Y1"
+                            x2="@railroadSegment.X2"
+                            y2="@railroadSegment.Y2"
+                            stroke="@GetRailroadSegmentStrokeColor(railroadSegment)"
+                            class="@GetRailroadSegmentClass(railroadSegment)" />
                         <line x1="@railroadSegment.X1"
                               y1="@railroadSegment.Y1"
                               x2="@railroadSegment.X2"
@@ -71,7 +71,7 @@
                               class="game-map-railroad-hitbox"
                               data-mapboard-pan-ignore="true"
                               @onmousedown:stopPropagation="true"
-                              @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
+                                                            @onclick="@((MouseEventArgs args) => OnRailroadSegmentClicked(railroadSegment.RailroadIndex, args))"
                                 @onclick:stopPropagation="@(SelectionMode == MapSelectionMode.Rail)" />
                     }
                 </g>
@@ -351,7 +351,16 @@
     public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
 
     [Parameter]
-    public EventCallback<int> RailroadSelected { get; set; }
+    public IReadOnlyDictionary<int, string>? RailroadOwnerColors { get; set; }
+
+    [Parameter]
+    public IReadOnlyCollection<int>? SelectableRailroadIndices { get; set; }
+
+    [Parameter]
+    public int? SelectedRailroadIndex { get; set; }
+
+    [Parameter]
+    public EventCallback<RailroadSelectionEvent> RailroadSelected { get; set; }
 
     [Parameter]
     public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }
@@ -454,6 +463,9 @@
 
         if (string.Equals(_loadedMapFileName, configuredMapFile, StringComparison.OrdinalIgnoreCase))
         {
+            _selectedRailroadIndex = SelectionMode == MapSelectionMode.Rail
+                ? SelectedRailroadIndex
+                : null;
             BuildPlayerOverlays();
             InitializeRouteSelectionFromPlayerStates();
             if (_routeSuggestion is not null)
@@ -871,7 +883,7 @@
             $"translate({x:F4} {y:F4}) scale({compensationScaleX:F6} 1) translate({-x:F4} {-y:F4})");
     }
 
-    private void OnRailroadSegmentClicked(int railroadIndex)
+    private void OnRailroadSegmentClicked(int railroadIndex, MouseEventArgs args)
     {
         DismissRouteNodeRailMenu();
         DismissDestinationMenu();
@@ -881,7 +893,7 @@
             return;
         }
 
-        if (railroadIndex <= 0)
+        if (railroadIndex <= 0 || (SelectableRailroadIndices?.Contains(railroadIndex) == false))
         {
             return;
         }
@@ -890,7 +902,12 @@
 
         if (RailroadSelected.HasDelegate)
         {
-            _ = RailroadSelected.InvokeAsync(railroadIndex);
+            _ = RailroadSelected.InvokeAsync(new RailroadSelectionEvent
+            {
+                RailroadIndex = railroadIndex,
+                ClientX = args.ClientX,
+                ClientY = args.ClientY
+            });
         }
     }
 
@@ -1398,7 +1415,7 @@
 
     private string GetRouteNodeRailMenuStyle()
     {
-        return FormattableString.Invariant($"left:{_routeNodeRailMenuClientX:F0}px;top:{_routeNodeRailMenuClientY:F0}px;");
+        return FormattableString.Invariant($"left:{_routeNodeRailMenuClientX:F0}px;top:{_routeNodeRailMenuClientY:F0}px;transform:translate(calc(-100% - 0.5rem), 0);");
     }
 
     private void DismissRouteNodeRailMenu()
@@ -2194,8 +2211,14 @@
 
     private string GetRailroadSegmentClass(RailroadRenderSegment segment)
     {
-        var ownershipClass = segment.IsOwned ? "owned" : "unowned";
+        var isOwned = IsRailroadOwned(segment.RailroadIndex);
+        var ownershipClass = isOwned ? "owned" : "unowned";
         var classes = new List<string> { ownershipClass };
+
+        if (!isOwned && SelectionMode == MapSelectionMode.Rail && SelectableRailroadIndices?.Contains(segment.RailroadIndex) == false)
+        {
+            classes.Add("disabled");
+        }
 
         if (_selectedRailroadIndex == segment.RailroadIndex)
         {
@@ -2208,6 +2231,20 @@
         }
 
         return string.Join(' ', classes);
+    }
+
+    private string GetRailroadSegmentStrokeColor(RailroadRenderSegment segment)
+    {
+        return RailroadOwnerColors is not null
+            && RailroadOwnerColors.TryGetValue(segment.RailroadIndex, out var ownerColor)
+            && !string.IsNullOrWhiteSpace(ownerColor)
+                ? ownerColor
+                : segment.StrokeColor;
+    }
+
+    private bool IsRailroadOwned(int railroadIndex)
+    {
+        return RailroadOwnerColors?.ContainsKey(railroadIndex) == true;
     }
 
     private static string GetRouteSuggestionCircleClass(RouteSuggestionHighlight highlight)

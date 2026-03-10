@@ -10,6 +10,8 @@ namespace Boxcars.Engine.Tests.Unit;
 /// </summary>
 public class LocomotiveUpgradeTests
 {
+    private const int DefaultSuperchiefPrice = 40_000;
+
     [Fact]
     public void UpgradeLocomotive_FreightToExpress_Costs4000()
     {
@@ -32,7 +34,7 @@ public class LocomotiveUpgradeTests
     }
 
     [Fact]
-    public void UpgradeLocomotive_FreightToSuperchief_Costs20000()
+    public void UpgradeLocomotive_FreightToSuperchief_CostsConfiguredPrice()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();
         GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
@@ -40,18 +42,19 @@ public class LocomotiveUpgradeTests
         if (engine.CurrentTurn.Phase == TurnPhase.Purchase)
         {
             var player = engine.CurrentTurn.ActivePlayer;
+            player.Cash = 50_000;
             engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
             int cashBefore = player.Cash;
 
             engine.UpgradeLocomotive(LocomotiveType.Superchief);
 
             Assert.Equal(LocomotiveType.Superchief, player.LocomotiveType);
-            Assert.Equal(cashBefore - 20000, player.Cash);
+            Assert.Equal(cashBefore - DefaultSuperchiefPrice, player.Cash);
         }
     }
 
     [Fact]
-    public void UpgradeLocomotive_ExpressToSuperchief_Costs20000()
+    public void UpgradeLocomotive_ExpressToSuperchief_CostsConfiguredPrice()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();
         GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
@@ -60,13 +63,14 @@ public class LocomotiveUpgradeTests
         {
             var player = engine.CurrentTurn.ActivePlayer;
             player.LocomotiveType = LocomotiveType.Express;
+            player.Cash = 50_000;
             engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
             int cashBefore = player.Cash;
 
             engine.UpgradeLocomotive(LocomotiveType.Superchief);
 
             Assert.Equal(LocomotiveType.Superchief, player.LocomotiveType);
-            Assert.Equal(cashBefore - 20000, player.Cash);
+            Assert.Equal(cashBefore - DefaultSuperchiefPrice, player.Cash);
         }
     }
 

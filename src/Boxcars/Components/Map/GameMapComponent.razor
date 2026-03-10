@@ -25,6 +25,9 @@
 				  MovementType="@MovementType"
 				  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
 				  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
+				  RailroadOwnerColors="@RailroadOwnerColors"
+				  SelectableRailroadIndices="@SelectableRailroadIndices"
+				  SelectedRailroadIndex="@SelectedRailroadIndex"
 				  RailroadSelected="@RailroadSelected"
 				  RouteSuggestionChanged="@RouteSuggestionChanged"
 				  RoutePreviewChanged="@RoutePreviewChanged"
@@ -118,7 +121,16 @@
 	public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
 
 	[Parameter]
-	public EventCallback<int> RailroadSelected { get; set; }
+	public IReadOnlyDictionary<int, string>? RailroadOwnerColors { get; set; }
+
+	[Parameter]
+	public IReadOnlyCollection<int>? SelectableRailroadIndices { get; set; }
+
+	[Parameter]
+	public int? SelectedRailroadIndex { get; set; }
+
+	[Parameter]
+	public EventCallback<RailroadSelectionEvent> RailroadSelected { get; set; }
 
 	[Parameter]
 	public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }

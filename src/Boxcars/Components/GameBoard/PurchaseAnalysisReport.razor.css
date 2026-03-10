@@ -1,0 +1,127 @@
+
+.purchase-analysis-layout {
+    display: grid;
+    gap: 0.75rem;
+    width: fit-content;
+    max-width: 100%;
+}
+
+.purchase-analysis-top-row {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    gap: 0.75rem;
+    align-items: start;
+    justify-content: start;
+    width: fit-content;
+    max-width: 100%;
+}
+
+.purchase-analysis-table-host {
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.purchase-analysis-table-host-railroad {
+    min-width: 0;
+}
+
+.purchase-analysis-table-host-railroad ::deep .mud-table-root {
+    width: auto;
+    max-width: 100%;
+}
+
+.purchase-analysis-table-host-region ::deep .mud-table-root {
+    width: auto;
+    max-width: 100%;
+}
+
+.purchase-analysis-table-host ::deep .mud-table-container {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.purchase-analysis-table-host-railroad ::deep table {
+    width: 100%;
+    min-width: min-content;
+    table-layout: auto;
+}
+
+.purchase-analysis-table-host-region ::deep table {
+    width: auto;
+    min-width: min-content;
+    table-layout: auto;
+}
+
+.purchase-analysis-city-section {
+    width: 100%;
+    max-width: 100%;
+}
+
+.purchase-analysis-city-heading {
+    margin-bottom: 0.75rem;
+    font-weight: 700;
+}
+
+.purchase-analysis-city-columns {
+    column-width: 15rem;
+    column-gap: 1rem;
+}
+
+.purchase-analysis-city-entry {
+    break-inside: avoid;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.purchase-analysis-table-host ::deep th,
+.purchase-analysis-table-host ::deep td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    vertical-align: top;
+}
+
+.purchase-analysis-table-host ::deep .mud-table-sort-label {
+    max-width: 100%;
+}
+
+@media (max-width: 1280px) {
+    .purchase-analysis-layout {
+        width: 100%;
+    }
+
+    .purchase-analysis-top-row {
+        grid-template-columns: minmax(0, 1fr);
+        width: 100%;
+    }
+}
+
+@media (max-width: 960px) {
+    .purchase-analysis-top-row {
+        gap: 0.5rem;
+    }
+
+    .purchase-analysis-table-host {
+        width: 100%;
+    }
+
+    .purchase-analysis-table-host ::deep .mud-table-root,
+    .purchase-analysis-table-host ::deep table {
+        width: 100%;
+    }
+
+    .purchase-analysis-table-host ::deep th,
+    .purchase-analysis-table-host ::deep td {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
+    .purchase-analysis-city-columns {
+        column-width: auto;
+        columns: 1;
+    }
+}

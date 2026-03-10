@@ -1,0 +1,17 @@
+.purchase-taskbar-scope {
+    width: 100%;
+}
+
+.purchase-taskbar {
+    width: 100%;
+}
+
+.purchase-taskbar-select {
+    min-width: 18rem;
+}
+
+@media (max-width: 960px) {
+    .purchase-taskbar-select {
+        min-width: 10rem;
+    }
+}

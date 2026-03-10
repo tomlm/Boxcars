@@ -2,18 +2,26 @@
 @using MudBlazor
 
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="turn-status-panel">
-    <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
-    <MudText Typo="Typo.body2">Moves: @State.MovementRemaining / @State.MovementAllowance</MudText>
+    @if (!IsPurchasePhase)
+    {
+        <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+        <MudText Typo="Typo.body2">Moves: @State.MovementRemaining / @State.MovementAllowance</MudText>
+    }
     @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
     {
         <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
     }
-    <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+    @if (!IsPurchasePhase)
+    {
+        <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+    }
 </MudStack>
 
 @code {
     [Parameter]
     public BoardTurnViewState State { get; set; } = new();
+
+    private bool IsPurchasePhase => string.Equals(State.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
 
     private string DisplayPhase => string.IsNullOrWhiteSpace(State.TurnPhase) ? "Unknown" : State.TurnPhase;
 
