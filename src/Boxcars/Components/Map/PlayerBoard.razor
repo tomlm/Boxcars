@@ -18,10 +18,11 @@
                                 @GetInitial(player.Name)
                             }
                         </MudAvatar>
-                        <MudIcon Class="@GetStatusIconClass(player)"
-                                 Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
-                                 Title="@(player.IsConnected ? "Connected" : "Disconnected")"
-                                 Size="Size.Small" />
+                        <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
+                            <MudIcon Class="@GetStatusIconClass(player)"
+                                     Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                     Size="Size.Small" />
+                        </MudTooltip>
                     </div>
                     <MudStack>
                         <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
