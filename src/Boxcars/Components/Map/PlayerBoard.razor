@@ -2,73 +2,90 @@
 @using MudBlazor
 
 <div class="player-board-scope">
-<MudStack Class="player-board" Spacing="2">
-    @foreach (var player in Players)
-    {
-        <MudPaper Class="@GetCardClass(player)">
-            <MudStack Row="true" Class="player-card-portrait">
-                <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
-                    @if (HasThumbnail(player))
-                    {
-                        <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
-                    }
-                    else
-                    {
-                        @GetInitial(player.Name)
-                    }
-                </MudAvatar>
-                <MudStack>
-                    <MudText Typo="Typo.subtitle1">@player.Name</MudText>
-                    <MudText Typo="Typo.caption" Class="@(player.IsConnected ? "player-status-connected" : "player-status-disconnected")" Align="Align.Right">
-                        @(player.IsConnected ? "Connected" : "Offline")
-                    </MudText>
-                </MudStack>
-            </MudStack>
-
-            <MudStack Class="player-card-info" Spacing="1">
-                <MudText Typo="Typo.caption" Class="player-card-line">
-                    <span class="player-card-label">Home:</span> @player.HomeCity <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
-                </MudText>
-                <MudText Typo="Typo.caption" Class="player-card-line">
-                    @if (player.IsAtDestination)
-                    {
-                        <span class="player-card-label">At Destination:</span>
-                        <span>@player.TripDestinationLabel</span>
-                    }
-                    else
-                    {
-                        <span class="player-card-label">Trip:</span>
-                        <span>@player.TripStartLabel @("=>") @player.TripDestinationLabel</span>
-                    }
-                </MudText>
-                @if (!player.IsAtDestination)
-                {
-                    <MudText Typo="Typo.caption" Class="player-card-line">
-                        <span class="player-card-label">Distance:</span> @player.DistanceToDestination <span class="player-card-label">Payout:</span> $@player.Payoff.ToString("N0")
-                    </MudText>
-                }
-                <MudText Typo="Typo.caption" Class="player-card-line">
-                    <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
-                </MudText>
-
-                @if (player.CanUseTestControl)
-                {
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="player-card-test-row">
-                        <MudText Typo="Typo.caption" Class="player-card-label">
-                            @(player.IsTestControlled ? "Test control enabled" : "Mock player")
-                        </MudText>
-                        <MudButton Variant="Variant.Outlined"
-                                   Color="MudBlazor.Color.Primary"
-                                   Size="Size.Small"
-                                   OnClick="() => OnToggleTestPlayer.InvokeAsync(player.Index)">
-                            @(player.IsTestControlled ? "TESTING" : "TEST")
-                        </MudButton>
+    <MudStack Class="player-board" Spacing="2">
+        @foreach (var player in Players)
+        {
+            <MudPaper Class="@GetCardClass(player)">
+                <MudStack Row="true" Class="player-card-portrait">
+                    <div class="player-avatar-shell">
+                        <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
+                            @if (HasThumbnail(player))
+                            {
+                                <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
+                            }
+                            else
+                            {
+                                @GetInitial(player.Name)
+                            }
+                        </MudAvatar>
+                        <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
+                            <MudIcon Class="@GetStatusIconClass(player)"
+                                     Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                     Size="Size.Small" />
+                        </MudTooltip>
+                    </div>
+                    <MudStack>
+                        <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
+                        <MudText Typo="Typo.caption" Class="player-card-subtitle">Home: @player.HomeCity</MudText>
                     </MudStack>
-                }
-            </MudStack>
-        </MudPaper>
-    }
-</MudStack>
+                </MudStack>
+
+                <MudStack Class="player-card-info" Spacing="1">
+                    <MudText Typo="Typo.caption" Class="player-card-line">
+                        @if (player.IsAtDestination)
+                        {
+                            <span class="player-card-label">At Destination:</span>
+                            <span>@player.TripDestinationLabel</span>
+                        }
+                        else
+                        {
+                            <span class="player-card-label">Trip:</span>
+                            <span>@player.TripStartLabel @("=>") @player.TripDestinationLabel</span>
+                        }
+                    </MudText>
+                    @if (!player.IsAtDestination)
+                    {
+                        <MudText Typo="Typo.caption" Class="player-card-line">
+                            <span class="player-card-label">Distance:</span> @player.DistanceToDestination <span class="player-card-label">Payout:</span> $@player.Payoff.ToString("N0")
+                        </MudText>
+                    }
+                    <MudText Typo="Typo.caption" Class="player-card-line">
+                        <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
+                    </MudText>
+                    <MudText Typo="Typo.caption" Class="player-card-line">
+                        <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
+                    </MudText>
+
+                    @if (player.CanUseTestControl)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="player-card-test-row">
+                            <MudText Typo="Typo.caption" Class="player-card-label">
+                                @(player.IsTestControlled ? "Test control enabled" : "Mock player")
+                            </MudText>
+                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                @if (player.CanToggleConnection)
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="@(player.IsConnected ? MudBlazor.Color.Warning : MudBlazor.Color.Success)"
+                                               Size="Size.Small"
+                                               OnClick="() => OnToggleConnection.InvokeAsync(player.Index)">
+                                        @(player.IsConnected ? "DISCONNECT" : "CONNECT")
+                                    </MudButton>
+                                }
+
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="MudBlazor.Color.Primary"
+                                           Size="Size.Small"
+                                           OnClick="() => OnToggleTestPlayer.InvokeAsync(player.Index)">
+                                    @(player.IsTestControlled ? "TESTING" : "TEST")
+                                </MudButton>
+                            </MudStack>
+                        </MudStack>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+    </MudStack>
 </div>
 
 @code {
@@ -77,6 +94,9 @@
 
     [Parameter]
     public EventCallback<int> OnToggleTestPlayer { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnToggleConnection { get; set; }
 
     private static string GetInitial(string name)
     {
@@ -90,6 +110,7 @@
         {
             classes += " player-card-active";
         }
+
         return classes;
     }
 
@@ -103,16 +124,27 @@
         return !string.IsNullOrWhiteSpace(player.ThumbnailUrl);
     }
 
+    private static string GetStatusIconClass(PlayerBoardModel player)
+    {
+        return player.IsConnected
+            ? "player-status-connected player-avatar-status"
+            : "player-status-disconnected player-avatar-status";
+    }
+
     private static string GetColorClass(string color)
     {
-        return color.Trim().ToLowerInvariant() switch
+        return PlayerColorOptions.NormalizeOrDefault(color) switch
         {
+            "darkblue" => "player-color-darkblue",
             "blue" => "player-color-blue",
-            "red" => "player-color-red",
-            "green" => "player-color-green",
             "cyan" => "player-color-cyan",
+            "red" => "player-color-red",
+            "darkred" => "player-color-darkred",
             "orange" => "player-color-orange",
+            "yellow" => "player-color-yellow",
             "purple" => "player-color-purple",
+            "green" => "player-color-green",
+            "darkgreen" => "player-color-darkgreen",
             _ => "player-color-default"
         };
     }

@@ -65,6 +65,11 @@
     margin: 0;
 }
 
+.game-map-host ::deep .game-map-autozoom-toggle {
+    min-width: fit-content;
+    white-space: nowrap;
+}
+
 @media (max-width: 960px) {
     .game-map-host ::deep .game-map-zoom-overlay {
         right: 0.75rem;
@@ -73,6 +78,7 @@
     }
 
     .game-map-host ::deep .game-map-zoom-overlay-content {
+        flex-wrap: wrap;
         gap: 0.5rem;
     }
 

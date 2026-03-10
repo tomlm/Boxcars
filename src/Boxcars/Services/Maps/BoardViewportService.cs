@@ -33,6 +33,79 @@ public sealed class BoardViewportService
         };
     }
 
+    public BoardViewport FitToPoints(
+        MapDefinition mapDefinition,
+        IEnumerable<(double X, double Y)> points,
+        double targetAspectRatio,
+        double maxZoomPercent,
+        double paddingFactor = 0.16,
+        double minimumVisibleMapFraction = 0.12)
+    {
+        var pointList = points.ToList();
+        if (pointList.Count == 0)
+        {
+            return InitializeFitToBoard(mapDefinition);
+        }
+
+        var minX = pointList.Min(point => point.X);
+        var maxX = pointList.Max(point => point.X);
+        var minY = pointList.Min(point => point.Y);
+        var maxY = pointList.Max(point => point.Y);
+
+        var contentWidth = Math.Max(maxX - minX, mapDefinition.ScaleWidth * minimumVisibleMapFraction);
+        var contentHeight = Math.Max(maxY - minY, mapDefinition.ScaleHeight * minimumVisibleMapFraction);
+
+        var paddedWidth = contentWidth + Math.Max(contentWidth * paddingFactor, mapDefinition.ScaleWidth * 0.03);
+        var paddedHeight = contentHeight + Math.Max(contentHeight * paddingFactor, mapDefinition.ScaleHeight * 0.03);
+
+        var desiredAspectRatio = targetAspectRatio <= 0 ? 1.0 : targetAspectRatio;
+        var currentAspectRatio = paddedWidth / Math.Max(0.0001, paddedHeight);
+
+        if (currentAspectRatio < desiredAspectRatio)
+        {
+            paddedWidth = paddedHeight * desiredAspectRatio;
+        }
+        else
+        {
+            paddedHeight = paddedWidth / desiredAspectRatio;
+        }
+
+        var requestedZoom = Math.Min(
+            mapDefinition.ScaleWidth / Math.Max(0.0001, paddedWidth),
+            mapDefinition.ScaleHeight / Math.Max(0.0001, paddedHeight)) * 100.0;
+
+        var clampedMaximumZoom = Math.Clamp(maxZoomPercent, MinZoom, MaxZoom);
+        var zoomPercent = Math.Min(ClampZoom(requestedZoom), clampedMaximumZoom);
+        if (zoomPercent <= MinZoom)
+        {
+            return InitializeFitToBoard(mapDefinition);
+        }
+
+        var actualView = GetViewBox(
+            zoomPercent,
+            mapDefinition.ScaleLeft + (mapDefinition.ScaleWidth / 2.0),
+            mapDefinition.ScaleTop + (mapDefinition.ScaleHeight / 2.0),
+            mapDefinition);
+
+        var halfViewWidth = actualView.Width / 2.0;
+        var halfViewHeight = actualView.Height / 2.0;
+        var centeredX = (minX + maxX) / 2.0;
+        var centeredY = (minY + maxY) / 2.0;
+
+        var minCenterX = mapDefinition.ScaleLeft + halfViewWidth;
+        var maxCenterX = mapDefinition.ScaleLeft + mapDefinition.ScaleWidth - halfViewWidth;
+        var minCenterY = mapDefinition.ScaleTop + halfViewHeight;
+        var maxCenterY = mapDefinition.ScaleTop + mapDefinition.ScaleHeight - halfViewHeight;
+
+        return new BoardViewport
+        {
+            ZoomPercent = zoomPercent,
+            CenterX = ClampCenter(centeredX, minCenterX, maxCenterX),
+            CenterY = ClampCenter(centeredY, minCenterY, maxCenterY),
+            ZoomAnchor = ZoomAnchor.ViewportCenter
+        };
+    }
+
     public BoardViewport UpdateCursorAnchored(
         BoardViewport current,
         double requestedZoom,
@@ -90,6 +163,16 @@ public sealed class BoardViewportService
     public static double ClampZoom(double zoomPercent)
     {
         return Math.Clamp(zoomPercent, MinZoom, MaxZoom);
+    }
+
+    private static double ClampCenter(double value, double minimum, double maximum)
+    {
+        if (minimum > maximum)
+        {
+            return (minimum + maximum) / 2.0;
+        }
+
+        return Math.Clamp(value, minimum, maximum);
     }
 }
 

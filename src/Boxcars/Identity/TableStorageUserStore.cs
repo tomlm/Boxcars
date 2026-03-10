@@ -8,6 +8,7 @@ namespace Boxcars.Identity;
 public class TableStorageUserStore :
     IUserStore<ApplicationUser>,
     IUserEmailStore<ApplicationUser>,
+    IUserPhoneNumberStore<ApplicationUser>,
     IUserPasswordStore<ApplicationUser>,
     IUserSecurityStampStore<ApplicationUser>,
     IUserLockoutStore<ApplicationUser>
@@ -178,6 +179,24 @@ public class TableStorageUserStore :
     public Task SetNormalizedEmailAsync(ApplicationUser user, string? normalizedEmail, CancellationToken cancellationToken)
     {
         user.NormalizedEmail = normalizedEmail ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    public Task SetPhoneNumberAsync(ApplicationUser user, string? phoneNumber, CancellationToken cancellationToken)
+    {
+        user.PhoneNumber = phoneNumber;
+        return Task.CompletedTask;
+    }
+
+    public Task<string?> GetPhoneNumberAsync(ApplicationUser user, CancellationToken cancellationToken) =>
+        Task.FromResult(user.PhoneNumber);
+
+    public Task<bool> GetPhoneNumberConfirmedAsync(ApplicationUser user, CancellationToken cancellationToken) =>
+        Task.FromResult(user.PhoneNumberConfirmed);
+
+    public Task SetPhoneNumberConfirmedAsync(ApplicationUser user, bool confirmed, CancellationToken cancellationToken)
+    {
+        user.PhoneNumberConfirmed = confirmed;
         return Task.CompletedTask;
     }
 

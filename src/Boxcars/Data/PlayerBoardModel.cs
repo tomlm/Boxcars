@@ -50,6 +50,9 @@ public sealed class PlayerBoardModel
     /// <summary>True when this player supports the local test-control toggle.</summary>
     public bool CanUseTestControl { get; init; }
 
+    /// <summary>True when this player supports the local mock connect/disconnect toggle.</summary>
+    public bool CanToggleConnection { get; init; }
+
     /// <summary>Home city name.</summary>
     public string HomeCity { get; init; } = string.Empty;
 

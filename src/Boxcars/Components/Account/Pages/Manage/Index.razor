@@ -1,41 +1,51 @@
-﻿@page "/Account/Manage"
+﻿@page "/Account/Manage/Telephone"
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Identity
 @using Boxcars.Data
+@using MudBlazor
 
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject IdentityUserAccessor UserAccessor
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Profile</PageTitle>
+<PageTitle>Telephone</PageTitle>
 
-<h3>Profile</h3>
-<StatusMessage />
+<MudStack Class="manage-page-container">
+    <MudText Typo="Typo.h3">Telephone</MudText>
+    <StatusMessage />
 
-<div class="row">
-    <div class="col-md-6">
-        <EditForm Model="Input" FormName="profile" OnValidSubmit="OnValidSubmitAsync" method="post">
+    <MudPaper Class="manage-page-card">
+        <EditForm Model="Input" FormName="phone-number" OnValidSubmit="OnValidSubmitAsync" method="post">
             <DataAnnotationsValidator />
-            <ValidationSummary class="text-danger" role="alert" />
-            <div class="form-floating mb-3">
-                <input type="text" value="@username" class="form-control" placeholder="Please choose your username." disabled />
-                <label for="username" class="form-label">Username</label>
-            </div>
-            <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.PhoneNumber" class="form-control" placeholder="Please enter your phone number." />
-                <label for="phone-number" class="form-label">Phone number</label>
-                <ValidationMessage For="() => Input.PhoneNumber" class="text-danger" />
-            </div>
-            <button type="submit" class="w-100 btn btn-lg btn-primary">Save</button>
+            <MudStack Class="manage-page-fields">
+                <ValidationSummary class="auth-validation" role="alert" />
+
+                <MudText Typo="Typo.body2" Class="manage-page-helper">
+                    Add a phone number if you want it stored with your account profile.
+                </MudText>
+
+                <MudTextField @bind-Value="Input.PhoneNumber"
+                              Label="Phone number"
+                              Placeholder="Enter your phone number"
+                              Variant="Variant.Outlined"
+                              Class="manage-page-field" />
+
+                <MudStack Row="true" Class="manage-page-actions">
+                    <MudButton ButtonType="MudBlazor.ButtonType.Submit"
+                               Variant="Variant.Filled"
+                               Color="MudBlazor.Color.Primary">
+                        Save Changes
+                    </MudButton>
+                </MudStack>
+            </MudStack>
         </EditForm>
-    </div>
-</div>
+    </MudPaper>
+</MudStack>
 
 @code {
     private ApplicationUser user = default!;
-    private string? username;
     private string? phoneNumber;
 
     [CascadingParameter]
@@ -47,7 +57,6 @@
     protected override async Task OnInitializedAsync()
     {
         user = await UserAccessor.GetRequiredUserAsync(HttpContext);
-        username = await UserManager.GetUserNameAsync(user);
         phoneNumber = await UserManager.GetPhoneNumberAsync(user);
 
         Input.PhoneNumber ??= phoneNumber;
@@ -65,7 +74,7 @@
         }
 
         await SignInManager.RefreshSignInAsync(user);
-        RedirectManager.RedirectToCurrentPageWithStatus("Your profile has been updated", HttpContext);
+        RedirectManager.RedirectToCurrentPageWithStatus("Your phone number has been updated", HttpContext);
     }
 
     private sealed class InputModel

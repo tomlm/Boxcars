@@ -34,5 +34,7 @@
         PaletteDark = new PaletteDark()
     };
 
+    private bool IsAccountRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("Account", StringComparison.OrdinalIgnoreCase);
+
     private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
 }

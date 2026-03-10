@@ -20,6 +20,7 @@
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
 @inject GameService GameService
+@inject GamePresenceService GamePresenceService
 @inject GameBoardStateMapper GameBoardStateMapper
 @inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
@@ -30,7 +31,9 @@
 
 <div class="map-board-shell">
     <div class="map-board-sidebar">
-        <PlayerBoard Players="_players" OnToggleTestPlayer="OnToggleTestPlayerAsync" />
+        <PlayerBoard Players="_players"
+                 OnToggleTestPlayer="OnToggleTestPlayerAsync"
+                 OnToggleConnection="OnTogglePlayerConnectionAsync" />
     </div>
 
     <div class="map-board-main">
@@ -50,6 +53,8 @@
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+                              AutoZoomEnabled="@_autoZoomEnabled"
+                              AutoZoomEnabledChanged="OnAutoZoomEnabledChangedAsync"
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync"
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
         </div>
@@ -88,6 +93,7 @@
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
     private List<PlayerBoardModel> _players = new();
+    private Dictionary<int, string?> _playerUserIdsByIndex = new();
     private List<EventTimelineItem> _gameEngineEvents = new();
     private List<PlayerMapState> _mapPlayerStates = new();
     private int _currentUserPlayerIndex = -1;
@@ -98,6 +104,10 @@
     private string? _lastAutoSuggestKey;
     private int _testControlledPlayerIndex = -1;
     private bool _awaitingAuthoritativeUpdate;
+    private bool _autoZoomEnabled;
+    private readonly string _pagePresenceRegistrationId = Guid.NewGuid().ToString("N");
+    private bool _pagePresenceRegistered;
+    private bool _presenceNotificationsEnabled;
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -107,6 +117,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        GamePresenceService.PresenceChanged += OnPresenceChanged;
+
         if (AuthState is null)
         {
             return;
@@ -141,6 +153,11 @@
         if (string.IsNullOrWhiteSpace(GameId))
         {
             return;
+        }
+
+        if (firstRender)
+        {
+            RegisterPagePresence();
         }
 
         TryRestoreRouteSelection();
@@ -352,9 +369,18 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    private Task OnRouteSuggestionChangedAsync(RouteSuggestionResult _)
+    private async Task OnRouteSuggestionChangedAsync(RouteSuggestionResult suggestion)
     {
-        return InvokeAsync(StateHasChanged);
+        if (ShouldApplyAutoZoom() && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
+        {
+            var focusNodeIds = suggestion.NodeIds.Count > 0
+                ? suggestion.NodeIds
+                : BuildFallbackRouteNodeIds();
+
+            await _gameMap.FocusRouteAsync(focusNodeIds);
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadGameStateAsync()
@@ -374,8 +400,20 @@
 
         _ = InvokeAsync(async () =>
         {
+            var priorTurnNumber = _gameState?.TurnNumber ?? -1;
+            var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
+            var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
             ApplyGameState(state);
+
+            if (_autoZoomEnabled
+                && _gameMap is not null
+                && (priorTurnNumber != state.TurnNumber || priorActivePlayerIndex != state.ActivePlayerIndex)
+                && (wasAuthenticatedUserActivePlayer || IsAuthenticatedUserActivePlayer))
+            {
+                await _gameMap.ResetZoom();
+            }
+
             await RefreshTimelineAsync(notifyNewItems: true);
             TryRestoreRouteSelection();
             await AutoSuggestRouteIfNeededAsync();
@@ -410,6 +448,13 @@
             {
                 var selection = index < playerSelections.Count ? playerSelections[index] : null;
                 var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
+                var canUseTestControl = PlayerControlRules.IsBeatlesSlot(resolvedUserId);
+
+                if (canUseTestControl && !string.IsNullOrWhiteSpace(resolvedUserId))
+                {
+                    GamePresenceService.EnsureMockConnectionState(GameId, resolvedUserId, defaultConnected: true);
+                }
+
                 var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
                     && !string.IsNullOrWhiteSpace(resolvedUserId)
                     && string.Equals(_currentUserId, resolvedUserId, StringComparison.OrdinalIgnoreCase);
@@ -440,14 +485,24 @@
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
                     IsTestControlled = index == _testControlledPlayerIndex,
-                    CanUseTestControl = PlayerControlRules.IsBeatlesSlot(resolvedUserId),
+                    CanUseTestControl = canUseTestControl,
+                    CanToggleConnection = canUseTestControl,
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
-                    IsConnected = player.IsActive,
+                    IsConnected = IsPlayerConnected(resolvedUserId),
                     LocomotiveLabel = player.LocomotiveType
                 };
             })
             .ToList();
+
+        _playerUserIdsByIndex = state.Players
+            .Select((player, index) =>
+            {
+                var selection = index < playerSelections.Count ? playerSelections[index] : null;
+                var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
+                return new KeyValuePair<int, string?>(index, resolvedUserId);
+            })
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
 
         _currentPlayerColor = ResolveActionPlayerColor(state);
         UpdatePurchaseOpportunityDialogState();
@@ -777,6 +832,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool IsCurrentUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer || IsActivePlayerUnderTestControl;
 
+    private bool IsAuthenticatedUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer;
+
     private bool IsActivePlayerUnderTestControl => _gameState is not null
         && _testControlledPlayerIndex >= 0
         && _testControlledPlayerIndex == _gameState.ActivePlayerIndex;
@@ -839,6 +896,178 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         _lastAutoSuggestKey = autoSuggestKey;
         await _gameMap.SuggestRouteAsync();
+    }
+
+    private async Task OnAutoZoomEnabledChangedAsync(bool enabled)
+    {
+        _autoZoomEnabled = enabled;
+
+        if (_gameMap is null)
+        {
+            return;
+        }
+
+        if (!enabled)
+        {
+            await _gameMap.ResetZoom();
+            return;
+        }
+
+        if (!ShouldApplyAutoZoom())
+        {
+            return;
+        }
+
+        var routeSuggestion = _gameMap.RouteSuggestion;
+        if (routeSuggestion?.Status == RouteSuggestionStatus.Success)
+        {
+            var focusNodeIds = routeSuggestion.NodeIds.Count > 0
+                ? routeSuggestion.NodeIds
+                : BuildFallbackRouteNodeIds();
+
+            await _gameMap.FocusRouteAsync(focusNodeIds);
+        }
+    }
+
+    private bool ShouldApplyAutoZoom()
+    {
+        return _autoZoomEnabled
+            && IsAuthenticatedUserActivePlayer
+            && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private IReadOnlyList<string> BuildFallbackRouteNodeIds()
+    {
+        if (_gameMap is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (_turnViewState.SelectedRoutePreview.NodeIds.Count > 0)
+        {
+            return _turnViewState.SelectedRoutePreview.NodeIds;
+        }
+
+        var fallbackNodeIds = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_gameMap.RouteStartNodeId))
+        {
+            fallbackNodeIds.Add(_gameMap.RouteStartNodeId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_gameMap.DestinationNodeId)
+            && !fallbackNodeIds.Contains(_gameMap.DestinationNodeId, StringComparer.OrdinalIgnoreCase))
+        {
+            fallbackNodeIds.Add(_gameMap.DestinationNodeId);
+        }
+
+        return fallbackNodeIds;
+    }
+
+    private bool IsPlayerConnected(string? userId)
+    {
+        return GamePresenceService.IsUserConnected(GameId, userId);
+    }
+
+    private void RefreshPlayerConnectionStates()
+    {
+        if (_players.Count == 0)
+        {
+            return;
+        }
+
+        var previousConnectionStates = _players
+            .ToDictionary(player => player.Index, player => player.IsConnected);
+
+        _players = _players
+            .Select(player => new PlayerBoardModel
+            {
+                Index = player.Index,
+                Name = player.Name,
+                ThumbnailUrl = player.ThumbnailUrl,
+                Color = player.Color,
+                IsAtDestination = player.IsAtDestination,
+                TripStartLabel = player.TripStartLabel,
+                TripDestinationLabel = player.TripDestinationLabel,
+                DistanceToDestination = player.DistanceToDestination,
+                Payoff = player.Payoff,
+                Cash = player.Cash,
+                IsCurrentUser = player.IsCurrentUser,
+                IsTestControlled = player.IsTestControlled,
+                CanUseTestControl = player.CanUseTestControl,
+                CanToggleConnection = player.CanToggleConnection,
+                HomeCity = player.HomeCity,
+                IsActiveTurn = player.IsActiveTurn,
+                IsConnected = IsPlayerConnected(_playerUserIdsByIndex.GetValueOrDefault(player.Index)),
+                LocomotiveLabel = player.LocomotiveLabel
+            })
+            .ToList();
+
+        if (_presenceNotificationsEnabled)
+        {
+            NotifyPresenceChanges(previousConnectionStates);
+        }
+    }
+
+    private void RegisterPagePresence()
+    {
+        if (_pagePresenceRegistered || string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        _pagePresenceRegistered = true;
+        GamePresenceService.AddConnection(GameId, _currentUserId, _pagePresenceRegistrationId);
+        RefreshPlayerConnectionStates();
+        _presenceNotificationsEnabled = true;
+        StateHasChanged();
+    }
+
+    private void UnregisterPagePresence()
+    {
+        if (!_pagePresenceRegistered || string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        _presenceNotificationsEnabled = false;
+        _pagePresenceRegistered = false;
+        GamePresenceService.RemoveConnection(GameId, _currentUserId, _pagePresenceRegistrationId);
+    }
+
+    private void OnPresenceChanged(string gameId)
+    {
+        if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            RefreshPlayerConnectionStates();
+            StateHasChanged();
+        });
+    }
+
+    private void NotifyPresenceChanges(IReadOnlyDictionary<int, bool> previousConnectionStates)
+    {
+        foreach (var player in _players)
+        {
+            if (!previousConnectionStates.TryGetValue(player.Index, out var wasConnected)
+                || wasConnected == player.IsConnected)
+            {
+                continue;
+            }
+
+            var message = $"{player.Name} {(player.IsConnected ? "connected" : "disconnected")}.";
+            Snackbar.Add(
+                message,
+                player.IsConnected ? Severity.Success : Severity.Warning,
+                options =>
+                {
+                    var playerColor = PlayerColorOptions.NormalizeOrDefault(player.Color);
+                    options.SnackbarTypeClass = $"player-snackbar player-snackbar-{playerColor}";
+                });
+        }
     }
 
     private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
@@ -959,6 +1188,26 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return Task.CompletedTask;
     }
 
+    private Task OnTogglePlayerConnectionAsync(int playerIndex)
+    {
+        var selectedPlayer = _players.FirstOrDefault(player => player.Index == playerIndex);
+        if (selectedPlayer is null || !selectedPlayer.CanToggleConnection)
+        {
+            return Task.CompletedTask;
+        }
+
+        var userId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Task.CompletedTask;
+        }
+
+        var nextConnectedState = !selectedPlayer.IsConnected;
+        GamePresenceService.SetMockConnectionState(GameId, userId, nextConnectedState);
+
+        return Task.CompletedTask;
+    }
+
     private string ResolveActionPlayerColor(RailBaronGameState state)
     {
         if (state.ActivePlayerIndex >= 0
@@ -1003,12 +1252,15 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     public async ValueTask DisposeAsync()
     {
+        GamePresenceService.PresenceChanged -= OnPresenceChanged;
+        UnregisterPagePresence();
+
         if (_gameStateSubscriptionInitialized)
         {
             SharedGameEngine.OnStateChanged -= OnSharedGameStateChanged;
             _gameStateSubscriptionInitialized = false;
         }
 
-        await ValueTask.CompletedTask;
+        await Task.CompletedTask;
     }
 }
