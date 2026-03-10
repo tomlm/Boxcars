@@ -25,6 +25,7 @@ public class Program
             .AddInteractiveServerComponents();
 
         builder.Services.AddCascadingAuthenticationState();
+        builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<IdentityUserAccessor>();
         builder.Services.AddScoped<IdentityRedirectManager>();
         builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
@@ -73,6 +74,7 @@ public class Program
         // Application services
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
+        builder.Services.AddSingleton<GamePresenceService>();
         builder.Services.AddScoped<GameBoardStateMapper>();
         builder.Services.AddScoped<MapBackgroundResolver>();
         builder.Services.AddScoped<BoardProjectionService>();
