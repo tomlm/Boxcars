@@ -1728,11 +1728,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             .Where(item => !existingEventIds.Contains(item.EventId))
             .ToList();
 
-        var purchaseOpportunitiesByBaseEventId = notifyCandidates
-            .Where(item => item.EventKind == EventTimelineKind.PurchaseOpportunity)
-            .GroupBy(GetTimelineEventBaseId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-
         foreach (var item in notifyCandidates.Where(ShouldNotifyTimelineItem))
         {
             var message = item.Description;
@@ -1747,17 +1742,14 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     message = $"{message}, Payoff ${payoff:N0}";
                 }
             }
-            else if (item.EventKind == EventTimelineKind.Arrival
-                && purchaseOpportunitiesByBaseEventId.TryGetValue(GetTimelineEventBaseId(item), out var purchaseOpportunity))
-            {
-                message = $"{item.Description} {purchaseOpportunity.Description}";
-            }
 
             Snackbar.Add(
                 message,
                 ResolveTimelineSeverity(item),
                 options =>
                 {
+                    options.Icon = ResolveTimelineSnackbarIcon(item);
+
                     var snackbarClass = ResolveTimelineSnackbarClass(item);
                     if (!string.IsNullOrWhiteSpace(snackbarClass))
                     {
@@ -1774,6 +1766,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             EventTimelineKind.NewDestination => true,
             EventTimelineKind.Move => true,
             EventTimelineKind.Arrival => true,
+            EventTimelineKind.PayFees => true,
             EventTimelineKind.Purchase => true,
             EventTimelineKind.DeclinedPurchase => true,
             _ => false
@@ -1793,6 +1786,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return item.EventKind switch
         {
             EventTimelineKind.Arrival => Severity.Success,
+            EventTimelineKind.PayFees => Severity.Warning,
             EventTimelineKind.PurchaseOpportunity => Severity.Warning,
             EventTimelineKind.Purchase => Severity.Warning,
             _ => Severity.Info
@@ -1810,6 +1804,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         var playerColor = PlayerColorOptions.NormalizeOrDefault(_players[item.ActingPlayerIndex.Value].Color);
         return $"player-snackbar player-snackbar-{playerColor}";
+    }
+
+    private static string ResolveTimelineSnackbarIcon(EventTimelineItem item)
+    {
+        return item.EventKind switch
+        {
+            EventTimelineKind.Move => Icons.Material.Filled.DirectionsRailway,
+            EventTimelineKind.NewDestination => Icons.Material.Filled.DirectionsRailway,
+            EventTimelineKind.Arrival => Icons.Material.Filled.AttachMoney,
+            EventTimelineKind.PayFees => Icons.Material.Filled.AttachMoney,
+            EventTimelineKind.Purchase => Icons.Material.Filled.ShoppingCart,
+            EventTimelineKind.DeclinedPurchase => Icons.Material.Filled.RemoveShoppingCart,
+            EventTimelineKind.PurchaseOpportunity => Icons.Material.Filled.LocalOffer,
+            _ => Icons.Material.Filled.Notifications
+        };
     }
 
     private Task OnToggleTestPlayerAsync(int playerIndex)

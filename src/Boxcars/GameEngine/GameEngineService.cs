@@ -173,6 +173,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
                         ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
 
+                    var snapshotBeforeAction = gameEngine.ToSnapshot();
                     ProcessTurn(gameEntity, gameEngine, queuedAction.Action);
                     var snapshot = gameEngine.ToSnapshot();
 
@@ -180,7 +181,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.GameId,
                         snapshot,
                         queuedAction.Action.Kind.ToString(),
-                        DescribeAction(queuedAction.Action, snapshot, gameEngine),
+                        DescribeAction(queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
                         queuedAction.Action.PlayerId,
                         queuedAction.Action,
                         stoppingToken);
@@ -489,6 +490,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 return snapshot;
             }
 
+            var snapshotBeforeAction = snapshot;
             ProcessAutomaticTurnAction(gameEngine, automaticAction);
             snapshot = gameEngine.ToSnapshot();
 
@@ -496,7 +498,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 gameId,
                 snapshot,
                 automaticAction.Kind.ToString(),
-                DescribeAction(automaticAction, snapshot, gameEngine),
+                DescribeAction(automaticAction, snapshotBeforeAction, snapshot, gameEngine),
                 automaticAction.PlayerId,
                 automaticAction,
                 cancellationToken);
@@ -543,16 +545,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return events;
     }
 
-    private static string DescribeAction(PlayerAction action, RailBaronGameState snapshot, RailBaronGameEngine gameEngine)
+    private static string DescribeAction(PlayerAction action, RailBaronGameState snapshotBeforeAction, RailBaronGameState snapshotAfterAction, RailBaronGameEngine gameEngine)
     {
-        var actorName = ResolveActorName(action, snapshot);
+        var actorName = ResolveActorName(action, snapshotBeforeAction);
 
         return action switch
         {
-            PickDestinationAction => DescribeDestinationPick(actorName, action, snapshot),
-            RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult, snapshot.Turn.BonusRollAvailable, action as RollDiceAction)}",
+            PickDestinationAction => DescribeDestinationPick(actorName, action, snapshotAfterAction),
+            RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshotAfterAction.Turn.DiceResult, snapshotAfterAction.Turn.BonusRollAvailable, action as RollDiceAction)}",
             ChooseRouteAction => string.Empty,
-            MoveAction moveAction => DescribeMove(actorName, moveAction, snapshot),
+            MoveAction moveAction => DescribeMove(actorName, moveAction, snapshotBeforeAction),
             PurchaseRailroadAction purchaseAction => $"{actorName} bought the {GetRailroadDisplayName(FindRailroad(gameEngine, purchaseAction.RailroadIndex))} railroad for {FormatCurrency(ResolveAmountPaid(purchaseAction.AmountPaid, FindRailroad(gameEngine, purchaseAction.RailroadIndex).PurchasePrice))}",
             StartAuctionAction auctionAction => $"{actorName} started an auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, auctionAction.RailroadIndex))} railroad",
             BidAction bidAction => $"{actorName} bid {FormatCurrency(bidAction.AmountBid)} for the {GetRailroadDisplayName(FindRailroad(gameEngine, bidAction.RailroadIndex))} railroad",
@@ -586,91 +588,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static string DescribeMove(string actorName, MoveAction action, RailBaronGameState snapshot)
     {
-        var arrival = snapshot.Turn.ArrivalResolution;
-        if (arrival is not null)
-        {
-            return arrival.Message;
-        }
+        var moveAmount = Math.Max(0, action.PointsTaken.Count - 1);
+        var isBonusMove = snapshot.Turn.DiceResult?.WhiteDice is { Length: >= 2 } whiteDice
+            && whiteDice.All(value => value == 0)
+            && snapshot.Turn.DiceResult.RedDie.HasValue
+            && snapshot.Turn.MovementAllowance == snapshot.Turn.DiceResult.RedDie.Value;
+        var spaceLabel = moveAmount == 1 ? "space" : "spaces";
 
-        var steps = Math.Max(0, action.PointsTaken.Count - 1);
-        var moveSummary = steps == 1
-            ? $"{actorName} moved 1 space"
-            : $"{actorName} moved {steps} spaces";
-
-        var feeSummary = DescribeMoveFeeSummary(action, snapshot);
-        return string.IsNullOrWhiteSpace(feeSummary)
-            ? moveSummary
-            : $"{moveSummary} and paid {feeSummary}";
-    }
-
-    private static string DescribeMoveFeeSummary(MoveAction action, RailBaronGameState snapshot)
-    {
-        if (action.PointsTaken.Count < 2 || action.SelectedSegmentKeys.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var activePlayerIndex = ResolvePlayerIndex(action, snapshot);
-        var activePlayerState = activePlayerIndex.HasValue && activePlayerIndex.Value >= 0 && activePlayerIndex.Value < snapshot.Players.Count
-            ? snapshot.Players[activePlayerIndex.Value]
-            : null;
-        var grandfatheredRailroads = activePlayerState?.GrandfatheredRailroadIndices.ToHashSet() ?? [];
-        var movedSegmentCount = Math.Min(action.PointsTaken.Count - 1, action.SelectedSegmentKeys.Count);
-        var usedBaseRateRailroad = false;
-        var opposingOwnerRates = new Dictionary<int, bool>();
-
-        for (var index = 0; index < movedSegmentCount; index++)
-        {
-            var fromNodeId = action.PointsTaken[index];
-            var toNodeId = action.PointsTaken[index + 1];
-
-            int railroadIndex;
-            try
-            {
-                railroadIndex = TryParseSelectedSegmentKey(action.SelectedSegmentKeys, index, fromNodeId, toNodeId);
-            }
-            catch (InvalidOperationException)
-            {
-                return string.Empty;
-            }
-
-            if (!snapshot.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
-            {
-                usedBaseRateRailroad = true;
-                continue;
-            }
-
-            if (activePlayerIndex.HasValue && ownerIndex.Value == activePlayerIndex.Value)
-            {
-                usedBaseRateRailroad = true;
-                continue;
-            }
-
-            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
-            if (!opposingOwnerRates.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
-            {
-                opposingOwnerRates[ownerIndex.Value] = requiresFullOwnerRate;
-            }
-            else
-            {
-                opposingOwnerRates[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
-            }
-        }
-
-        var feeParts = new List<string>();
-        if (usedBaseRateRailroad)
-        {
-            feeParts.Add($"{FormatCurrency(1000)} base-rate fees");
-        }
-
-        var opponentRate = snapshot.AllRailroadsSold ? 10000 : 5000;
-        foreach (var ownerRate in opposingOwnerRates.OrderBy(entry => entry.Key))
-        {
-            var amount = ownerRate.Value ? opponentRate : 1000;
-            feeParts.Add($"{FormatCurrency(amount)} to {ResolvePlayerName(snapshot, ownerRate.Key)}");
-        }
-
-        return FormatReadableList(feeParts);
+        return isBonusMove
+            ? $"{actorName} moved {moveAmount} bonus {spaceLabel}"
+            : $"{actorName} moved {moveAmount} {spaceLabel}";
     }
 
     private static int? ResolvePlayerIndex(PlayerAction action, RailBaronGameState snapshot)

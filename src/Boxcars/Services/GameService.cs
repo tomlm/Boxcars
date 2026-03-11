@@ -127,7 +127,7 @@ public class GameService
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
     {
-        var events = new List<EventTimelineItem>();
+        var orderedEvents = new List<GameEventEntity>();
 
         await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
                            entity => entity.PartitionKey == gameId,
@@ -138,15 +138,23 @@ public class GameService
                 continue;
             }
 
-            events.AddRange(BuildTimelineItems(gameEvent));
+            orderedEvents.Add(gameEvent);
         }
 
-        return events
-            .OrderBy(item => item.EventId, StringComparer.Ordinal)
-            .ToList();
+        orderedEvents.Sort(static (left, right) => string.CompareOrdinal(left.RowKey, right.RowKey));
+
+        var events = new List<EventTimelineItem>();
+        GameEventEntity? previousGameEvent = null;
+        foreach (var gameEvent in orderedEvents)
+        {
+            events.AddRange(BuildTimelineItems(gameEvent, previousGameEvent));
+            previousGameEvent = gameEvent;
+        }
+
+        return events;
     }
 
-    private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent)
+    private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
     {
         if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute"))
         {
@@ -159,6 +167,7 @@ public class GameService
             return [CreateTimelineItem(gameEvent, gameEvent.RowKey, ResolveTimelineKind(gameEvent.EventKind), gameEvent.ChangeSummary)];
         }
 
+        var previousSnapshot = TryDeserializeSnapshot(previousGameEvent?.SerializedGameState ?? string.Empty);
         var timelineItems = new List<EventTimelineItem>();
         var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
         var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
@@ -183,12 +192,25 @@ public class GameService
                     $"{actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}"));
                 break;
 
-            case "Move" when snapshot.Turn.ArrivalResolution is not null:
+            case "Move":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:move",
+                    EventTimelineKind.Move,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} moved."
+                        : gameEvent.ChangeSummary));
+
+                if (snapshot.Turn.ArrivalResolution is null)
+                {
+                    break;
+                }
+
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:arrival",
                     EventTimelineKind.Arrival,
-                    snapshot.Turn.ArrivalResolution.Message));
+                    DescribeArrival(actingPlayerName, snapshot.Turn.ArrivalResolution)));
 
                 if (snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable)
                 {
@@ -199,6 +221,18 @@ public class GameService
                         $"{actingPlayerName} may buy a railroad or locomotive before ending the turn."));
                 }
 
+                break;
+
+            case "EndTurn":
+                var payFeesDescription = DescribePayFees(gameEvent, previousSnapshot);
+                if (!string.IsNullOrWhiteSpace(payFeesDescription))
+                {
+                    timelineItems.Add(CreateTimelineItem(
+                        gameEvent,
+                        $"{gameEvent.RowKey}:fees",
+                        EventTimelineKind.PayFees,
+                        payFeesDescription));
+                }
                 break;
 
             case "PurchaseRailroad":
@@ -283,6 +317,7 @@ public class GameService
             "PickDestination" => EventTimelineKind.NewDestination,
             "RollDice" => EventTimelineKind.DiceRoll,
             "Move" => EventTimelineKind.Move,
+            "EndTurn" => EventTimelineKind.PayFees,
             "PurchaseRailroad" => EventTimelineKind.Purchase,
             "BuyEngine" => EventTimelineKind.Purchase,
             "BuySuperchief" => EventTimelineKind.Purchase,
@@ -334,6 +369,109 @@ public class GameService
         }
 
         return "Unknown player";
+    }
+
+    private static string DescribeArrival(string actingPlayerName, ArrivalResolutionState arrivalResolution)
+    {
+        if (arrivalResolution.PayoutAmount > 0)
+        {
+            return $"{actingPlayerName} reached {arrivalResolution.DestinationCityName} and collected ${arrivalResolution.PayoutAmount:N0}.";
+        }
+
+        return $"{actingPlayerName} reached {arrivalResolution.DestinationCityName}.";
+    }
+
+    private static string? DescribePayFees(GameEventEntity gameEvent, GameState? previousSnapshot)
+    {
+        if (previousSnapshot is null)
+        {
+            return null;
+        }
+
+        var actingPlayer = ResolveActingPlayer(previousSnapshot, gameEvent.ActingPlayerIndex);
+        var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+        var feeSummary = DescribeFeeSummary(previousSnapshot, gameEvent.ActingPlayerIndex);
+        return string.IsNullOrWhiteSpace(feeSummary)
+            ? null
+            : $"{actingPlayerName} paid {feeSummary}.";
+    }
+
+    private static string DescribeFeeSummary(GameState snapshot, int? actingPlayerIndex)
+    {
+        var resolvedPlayerIndex = actingPlayerIndex ?? snapshot.ActivePlayerIndex;
+        if (resolvedPlayerIndex < 0 || resolvedPlayerIndex >= snapshot.Players.Count)
+        {
+            return string.Empty;
+        }
+
+        var activePlayerState = snapshot.Players[resolvedPlayerIndex];
+        var railroadIndices = snapshot.Turn.RailroadsRiddenThisTurn;
+        if (railroadIndices.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var grandfatheredRailroads = activePlayerState.GrandfatheredRailroadIndices.ToHashSet();
+        var usedBaseRateRailroad = false;
+        var opposingOwnerRates = new Dictionary<int, bool>();
+
+        foreach (var railroadIndex in railroadIndices)
+        {
+            if (!snapshot.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
+            {
+                usedBaseRateRailroad = true;
+                continue;
+            }
+
+            if (ownerIndex.Value == resolvedPlayerIndex)
+            {
+                usedBaseRateRailroad = true;
+                continue;
+            }
+
+            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
+            if (!opposingOwnerRates.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
+            {
+                opposingOwnerRates[ownerIndex.Value] = requiresFullOwnerRate;
+            }
+            else
+            {
+                opposingOwnerRates[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
+            }
+        }
+
+        var feeParts = new List<string>();
+        if (usedBaseRateRailroad)
+        {
+            feeParts.Add("$1,000 fees");
+        }
+
+        var opponentRate = snapshot.AllRailroadsSold ? 10000 : 5000;
+        foreach (var ownerRate in opposingOwnerRates.OrderBy(entry => entry.Key))
+        {
+            var amount = ownerRate.Value ? opponentRate : 1000;
+            feeParts.Add($"${amount:N0} to {ResolvePlayerName(snapshot, ownerRate.Key)}");
+        }
+
+        return FormatReadableList(feeParts);
+    }
+
+    private static string ResolvePlayerName(GameState snapshot, int playerIndex)
+    {
+        return playerIndex >= 0 && playerIndex < snapshot.Players.Count && !string.IsNullOrWhiteSpace(snapshot.Players[playerIndex].Name)
+            ? snapshot.Players[playerIndex].Name
+            : $"player {playerIndex + 1}";
+    }
+
+    private static string FormatReadableList(List<string> items)
+    {
+        return items.Count switch
+        {
+            0 => string.Empty,
+            1 => items[0],
+            2 => string.Concat(items[0], " and ", items[1]),
+            _ => string.Concat(string.Join(", ", items.Take(items.Count - 1)), ", and ", items[^1])
+        };
     }
 
     private static string FormatDiceRoll(DiceResultState? diceResult)
