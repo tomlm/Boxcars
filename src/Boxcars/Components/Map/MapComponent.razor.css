@@ -202,15 +202,15 @@
 }
 
 .game-map-player-current-location-active {
-    stroke-width: 1.15;
-    animation: game-map-player-current-location-pulse 1.15s ease-in-out infinite;
-    filter: drop-shadow(0 0 1.2px currentColor);
+    stroke-width: .5;
+    filter: drop-shadow(0 0 .2px currentColor);
 }
 
 .game-map-current-route-endpoint {
-    stroke-width: 0.95;
+    stroke-width: 0.3;
+    stroke-dasharray: 1.0 .15;
     animation: game-map-player-current-location-pulse 1.15s ease-in-out infinite;
-    filter: drop-shadow(0 0 1.2px currentColor);
+    filter: drop-shadow(0 0 .2px black);
     pointer-events: none;
 }
 

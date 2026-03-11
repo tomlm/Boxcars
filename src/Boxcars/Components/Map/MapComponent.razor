@@ -227,15 +227,16 @@
                     </g>
                 }
 
-                @if (TryGetCurrentRouteEndpointMarker(out var currentRouteEndpointMarker))
+                @if (TryGetCurrentRouteEndpointMarker(out var endpointMarker))
                 {
                     <g class="game-map-current-route-endpoint-highlights">
-                        <circle cx="@currentRouteEndpointMarker.X"
-                                cy="@currentRouteEndpointMarker.Y"
-                                r="2.2"
-                                fill="none"
-                                stroke="@currentRouteEndpointMarker.Color"
-                                class="game-map-current-route-endpoint" />
+                        <rect x="@(endpointMarker.X - 2.2)"
+                              y="@(endpointMarker.Y - 2.2)"
+                              width="4.4"
+                              height="4.4"
+                              fill="none"
+                              stroke="@endpointMarker.Color"
+                              class="game-map-current-route-endpoint" />
                     </g>
                 }
 
