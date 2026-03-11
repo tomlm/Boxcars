@@ -1955,6 +1955,12 @@
 
     private string? ResolveNodeIdForPlayerStart(PlayerMapState playerState)
     {
+        var tripStartNodeId = ResolveNodeIdForCityName(playerState.TripStartCityName);
+        if (!string.IsNullOrWhiteSpace(tripStartNodeId))
+        {
+            return tripStartNodeId;
+        }
+
         if (!string.IsNullOrWhiteSpace(playerState.StartNodeId))
         {
             return playerState.StartNodeId;

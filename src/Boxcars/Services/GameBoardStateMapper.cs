@@ -117,6 +117,7 @@ public sealed class GameBoardStateMapper(
                     PlayerId = selection?.UserId ?? player.Name,
                     Color = selection?.Color ?? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length],
                     HomeCityName = player.HomeCityName,
+                    TripStartCityName = player.TripStartCityName,
                     CurrentCityName = player.CurrentCityName,
                     StartNodeId = player.ActiveRoute?.NodeIds.FirstOrDefault(),
                     DestinationCityName = player.DestinationCityName,
