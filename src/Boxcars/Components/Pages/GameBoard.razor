@@ -25,6 +25,7 @@
 @inject GamePresenceService GamePresenceService
 @inject GameBoardStateMapper GameBoardStateMapper
 @inject NetworkCoverageService NetworkCoverageService
+@inject MapAnalysisService MapAnalysisService
 @inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
 @inject ISnackbar Snackbar
@@ -97,7 +98,7 @@
         @if (ShouldShowPurchaseExperienceTabs)
         {
             <div class="@AnalysisAreaClass">
-                <PurchaseAnalysisReport Report="@CurrentPurchasePhase?.MapAnalysisReport"
+                <PurchaseAnalysisReport Report="@CurrentMapAnalysisReport"
                                         RecommendationInputs="@DisplayRecommendationInputs" />
             </div>
         }
@@ -105,31 +106,34 @@
         @* ── Status strip: turn state center, zoom right ── *@
         <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center"
                   Class="map-board-status-bar px-3 py-2" Spacing="2">
-            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
-                <TurnStatusPanel State="@_turnViewState" />
+            @if (IsCurrentUserActivePlayer)
+            {
+                <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
+                    <TurnStatusPanel State="@_turnViewState" />
 
-                @if (ShouldShowPurchaseTaskbar)
-                {
-                    <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
-                                     SelectedOptionKey="@_selectedPurchaseOptionKey"
-                                     SelectedOptionKeyChanged="OnSelectedPurchaseOptionChangedAsync"
-                                     BuyRequested="OnBuyPurchaseAsync"
-                                     DeclineRequested="DeclinePurchaseAsync"
-                                     CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
-                                     ProjectedCoverage="SelectedProjectedCoverage"
-                                     SelectedEngineOption="SelectedEngineOption" />
-                }
-                else if (!ShouldHidePrimaryAction)
-                {
-                    <MudButton Variant="Variant.Filled"
-                               Color="MudBlazor.Color.Primary"
-                               Disabled="@(!CanPrimaryGameAction)"
-                               OnClick="OnPrimaryGameActionAsync"
-                               Class="map-board-primary-action">
-                        @PrimaryGameActionLabel
-                    </MudButton>
-                }
-            </MudStack>
+                    @if (ShouldShowPurchaseTaskbar)
+                    {
+                        <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
+                                         SelectedOptionKey="@_selectedPurchaseOptionKey"
+                                         SelectedOptionKeyChanged="OnSelectedPurchaseOptionChangedAsync"
+                                         BuyRequested="OnBuyPurchaseAsync"
+                                         DeclineRequested="DeclinePurchaseAsync"
+                                         CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
+                                         ProjectedCoverage="SelectedProjectedCoverage"
+                                         SelectedEngineOption="SelectedEngineOption" />
+                    }
+                    else if (!ShouldHidePrimaryAction)
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                   Color="MudBlazor.Color.Primary"
+                                   Disabled="@(!CanPrimaryGameAction)"
+                                   OnClick="OnPrimaryGameActionAsync"
+                                   Class="map-board-primary-action">
+                            @PrimaryGameActionLabel
+                        </MudButton>
+                    }
+                </MudStack>
+            }
         </MudStack>
     </div>
 </div>
@@ -142,6 +146,7 @@
     private bool _gameStateSubscriptionInitialized;
     private RailBaronGameState? _gameState;
     private MapDefinition? _playerBoardMapDefinition;
+    private MapAnalysisReport? _mapAnalysisReport;
     private BoardTurnViewState _turnViewState = new();
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
@@ -799,7 +804,9 @@
         var loadResult = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream, cancellationToken);
         if (loadResult.Succeeded)
         {
-            _playerBoardMapDefinition = loadResult.Definition;
+            var mapDefinition = loadResult.Definition!;
+            _playerBoardMapDefinition = mapDefinition;
+            _mapAnalysisReport = MapAnalysisService.BuildReport(mapDefinition);
         }
     }
 
@@ -1138,6 +1145,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private PurchasePhaseModel? CurrentPurchasePhase => _turnViewState.PurchasePhase;
 
+    private MapAnalysisReport? CurrentMapAnalysisReport => CurrentPurchasePhase?.MapAnalysisReport ?? _mapAnalysisReport;
+
     private int EffectiveRecommendationPlayerIndex
     {
         get
@@ -1166,7 +1175,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         get
         {
             var baseInputs = CurrentPurchasePhase?.RecommendationInputs;
-            if (baseInputs is null || _gameState is null || _playerBoardMapDefinition is null)
+            if (_gameState is null || _playerBoardMapDefinition is null || CurrentMapAnalysisReport is null)
             {
                 return baseInputs;
             }
@@ -1177,31 +1186,34 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 return baseInputs;
             }
 
-            if (effectivePlayerIndex == _gameState.ActivePlayerIndex)
+            if (baseInputs is not null && effectivePlayerIndex == _gameState.ActivePlayerIndex)
             {
                 return baseInputs;
             }
 
             var ownedRailroadIndices = _gameState.Players[effectivePlayerIndex].OwnedRailroadIndices;
             var currentCoverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, ownedRailroadIndices);
-            var projectedCoverageByRailroad = CurrentPurchasePhase?.RailroadOptions.ToDictionary(
-                option => option.RailroadIndex,
-                option => NetworkCoverageService.BuildProjectedSnapshot(_playerBoardMapDefinition, ownedRailroadIndices, option.RailroadIndex))
-                ?? new Dictionary<int, NetworkCoverageSnapshot>();
+            var unownedRailroadIndices = _playerBoardMapDefinition.Railroads
+                .Where(railroad => !_gameState.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
+                .Select(railroad => railroad.Index)
+                .ToList();
+            var projectedCoverageByRailroad = unownedRailroadIndices.ToDictionary(
+                railroadIndex => railroadIndex,
+                railroadIndex => NetworkCoverageService.BuildProjectedSnapshot(_playerBoardMapDefinition, ownedRailroadIndices, railroadIndex));
 
             return new RecommendationInputSet
             {
-                MapAnalysisReport = baseInputs.MapAnalysisReport,
-                AffordableRailroadIndices = baseInputs.AffordableRailroadIndices,
-                UnownedRailroadIndices = baseInputs.UnownedRailroadIndices,
-                EligibleEngineTypes = baseInputs.EligibleEngineTypes,
+                MapAnalysisReport = CurrentMapAnalysisReport,
+                AffordableRailroadIndices = baseInputs?.AffordableRailroadIndices ?? [],
+                UnownedRailroadIndices = baseInputs?.UnownedRailroadIndices ?? unownedRailroadIndices,
+                EligibleEngineTypes = baseInputs?.EligibleEngineTypes ?? [],
                 CurrentCoverage = currentCoverage,
                 ProjectedCoverageByRailroad = projectedCoverageByRailroad
             };
         }
     }
 
-    private bool ShouldShowPurchaseExperienceTabs => CurrentPurchasePhase is { HasActivePurchaseControls: true };
+    private bool ShouldShowPurchaseExperienceTabs => _playerBoardMapDefinition is not null;
 
     private bool IsMapPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Map;
 
