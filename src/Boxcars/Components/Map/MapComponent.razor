@@ -1914,11 +1914,13 @@
             return;
         }
 
-        foreach (var playerState in PlayerStates)
+        for (var playerIndex = 0; playerIndex < PlayerStates.Count; playerIndex++)
         {
+            var playerState = PlayerStates[playerIndex];
             var color = string.IsNullOrWhiteSpace(playerState.Color)
                 ? "var(--accent-fill-rest)"
                 : playerState.Color;
+            var traveledMarkerOffsetX = playerIndex * 0.35;
 
             var startNodeId = ResolveNodeIdForPlayerStart(playerState);
             if (!string.IsNullOrWhiteSpace(startNodeId)
@@ -1948,7 +1950,7 @@
                     continue;
                 }
 
-                _playerTraveledSegmentMarkers.Add(new PlayerNodeMarker(midpointX, midpointY, color));
+                _playerTraveledSegmentMarkers.Add(new PlayerNodeMarker(midpointX + traveledMarkerOffsetX, midpointY, color));
             }
         }
     }
