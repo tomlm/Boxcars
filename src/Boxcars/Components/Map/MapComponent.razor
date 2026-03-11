@@ -1167,7 +1167,7 @@
         return CanUseSegmentForState(_selectedRouteSegments, segment, replacingLastSegment: false);
     }
 
-    private static bool CanUseSegmentForState(
+    private bool CanUseSegmentForState(
         IReadOnlyList<RouteGraphEdge> segments,
         RouteGraphEdge segment,
         bool replacingLastSegment)
@@ -1176,7 +1176,8 @@
             ? segments.Take(Math.Max(0, segments.Count - 1)).ToList()
             : segments.ToList();
 
-        return !usableSegments.Any(traveled => IsSameRailroadSegment(traveled, segment));
+        return !usableSegments.Any(traveled => IsSameRailroadSegment(traveled, segment))
+            && !IsSegmentAlreadyTraveledThisTrip(segment);
     }
 
     private static bool IsSameRailroadSegment(RouteGraphEdge left, RouteGraphEdge right)
@@ -1630,6 +1631,8 @@
                 StartNodeId = startNodeId,
                 DestinationNodeId = _destinationNodeId,
                 MovementType = MovementType,
+                MovementCapacity = CurrentTurnMovementRemaining,
+                TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
                 PlayerColor = PlayerColor,
                 ResolveRailroadOwnership = ResolveRailroadOwnershipCategory
             });
@@ -1977,6 +1980,26 @@
     private bool IsRailroadOwnedByPlayer(int railroadIndex)
     {
         return PlayerOwnedRailroadIndices?.Contains(railroadIndex) == true;
+    }
+
+    private IReadOnlyList<string> GetActivePlayerTraveledSegmentKeys()
+    {
+        return PlayerStates?.FirstOrDefault(playerState => playerState.IsActiveTurn)?.TraveledSegmentKeys
+            ?? Array.Empty<string>();
+    }
+
+    private bool IsSegmentAlreadyTraveledThisTrip(RouteGraphEdge segment)
+    {
+        return GetActivePlayerTraveledSegmentKeys().Contains(
+            BuildNormalizedSegmentKey(segment.FromNodeId, segment.ToNodeId),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string BuildNormalizedSegmentKey(string fromNodeId, string toNodeId)
+    {
+        return string.Compare(fromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase) <= 0
+            ? string.Concat(fromNodeId, "-", toNodeId)
+            : string.Concat(toNodeId, "-", fromNodeId);
     }
 
     private static bool AreCoLocated(RouteNodeRenderItem left, RouteNodeRenderItem right)
@@ -2442,7 +2465,9 @@
             return 0;
         }
 
-        var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie
+            ? CurrentTurnMovementRemaining > 0 ? CurrentTurnMovementRemaining : 3
+            : 2;
         var totalCost = 0;
         var pointsUsedInCurrentTurn = 0;
         var lastRailroadIndex = -1;

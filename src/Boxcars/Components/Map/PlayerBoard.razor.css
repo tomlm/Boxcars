@@ -86,6 +86,11 @@
     color: #b42318;
 }
 
+::deep .player-card-line-bonus {
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
 ::deep .player-card-test-row {
     margin-top: 0.2rem;
 }

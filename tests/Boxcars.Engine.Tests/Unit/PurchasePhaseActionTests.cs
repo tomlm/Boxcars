@@ -331,6 +331,53 @@ public class PurchasePhaseActionTests
     }
 
     [Fact]
+    public void ArrivalWithDeferredBonus_ClearsTraveledSegmentsBeforeBonusMove()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Roll);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        player.LocomotiveType = LocomotiveType.Express;
+        player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Boston", StringComparison.Ordinal));
+        player.TripOriginCity = player.CurrentCity;
+        engine.SaveRoute(new Route(
+            ["0:0", "0:1"],
+            [new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = 0 }],
+            0));
+
+        random.QueueDiceRoll(3, 3);
+        engine.RollDice();
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
+        Assert.True(engine.CurrentTurn.BonusRollAvailable);
+        Assert.Empty(player.UsedSegments);
+
+        random.QueueDiceRoll(4);
+        engine.DeclinePurchase();
+
+        Assert.Equal(TurnPhase.DrawDestination, engine.CurrentTurn.Phase);
+        Assert.Empty(player.UsedSegments);
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(0);
+        engine.DrawDestination();
+
+        Assert.Equal(TurnPhase.Move, engine.CurrentTurn.Phase);
+        Assert.Equal("New York", player.Destination?.Name);
+
+        engine.SaveRoute(new Route(
+            ["0:1", "0:0"],
+            [new RouteSegment { FromNodeId = "0:1", ToNodeId = "0:0", RailroadIndex = 0 }],
+            0));
+
+        var moveException = Record.Exception(() => engine.MoveAlongRoute(1));
+
+        Assert.Null(moveException);
+        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
+    }
+
+    [Fact]
     public void GetRailroadPurchasePrice_ConsecutiveIndices_ReturnsDifferingPrices()
     {
         var price1 = RailBaronGameEngine.GetRailroadPurchasePrice(1);

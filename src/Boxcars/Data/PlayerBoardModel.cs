@@ -71,6 +71,9 @@ public sealed class PlayerBoardModel
     /// <summary>Current fees owed by the player for the active turn.</summary>
     public int FeesOwed { get; init; }
 
+    /// <summary>Pending bonus movement label for the active player, when applicable.</summary>
+    public string BonusPendingLabel { get; init; } = string.Empty;
+
     /// <summary>
     /// Returns a money display string.
     /// For the current user, returns the exact formatted amount.

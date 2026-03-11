@@ -107,7 +107,13 @@ public sealed class MapRouteService
             };
         }
 
-        var movementPointsPerTurn = request.MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        var traveledSegmentKeys = request.TraveledSegmentKeys
+            .Where(segmentKey => !string.IsNullOrWhiteSpace(segmentKey))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var movementPointsPerTurn = request.MovementType == PlayerMovementType.ThreeDie
+            ? request.MovementCapacity > 0 ? request.MovementCapacity : 3
+            : 2;
 
         var startState = new RouteSuggestionState(request.StartNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
         var priorityQueue = new PriorityQueue<RouteSuggestionState, (int TotalCost, int TotalTurns, int RailroadSwitches, string PathSignature)>();
@@ -157,6 +163,11 @@ public sealed class MapRouteService
 
             foreach (var edge in outgoingEdges)
             {
+                if (traveledSegmentKeys.Contains(BuildSegmentKey(edge.FromNodeId, edge.ToNodeId)))
+                {
+                    continue;
+                }
+
                 var ownershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex);
                 var costPerTurn = ownershipCategory == RailroadOwnershipCategory.OwnedByOtherPlayer ? 5000 : 1000;
 
@@ -638,6 +649,13 @@ public sealed class MapRouteService
     public static string NodeKey(int regionIndex, int dotIndex)
     {
         return $"{regionIndex}:{dotIndex}";
+    }
+
+    private static string BuildSegmentKey(string fromNodeId, string toNodeId)
+    {
+        return string.Compare(fromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase) <= 0
+            ? string.Concat(fromNodeId, "-", toNodeId)
+            : string.Concat(toNodeId, "-", fromNodeId);
     }
 
     private static void AddAdjacency(Dictionary<string, List<RouteGraphEdge>> adjacency, RouteGraphEdge edge)

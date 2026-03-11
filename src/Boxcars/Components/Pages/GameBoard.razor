@@ -200,6 +200,7 @@
         {
             _gameStateSubscriptionInitialized = true;
             SharedGameEngine.OnStateChanged += OnSharedGameStateChanged;
+            SharedGameEngine.OnActionFailed += OnSharedGameActionFailed;
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
@@ -246,7 +247,7 @@
     {
         "DrawDestination" => "AUTOMATIC",
         "Roll" => "AUTOMATIC",
-        "Move" => "MOVE",
+        "Move" => IsPendingBonusMove ? "MOVE BONUS" : "MOVE",
         "EndTurn" => "AUTOMATIC",
         _ => "TURN ACTION"
     };
@@ -606,6 +607,22 @@
         });
     }
 
+    private void OnSharedGameActionFailed(string gameId, GameActionFailure failure)
+    {
+        if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            _awaitingAuthoritativeUpdate = false;
+            Snackbar.Add(failure.Message, Severity.Error);
+            StateHasChanged();
+            return Task.CompletedTask;
+        });
+    }
+
     private void MarkAuthoritativeUpdatePending()
     {
         _awaitingAuthoritativeUpdate = true;
@@ -676,6 +693,7 @@
                     IsActiveTurn = index == state.ActivePlayerIndex,
                     IsConnected = IsPlayerConnected(resolvedUserId),
                     LocomotiveLabel = player.LocomotiveType,
+                    BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
                     FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index) : 0,
                     CoverageMetrics = BuildPlayerCoverageMetricRows(player)
                 };
@@ -1100,6 +1118,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private int CurrentRouteFees => _turnViewState.PreviewFee;
 
     private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
+
+    private bool IsPendingBonusMove => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+        && _turnViewState.RedDie.HasValue
+        && _turnViewState.WhiteDieOne <= 0
+        && _turnViewState.WhiteDieTwo <= 0;
 
     private PlayerMovementType CurrentMovementType => _turnViewState.RedDie.HasValue && (_turnViewState.WhiteDieOne > 0 || _turnViewState.WhiteDieTwo > 0)
         ? PlayerMovementType.ThreeDie
@@ -1903,6 +1926,23 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return string.Format(CultureInfo.InvariantCulture, "${0:N0}", Math.Max(0, fee));
     }
 
+    private static string BuildBonusPendingLabel(RailBaronGameState state, Boxcars.Engine.Persistence.PlayerState player)
+    {
+        if (!state.Turn.BonusRollAvailable)
+        {
+            return string.Empty;
+        }
+
+        if (string.Equals(player.LocomotiveType, LocomotiveType.Superchief.ToString(), StringComparison.OrdinalIgnoreCase)
+            && state.Turn.DiceResult?.RedDie is int redDie
+            && redDie > 0)
+        {
+            return $"Bonus {redDie} pending";
+        }
+
+        return "Bonus Pending";
+    }
+
     public async ValueTask DisposeAsync()
     {
         GamePresenceService.PresenceChanged -= OnPresenceChanged;
@@ -1911,6 +1951,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         if (_gameStateSubscriptionInitialized)
         {
             SharedGameEngine.OnStateChanged -= OnSharedGameStateChanged;
+            SharedGameEngine.OnActionFailed -= OnSharedGameActionFailed;
             _gameStateSubscriptionInitialized = false;
         }
 

@@ -74,6 +74,12 @@
                             <MudText Typo="Typo.caption" Class="player-card-line">
                                 <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
                             </MudText>
+                            @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
+                            {
+                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-bonus">
+                                    @player.BonusPendingLabel
+                                </MudText>
+                            }
                             @if (player.FeesOwed > 0)
                             {
                                 <MudText Typo="Typo.caption" Class="player-card-line player-card-line-fees">

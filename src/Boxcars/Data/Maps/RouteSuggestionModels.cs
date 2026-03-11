@@ -19,6 +19,8 @@ public sealed class RouteSuggestionRequest
     public required string StartNodeId { get; init; }
     public required string DestinationNodeId { get; init; }
     public required PlayerMovementType MovementType { get; init; }
+    public int MovementCapacity { get; init; }
+    public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
     public required string PlayerColor { get; init; }
     public required Func<int, RailroadOwnershipCategory> ResolveRailroadOwnership { get; init; }
 }

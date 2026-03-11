@@ -6,6 +6,7 @@ namespace Boxcars.GameEngine;
 public interface IGameEngine
 {
     event Action<string, RailBaronGameState>? OnStateChanged;
+    event Action<string, GameActionFailure>? OnActionFailed;
 
     Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default);
 
@@ -19,4 +20,10 @@ public interface IGameEngine
 public sealed record GameCreationOptions
 {
     public string? PreferredGameId { get; init; }
+}
+
+public sealed record GameActionFailure
+{
+    public required PlayerActionKind ActionKind { get; init; }
+    public string Message { get; init; } = string.Empty;
 }

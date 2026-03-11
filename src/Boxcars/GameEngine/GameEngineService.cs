@@ -11,6 +11,7 @@ using Boxcars.Identity;
 using Boxcars.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RailBaronGameEngine = global::Boxcars.Engine.Domain.GameEngine;
 using RailBaronGameState = global::Boxcars.Engine.Persistence.GameState;
@@ -33,17 +34,24 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly PurchaseRulesOptions _purchaseRulesOptions;
+    private readonly ILogger<GameEngineService> _logger;
     private long _eventSequence;
     private MapDefinition? _mapDefinition;
 
-    public GameEngineService(IWebHostEnvironment webHostEnvironment, TableServiceClient tableServiceClient, IOptions<PurchaseRulesOptions> purchaseRulesOptions)
+    public GameEngineService(
+        IWebHostEnvironment webHostEnvironment,
+        TableServiceClient tableServiceClient,
+        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+        ILogger<GameEngineService> logger)
     {
         _webHostEnvironment = webHostEnvironment;
         _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
         _purchaseRulesOptions = purchaseRulesOptions.Value;
+        _logger = logger;
     }
 
     public event Action<string, RailBaronGameState>? OnStateChanged;
+    public event Action<string, GameActionFailure>? OnActionFailed;
 
     public async Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -181,8 +189,28 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
                     OnStateChanged?.Invoke(queuedAction.GameId, snapshot);
                 }
-                catch (Exception)
+                catch (Exception exception)
                 {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+                    _logger.LogError(
+                        exception,
+                        "Failed to process queued action {ActionKind} for game {GameId}.",
+                        queuedAction.Action.Kind,
+                        queuedAction.GameId);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+
+                    OnActionFailed?.Invoke(
+                        queuedAction.GameId,
+                        new GameActionFailure
+                        {
+                            ActionKind = queuedAction.Action.Kind,
+                            Message = BuildActionFailureMessage(queuedAction.Action, exception)
+                        });
+
+                    if (_gameEngines.TryGetValue(queuedAction.GameId, out var failedGameEngine))
+                    {
+                        OnStateChanged?.Invoke(queuedAction.GameId, failedGameEngine.ToSnapshot());
+                    }
                 }
             }
         }
@@ -534,6 +562,18 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             EndTurnAction => $"{actorName} ended their turn",
             _ => $"{actorName} performed {action.Kind}"
         };
+    }
+
+    private static string BuildActionFailureMessage(PlayerAction action, Exception exception)
+    {
+        if (action is MoveAction && string.Equals(exception.Message, "Segment reuse violation.", StringComparison.Ordinal))
+        {
+            return "That route reuses a track segment. Choose a route that does not travel the same segment twice in one trip.";
+        }
+
+        return string.IsNullOrWhiteSpace(exception.Message)
+            ? $"Unable to process {action.Kind}."
+            : exception.Message;
     }
 
     private static string DescribeDestinationPick(string actorName, PlayerAction action, RailBaronGameState snapshot)
