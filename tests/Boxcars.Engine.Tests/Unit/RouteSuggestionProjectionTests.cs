@@ -46,7 +46,7 @@ public class RouteSuggestionProjectionTests
                     FromNodeId = "A",
                     ToNodeId = "B",
                     RailroadIndex = 1,
-                    OwnershipCategory = RailroadOwnershipCategory.Unowned,
+                    OwnershipCategory = RailroadOwnershipCategory.Public,
                     Turns = 1,
                     CostPerTurn = 1000,
                     TotalCost = 1000
@@ -56,7 +56,7 @@ public class RouteSuggestionProjectionTests
                     FromNodeId = "B",
                     ToNodeId = "C",
                     RailroadIndex = 1,
-                    OwnershipCategory = RailroadOwnershipCategory.Unowned,
+                    OwnershipCategory = RailroadOwnershipCategory.Public,
                     Turns = 0,
                     CostPerTurn = 1000,
                     TotalCost = 0
@@ -66,17 +66,17 @@ public class RouteSuggestionProjectionTests
                     FromNodeId = "C",
                     ToNodeId = "D",
                     RailroadIndex = 2,
-                    OwnershipCategory = RailroadOwnershipCategory.OwnedByOtherPlayer,
-                    Turns = 1,
+                    OwnershipCategory = RailroadOwnershipCategory.Unfriendly,
+                    Turns = 2,
                     CostPerTurn = 5000,
-                    TotalCost = 5000
+                    TotalCost = 10000
                 },
                 new RouteSuggestionSegment
                 {
                     FromNodeId = "D",
                     ToNodeId = "E",
                     RailroadIndex = 2,
-                    OwnershipCategory = RailroadOwnershipCategory.OwnedByOtherPlayer,
+                    OwnershipCategory = RailroadOwnershipCategory.Unfriendly,
                     Turns = 0,
                     CostPerTurn = 5000,
                     TotalCost = 0

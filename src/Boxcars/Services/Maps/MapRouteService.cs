@@ -172,7 +172,7 @@ public sealed class MapRouteService
                 }
 
                 var ownershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex);
-                var costPerTurn = ownershipCategory == RailroadOwnershipCategory.OwnedByOtherPlayer ? 5000 : 1000;
+                var costPerTurn = ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 5000 : 1000;
 
                 var isFirstEdge = state.LastRailroadIndex < 0;
                 var exhaustedTurnCapacity = !isFirstEdge && state.PointsUsedInCurrentTurn >= movementPointsPerTurn;

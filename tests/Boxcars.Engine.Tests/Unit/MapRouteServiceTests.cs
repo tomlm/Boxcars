@@ -24,7 +24,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.ThreeDie,
                 MovementCapacity = 2,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.OwnedByOtherPlayer
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unfriendly
             });
 
         // With capacity 5: both paths fit in 1 turn ($5000 each),
@@ -39,7 +39,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.ThreeDie,
                 MovementCapacity = 5,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.OwnedByOtherPlayer
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unfriendly
             });
 
         Assert.Equal(["A", "Z", "D"], lowCapacitySuggestion.NodeIds);
@@ -54,7 +54,7 @@ public class MapRouteServiceTests
     {
         var service = new MapRouteService();
 
-        // Linear path A→B→C→D on RR1 (unowned, $1000/turn)
+        // Linear path A→B→C→D on RR1 (public, $1000/turn)
         var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
         {
             ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = []
@@ -81,7 +81,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 1,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unowned
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
         var highCap = service.FindCheapestSuggestion(
@@ -94,7 +94,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 3,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unowned
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
         // Same route, but capacity changes the number of turns and total cost
@@ -125,7 +125,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 5,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.OwnedByOtherPlayer
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unfriendly
             });
 
         Assert.Equal(["A", "Z", "D"], suggestion.NodeIds);
@@ -148,7 +148,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 0,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.OwnedByOtherPlayer
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unfriendly
             });
 
         Assert.Equal(["A", "Z", "D"], suggestion.NodeIds);
@@ -171,7 +171,7 @@ public class MapRouteServiceTests
                 MovementCapacity = 5,
                 TraveledSegmentKeys = ["A-B:1"],
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.OwnedByOtherPlayer
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unfriendly
             });
 
         Assert.Equal(["A", "Z", "D"], suggestion.NodeIds);
@@ -203,7 +203,7 @@ public class MapRouteServiceTests
 
         var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
 
-        // RR3 is owned by another player ($5000), RR1 and RR2 are unowned ($1000 each)
+        // RR3 is unfriendly ($5000), RR1 and RR2 are public ($1000 each)
         var suggestion = service.FindCheapestSuggestion(
             context,
             new RouteSuggestionRequest
@@ -215,8 +215,8 @@ public class MapRouteServiceTests
                 MovementCapacity = 5,
                 PlayerColor = "#000000",
                 ResolveRailroadOwnership = rr => rr == 3
-                    ? RailroadOwnershipCategory.OwnedByOtherPlayer
-                    : RailroadOwnershipCategory.Unowned
+                    ? RailroadOwnershipCategory.Unfriendly
+                    : RailroadOwnershipCategory.Public
             });
 
         // Should prefer A→B→C→D ($1000 for RR1 + $1000 for RR2 = $2000, 1 turn)
@@ -264,7 +264,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 10,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unowned
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
@@ -309,7 +309,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 10,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unowned
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
@@ -354,7 +354,7 @@ public class MapRouteServiceTests
                 MovementCapacity = 5,
                 TraveledSegmentKeys = ["A-B:1"], // RR1 blocked
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unowned
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
@@ -401,7 +401,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 2,
                 PlayerColor = "#000000",
-                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Unowned
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);

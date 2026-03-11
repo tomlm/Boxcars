@@ -163,18 +163,19 @@
 }
 
 .game-map-route-suggestion-segment {
-    stroke-linecap: round;
     pointer-events: none;
 }
 
 .game-map-route-suggestion-segment-border {
     stroke-width: 2.6;
-    stroke-opacity: 0.95;
+    stroke-opacity: 1.0;
+    stroke-linecap: butt;
 }
 
 .game-map-route-suggestion-segment-fill {
     stroke-width: 1.6;
-    stroke-opacity: 0.95;
+    stroke-opacity: 1.0;
+    stroke-linecap: round;
 }
 
 .game-map-route-suggestion-segment-future-border {
@@ -185,7 +186,7 @@
 
 .game-map-route-suggestion-segment-future {
     stroke-width: 0.8;
-    stroke-opacity: 0.5;
+    stroke-opacity: 1.0;
     stroke-dasharray: 1.2 0.8;
 }
 

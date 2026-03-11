@@ -8,9 +8,9 @@ public enum PlayerMovementType
 
 public enum RailroadOwnershipCategory
 {
-    Unowned,
-    OwnedByPlayer,
-    OwnedByOtherPlayer
+    Public,
+    Friendly,
+    Unfriendly
 }
 
 public sealed class RouteSuggestionRequest
@@ -80,14 +80,35 @@ public sealed class RouteSuggestionSegmentOverlay
     public required double Y2 { get; init; }
     public required string PlayerColor { get; init; }
     public required string RailroadColor { get; init; }
-    public bool IsOwned { get; init; }
+    public string OwnerColor { get; init; } = string.Empty;
+    public RailroadOwnershipCategory OwnershipCategory { get; init; }
     public bool IsThisTurn { get; init; }
 
-    /// <summary>Main stroke: railroad color when unowned, player color when owned.</summary>
-    public string StrokeColor => IsOwned ? PlayerColor : RailroadColor;
+    /// <summary>
+    /// Fill (top line): railroad color when public, player color when player-owned,
+    /// owner color when owned by another player.
+    /// </summary>
+    public string StrokeColor => OwnershipCategory switch
+    {
+        RailroadOwnershipCategory.Friendly => PlayerColor,
+        RailroadOwnershipCategory.Unfriendly =>
+            !string.IsNullOrWhiteSpace(OwnerColor) ? OwnerColor : RailroadColor,
+        _ => RailroadColor
+    };
 
-    /// <summary>Border stroke: player color when unowned, contrasting color when owned.</summary>
-    public string BorderColor => IsOwned ? GetContrastColor(PlayerColor) : PlayerColor;
+    /// <summary>
+    /// Border (bottom line): white when suggested; for selected segments:
+    /// player color when public, contrast of player when friendly,
+    /// player color when unfriendly.
+    /// </summary>
+    public string BorderColor => IsThisTurn
+        ? OwnershipCategory switch
+        {
+            RailroadOwnershipCategory.Friendly => GetContrastColor(PlayerColor),
+            RailroadOwnershipCategory.Unfriendly => PlayerColor,
+            _ => PlayerColor
+        }
+        : "#FFFFFF";
 
     private static string GetContrastColor(string hexColor)
     {
