@@ -78,6 +78,28 @@ public sealed class RouteSuggestionSegmentOverlay
     public required double Y1 { get; init; }
     public required double X2 { get; init; }
     public required double Y2 { get; init; }
-    public required string Color { get; init; }
+    public required string PlayerColor { get; init; }
+    public required string RailroadColor { get; init; }
+    public bool IsOwned { get; init; }
     public bool IsThisTurn { get; init; }
+
+    /// <summary>Main stroke: railroad color when unowned, player color when owned.</summary>
+    public string StrokeColor => IsOwned ? PlayerColor : RailroadColor;
+
+    /// <summary>Border stroke: player color when unowned, contrasting color when owned.</summary>
+    public string BorderColor => IsOwned ? GetContrastColor(PlayerColor) : PlayerColor;
+
+    private static string GetContrastColor(string hexColor)
+    {
+        if (string.IsNullOrWhiteSpace(hexColor) || hexColor.Length < 7 || hexColor[0] != '#')
+        {
+            return "#FFFFFF";
+        }
+
+        var r = Convert.ToInt32(hexColor.Substring(1, 2), 16);
+        var g = Convert.ToInt32(hexColor.Substring(3, 2), 16);
+        var b = Convert.ToInt32(hexColor.Substring(5, 2), 16);
+        var luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+        return luminance > 0.5 ? "#000000" : "#FFFFFF";
+    }
 }
