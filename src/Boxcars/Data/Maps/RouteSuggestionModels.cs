@@ -55,6 +55,13 @@ public sealed class RouteSuggestionResult
     public int TotalCost { get; init; }
 }
 
+public enum RouteSuggestionHighlightType
+{
+    Solid,
+    Endpoint,
+    Dashed
+}
+
 public sealed class RouteSuggestionHighlight
 {
     public required string NodeId { get; init; }
@@ -62,5 +69,15 @@ public sealed class RouteSuggestionHighlight
     public required double Y { get; init; }
     public required string Color { get; init; }
     public required double Radius { get; init; }
-    public bool IsDashed { get; init; }
+    public RouteSuggestionHighlightType HighlightType { get; init; }
+}
+
+public sealed class RouteSuggestionSegmentOverlay
+{
+    public required double X1 { get; init; }
+    public required double Y1 { get; init; }
+    public required double X2 { get; init; }
+    public required double Y2 { get; init; }
+    public required string Color { get; init; }
+    public bool IsThisTurn { get; init; }
 }

@@ -346,7 +346,7 @@ public sealed class GameEngine : ObservableBase
         {
             if (i >= route.Segments.Count) break;
             var segment = route.Segments[i];
-            var segKey = new SegmentKey(segment.FromNodeId, segment.ToNodeId);
+            var segKey = new SegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex);
 
             if (player.UsedSegments.Contains(segKey))
                 throw new InvalidOperationException("Segment reuse violation.");
@@ -784,9 +784,23 @@ public sealed class GameEngine : ObservableBase
             // Restore used segments
             foreach (var segStr in ps.UsedSegments)
             {
-                var parts = segStr.Split('-');
-                if (parts.Length == 2)
-                    player.UsedSegments.Add(new SegmentKey(parts[0], parts[1]));
+                // New format: "NodeA-NodeB:RR" — old format: "NodeA-NodeB"
+                var colonIndex = segStr.IndexOf(':');
+                if (colonIndex >= 0)
+                {
+                    var nodePart = segStr.Substring(0, colonIndex);
+                    var rrPart = segStr.Substring(colonIndex + 1);
+                    var parts = nodePart.Split('-');
+                    if (parts.Length == 2 && int.TryParse(rrPart, out var rrIndex))
+                        player.UsedSegments.Add(new SegmentKey(parts[0], parts[1], rrIndex));
+                }
+                else
+                {
+                    // Legacy format without railroad index — treat as railroad -1
+                    var parts = segStr.Split('-');
+                    if (parts.Length == 2)
+                        player.UsedSegments.Add(new SegmentKey(parts[0], parts[1], -1));
+                }
             }
 
             foreach (var railroadIndex in ps.GrandfatheredRailroadIndices)
@@ -1302,7 +1316,7 @@ public sealed class GameEngine : ObservableBase
                     continue;
 
                 // Check non-reuse
-                var segKey = new SegmentKey(edge.FromNodeId, edge.ToNodeId);
+                var segKey = new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex);
                 if (player.UsedSegments.Contains(segKey))
                     continue;
 
