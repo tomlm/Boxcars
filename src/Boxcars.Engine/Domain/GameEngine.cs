@@ -353,6 +353,7 @@ public sealed class GameEngine : ObservableBase
 
             player.UsedSegments.Add(segKey);
             CurrentTurn.RailroadsRiddenThisTurn.Add(segment.RailroadIndex);
+            UpdateGrandfatheredRailroadAccess(player, segment.RailroadIndex);
         }
 
         // Update position
@@ -479,6 +480,7 @@ public sealed class GameEngine : ObservableBase
         player.Cash -= railroad.PurchasePrice;
         railroad.Owner = player;
         player.OwnedRailroads.Add(railroad);
+        UpdateGrandfatheringForOwnershipChange(railroad.Index, player);
         CurrentTurn.ArrivalResolution = null;
 
         CheckAllRailroadsSold();
@@ -567,6 +569,8 @@ public sealed class GameEngine : ObservableBase
             }
             railroad.Owner = null;
         }
+
+        UpdateGrandfatheringForOwnershipChange(railroad.Index, railroad.Owner);
 
         CheckAllRailroadsSold();
         AuctionCompleted?.Invoke(this, new AuctionCompletedEventArgs(railroad, winner, winningBid));
@@ -690,6 +694,7 @@ public sealed class GameEngine : ObservableBase
                 IsBankrupt = player.IsBankrupt,
                 HasDeclared = player.HasDeclared,
                 OwnedRailroadIndices = player.OwnedRailroads.Select(r => r.Index).ToList(),
+                GrandfatheredRailroadIndices = player.GrandfatheredRailroadIndices.OrderBy(index => index).ToList(),
                 CurrentNodeId = player.CurrentNodeId,
                 RouteProgressIndex = player.RouteProgressIndex,
                 UsedSegments = player.UsedSegments.Select(s => s.ToString()).ToList()
@@ -782,6 +787,11 @@ public sealed class GameEngine : ObservableBase
                 var parts = segStr.Split('-');
                 if (parts.Length == 2)
                     player.UsedSegments.Add(new SegmentKey(parts[0], parts[1]));
+            }
+
+            foreach (var railroadIndex in ps.GrandfatheredRailroadIndices)
+            {
+                player.GrandfatheredRailroadIndices.Add(railroadIndex);
             }
 
             // Restore active route
@@ -937,6 +947,7 @@ public sealed class GameEngine : ObservableBase
         var hasUnusedSuperchiefRedDie = player.LocomotiveType == LocomotiveType.Superchief
             && diceResult?.RedDie is int
             && actualSteps <= whiteDiceTotal;
+        var pendingFees = CalculatePendingFeeAmount(player);
 
         CurrentTurn.BonusRollAvailable = CurrentTurn.BonusRollAvailable || hasUnusedSuperchiefRedDie;
 
@@ -964,7 +975,7 @@ public sealed class GameEngine : ObservableBase
             PayoutAmount = payout,
             CashAfterPayout = player.Cash,
             PurchaseOpportunityAvailable = true,
-            Message = $"{player.Name} arrived in {destination.Name} and collected ${payout:N0}."
+            Message = $"{player.Name} reached {destination.Name}, collected ${payout:N0}, and has ${pendingFees:N0} in fees due."
         };
         player.Destination = null;
         player.TripOriginCity = null;
@@ -1046,57 +1057,28 @@ public sealed class GameEngine : ObservableBase
     private void ResolveUseFees()
     {
         var player = CurrentTurn.ActivePlayer;
-        var railroadsUsed = CurrentTurn.RailroadsRiddenThisTurn;
+        var feeBuckets = BuildFeeBuckets(player, CurrentTurn.RailroadsRiddenThisTurn);
 
-        if (railroadsUsed.Count == 0)
+        if (feeBuckets.Count == 0)
         {
             CurrentTurn.Phase = TurnPhase.EndTurn;
             return;
         }
 
-        // Group railroads by owner
-        var byOwner = new Dictionary<int, (Player? owner, List<int> railroads)>();
-        foreach (var rrIdx in railroadsUsed)
-        {
-            var railroad = Railroads.FirstOrDefault(r => r.Index == rrIdx);
-            if (railroad == null) continue;
-
-            // Skip player's own railroads
-            if (railroad.Owner == player) continue;
-
-            // Use a counter key to group by owner, using -1 for bank
-            int ownerKey = railroad.Owner?.Index ?? -1;
-            if (!byOwner.TryGetValue(ownerKey, out var entry))
-            {
-                entry = (railroad.Owner, new List<int>());
-                byOwner[ownerKey] = entry;
-            }
-            entry.railroads.Add(rrIdx);
-        }
-
-        // Calculate fees
-        bool bankUsed = byOwner.ContainsKey(-1);
-        int bankFee = bankUsed ? 1000 : 0;
-
-        // Pay bank fee
-        if (bankFee > 0)
-        {
-            player.Cash -= bankFee;
-            UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, null, bankFee, byOwner[-1].railroads));
-        }
-
-        // Pay opponent fees
         int opponentRate = AllRailroadsSold ? 10000 : 5000;
-        foreach (var kvp in byOwner)
+        foreach (var feeBucket in feeBuckets.Values.OrderBy(bucket => bucket.Owner?.Index ?? -1))
         {
-            if (kvp.Key == -1) continue; // Skip bank (already handled)
+            int fee = feeBucket.Owner is null
+                ? 1000
+                : feeBucket.RequiresFullOwnerRate ? opponentRate : 1000;
 
-            var (owner, rrList) = kvp.Value;
-            int fee = opponentRate; // Flat rate per opponent
             player.Cash -= fee;
-            owner!.Cash += fee;
+            if (feeBucket.Owner is not null)
+            {
+                feeBucket.Owner.Cash += fee;
+            }
 
-            UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, owner, fee, rrList));
+            UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, feeBucket.Owner, fee, feeBucket.Railroads));
         }
 
         // Check for bankruptcy
@@ -1134,6 +1116,101 @@ public sealed class GameEngine : ObservableBase
     private void CheckAllRailroadsSold()
     {
         AllRailroadsSold = Railroads.Where(r => !r.IsPublic).All(r => r.Owner != null);
+    }
+
+    private int CalculatePendingFeeAmount(Player player)
+    {
+        var feeBuckets = BuildFeeBuckets(player, CurrentTurn.RailroadsRiddenThisTurn);
+        if (feeBuckets.Count == 0)
+        {
+            return 0;
+        }
+
+        var opponentRate = AllRailroadsSold ? 10000 : 5000;
+        return feeBuckets.Values.Sum(feeBucket => feeBucket.Owner is null
+            ? 1000
+            : feeBucket.RequiresFullOwnerRate ? opponentRate : 1000);
+    }
+
+    private Dictionary<int, FeeBucket> BuildFeeBuckets(Player rider, IEnumerable<int> railroadIndices)
+    {
+        var feeBuckets = new Dictionary<int, FeeBucket>();
+        foreach (var rrIdx in railroadIndices)
+        {
+            var railroad = Railroads.FirstOrDefault(r => r.Index == rrIdx);
+            if (railroad == null)
+            {
+                continue;
+            }
+
+            AddRailroadToFeeBucket(feeBuckets, rider, railroad);
+        }
+
+        return feeBuckets;
+    }
+
+    private static void UpdateGrandfatheredRailroadAccess(Player player, int railroadIndex)
+    {
+        if (player.GrandfatheredRailroadIndices.Count == 0)
+        {
+            return;
+        }
+
+        if (player.GrandfatheredRailroadIndices.Contains(railroadIndex))
+        {
+            player.GrandfatheredRailroadIndices.IntersectWith([railroadIndex]);
+            return;
+        }
+
+        player.GrandfatheredRailroadIndices.Clear();
+    }
+
+    private void UpdateGrandfatheringForOwnershipChange(int railroadIndex, Player? newOwner)
+    {
+        foreach (var rider in Players)
+        {
+            rider.GrandfatheredRailroadIndices.Remove(railroadIndex);
+        }
+
+        if (newOwner is null)
+        {
+            return;
+        }
+
+        foreach (var rider in Players.Where(player => player != newOwner && IsPlayerOnRailroadNode(player, railroadIndex)))
+        {
+            rider.GrandfatheredRailroadIndices.Add(railroadIndex);
+        }
+    }
+
+    private bool IsPlayerOnRailroadNode(Player player, int railroadIndex)
+    {
+        if (string.IsNullOrWhiteSpace(player.CurrentNodeId))
+        {
+            return false;
+        }
+
+        return MapDefinition.RailroadRouteSegments.Any(segment =>
+            segment.RailroadIndex == railroadIndex
+            && (string.Equals(NodeKey(segment.StartRegionIndex, segment.StartDotIndex), player.CurrentNodeId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(NodeKey(segment.EndRegionIndex, segment.EndDotIndex), player.CurrentNodeId, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static void AddRailroadToFeeBucket(Dictionary<int, FeeBucket> feeBuckets, Player rider, Railroad railroad)
+    {
+        var usesBaseRate = railroad.Owner is null || railroad.Owner == rider;
+        int ownerKey = usesBaseRate ? -1 : railroad.Owner!.Index;
+        if (!feeBuckets.TryGetValue(ownerKey, out var bucket))
+        {
+            bucket = new FeeBucket(usesBaseRate ? null : railroad.Owner);
+            feeBuckets[ownerKey] = bucket;
+        }
+
+        bucket.Railroads.Add(railroad.Index);
+        if (!usesBaseRate && !rider.GrandfatheredRailroadIndices.Contains(railroad.Index))
+        {
+            bucket.RequiresFullOwnerRate = true;
+        }
     }
 
     private static int GetUpgradeCost(LocomotiveType from, LocomotiveType to)
@@ -1308,4 +1385,11 @@ internal sealed class RouteGraphEdge
         ToNodeId = toNodeId;
         RailroadIndex = railroadIndex;
     }
+}
+
+internal sealed class FeeBucket(Player? owner)
+{
+    public Player? Owner { get; } = owner;
+    public List<int> Railroads { get; } = new();
+    public bool RequiresFullOwnerRate { get; set; }
 }

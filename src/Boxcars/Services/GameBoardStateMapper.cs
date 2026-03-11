@@ -185,26 +185,66 @@ public sealed class GameBoardStateMapper(
             }
         }
 
-        var usesBankRailroad = false;
-        var opposingOwnerIndices = new HashSet<int>();
+        var activePlayer = state.Players[activePlayerIndex];
+        var grandfatheredRailroadIndices = SimulateGrandfatheredRailroads(activePlayer.GrandfatheredRailroadIndices, segmentKeys);
+        var usesBaseRateRailroad = false;
+        var ownerBuckets = new Dictionary<int, bool>();
 
         foreach (var railroadIndex in railroadIndices)
         {
             if (!state.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
             {
-                usesBankRailroad = true;
+                usesBaseRateRailroad = true;
+                continue;
+            }
+
+            if (ownerIndex.Value == activePlayerIndex)
+            {
+                usesBaseRateRailroad = true;
                 continue;
             }
 
             if (ownerIndex.Value != activePlayerIndex)
             {
-                opposingOwnerIndices.Add(ownerIndex.Value);
+                var requiresFullOwnerRate = !grandfatheredRailroadIndices.Contains(railroadIndex);
+                if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
+                {
+                    ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
+                }
+                else
+                {
+                    ownerBuckets[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
+                }
             }
         }
 
-        var bankFee = usesBankRailroad ? 1000 : 0;
+        var bankFee = usesBaseRateRailroad ? 1000 : 0;
         var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
-        return bankFee + (opposingOwnerIndices.Count * opponentRate);
+        return bankFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000);
+    }
+
+    private static HashSet<int> SimulateGrandfatheredRailroads(IReadOnlyList<int> currentGrandfatheredRailroads, IReadOnlyList<string> segmentKeys)
+    {
+        var grandfatheredRailroads = currentGrandfatheredRailroads.ToHashSet();
+
+        foreach (var segmentKey in segmentKeys)
+        {
+            if (!TryParseRailroadIndex(segmentKey, out var railroadIndex) || grandfatheredRailroads.Count == 0)
+            {
+                continue;
+            }
+
+            if (grandfatheredRailroads.Contains(railroadIndex))
+            {
+                grandfatheredRailroads.IntersectWith([railroadIndex]);
+            }
+            else
+            {
+                grandfatheredRailroads.Clear();
+            }
+        }
+
+        return grandfatheredRailroads;
     }
 
     private static bool TryParseRailroadIndex(string segmentKey, out int railroadIndex)

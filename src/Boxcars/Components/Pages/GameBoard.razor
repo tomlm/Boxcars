@@ -676,6 +676,7 @@
                     IsActiveTurn = index == state.ActivePlayerIndex,
                     IsConnected = IsPlayerConnected(resolvedUserId),
                     LocomotiveLabel = player.LocomotiveType,
+                    FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index) : 0,
                     CoverageMetrics = BuildPlayerCoverageMetricRows(player)
                 };
             })
@@ -803,6 +804,48 @@
 
         var completedSegments = Math.Clamp(player.RouteProgressIndex, 0, player.ActiveRoute.Segments.Count);
         return Math.Max(0, player.ActiveRoute.Segments.Count - completedSegments);
+    }
+
+    private static int CalculateFeesOwed(RailBaronGameState state, int playerIndex)
+    {
+        if (playerIndex < 0 || playerIndex >= state.Players.Count)
+        {
+            return 0;
+        }
+
+        var player = state.Players[playerIndex];
+        var grandfatheredRailroads = player.GrandfatheredRailroadIndices.ToHashSet();
+        var ownerBuckets = new Dictionary<int, bool>();
+        var usesBaseRateRailroad = false;
+
+        foreach (var railroadIndex in state.Turn.RailroadsRiddenThisTurn)
+        {
+            if (!state.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
+            {
+                usesBaseRateRailroad = true;
+                continue;
+            }
+
+            if (ownerIndex.Value == playerIndex)
+            {
+                usesBaseRateRailroad = true;
+                continue;
+            }
+
+            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
+            if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
+            {
+                ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
+            }
+            else
+            {
+                ownerBuckets[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
+            }
+        }
+
+        var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
+        return (usesBaseRateRailroad ? 1000 : 0)
+            + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000);
     }
 
     private int CalculateTripPayoff(Boxcars.Engine.Persistence.PlayerState player)

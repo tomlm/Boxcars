@@ -68,6 +68,9 @@ public sealed class PlayerBoardModel
     /// <summary>Coverage metrics shown in the player tooltip.</summary>
     public IReadOnlyList<RailroadOverlayMetricRow> CoverageMetrics { get; init; } = [];
 
+    /// <summary>Current fees owed by the player for the active turn.</summary>
+    public int FeesOwed { get; init; }
+
     /// <summary>
     /// Returns a money display string.
     /// For the current user, returns the exact formatted amount.

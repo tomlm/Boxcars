@@ -571,9 +571,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var activePlayerIndex = ResolvePlayerIndex(action, snapshot);
+        var activePlayerState = activePlayerIndex.HasValue && activePlayerIndex.Value >= 0 && activePlayerIndex.Value < snapshot.Players.Count
+            ? snapshot.Players[activePlayerIndex.Value]
+            : null;
+        var grandfatheredRailroads = activePlayerState?.GrandfatheredRailroadIndices.ToHashSet() ?? [];
         var movedSegmentCount = Math.Min(action.PointsTaken.Count - 1, action.SelectedSegmentKeys.Count);
-        var usedPublicRailroad = false;
-        var opposingOwnerIndices = new HashSet<int>();
+        var usedBaseRateRailroad = false;
+        var opposingOwnerRates = new Dictionary<int, bool>();
 
         for (var index = 0; index < movedSegmentCount; index++)
         {
@@ -592,28 +596,38 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
             if (!snapshot.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
             {
-                usedPublicRailroad = true;
+                usedBaseRateRailroad = true;
                 continue;
             }
 
             if (activePlayerIndex.HasValue && ownerIndex.Value == activePlayerIndex.Value)
             {
+                usedBaseRateRailroad = true;
                 continue;
             }
 
-            opposingOwnerIndices.Add(ownerIndex.Value);
+            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
+            if (!opposingOwnerRates.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
+            {
+                opposingOwnerRates[ownerIndex.Value] = requiresFullOwnerRate;
+            }
+            else
+            {
+                opposingOwnerRates[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
+            }
         }
 
         var feeParts = new List<string>();
-        if (usedPublicRailroad)
+        if (usedBaseRateRailroad)
         {
-            feeParts.Add($"{FormatCurrency(1000)} public fees");
+            feeParts.Add($"{FormatCurrency(1000)} base-rate fees");
         }
 
         var opponentRate = snapshot.AllRailroadsSold ? 10000 : 5000;
-        foreach (var ownerIndex in opposingOwnerIndices.OrderBy(index => index))
+        foreach (var ownerRate in opposingOwnerRates.OrderBy(entry => entry.Key))
         {
-            feeParts.Add($"{FormatCurrency(opponentRate)} to {ResolvePlayerName(snapshot, ownerIndex)}");
+            var amount = ownerRate.Value ? opponentRate : 1000;
+            feeParts.Add($"{FormatCurrency(amount)} to {ResolvePlayerName(snapshot, ownerRate.Key)}");
         }
 
         return FormatReadableList(feeParts);
@@ -955,7 +969,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static int CalculateRouteCost(RailBaronGameEngine state, Player player, IReadOnlyList<RouteSegment> segments)
     {
-        var usesBankRailroad = false;
+        var usesBaseRateRailroad = false;
         var opposingOwnerIndices = new HashSet<int>();
 
         foreach (var segment in segments)
@@ -963,17 +977,20 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             var railroad = state.Railroads.FirstOrDefault(candidate => candidate.Index == segment.RailroadIndex);
             if (railroad is null || railroad.Owner is null)
             {
-                usesBankRailroad = true;
+                usesBaseRateRailroad = true;
                 continue;
             }
 
-            if (railroad.Owner != player)
+            if (railroad.Owner == player)
             {
-                opposingOwnerIndices.Add(railroad.Owner.Index);
+                usesBaseRateRailroad = true;
+                continue;
             }
+
+            opposingOwnerIndices.Add(railroad.Owner.Index);
         }
 
-        var bankFee = usesBankRailroad ? 1000 : 0;
+        var bankFee = usesBaseRateRailroad ? 1000 : 0;
         var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
         return bankFee + (opposingOwnerIndices.Count * opponentRate);
     }

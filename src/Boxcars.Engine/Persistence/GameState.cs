@@ -35,6 +35,7 @@ public sealed class PlayerState
     public List<string> SelectedRouteNodeIds { get; set; } = new();
     public List<string> SelectedRouteSegmentKeys { get; set; } = new();
     public List<string> UsedSegments { get; set; } = new();
+    public List<int> GrandfatheredRailroadIndices { get; set; } = new();
     public string? CurrentNodeId { get; set; }
     public int RouteProgressIndex { get; set; }
 }

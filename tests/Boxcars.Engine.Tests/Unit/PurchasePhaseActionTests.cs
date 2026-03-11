@@ -85,7 +85,7 @@ public class PurchasePhaseActionTests
         engine.BuyRailroad(rr);
 
         Assert.Equal(player, rr.Owner);
-        Assert.Equal(cashBefore - expectedPrice, player.Cash);
+        Assert.Equal(cashBefore - expectedPrice - 1000, player.Cash);
     }
 
     [Fact]
@@ -341,5 +341,27 @@ public class PurchasePhaseActionTests
         Assert.True(price1 > 0);
         Assert.True(price5 > 0);
         Assert.True(price10 > 0);
+    }
+
+    [Fact]
+    public void MoveAlongRoute_ArrivalResolutionMessage_IncludesPendingFees()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Roll);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Boston", StringComparison.Ordinal));
+        player.TripOriginCity = player.CurrentCity;
+        engine.SaveRoute(new Route(
+            ["0:0", "0:1"],
+            [new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = 0 }],
+            0));
+
+        random.QueueDiceRoll(1, 1);
+        engine.RollDice();
+        engine.MoveAlongRoute(1);
+
+        Assert.NotNull(engine.CurrentTurn.ArrivalResolution);
+        Assert.Contains("has $1,000 in fees due", engine.CurrentTurn.ArrivalResolution!.Message, StringComparison.Ordinal);
     }
 }
