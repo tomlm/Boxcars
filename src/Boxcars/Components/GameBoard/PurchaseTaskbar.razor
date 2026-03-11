@@ -75,11 +75,6 @@
 
     private static string GetOptionPriceClass(PurchaseOptionModel option)
     {
-        if (option.OptionKind != PurchaseOptionKind.Railroad)
-        {
-            return "purchase-taskbar-option-price";
-        }
-
         return option.IsAffordable
             ? "purchase-taskbar-option-price purchase-taskbar-option-price-affordable"
             : "purchase-taskbar-option-price purchase-taskbar-option-price-too-expensive";

@@ -254,8 +254,10 @@ public sealed class GameEngine : ObservableBase
         player.TripOriginCity = player.CurrentCity;
         DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
 
-        // Advance to Roll phase
-        CurrentTurn.Phase = TurnPhase.Roll;
+        // Bonus movement resumes immediately after drawing a new destination.
+        CurrentTurn.Phase = HasPreparedBonusMove()
+            ? TurnPhase.Move
+            : TurnPhase.Roll;
 
         return city;
     }
@@ -289,6 +291,7 @@ public sealed class GameEngine : ObservableBase
         CurrentTurn.DiceResult = result;
         CurrentTurn.MovementAllowance = result.Total;
         CurrentTurn.MovementRemaining = result.Total;
+        CurrentTurn.ArrivalResolution = null;
 
         // Check bonus roll eligibility
         bool bonusAvailable = false;
@@ -384,20 +387,14 @@ public sealed class GameEngine : ObservableBase
                 player.CurrentCity = player.Destination;
             }
 
-            HandleArrival(player);
+            HandleArrival(player, actualSteps);
         }
         else if (CurrentTurn.MovementRemaining <= 0)
         {
             // No more movement — check for bonus roll
             if (CurrentTurn.BonusRollAvailable)
             {
-                // Roll bonus die
-                var bonusDice = _randomProvider.RollDiceIndividual(1);
-                int bonusMovement = bonusDice[0];
-                CurrentTurn.MovementAllowance = bonusMovement;
-                CurrentTurn.MovementRemaining = bonusMovement;
-                CurrentTurn.BonusRollAvailable = false;
-                // Stay in Move phase
+                StartBonusMove(player);
             }
             else
             {
@@ -486,9 +483,7 @@ public sealed class GameEngine : ObservableBase
 
         CheckAllRailroadsSold();
 
-        // Advance to UseFees
-        CurrentTurn.Phase = TurnPhase.UseFees;
-        ResolveUseFees();
+        ContinueAfterPurchase(player);
     }
 
     /// <summary>
@@ -516,9 +511,7 @@ public sealed class GameEngine : ObservableBase
 
         LocomotiveUpgraded?.Invoke(this, new LocomotiveUpgradedEventArgs(player, oldType, target));
 
-        // Advance to UseFees
-        CurrentTurn.Phase = TurnPhase.UseFees;
-        ResolveUseFees();
+        ContinueAfterPurchase(player);
     }
 
     /// <summary>
@@ -590,8 +583,7 @@ public sealed class GameEngine : ObservableBase
             throw new InvalidOperationException("Not in Purchase phase.");
 
         CurrentTurn.ArrivalResolution = null;
-        CurrentTurn.Phase = TurnPhase.UseFees;
-        ResolveUseFees();
+        ContinueAfterPurchase(CurrentTurn.ActivePlayer);
     }
 
     /// <summary>
@@ -938,8 +930,16 @@ public sealed class GameEngine : ObservableBase
         return citiesInRegion[cityIdx];
     }
 
-    private void HandleArrival(Player player)
+    private void HandleArrival(Player player, int actualSteps)
     {
+        var diceResult = CurrentTurn.DiceResult;
+        var whiteDiceTotal = diceResult?.WhiteDice.Sum() ?? 0;
+        var hasUnusedSuperchiefRedDie = player.LocomotiveType == LocomotiveType.Superchief
+            && diceResult?.RedDie is int
+            && actualSteps <= whiteDiceTotal;
+
+        CurrentTurn.BonusRollAvailable = CurrentTurn.BonusRollAvailable || hasUnusedSuperchiefRedDie;
+
         // Calculate payout
         int payout = 0;
         var tripOriginCity = player.TripOriginCity ?? player.CurrentCity;
@@ -985,6 +985,62 @@ public sealed class GameEngine : ObservableBase
 
         // Move to Purchase phase
         CurrentTurn.Phase = TurnPhase.Purchase;
+    }
+
+    private void ContinueAfterPurchase(Player player)
+    {
+        if (CurrentTurn.BonusRollAvailable)
+        {
+            PrepareBonusMove(player);
+
+            if (player.Destination is null)
+            {
+                CurrentTurn.Phase = TurnPhase.DrawDestination;
+                return;
+            }
+
+            CurrentTurn.Phase = TurnPhase.Move;
+            return;
+        }
+
+        CurrentTurn.Phase = TurnPhase.UseFees;
+        ResolveUseFees();
+    }
+
+    private void StartBonusMove(Player player)
+    {
+        PrepareBonusMove(player);
+        CurrentTurn.Phase = TurnPhase.Move;
+    }
+
+    private void PrepareBonusMove(Player player)
+    {
+        int bonusMovement;
+
+        if (player.LocomotiveType == LocomotiveType.Superchief
+            && CurrentTurn.DiceResult?.RedDie is int preservedRedDie
+            && (CurrentTurn.DiceResult.WhiteDice?.Sum() ?? 0) > 0)
+        {
+            bonusMovement = preservedRedDie;
+        }
+        else
+        {
+            bonusMovement = _randomProvider.RollDiceIndividual(1)[0];
+        }
+
+        CurrentTurn.DiceResult = new DiceResult([0, 0], bonusMovement);
+        CurrentTurn.MovementAllowance = bonusMovement;
+        CurrentTurn.MovementRemaining = bonusMovement;
+        CurrentTurn.BonusRollAvailable = false;
+        CurrentTurn.ArrivalResolution = null;
+    }
+
+    private bool HasPreparedBonusMove()
+    {
+        return CurrentTurn.DiceResult?.RedDie is int
+            && CurrentTurn.WhiteDiceAreCleared()
+            && CurrentTurn.MovementAllowance > 0
+            && CurrentTurn.MovementRemaining >= 0;
     }
 
     private void ResolveUseFees()

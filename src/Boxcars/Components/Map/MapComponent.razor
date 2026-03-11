@@ -1676,11 +1676,6 @@
 
     private string ResolveCurrentPlayerNodeId()
     {
-        if (_selectedRouteNodeIds.Count > 0)
-        {
-            return _selectedRouteNodeIds[^1];
-        }
-
         return _routeStartNodeId ?? string.Empty;
     }
 

@@ -522,7 +522,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return action switch
         {
             PickDestinationAction => DescribeDestinationPick(actorName, action, snapshot),
-            RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult, action as RollDiceAction)}",
+            RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult, snapshot.Turn.BonusRollAvailable, action as RollDiceAction)}",
             ChooseRouteAction => string.Empty,
             MoveAction moveAction => DescribeMove(actorName, moveAction, snapshot),
             PurchaseRailroadAction purchaseAction => $"{actorName} bought the {GetRailroadDisplayName(FindRailroad(gameEngine, purchaseAction.RailroadIndex))} railroad for {FormatCurrency(ResolveAmountPaid(purchaseAction.AmountPaid, FindRailroad(gameEngine, purchaseAction.RailroadIndex).PurchasePrice))}",
@@ -703,11 +703,22 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return amount.ToString("$#,0", CultureInfo.InvariantCulture);
     }
 
-    private static string FormatDiceRoll(Boxcars.Engine.Persistence.DiceResultState? diceResult, RollDiceAction? fallbackAction = null)
+    private static string FormatDiceRoll(Boxcars.Engine.Persistence.DiceResultState? diceResult, bool bonusRollAvailable, RollDiceAction? fallbackAction = null)
     {
+        if (diceResult is { RedDie: not null, WhiteDice.Length: >= 2 }
+            && diceResult.WhiteDice.All(value => value == 0))
+        {
+            return string.Concat("Bonus (", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")");
+        }
+
         if (diceResult?.WhiteDice is { Length: >= 2 })
         {
             var whiteDiceText = string.Join("+", diceResult.WhiteDice.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+            if (bonusRollAvailable && !diceResult.RedDie.HasValue)
+            {
+                return string.Concat(whiteDiceText, "+(Bonus)");
+            }
+
             return diceResult.RedDie.HasValue
                 ? string.Concat(whiteDiceText, "+(", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")")
                 : whiteDiceText;

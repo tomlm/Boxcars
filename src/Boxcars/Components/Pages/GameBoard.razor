@@ -72,6 +72,7 @@
             <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+                              MovementType="@CurrentMovementType"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                               PlayerOwnedRailroadIndices="@ActivePlayerOwnedRailroadIndices"
                               OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
@@ -391,6 +392,11 @@
             string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal));
         if (selectedEngine is not null)
         {
+            if (!selectedEngine.IsEligible)
+            {
+                return;
+            }
+
             await EnqueuePurchaseActionAsync(new BuyEngineAction
             {
                 PlayerId = CurrentTurnPlayerName,
@@ -957,9 +963,14 @@ StringComparison.OrdinalIgnoreCase));
         }
 
         var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
-        var restoredPreviewNodeIds = _turnViewState.SelectedRoutePreview.NodeIds;
-        var restoredPreviewSegmentKeys = _turnViewState.SelectedRoutePreview.SegmentKeys;
-        var startNodeId = restoredPreviewNodeIds.FirstOrDefault() ?? activePlayer.CurrentNodeId;
+        var isBonusMove = _turnViewState.RedDie.HasValue && _turnViewState.WhiteDieOne <= 0 && _turnViewState.WhiteDieTwo <= 0;
+        var restoredPreviewNodeIds = isBonusMove
+            ? Array.Empty<string>()
+            : _turnViewState.SelectedRoutePreview.NodeIds;
+        var restoredPreviewSegmentKeys = isBonusMove
+            ? Array.Empty<string>()
+            : _turnViewState.SelectedRoutePreview.SegmentKeys;
+        var startNodeId = activePlayer.CurrentNodeId ?? restoredPreviewNodeIds.FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(startNodeId))
         {
@@ -979,7 +990,9 @@ StringComparison.OrdinalIgnoreCase));
 
         if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
         {
-            _gameMap.RestoreSelectedRoute(restoredPreviewNodeIds, restoredPreviewSegmentKeys);
+            _gameMap.RestoreSelectedRoute(
+                !string.IsNullOrWhiteSpace(startNodeId) ? [startNodeId] : restoredPreviewNodeIds,
+                restoredPreviewSegmentKeys);
             _pendingRestoredRouteSelection = false;
             return;
         }
@@ -994,7 +1007,9 @@ StringComparison.OrdinalIgnoreCase));
             _gameMap.SetDestinationCity(destinationCity.NodeId);
         }
 
-        _gameMap.RestoreSelectedRoute(restoredPreviewNodeIds, restoredPreviewSegmentKeys);
+        _gameMap.RestoreSelectedRoute(
+            !string.IsNullOrWhiteSpace(startNodeId) && isBonusMove ? [startNodeId] : restoredPreviewNodeIds,
+            restoredPreviewSegmentKeys);
         _pendingRestoredRouteSelection = false;
     }
 
@@ -1042,6 +1057,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private int CurrentRouteFees => _turnViewState.PreviewFee;
 
     private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
+
+    private PlayerMovementType CurrentMovementType => _turnViewState.RedDie.HasValue && (_turnViewState.WhiteDieOne > 0 || _turnViewState.WhiteDieTwo > 0)
+        ? PlayerMovementType.ThreeDie
+        : PlayerMovementType.TwoDie;
 
     private bool IsCurrentUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer || IsActivePlayerUnderTestControl;
 
@@ -1152,7 +1171,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal)
                 && option.IsAffordable)
             || CurrentPurchasePhase.EngineOptions.Any(option =>
-                string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal)));
+                string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal)
+                && option.IsEligible));
 
     private EngineUpgradeOption? SelectedEngineOption => CurrentPurchasePhase?.EngineOptions.FirstOrDefault(option =>
         string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal));
@@ -1450,6 +1470,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             _gameState.TurnNumber.ToString(CultureInfo.InvariantCulture),
             _gameState.ActivePlayerIndex.ToString(CultureInfo.InvariantCulture),
             activePlayer.CurrentNodeId ?? string.Empty,
+            _gameState.Turn.MovementRemaining.ToString(CultureInfo.InvariantCulture),
+            _gameState.Turn.MovementAllowance.ToString(CultureInfo.InvariantCulture),
             activePlayer.DestinationCityName);
 
         if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal))

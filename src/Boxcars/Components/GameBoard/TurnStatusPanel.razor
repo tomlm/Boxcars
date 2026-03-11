@@ -4,8 +4,16 @@
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="turn-status-panel">
     @if (!IsPurchasePhase)
     {
-        <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
-        <MudText Typo="Typo.body2">Moves: @State.MovementRemaining / @State.MovementAllowance</MudText>
+        @if (IsBonusMove)
+        {
+            <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
+            <MudText Typo="Typo.body2">Moves: @GetMovesTaken(State) / @State.MovementAllowance</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+            <MudText Typo="Typo.body2">Moves: @State.MovementRemaining / @State.MovementAllowance</MudText>
+        }
     }
     @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
     {
@@ -22,6 +30,7 @@
     public BoardTurnViewState State { get; set; } = new();
 
     private bool IsPurchasePhase => string.Equals(State.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
+    private bool IsBonusMove => State.RedDie.HasValue && State.WhiteDieOne <= 0 && State.WhiteDieTwo <= 0;
 
     private string DisplayPhase => string.IsNullOrWhiteSpace(State.TurnPhase) ? "Unknown" : State.TurnPhase;
 
@@ -34,13 +43,26 @@
     {
         if (state.WhiteDieOne > 0 && state.WhiteDieTwo > 0)
         {
-            return state.RedDie.HasValue
-                ? $"{state.WhiteDieOne}+{state.WhiteDieTwo} (+{state.RedDie.Value})"
-                : $"{state.WhiteDieOne}+{state.WhiteDieTwo}";
+            if (state.RedDie.HasValue)
+            {
+                return $"{state.WhiteDieOne} + {state.WhiteDieTwo} + ({state.RedDie.Value})";
+            }
+
+            if (state.BonusRollAvailable)
+            {
+                return $"{state.WhiteDieOne}+{state.WhiteDieTwo} + (Bonus)";
+            }
+
+            return $"{state.WhiteDieOne}+{state.WhiteDieTwo}";
         }
 
         return state.CurrentRollTotal > 0
             ? state.CurrentRollTotal.ToString()
             : "-";
+    }
+
+    private static int GetMovesTaken(BoardTurnViewState state)
+    {
+        return Math.Max(0, state.MovementAllowance - state.MovementRemaining);
     }
 }

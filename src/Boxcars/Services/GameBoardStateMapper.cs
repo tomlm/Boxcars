@@ -82,6 +82,7 @@ public sealed class GameBoardStateMapper(
             WhiteDieOne = GetWhiteDie(state, 0),
             WhiteDieTwo = GetWhiteDie(state, 1),
             RedDie = state.Turn.DiceResult?.RedDie,
+            BonusRollAvailable = state.Turn.BonusRollAvailable,
             MovementAllowance = movementAllowance,
             MovementRemaining = movementRemaining,
             PreviewFee = selectedRoutePreview.FeeEstimate,
@@ -337,7 +338,7 @@ public sealed class GameBoardStateMapper(
                 DisplayName = engineOption.DisplayName,
                 PurchasePrice = engineOption.PurchasePrice,
                 SortPriceDescendingKey = engineOption.PurchasePrice,
-                IsAffordable = true
+                IsAffordable = engineOption.IsEligible
             }))
             .OrderByDescending(option => option.SortPriceDescendingKey)
             .ThenBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -452,7 +453,7 @@ public sealed class GameBoardStateMapper(
                     IsEligible = price > 0 && activePlayer.Cash >= price
                 };
             })
-            .Where(option => option.IsEligible)
+            .Where(option => option.PurchasePrice > 0)
             .OrderByDescending(option => option.PurchasePrice)
             .ThenBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();

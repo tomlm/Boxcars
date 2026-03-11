@@ -9,6 +9,7 @@ public sealed class BoardTurnViewState
     public int WhiteDieOne { get; init; }
     public int WhiteDieTwo { get; init; }
     public int? RedDie { get; init; }
+    public bool BonusRollAvailable { get; init; }
     public int MovementAllowance { get; init; }
     public int MovementRemaining { get; init; }
     public int PreviewFee { get; init; }
