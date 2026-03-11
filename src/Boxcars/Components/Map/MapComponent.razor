@@ -203,16 +203,16 @@
 
                         @foreach (var marker in _playerTraveledSegmentMarkers)
                         {
-                            <line x1="@(marker.X - 1.0)"
-                                y1="@(marker.Y - 1.0)"
-                                x2="@(marker.X + 1.0)"
-                                y2="@(marker.Y + 1.0)"
+                            <line x1="@(marker.X - 1.35)"
+                                y1="@(marker.Y - 1.35)"
+                                x2="@(marker.X + 1.35)"
+                                y2="@(marker.Y + 1.35)"
                                   stroke="@marker.Color"
                                   class="game-map-player-traveled-segment" />
-                            <line x1="@(marker.X - 1.0)"
-                                y1="@(marker.Y + 1.0)"
-                                x2="@(marker.X + 1.0)"
-                                y2="@(marker.Y - 1.0)"
+                            <line x1="@(marker.X - 1.35)"
+                                y1="@(marker.Y + 1.35)"
+                                x2="@(marker.X + 1.35)"
+                                y2="@(marker.Y - 1.35)"
                                   stroke="@marker.Color"
                                   class="game-map-player-traveled-segment" />
                         }
@@ -2020,7 +2020,7 @@
         }
 
         // Format: "NodeA-NodeB:RR" or legacy "NodeA-NodeB"
-        var colonIndex = segmentKey.IndexOf(':');
+        var colonIndex = segmentKey.LastIndexOf(':');
         var nodePart = colonIndex >= 0 ? segmentKey.Substring(0, colonIndex) : segmentKey;
         var rrPart = colonIndex >= 0 ? segmentKey.Substring(colonIndex + 1) : null;
         int parsedRailroadIndex = -1;
