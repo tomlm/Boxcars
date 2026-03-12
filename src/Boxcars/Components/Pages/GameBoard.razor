@@ -141,6 +141,7 @@
 @code {
     private string? _currentUserId;
     private ApplicationUser? _currentUserProfile;
+    private Dictionary<string, ApplicationUser> _playerProfilesByUserId = new(StringComparer.OrdinalIgnoreCase);
     private GameEntity? _game;
     private GameMapComponent? _gameMap;
     private bool _gameStateSubscriptionInitialized;
@@ -209,6 +210,7 @@
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+        await LoadPlayerProfilesAsync(CancellationToken.None);
         await EnsurePlayerBoardMapDefinitionAsync(CancellationToken.None);
         await LoadGameStateAsync();
     }
@@ -675,7 +677,7 @@
                 {
                     Index = index,
                     Name = selection?.DisplayName ?? player.Name,
-                    ThumbnailUrl = ResolveThumbnailUrl(selection?.DisplayName ?? player.Name),
+                    ThumbnailUrl = ResolveThumbnailUrl(resolvedUserId),
                     Color = ResolvePlayerColor(selection, index),
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         || string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase),
@@ -1005,21 +1007,44 @@ StringComparison.OrdinalIgnoreCase));
             : PlayerColorOptions.NormalizeOrDefault(currentSelection.Color);
     }
 
-    private string ResolveThumbnailUrl(string playerName)
+    private async Task LoadPlayerProfilesAsync(CancellationToken cancellationToken)
     {
-        if (_currentUserProfile is null || string.IsNullOrWhiteSpace(_currentUserProfile.ThumbnailUrl))
+        _playerProfilesByUserId.Clear();
+
+        if (_game is null)
+        {
+            return;
+        }
+
+        var playerUserIds = GameBoardStateMapper.GetPlayerSelections(_game)
+            .Select(selection => selection.UserId)
+            .Where(userId => !string.IsNullOrWhiteSpace(userId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var userId in playerUserIds)
+        {
+            var profile = !string.IsNullOrWhiteSpace(_currentUserId)
+                && string.Equals(userId, _currentUserId, StringComparison.OrdinalIgnoreCase)
+                ? _currentUserProfile
+                : await ProfileService.GetProfileAsync(userId, cancellationToken);
+
+            if (profile is not null)
+            {
+                _playerProfilesByUserId[userId] = profile;
+            }
+        }
+    }
+
+    private string ResolveThumbnailUrl(string userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
         {
             return string.Empty;
         }
 
-        var matchesCurrentUserId = !string.IsNullOrWhiteSpace(_currentUserId)
-            && string.Equals(playerName, _currentUserId, StringComparison.OrdinalIgnoreCase);
-
-        var matchesNickname = !string.IsNullOrWhiteSpace(_currentUserProfile.Nickname)
-            && string.Equals(playerName, _currentUserProfile.Nickname, StringComparison.OrdinalIgnoreCase);
-
-        return matchesCurrentUserId || matchesNickname
-            ? _currentUserProfile.ThumbnailUrl
+        return _playerProfilesByUserId.TryGetValue(userId, out var profile)
+            ? profile.ThumbnailUrl
             : string.Empty;
     }
 

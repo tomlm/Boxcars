@@ -19,7 +19,7 @@ public class PlayerProfileService
         try
         {
             var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId.ToLowerInvariant(), cancellationToken: cancellationToken);
-            return response.Value;
+            return MapProfile(response.Value);
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
@@ -38,7 +38,7 @@ public class PlayerProfileService
         {
             if (!string.IsNullOrWhiteSpace(user.Nickname))
             {
-                profiles.Add(user);
+                profiles.Add(MapProfile(user));
             }
         }
 
@@ -119,6 +119,24 @@ public class PlayerProfileService
         {
             return false;
         }
+    }
+
+    private static ApplicationUser MapProfile(ApplicationUser user)
+    {
+        user.ThumbnailUrl = ResolveThumbnailUrl(user.Email, user.ThumbnailUrl);
+        return user;
+    }
+
+    private static string ResolveThumbnailUrl(string email, string? thumbnailUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(thumbnailUrl) && !thumbnailUrl.Contains("placeholder"))
+        {
+            return thumbnailUrl;
+        }
+
+        return string.IsNullOrWhiteSpace(email)
+            ? string.Empty
+            : $"https://robohash.org/{Uri.EscapeDataString(email)}";
     }
 }
 

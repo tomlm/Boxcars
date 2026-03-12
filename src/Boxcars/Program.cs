@@ -140,7 +140,6 @@ public class Program
                 Nickname = beatle.Nickname,
                 NormalizedNickname = beatle.Nickname.ToUpperInvariant(),
                 PreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor),
-                ThumbnailUrl = "https://via.placeholder.com/150?text=Player",
                 SecurityStamp = Guid.NewGuid().ToString(),
                 EmailConfirmed = true
             });

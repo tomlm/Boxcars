@@ -14,7 +14,6 @@ public class TableStorageUserStore :
     IUserLockoutStore<ApplicationUser>
 {
     private readonly TableClient _usersTable;
-    private const string DefaultThumbnailUrl = "https://via.placeholder.com/150?text=Player";
 
     public TableStorageUserStore(TableServiceClient tableServiceClient)
     {
@@ -43,11 +42,6 @@ public class TableStorageUserStore :
         }
 
         user.NormalizedNickname = user.Nickname.ToUpperInvariant();
-
-        if (string.IsNullOrWhiteSpace(user.ThumbnailUrl))
-        {
-            user.ThumbnailUrl = DefaultThumbnailUrl;
-        }
 
         try
         {
