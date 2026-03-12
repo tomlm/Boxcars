@@ -31,7 +31,15 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- Confirm which constitution principles govern this feature and how the
+  design complies with them.
+- Justify any added complexity, client advisory logic, or shared-state
+  handling that could violate constitutional constraints.
+- Identify any implementation guidance surfaced by this feature that is
+  recurring, project-wide, stable, and reviewable enough to qualify for
+  constitutional promotion.
+- Record either the linked constitution amendment or the explicit reason
+  the guidance remains feature-specific, experimental, or temporary.
 
 ## Project Structure
 

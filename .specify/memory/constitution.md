@@ -1,14 +1,17 @@
 <!--
 Sync Impact Report
 ===================
-Version change: 1.7.0 → 1.8.0
+Version change: 1.8.0 → 1.9.0
 Modified principles:
-  - I. Gameplay Fidelity
+  - III. Simplicity & Ship Fast (expanded to keep temporary guidance out of
+    project-wide standards)
 Added sections:
-  - IV. Advisory Outputs Are Derived, Not Decisive
+  - V. Stable Guidance Becomes Standard
+  - Decision Capture & Guidance Promotion
 Removed sections: N/A
 Templates requiring updates:
-  - ✅ Reviewed only: .specify/templates/plan-template.md
+  - ✅ Updated: .specify/templates/plan-template.md
+  - ✅ Updated: .specify/templates/agent-file-template.md
   - ✅ Reviewed only: .specify/templates/spec-template.md
   - ✅ Reviewed only: .specify/templates/tasks-template.md
   - ✅ Reviewed only: .specify/templates/checklist-template.md
@@ -92,6 +95,10 @@ optimization.
 - Start with Blazor's built-in patterns and .NET conventions
   before introducing third-party libraries or custom
   frameworks.
+- Feature-specific notes, experiments, migrations, and one-off
+  workarounds MUST stay local to the relevant spec, plan, issue,
+  or code until repeated use proves they belong in project-wide
+  standards.
 - Complexity MUST be justified: if a reviewer questions whether
   something is over-engineered, the author MUST demonstrate
   the concrete problem that necessitates the complexity.
@@ -124,7 +131,34 @@ or mutate outcomes on the client.
 **Rationale**: Boxcars now includes purchase analysis, route
 suggestions, fee previews, and other strategic aids. These features
 are useful only when they mirror authoritative rules without becoming
- a second rule engine.
+a second rule engine.
+
+### V. Stable Guidance Becomes Standard
+
+Implementation guidance discovered during feature work MUST be promoted
+into this constitution only when it has become an enduring Boxcars
+standard rather than a one-off implementation note.
+
+- Guidance qualifies for constitutional promotion only when it is
+  recurring across multiple features or reviews, applies to the shared
+  Boxcars architecture, stack, or workflow, is likely to remain valid
+  for future work, and is specific enough to verify in code review.
+- Guidance that is temporary, experimental, migration-specific,
+  workaround-driven, or limited to a single feature MUST remain in the
+  nearest feature spec, plan, task list, issue, or code comment rather
+  than being elevated into the constitution.
+- When a pull request uncovers guidance that meets the promotion bar,
+  the contributor MUST either amend this constitution in the same
+  change or link a follow-up governance change before merge.
+- When a new constitutional rule is adopted, overlapping local notes
+  MUST be removed, narrowed, or explicitly linked so the constitution
+  remains the authoritative source for enduring project-wide guidance.
+
+**Rationale**: Boxcars gains clarity from lessons repeated across
+multiple features, but it loses clarity when temporary notes are
+mistaken for lasting standards. This principle preserves consistency
+without turning the constitution into a backlog of feature-specific
+exceptions.
 
 ## Technology Stack & Constraints
 
@@ -245,8 +279,25 @@ are useful only when they mirror authoritative rules without becoming
 - Changes to advisory UI, projections, or recommendation logic MUST
   identify the authoritative source they derive from (rulebook,
   engine state, typed configuration, or shared analysis service).
+- Pull requests that introduce or reuse recurring implementation
+  guidance MUST state whether that guidance is now constitutional
+  project policy or remains feature-local, and why.
 - User stories SHOULD be scoped to independently deliverable,
   testable slices of functionality.
+
+## Decision Capture & Guidance Promotion
+
+- A rule belongs in this constitution only when it is enduring,
+  project-wide, and reviewable during normal code review.
+- Guidance discovered while implementing features MUST be promoted
+  when it recurs across multiple features or reviews and is expected
+  to stay valid for future Boxcars work.
+- Feature-local constraints, temporary migrations, experiments, and
+  issue-specific workarounds MUST stay in feature documents, issues,
+  or code comments rather than becoming constitutional rules.
+- If guidance is not yet clearly enduring, contributors MUST document
+  it locally and revisit it after additional feature work instead of
+  constitutionalizing it prematurely.
 
 ## Governance
 
@@ -266,10 +317,14 @@ architectural decisions MUST align with these principles.
   - PATCH: Clarifications, wording, typo fixes.
 - **Compliance**: All pull requests and code reviews MUST verify
   that changes do not violate constitution principles.
-  Violations MUST be resolved before merge.
+  Reviews MUST also check whether recurring implementation guidance
+  discovered during the work now qualifies for constitutional
+  promotion. Violations and missed durable guidance promotions MUST
+  be resolved before merge or tracked by linked follow-up governance
+  work.
 - **Conflict Resolution**: When principles conflict (e.g.,
   Simplicity vs. Fidelity), Gameplay Fidelity (Principle I)
   takes precedence. If Principle I is not involved, prefer
   Simplicity (Principle III).
 
-**Version**: 1.8.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-10
+**Version**: 1.9.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-12
