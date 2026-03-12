@@ -1,0 +1,107 @@
+@using Boxcars.Data
+@using MudBlazor
+@using System.Globalization
+
+@if (Overlay is not null)
+{
+    <div class="railroad-purchase-overlay-scope" @onclick="OnDismissRequestedAsync">
+        <MudPaper Class="railroad-purchase-overlay pa-3" Outlined="true" Elevation="2">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.subtitle2">
+                    <span class="railroad-purchase-overlay-text">@Overlay.RailroadName</span>
+                </MudText>
+                <MudText Typo="Typo.body2">
+                    <span class="@OverlayPriceClass">Price: @FormatCurrency(Overlay.PurchasePrice)</span>
+                </MudText>
+
+                @if (VisibleMetricRows.Count > 0)
+                {
+                    <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true" Class="railroad-purchase-overlay-table">
+                        <HeaderContent>
+                            <MudTh><span class="railroad-purchase-overlay-header">Area</span></MudTh>
+                            <MudTh><span class="railroad-purchase-overlay-header">Access</span></MudTh>
+                            <MudTh><span class="railroad-purchase-overlay-header">Monopoly</span></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd><span class="railroad-purchase-overlay-area">@context.Label</span></MudTd>
+                            <MudTd>
+                                @if (context.AccessDeltaPercent == 0m)
+                                {
+                                    <span>@FormatPercent(context.AccessPercent, showSign: false)</span>
+                                }
+                                else
+                                {
+                                    <span>@FormatPercent(context.AccessPercent, showSign: false)</span>
+                                    <span class="railroad-purchase-overlay-arrow"> =&gt; </span>
+                                    <span class="railroad-purchase-overlay-new-value @GetDeltaClass(context.AccessDeltaPercent)">@FormatPercent(context.ProjectedAccessPercent, showSign: false)</span>
+                                    <span class="@GetDeltaClass(context.AccessDeltaPercent)"> (@FormatPercent(context.AccessDeltaPercent, showSign: true))</span>
+                                }
+                            </MudTd>
+                            <MudTd>
+                                @if (context.MonopolyDeltaPercent == 0m)
+                                {
+                                    <span>@FormatPercent(context.MonopolyPercent, showSign: false)</span>
+                                }
+                                else
+                                {
+                                    <span>@FormatPercent(context.MonopolyPercent, showSign: false)</span>
+                                    <span class="railroad-purchase-overlay-arrow"> =&gt; </span>
+                                    <span class="railroad-purchase-overlay-new-value @GetDeltaClass(context.MonopolyDeltaPercent)">@FormatPercent(context.ProjectedMonopolyPercent, showSign: false)</span>
+                                    <span class="@GetDeltaClass(context.MonopolyDeltaPercent)"> (@FormatPercent(context.MonopolyDeltaPercent, showSign: true))</span>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudStack>
+        </MudPaper>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public RailroadOverlayInfo? Overlay { get; set; }
+
+    [Parameter]
+    public EventCallback DismissRequested { get; set; }
+
+    private IReadOnlyList<RailroadOverlayMetricRow> VisibleMetricRows => Overlay?.MetricRows
+        .Where(row => row.AccessDeltaPercent != 0m || row.MonopolyDeltaPercent != 0m)
+        .ToArray()
+        ?? [];
+
+    private string OverlayPriceClass => Overlay?.IsAffordable == false
+        ? "railroad-purchase-overlay-text railroad-purchase-overlay-price-too-expensive"
+        : "railroad-purchase-overlay-text railroad-purchase-overlay-price-affordable";
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+
+    private static string FormatPercent(decimal value, bool showSign)
+    {
+        var formattedValue = value.ToString("0.#", CultureInfo.InvariantCulture);
+        return showSign && value >= 0m ? $"+{formattedValue}%" : $"{formattedValue}%";
+    }
+
+    private static string GetDeltaClass(decimal value)
+    {
+        if (value > 0m)
+        {
+            return "railroad-purchase-overlay-delta-positive";
+        }
+
+        if (value < 0m)
+        {
+            return "railroad-purchase-overlay-delta-negative";
+        }
+
+        return "railroad-purchase-overlay-delta-neutral";
+    }
+
+    private Task OnDismissRequestedAsync()
+    {
+        return DismissRequested.InvokeAsync();
+    }
+}

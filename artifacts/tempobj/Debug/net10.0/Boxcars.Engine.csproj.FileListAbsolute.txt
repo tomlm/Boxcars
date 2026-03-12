@@ -1,0 +1,6 @@
+S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\Boxcars.Engine.csproj.AssemblyReference.cache
+S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\Boxcars.Engine.GeneratedMSBuildEditorConfig.editorconfig
+S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\Boxcars.Engine.AssemblyInfoInputs.cache
+S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\Boxcars.Engine.AssemblyInfo.cs
+S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\Boxcars.Engine.csproj.CoreCompileInputs.cache
+S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\Boxcars.Engine.sourcelink.json

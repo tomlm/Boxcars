@@ -107,47 +107,50 @@ public sealed class MapRouteService
             };
         }
 
-        var movementPointsPerTurn = request.MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        var traveledSegmentKeys = request.TraveledSegmentKeys
+            .Where(segmentKey => !string.IsNullOrWhiteSpace(segmentKey))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var movementPointsPerTurn = request.MovementCapacity > 0
+            ? request.MovementCapacity
+            : request.MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
 
         var startState = new RouteSuggestionState(request.StartNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
-        var priorityQueue = new PriorityQueue<RouteSuggestionState, (int TotalCost, int TotalTurns, int RailroadSwitches, string PathSignature)>();
+        var priorityQueue = new PriorityQueue<RouteSuggestionState, (int TotalCost, int TotalTurns, int TotalSegments)>();
         var bestCosts = new Dictionary<RouteSuggestionState, RouteSuggestionCostKey>();
         var previous = new Dictionary<RouteSuggestionState, RouteSuggestionPrevious>();
+        var settledNodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var startCost = new RouteSuggestionCostKey(
             TotalCost: 0,
             TotalTurns: 0,
-            RailroadSwitches: 0,
-            PathSignature: request.StartNodeId);
+            TotalSegments: 0);
 
         bestCosts[startState] = startCost;
-        priorityQueue.Enqueue(startState, (startCost.TotalCost, startCost.TotalTurns, startCost.RailroadSwitches, startCost.PathSignature));
-
-        RouteSuggestionState? bestDestinationState = null;
-        RouteSuggestionCostKey? bestDestinationCost = null;
+        priorityQueue.Enqueue(startState, (0, 0, 0));
 
         while (priorityQueue.Count > 0)
         {
             var state = priorityQueue.Dequeue();
+
+            // Once a physical node is settled, never revisit it.
+            // This prevents loops and segment reuse within the suggestion.
+            if (settledNodes.Contains(state.NodeId))
+            {
+                continue;
+            }
+
             if (!bestCosts.TryGetValue(state, out var stateCost))
             {
                 continue;
             }
 
-            if (bestDestinationCost is not null && !IsBetterCost(stateCost, bestDestinationCost.Value))
-            {
-                continue;
-            }
+            settledNodes.Add(state.NodeId);
 
             if (string.Equals(state.NodeId, request.DestinationNodeId, StringComparison.OrdinalIgnoreCase))
             {
-                if (bestDestinationCost is null || IsBetterCost(stateCost, bestDestinationCost.Value))
-                {
-                    bestDestinationState = state;
-                    bestDestinationCost = stateCost;
-                }
-
-                continue;
+                // First time we settle the destination is the cheapest path
+                return ReconstructSuggestion(request, startState, state, stateCost, previous);
             }
 
             if (!context.Adjacency.TryGetValue(state.NodeId, out var outgoingEdges))
@@ -157,25 +160,37 @@ public sealed class MapRouteService
 
             foreach (var edge in outgoingEdges)
             {
+                // Never route through an already-settled node
+                if (settledNodes.Contains(edge.ToNodeId))
+                {
+                    continue;
+                }
+
+                if (traveledSegmentKeys.Contains(BuildSegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex)))
+                {
+                    continue;
+                }
+
                 var ownershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex);
-                var costPerTurn = ownershipCategory == RailroadOwnershipCategory.OwnedByOtherPlayer ? 5000 : 1000;
+                var costPerTurn = ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 5000 : 1000;
 
                 var isFirstEdge = state.LastRailroadIndex < 0;
-                var switchedRailroad = state.LastRailroadIndex >= 0 && state.LastRailroadIndex != edge.RailroadIndex;
-                var exhaustedTurnCapacity = state.LastRailroadIndex == edge.RailroadIndex && state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
-                var startsNewTurn = isFirstEdge || switchedRailroad || exhaustedTurnCapacity;
+                var exhaustedTurnCapacity = !isFirstEdge && state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
+                var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
+                var switchedRailroad = !isFirstEdge && state.LastRailroadIndex != edge.RailroadIndex;
 
+                // Rail Baron cost model: $1000/turn for public/own RR, $5000/turn for other player's RR.
+                // Fee charged when starting a new turn OR switching to a different railroad mid-turn.
+                // Switching railroads does NOT end the turn or reset movement points.
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var switchesAdded = switchedRailroad ? 1 : 0;
-                var additionalCost = startsNewTurn ? costPerTurn : 0;
+                var additionalCost = (startsNewTurn || switchedRailroad) ? costPerTurn : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
 
                 var nextState = new RouteSuggestionState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
                 var candidateCost = new RouteSuggestionCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
-                    RailroadSwitches: stateCost.RailroadSwitches + switchesAdded,
-                    PathSignature: string.Concat(stateCost.PathSignature, "|", edge.ToNodeId));
+                    TotalSegments: stateCost.TotalSegments + 1);
 
                 if (bestCosts.TryGetValue(nextState, out var existingCost)
                     && !IsBetterCost(candidateCost, existingCost))
@@ -191,28 +206,33 @@ public sealed class MapRouteService
                     TurnsAdded: turnsAdded,
                     CostPerTurn: costPerTurn,
                     TotalCostAdded: additionalCost);
-                priorityQueue.Enqueue(nextState, (candidateCost.TotalCost, candidateCost.TotalTurns, candidateCost.RailroadSwitches, candidateCost.PathSignature));
+                priorityQueue.Enqueue(nextState, (candidateCost.TotalCost, candidateCost.TotalTurns, candidateCost.TotalSegments));
             }
         }
 
-        if (bestDestinationState is null || bestDestinationCost is null)
+        return new RouteSuggestionResult
         {
-            return new RouteSuggestionResult
-            {
-                Status = RouteSuggestionStatus.NoRoute,
-                Message = "No valid route available to destination.",
-                StartNodeId = request.StartNodeId,
-                DestinationNodeId = request.DestinationNodeId,
-                NodeIds = [request.StartNodeId],
-                Segments = [],
-                TotalCost = 0,
-                TotalTurns = 0
-            };
-        }
+            Status = RouteSuggestionStatus.NoRoute,
+            Message = "No valid route available to destination.",
+            StartNodeId = request.StartNodeId,
+            DestinationNodeId = request.DestinationNodeId,
+            NodeIds = [request.StartNodeId],
+            Segments = [],
+            TotalCost = 0,
+            TotalTurns = 0
+        };
+    }
 
+    private static RouteSuggestionResult ReconstructSuggestion(
+        RouteSuggestionRequest request,
+        RouteSuggestionState startState,
+        RouteSuggestionState destinationState,
+        RouteSuggestionCostKey destinationCost,
+        Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous)
+    {
         var nodeStack = new Stack<string>();
         var segmentStack = new Stack<RouteSuggestionSegment>();
-        var currentState = bestDestinationState.Value;
+        var currentState = destinationState;
 
         nodeStack.Push(currentState.NodeId);
 
@@ -245,18 +265,15 @@ public sealed class MapRouteService
             nodeStack.Push(currentState.NodeId);
         }
 
-        var nodeIds = nodeStack.ToList();
-        var orderedSegments = segmentStack.ToList();
-
         return new RouteSuggestionResult
         {
             Status = RouteSuggestionStatus.Success,
             StartNodeId = request.StartNodeId,
             DestinationNodeId = request.DestinationNodeId,
-            NodeIds = nodeIds,
-            Segments = orderedSegments,
-            TotalCost = bestDestinationCost.Value.TotalCost,
-            TotalTurns = bestDestinationCost.Value.TotalTurns
+            NodeIds = nodeStack.ToList(),
+            Segments = segmentStack.ToList(),
+            TotalCost = destinationCost.TotalCost,
+            TotalTurns = destinationCost.TotalTurns
         };
     }
 
@@ -272,12 +289,7 @@ public sealed class MapRouteService
             return candidate.TotalTurns < current.TotalTurns;
         }
 
-        if (candidate.RailroadSwitches != current.RailroadSwitches)
-        {
-            return candidate.RailroadSwitches < current.RailroadSwitches;
-        }
-
-        return string.Compare(candidate.PathSignature, current.PathSignature, StringComparison.Ordinal) < 0;
+        return candidate.TotalSegments < current.TotalSegments;
     }
 
     public RouteSelection? FindShortestSelection(
@@ -640,6 +652,13 @@ public sealed class MapRouteService
         return $"{regionIndex}:{dotIndex}";
     }
 
+    private static string BuildSegmentKey(string fromNodeId, string toNodeId, int railroadIndex)
+    {
+        return string.Compare(fromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase) <= 0
+            ? string.Concat(fromNodeId, "-", toNodeId, ":", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            : string.Concat(toNodeId, "-", fromNodeId, ":", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     private static void AddAdjacency(Dictionary<string, List<RouteGraphEdge>> adjacency, RouteGraphEdge edge)
     {
         if (!adjacency.TryGetValue(edge.FromNodeId, out var list))
@@ -654,7 +673,7 @@ public sealed class MapRouteService
 
 public readonly record struct RouteSuggestionState(string NodeId, int LastRailroadIndex, int PointsUsedInCurrentTurn);
 
-public readonly record struct RouteSuggestionCostKey(int TotalCost, int TotalTurns, int RailroadSwitches, string PathSignature);
+public readonly record struct RouteSuggestionCostKey(int TotalCost, int TotalTurns, int TotalSegments);
 
 public readonly record struct RouteSuggestionPrevious(
     RouteSuggestionState PreviousState,

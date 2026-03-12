@@ -1,12 +1,18 @@
 <!--
 Sync Impact Report
 ===================
-Version change: 1.6.0 → 1.7.0
-Modified principles: N/A
+Version change: 1.7.0 → 1.8.0
+Modified principles:
+  - I. Gameplay Fidelity
 Added sections:
-  - N/A
+  - IV. Advisory Outputs Are Derived, Not Decisive
 Removed sections: N/A
-Templates requiring updates: None
+Templates requiring updates:
+  - ✅ Reviewed only: .specify/templates/plan-template.md
+  - ✅ Reviewed only: .specify/templates/spec-template.md
+  - ✅ Reviewed only: .specify/templates/tasks-template.md
+  - ✅ Reviewed only: .specify/templates/checklist-template.md
+  - ✅ No command templates present under .specify/templates/commands/
 Follow-up TODOs: None
 -->
 
@@ -36,6 +42,11 @@ strategic experience of the original Rail Baron board game.
   When ambiguity exists in the original rules, the
   chosen interpretation MUST be documented and applied
   consistently.
+- Turn-flow edge cases involving locomotive bonuses, deferred
+  movement, use-fee timing, purchase continuation, and segment
+  reuse MUST be implemented as explicit rule behavior in the
+  authoritative engine and covered by focused regression tests
+  when changed.
 - New "house rule" variants or quality-of-life features (e.g.,
   game speed options, undo) MUST be clearly separated from
   the core rule engine and MUST NOT modify base game behavior.
@@ -91,6 +102,30 @@ more valuable than an elegantly architected game that is never
 finished. Rail Baron has well-defined, bounded scope — the
 architecture should reflect that simplicity.
 
+### IV. Advisory Outputs Are Derived, Not Decisive
+
+Route suggestions, fee previews, map overlays, purchase analysis,
+recommendation inputs, and other player-assistance outputs MUST be
+derived from the same authoritative map and game-state inputs as the
+server rule engine. They MUST remain informational and MUST NOT decide
+or mutate outcomes on the client.
+
+- Client-visible projections MUST be reproducible from authoritative
+  state or shared domain services rather than parallel client-only
+  rule implementations.
+- Hypothetical or projected values MUST be clearly scoped as advisory
+  so players can distinguish them from committed game outcomes.
+- Configuration-backed rule values (for example, engine upgrade
+  pricing) MUST be defined in typed configuration and validated on the
+  server before any client displays or submits them.
+- If an advisory UI output conflicts with server rule resolution, the
+  server result MUST win and the advisory output MUST be corrected.
+
+**Rationale**: Boxcars now includes purchase analysis, route
+suggestions, fee previews, and other strategic aids. These features
+are useful only when they mirror authoritative rules without becoming
+ a second rule engine.
+
 ## Technology Stack & Constraints
 
 - **Language**: C# / .NET (latest LTS)
@@ -100,8 +135,10 @@ architecture should reflect that simplicity.
 - **Data Storage**: Azure Table storage
 - **Testing**: Tests are encouraged for game rule logic,
   multiplayer state management, and integration points. Tests
-  are NOT mandated for every change but SHOULD accompany any
-  non-trivial game logic or state synchronization code.
+  are NOT mandated for every change but MUST accompany changes
+  to non-trivial turn flow, fee resolution, configurable rule
+  values, or derived advisory calculations that can mislead
+  player decisions.
 - **CI/CD**: Automated build and test on pull requests. The
   main branch MUST always be in a deployable state.
 
@@ -205,6 +242,9 @@ architecture should reflect that simplicity.
   authoritative state (Principle II).
 - Game rule changes MUST reference the specific rule from the
   original Rail Baron rulebook being implemented or clarified.
+- Changes to advisory UI, projections, or recommendation logic MUST
+  identify the authoritative source they derive from (rulebook,
+  engine state, typed configuration, or shared analysis service).
 - User stories SHOULD be scoped to independently deliverable,
   testable slices of functionality.
 
@@ -232,4 +272,4 @@ architectural decisions MUST align with these principles.
   takes precedence. If Principle I is not involved, prefer
   Simplicity (Principle III).
 
-**Version**: 1.7.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-08
+**Version**: 1.8.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-10

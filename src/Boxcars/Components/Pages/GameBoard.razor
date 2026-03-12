@@ -6,12 +6,14 @@
 @using Boxcars.Data.Maps
 @using Boxcars.Engine
 @using Boxcars.Engine.Data.Maps
+@using Boxcars.Engine.Domain
 @using Boxcars.GameEngine
 @using Boxcars.Services
 @using Boxcars.Services.Maps
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
 @using MudBlazor
 @using System.Globalization
 @using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine
@@ -22,9 +24,12 @@
 @inject GameService GameService
 @inject GamePresenceService GamePresenceService
 @inject GameBoardStateMapper GameBoardStateMapper
+@inject NetworkCoverageService NetworkCoverageService
+@inject MapAnalysisService MapAnalysisService
 @inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
 @inject ISnackbar Snackbar
+@inject IJSRuntime JavaScriptRuntime
 @inject IWebHostEnvironment WebHostEnvironment
 
 <PageTitle>Game - BoxCars</PageTitle>
@@ -48,36 +53,88 @@
             </MudStack>
         }
 
-        <div class="map-board-map-area">
+        @if (ShouldShowPurchaseExperienceTabs)
+        {
+            <div class="map-board-purchase-tab-strip">
+                <MudButton Variant="@(IsMapPurchaseTabActive ? Variant.Filled : Variant.Text)"
+                           Color="@(IsMapPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Map)">
+                    Map
+                </MudButton>
+                <MudButton Variant="@(!IsMapPurchaseTabActive ? Variant.Filled : Variant.Text)"
+                           Color="@(!IsMapPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Information)">
+                    Information
+                </MudButton>
+            </div>
+        }
+
+        <div class="@MapAreaClass" @ref="_mapAreaElement">
             <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+                              MovementType="@CurrentMovementType"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+                              PlayerOwnedRailroadIndices="@ActivePlayerOwnedRailroadIndices"
+                              OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
+                              RailroadOwnerColors="@RailroadOwnerColors"
+                              SelectableRailroadIndices="@SelectableRailroadIndices"
+                              SelectedRailroadIndex="@SelectedRailroadIndex"
+                              RailroadSelected="OnRailroadSelectedAsync"
                               AutoZoomEnabled="@_autoZoomEnabled"
                               AutoZoomEnabledChanged="OnAutoZoomEnabledChangedAsync"
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync"
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
+
+            @if (SelectedRailroadOverlay is not null && ShouldShowPurchaseTaskbar && IsMapPurchaseTabActive)
+            {
+                <div class="map-board-purchase-overlay" style="@SelectedRailroadOverlayStyle">
+                    <RailroadPurchaseOverlay Overlay="SelectedRailroadOverlay"
+                                             DismissRequested="DismissSelectedRailroadOverlayAsync" />
+                </div>
+            }
         </div>
+
+        @if (ShouldShowPurchaseExperienceTabs)
+        {
+            <div class="@AnalysisAreaClass">
+                <PurchaseAnalysisReport Report="@CurrentMapAnalysisReport"
+                                        RecommendationInputs="@DisplayRecommendationInputs" />
+            </div>
+        }
 
         @* ── Status strip: turn state center, zoom right ── *@
         <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center"
                   Class="map-board-status-bar px-3 py-2" Spacing="2">
-            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
-                <TurnStatusPanel State="@_turnViewState" />
+            @if (IsCurrentUserActivePlayer)
+            {
+                <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
+                    <TurnStatusPanel State="@_turnViewState" />
 
-                <MudButton Variant="Variant.Filled"
-                           Color="MudBlazor.Color.Primary"
-                           Disabled="@(!CanPrimaryGameAction)"
-                           OnClick="OnPrimaryGameActionAsync"
-                           Class="map-board-primary-action">
-                    @PrimaryGameActionLabel
-                </MudButton>
-            </MudStack>
+                    @if (ShouldShowPurchaseTaskbar)
+                    {
+                        <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
+                                         SelectedOptionKey="@_selectedPurchaseOptionKey"
+                                         SelectedOptionKeyChanged="OnSelectedPurchaseOptionChangedAsync"
+                                         BuyRequested="OnBuyPurchaseAsync"
+                                         DeclineRequested="DeclinePurchaseAsync"
+                                         CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
+                                         ProjectedCoverage="SelectedProjectedCoverage"
+                                         SelectedEngineOption="SelectedEngineOption" />
+                    }
+                    else if (!ShouldHidePrimaryAction)
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                   Color="MudBlazor.Color.Primary"
+                                   Disabled="@(!CanPrimaryGameAction)"
+                                   OnClick="OnPrimaryGameActionAsync"
+                                   Class="map-board-primary-action">
+                            @PrimaryGameActionLabel
+                        </MudButton>
+                    }
+                </MudStack>
+            }
         </MudStack>
-
-        <PurchaseOpportunityDialog IsOpen="@_isPurchaseOpportunityDialogOpen"
-                                   Arrival="@_turnViewState.ArrivalResolution" OnConfirm="ClosePurchaseOpportunityDialog"
-                                   OnCancel="ClosePurchaseOpportunityDialog" />
     </div>
 </div>
 
@@ -89,6 +146,7 @@
     private bool _gameStateSubscriptionInitialized;
     private RailBaronGameState? _gameState;
     private MapDefinition? _playerBoardMapDefinition;
+    private MapAnalysisReport? _mapAnalysisReport;
     private BoardTurnViewState _turnViewState = new();
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
@@ -99,9 +157,15 @@
     private int _currentUserPlayerIndex = -1;
     private bool _timelineInitialized;
     private bool _pendingRestoredRouteSelection;
-    private bool _isPurchaseOpportunityDialogOpen;
-    private string? _lastPurchaseOpportunityKey;
     private string? _lastAutoSuggestKey;
+    private string? _selectedPurchaseOptionKey;
+    private string? _dismissedRailroadOverlayOptionKey;
+    private string? _lastPurchaseResolutionKey;
+    private double? _selectedRailroadOverlayClientX;
+    private double? _selectedRailroadOverlayClientY;
+    private ElementReference _mapAreaElement;
+    private PurchaseExperienceTab _selectedPurchaseTab = PurchaseExperienceTab.Map;
+    private bool _wasPurchasePhaseActive;
     private int _testControlledPlayerIndex = -1;
     private bool _awaitingAuthoritativeUpdate;
     private bool _autoZoomEnabled;
@@ -141,6 +205,7 @@
         {
             _gameStateSubscriptionInitialized = true;
             SharedGameEngine.OnStateChanged += OnSharedGameStateChanged;
+            SharedGameEngine.OnActionFailed += OnSharedGameActionFailed;
         }
 
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
@@ -162,6 +227,7 @@
 
         TryRestoreRouteSelection();
         await AutoSuggestRouteIfNeededAsync();
+        await ResolvePurchasePhaseAsync();
     }
 
     private async Task EndGameAsync()
@@ -186,8 +252,7 @@
     {
         "DrawDestination" => "AUTOMATIC",
         "Roll" => "AUTOMATIC",
-        "Move" => "MOVE",
-        "Purchase" => "END TURN",
+        "Move" => IsPendingBonusMove ? "MOVE BONUS" : "MOVE",
         "EndTurn" => "AUTOMATIC",
         _ => "TURN ACTION"
     };
@@ -201,7 +266,7 @@
             "DrawDestination" => false,
             "Roll" => false,
             "Move" => CurrentRouteMoveCount > 0 && CanCommitMoveSelection(),
-            "Purchase" => true,
+            "Purchase" => false,
             "EndTurn" => false,
             _ => false
         };
@@ -234,8 +299,133 @@
                 break;
 
             case "Purchase":
-                await DeclinePurchaseAsync();
-                break;
+                return;
+        }
+    }
+
+    private async Task OnSelectedPurchaseOptionChangedAsync(string? optionKey)
+    {
+        _selectedPurchaseOptionKey = optionKey;
+
+        var selectedRailroad = CurrentPurchasePhase?.RailroadOptions.FirstOrDefault(option =>
+            string.Equals(BuildRailroadOptionKey(option.RailroadIndex), optionKey, StringComparison.Ordinal));
+
+        if (selectedRailroad is not null && _gameMap is not null)
+        {
+            if (!string.Equals(optionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
+            {
+                _dismissedRailroadOverlayOptionKey = null;
+            }
+
+            var selectionEvent = await _gameMap.GetRailroadClientAnchorAsync(selectedRailroad.RailroadIndex);
+            if (selectionEvent is not null)
+            {
+                await PositionPurchaseOverlayAsync(selectionEvent);
+            }
+            else
+            {
+                _selectedRailroadOverlayClientX = null;
+                _selectedRailroadOverlayClientY = null;
+            }
+        }
+        else
+        {
+            _selectedRailroadOverlayClientX = null;
+            _selectedRailroadOverlayClientY = null;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnPurchaseTabSelected(PurchaseExperienceTab tab)
+    {
+        _selectedPurchaseTab = tab;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnRailroadSelectedAsync(RailroadSelectionEvent selectionEvent)
+    {
+        if (CurrentPurchasePhase is null)
+        {
+            return;
+        }
+
+        var matchingRailroad = CurrentPurchasePhase.RailroadOptions.FirstOrDefault(option => option.RailroadIndex == selectionEvent.RailroadIndex);
+        if (matchingRailroad is null)
+        {
+            return;
+        }
+
+        var optionKey = BuildRailroadOptionKey(selectionEvent.RailroadIndex);
+        if (!string.Equals(optionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
+        {
+            _dismissedRailroadOverlayOptionKey = null;
+        }
+
+        _selectedPurchaseOptionKey = optionKey;
+        await PositionPurchaseOverlayAsync(selectionEvent);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnBuyPurchaseAsync()
+    {
+        if (_gameState is null || CurrentPurchasePhase is null || string.IsNullOrWhiteSpace(_selectedPurchaseOptionKey))
+        {
+            return;
+        }
+
+        var selectedRailroad = CurrentPurchasePhase.RailroadOptions.FirstOrDefault(option =>
+            string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal));
+        if (selectedRailroad is not null)
+        {
+            if (!selectedRailroad.IsAffordable)
+            {
+                return;
+            }
+
+            await EnqueuePurchaseActionAsync(new PurchaseRailroadAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex,
+                RailroadIndex = selectedRailroad.RailroadIndex,
+                AmountPaid = selectedRailroad.PurchasePrice
+            });
+            return;
+        }
+
+        var selectedEngine = CurrentPurchasePhase.EngineOptions.FirstOrDefault(option =>
+            string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal));
+        if (selectedEngine is not null)
+        {
+            if (!selectedEngine.IsEligible)
+            {
+                return;
+            }
+
+            await EnqueuePurchaseActionAsync(new BuyEngineAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex,
+                EngineType = selectedEngine.EngineType,
+                AmountPaid = selectedEngine.PurchasePrice
+            });
+        }
+    }
+
+    private async Task EnqueuePurchaseActionAsync(PlayerAction action)
+    {
+        MarkAuthoritativeUpdatePending();
+
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
         }
     }
 
@@ -363,6 +553,7 @@
             _game,
             _gameState,
             _currentUserId,
+            _playerBoardMapDefinition,
             preview,
             _turnViewState.ArrivalResolution);
 
@@ -421,6 +612,22 @@
         });
     }
 
+    private void OnSharedGameActionFailed(string gameId, GameActionFailure failure)
+    {
+        if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            _awaitingAuthoritativeUpdate = false;
+            Snackbar.Add(failure.Message, Severity.Error);
+            StateHasChanged();
+            return Task.CompletedTask;
+        });
+    }
+
     private void MarkAuthoritativeUpdatePending()
     {
         _awaitingAuthoritativeUpdate = true;
@@ -430,8 +637,8 @@
     private void ApplyGameState(RailBaronGameState state)
     {
         _gameState = state;
-        _turnViewState = GameBoardStateMapper.BuildTurnViewState(_game, state, _currentUserId);
-        _selectionMode = ResolveSelectionMode(_turnViewState.TurnPhase);
+        _turnViewState = GameBoardStateMapper.BuildTurnViewState(_game, state, _currentUserId, _playerBoardMapDefinition);
+        _selectionMode = ResolveSelectionMode(_turnViewState);
         _currentUserPlayerIndex = _turnViewState.CurrentUserPlayerIndex;
         _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_game, state, _currentUserId).ToList();
 
@@ -490,7 +697,10 @@
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
                     IsConnected = IsPlayerConnected(resolvedUserId),
-                    LocomotiveLabel = player.LocomotiveType
+                    LocomotiveLabel = player.LocomotiveType,
+                    BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
+                    FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index) : 0,
+                    CoverageMetrics = BuildPlayerCoverageMetricRows(player)
                 };
             })
             .ToList();
@@ -505,8 +715,40 @@
             .ToDictionary(pair => pair.Key, pair => pair.Value);
 
         _currentPlayerColor = ResolveActionPlayerColor(state);
-        UpdatePurchaseOpportunityDialogState();
+        SyncPurchaseSelection();
+        TrackPurchasePhaseTransition();
         _pendingRestoredRouteSelection = true;
+    }
+
+    private void TrackPurchasePhaseTransition()
+    {
+        var isPurchaseNow = CurrentPurchasePhase is { HasActivePurchaseControls: true };
+
+        if (isPurchaseNow && !_wasPurchasePhaseActive)
+        {
+            // Entering purchase phase: reset zoom so full board is visible
+            _ = ResetZoomForPurchaseAsync();
+        }
+        else if (!isPurchaseNow && _wasPurchasePhaseActive)
+        {
+            // Exiting purchase phase: reset zoom and clear selection artifacts
+            _selectedPurchaseOptionKey = null;
+            _dismissedRailroadOverlayOptionKey = null;
+            _selectedRailroadOverlayClientX = null;
+            _selectedRailroadOverlayClientY = null;
+            _selectedPurchaseTab = PurchaseExperienceTab.Map;
+            _ = ResetZoomForPurchaseAsync();
+        }
+
+        _wasPurchasePhaseActive = isPurchaseNow;
+    }
+
+    private async Task ResetZoomForPurchaseAsync()
+    {
+        if (_gameMap is not null)
+        {
+            await _gameMap.ResetZoom();
+        }
     }
 
     private IReadOnlyDictionary<int, int> BuildSuggestedRouteDistances(RailBaronGameState state)
@@ -562,7 +804,9 @@
         var loadResult = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream, cancellationToken);
         if (loadResult.Succeeded)
         {
-            _playerBoardMapDefinition = loadResult.Definition;
+            var mapDefinition = loadResult.Definition!;
+            _playerBoardMapDefinition = mapDefinition;
+            _mapAnalysisReport = MapAnalysisService.BuildReport(mapDefinition);
         }
     }
 
@@ -585,6 +829,48 @@
 
         var completedSegments = Math.Clamp(player.RouteProgressIndex, 0, player.ActiveRoute.Segments.Count);
         return Math.Max(0, player.ActiveRoute.Segments.Count - completedSegments);
+    }
+
+    private static int CalculateFeesOwed(RailBaronGameState state, int playerIndex)
+    {
+        if (playerIndex < 0 || playerIndex >= state.Players.Count)
+        {
+            return 0;
+        }
+
+        var player = state.Players[playerIndex];
+        var grandfatheredRailroads = player.GrandfatheredRailroadIndices.ToHashSet();
+        var ownerBuckets = new Dictionary<int, bool>();
+        var usesBaseRateRailroad = false;
+
+        foreach (var railroadIndex in state.Turn.RailroadsRiddenThisTurn)
+        {
+            if (!state.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
+            {
+                usesBaseRateRailroad = true;
+                continue;
+            }
+
+            if (ownerIndex.Value == playerIndex)
+            {
+                usesBaseRateRailroad = true;
+                continue;
+            }
+
+            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
+            if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
+            {
+                ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
+            }
+            else
+            {
+                ownerBuckets[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
+            }
+        }
+
+        var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
+        return (usesBaseRateRailroad ? 1000 : 0)
+            + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000);
     }
 
     private int CalculateTripPayoff(Boxcars.Engine.Persistence.PlayerState player)
@@ -613,9 +899,10 @@ destinationPayoutIndex)
             : 0;
     }
 
-    private static MapSelectionMode ResolveSelectionMode(string? turnPhase)
+    private static MapSelectionMode ResolveSelectionMode(BoardTurnViewState turnViewState)
     {
-        return string.Equals(turnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
+            && turnViewState.PurchasePhase is { HasActivePurchaseControls: true, RailroadOptions.Count: > 0 }
             ? MapSelectionMode.Rail
             : MapSelectionMode.Route;
     }
@@ -744,9 +1031,14 @@ StringComparison.OrdinalIgnoreCase));
         }
 
         var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
-        var restoredPreviewNodeIds = _turnViewState.SelectedRoutePreview.NodeIds;
-        var restoredPreviewSegmentKeys = _turnViewState.SelectedRoutePreview.SegmentKeys;
-        var startNodeId = restoredPreviewNodeIds.FirstOrDefault() ?? activePlayer.CurrentNodeId;
+        var isBonusMove = _turnViewState.RedDie.HasValue && _turnViewState.WhiteDieOne <= 0 && _turnViewState.WhiteDieTwo <= 0;
+        var restoredPreviewNodeIds = isBonusMove
+            ? Array.Empty<string>()
+            : _turnViewState.SelectedRoutePreview.NodeIds;
+        var restoredPreviewSegmentKeys = isBonusMove
+            ? Array.Empty<string>()
+            : _turnViewState.SelectedRoutePreview.SegmentKeys;
+        var startNodeId = activePlayer.CurrentNodeId ?? restoredPreviewNodeIds.FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(startNodeId))
         {
@@ -766,7 +1058,9 @@ StringComparison.OrdinalIgnoreCase));
 
         if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
         {
-            _gameMap.RestoreSelectedRoute(restoredPreviewNodeIds, restoredPreviewSegmentKeys);
+            _gameMap.RestoreSelectedRoute(
+                !string.IsNullOrWhiteSpace(startNodeId) ? [startNodeId] : restoredPreviewNodeIds,
+                restoredPreviewSegmentKeys);
             _pendingRestoredRouteSelection = false;
             return;
         }
@@ -781,7 +1075,9 @@ StringComparison.OrdinalIgnoreCase));
             _gameMap.SetDestinationCity(destinationCity.NodeId);
         }
 
-        _gameMap.RestoreSelectedRoute(restoredPreviewNodeIds, restoredPreviewSegmentKeys);
+        _gameMap.RestoreSelectedRoute(
+            !string.IsNullOrWhiteSpace(startNodeId) && isBonusMove ? [startNodeId] : restoredPreviewNodeIds,
+            restoredPreviewSegmentKeys);
         _pendingRestoredRouteSelection = false;
     }
 
@@ -830,6 +1126,15 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
 
+    private bool IsPendingBonusMove => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+        && _turnViewState.RedDie.HasValue
+        && _turnViewState.WhiteDieOne <= 0
+        && _turnViewState.WhiteDieTwo <= 0;
+
+    private PlayerMovementType CurrentMovementType => _turnViewState.RedDie.HasValue && (_turnViewState.WhiteDieOne > 0 || _turnViewState.WhiteDieTwo > 0)
+        ? PlayerMovementType.ThreeDie
+        : PlayerMovementType.TwoDie;
+
     private bool IsCurrentUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer || IsActivePlayerUnderTestControl;
 
     private bool IsAuthenticatedUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer;
@@ -838,11 +1143,344 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         && _testControlledPlayerIndex >= 0
         && _testControlledPlayerIndex == _gameState.ActivePlayerIndex;
 
-    private bool HasArrivalPurchaseOpportunity => _turnViewState.ArrivalResolution is
+    private PurchasePhaseModel? CurrentPurchasePhase => _turnViewState.PurchasePhase;
+
+    private MapAnalysisReport? CurrentMapAnalysisReport => CurrentPurchasePhase?.MapAnalysisReport ?? _mapAnalysisReport;
+
+    private int EffectiveRecommendationPlayerIndex
     {
-        IsVisible: true,
-        PurchaseOpportunityAvailable: true
-    };
+        get
+        {
+            if (_gameState is null)
+            {
+                return -1;
+            }
+
+            if (IsActivePlayerUnderTestControl)
+            {
+                return _gameState.ActivePlayerIndex;
+            }
+
+            if (_currentUserPlayerIndex >= 0 && _currentUserPlayerIndex < _gameState.Players.Count)
+            {
+                return _currentUserPlayerIndex;
+            }
+
+            return _gameState.ActivePlayerIndex;
+        }
+    }
+
+    private RecommendationInputSet? DisplayRecommendationInputs
+    {
+        get
+        {
+            var baseInputs = CurrentPurchasePhase?.RecommendationInputs;
+            if (_gameState is null || _playerBoardMapDefinition is null || CurrentMapAnalysisReport is null)
+            {
+                return baseInputs;
+            }
+
+            var effectivePlayerIndex = EffectiveRecommendationPlayerIndex;
+            if (effectivePlayerIndex < 0 || effectivePlayerIndex >= _gameState.Players.Count)
+            {
+                return baseInputs;
+            }
+
+            if (baseInputs is not null && effectivePlayerIndex == _gameState.ActivePlayerIndex)
+            {
+                return baseInputs;
+            }
+
+            var ownedRailroadIndices = _gameState.Players[effectivePlayerIndex].OwnedRailroadIndices;
+            var currentCoverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, ownedRailroadIndices);
+            var unownedRailroadIndices = _playerBoardMapDefinition.Railroads
+                .Where(railroad => !_gameState.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
+                .Select(railroad => railroad.Index)
+                .ToList();
+            var projectedCoverageByRailroad = unownedRailroadIndices.ToDictionary(
+                railroadIndex => railroadIndex,
+                railroadIndex => NetworkCoverageService.BuildProjectedSnapshot(_playerBoardMapDefinition, ownedRailroadIndices, railroadIndex));
+
+            return new RecommendationInputSet
+            {
+                MapAnalysisReport = CurrentMapAnalysisReport,
+                AffordableRailroadIndices = baseInputs?.AffordableRailroadIndices ?? [],
+                UnownedRailroadIndices = baseInputs?.UnownedRailroadIndices ?? unownedRailroadIndices,
+                EligibleEngineTypes = baseInputs?.EligibleEngineTypes ?? [],
+                CurrentCoverage = currentCoverage,
+                ProjectedCoverageByRailroad = projectedCoverageByRailroad
+            };
+        }
+    }
+
+    private bool ShouldShowPurchaseExperienceTabs => _playerBoardMapDefinition is not null;
+
+    private bool IsMapPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Map;
+
+    private string MapAreaClass => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
+        ? "map-board-map-area map-board-panel-hidden"
+        : "map-board-map-area";
+
+    private string AnalysisAreaClass => IsMapPurchaseTabActive
+        ? "map-board-analysis-area map-board-panel-hidden"
+        : "map-board-analysis-area";
+
+    private bool ShouldShowPurchaseTaskbar => CurrentPurchasePhase is { HasActivePurchaseControls: true }
+        && IsCurrentUserActivePlayer
+        && string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
+
+    private bool ShouldHidePrimaryAction => string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
+
+    private PurchaseTaskbarState CurrentPurchaseTaskbarState => CurrentPurchasePhase is null
+        ? new PurchaseTaskbarState()
+        : new PurchaseTaskbarState
+        {
+            Label = CurrentPurchasePhase.TaskbarState.Label,
+            Options = CurrentPurchasePhase.TaskbarOptions,
+            SelectedOptionKey = _selectedPurchaseOptionKey,
+            CanBuy = CanBuySelectedPurchaseOption,
+            CanDecline = CurrentPurchasePhase.CanDecline
+        };
+
+    private bool CanBuySelectedPurchaseOption => CurrentPurchasePhase is not null
+        && !string.IsNullOrWhiteSpace(_selectedPurchaseOptionKey)
+        && (
+            CurrentPurchasePhase.RailroadOptions.Any(option =>
+                string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal)
+                && option.IsAffordable)
+            || CurrentPurchasePhase.EngineOptions.Any(option =>
+                string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal)
+                && option.IsEligible));
+
+    private EngineUpgradeOption? SelectedEngineOption => CurrentPurchasePhase?.EngineOptions.FirstOrDefault(option =>
+        string.Equals(BuildEngineOptionKey(option.EngineType), _selectedPurchaseOptionKey, StringComparison.Ordinal));
+
+    private NetworkCoverageSnapshot? SelectedProjectedCoverage
+    {
+        get
+        {
+            if (CurrentPurchasePhase?.RecommendationInputs is null || string.IsNullOrWhiteSpace(_selectedPurchaseOptionKey))
+            {
+                return CurrentPurchasePhase?.ProjectedCoverage;
+            }
+
+            var railroadOption = CurrentPurchasePhase.RailroadOptions.FirstOrDefault(option =>
+                string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal));
+
+            return railroadOption is not null
+                && CurrentPurchasePhase.RecommendationInputs.ProjectedCoverageByRailroad.TryGetValue(railroadOption.RailroadIndex, out var coverage)
+                    ? coverage
+                    : CurrentPurchasePhase.ProjectedCoverage;
+        }
+    }
+
+    private IReadOnlyCollection<int> ActivePlayerOwnedRailroadIndices => _gameState is null
+        ? Array.Empty<int>()
+        : _gameState.Players[_gameState.ActivePlayerIndex].OwnedRailroadIndices;
+
+    private IReadOnlyCollection<int> OtherOwnedRailroadIndices => _gameState is null
+        ? Array.Empty<int>()
+        : _gameState.RailroadOwnership
+            .Where(entry => entry.Value.HasValue && entry.Value.Value != _gameState.ActivePlayerIndex)
+            .Select(entry => entry.Key)
+            .ToList();
+
+    private IReadOnlyDictionary<int, string> RailroadOwnerColors => _gameState is null
+        ? new Dictionary<int, string>()
+        : _gameState.RailroadOwnership
+            .Where(entry => entry.Value.HasValue
+                && entry.Value.Value >= 0
+                && entry.Value.Value < _players.Count)
+            .ToDictionary(
+                entry => entry.Key,
+                entry => _players[entry.Value!.Value].Color);
+
+    private IReadOnlyCollection<int> SelectableRailroadIndices => CurrentPurchasePhase?.RailroadOptions.Select(option => option.RailroadIndex).ToArray()
+        ?? Array.Empty<int>();
+
+    private int? SelectedRailroadIndex => CurrentPurchasePhase?.RailroadOptions
+        .FirstOrDefault(option => string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal))
+        ?.RailroadIndex;
+
+    private RailroadOverlayInfo? SelectedRailroadOverlay
+    {
+        get
+        {
+            if (CurrentPurchasePhase?.CurrentCoverage is null
+                || SelectedRailroadIndex is not int railroadIndex
+                || string.Equals(_selectedPurchaseOptionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var railroadOption = CurrentPurchasePhase.RailroadOptions.FirstOrDefault(option => option.RailroadIndex == railroadIndex);
+            if (railroadOption is null)
+            {
+                return null;
+            }
+
+            var projectedCoverage = SelectedProjectedCoverage;
+            if (projectedCoverage is null)
+            {
+                return null;
+            }
+
+            return new RailroadOverlayInfo
+            {
+                RailroadIndex = railroadOption.RailroadIndex,
+                RailroadName = railroadOption.RailroadName,
+                PurchasePrice = railroadOption.PurchasePrice,
+                IsAffordable = railroadOption.IsAffordable,
+                MetricRows = BuildOverlayMetricRows(CurrentPurchasePhase.CurrentCoverage, projectedCoverage, CurrentPurchasePhase.MapAnalysisReport)
+            };
+        }
+    }
+
+    private static List<RailroadOverlayMetricRow> BuildOverlayMetricRows(
+        NetworkCoverageSnapshot currentCoverage,
+        NetworkCoverageSnapshot projectedCoverage,
+        MapAnalysisReport? report)
+    {
+        var currentAccessByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedAccessByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var currentMonopolyByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedMonopolyByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var rows = new List<RailroadOverlayMetricRow>
+        {
+            new()
+            {
+                Label = "Total",
+                AccessPercent = currentCoverage.AccessibleDestinationPercent,
+                ProjectedAccessPercent = projectedCoverage.AccessibleDestinationPercent,
+                MonopolyPercent = currentCoverage.MonopolyDestinationPercent,
+                ProjectedMonopolyPercent = projectedCoverage.MonopolyDestinationPercent,
+                AccessDeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
+                MonopolyDeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
+            }
+        };
+
+        rows.AddRange((report?.RegionProbabilityRows ?? Array.Empty<RegionProbabilityRow>())
+            .Select(region =>
+            {
+                var currentAccessPercent = currentAccessByCode.TryGetValue(region.RegionCode, out var currentAccessValue) ? currentAccessValue : 0m;
+                var projectedAccessPercent = projectedAccessByCode.TryGetValue(region.RegionCode, out var projectedAccessValue) ? projectedAccessValue : 0m;
+                var currentMonopolyPercent = currentMonopolyByCode.TryGetValue(region.RegionCode, out var currentMonopolyValue) ? currentMonopolyValue : 0m;
+                var projectedMonopolyPercent = projectedMonopolyByCode.TryGetValue(region.RegionCode, out var projectedMonopolyValue) ? projectedMonopolyValue : 0m;
+                return new RailroadOverlayMetricRow
+                {
+                    Label = region.RegionCode,
+                    AccessPercent = currentAccessPercent,
+                    ProjectedAccessPercent = projectedAccessPercent,
+                    MonopolyPercent = currentMonopolyPercent,
+                    ProjectedMonopolyPercent = projectedMonopolyPercent,
+                    AccessDeltaPercent = Math.Round(projectedAccessPercent - currentAccessPercent, 1, MidpointRounding.AwayFromZero),
+                    MonopolyDeltaPercent = Math.Round(projectedMonopolyPercent - currentMonopolyPercent, 1, MidpointRounding.AwayFromZero)
+                };
+            }));
+
+        return rows;
+    }
+
+    private IReadOnlyList<RailroadOverlayMetricRow> BuildPlayerCoverageMetricRows(Boxcars.Engine.Persistence.PlayerState player)
+    {
+        if (_playerBoardMapDefinition is null)
+        {
+            return Array.Empty<RailroadOverlayMetricRow>();
+        }
+
+        var coverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, player.OwnedRailroadIndices);
+        var regionAccessByCode = coverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var regionMonopolyByCode = coverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var rows = new List<RailroadOverlayMetricRow>
+        {
+            new()
+            {
+                Label = "Total",
+                AccessPercent = coverage.AccessibleDestinationPercent,
+                ProjectedAccessPercent = coverage.AccessibleDestinationPercent,
+                MonopolyPercent = coverage.MonopolyDestinationPercent,
+                ProjectedMonopolyPercent = coverage.MonopolyDestinationPercent,
+                AccessDeltaPercent = 0m,
+                MonopolyDeltaPercent = 0m
+            }
+        };
+
+        rows.AddRange(_playerBoardMapDefinition.Regions.Select(region => new RailroadOverlayMetricRow
+        {
+            Label = region.Code,
+            AccessPercent = regionAccessByCode.TryGetValue(region.Code, out var accessValue) ? accessValue : 0m,
+            ProjectedAccessPercent = regionAccessByCode.TryGetValue(region.Code, out accessValue) ? accessValue : 0m,
+            MonopolyPercent = regionMonopolyByCode.TryGetValue(region.Code, out var monopolyValue) ? monopolyValue : 0m,
+            ProjectedMonopolyPercent = regionMonopolyByCode.TryGetValue(region.Code, out monopolyValue) ? monopolyValue : 0m,
+            AccessDeltaPercent = 0m,
+            MonopolyDeltaPercent = 0m
+        }));
+
+        return rows;
+    }
+
+    private string SelectedRailroadOverlayStyle
+    {
+        get
+        {
+            if (_selectedRailroadOverlayClientX.HasValue && _selectedRailroadOverlayClientY.HasValue)
+            {
+                return FormattableString.Invariant($"left:{_selectedRailroadOverlayClientX.Value:F0}px;top:{_selectedRailroadOverlayClientY.Value:F0}px;");
+            }
+
+            return "left:1rem;top:1rem;";
+        }
+    }
+
+    private Task DismissSelectedRailroadOverlayAsync()
+    {
+        if (SelectedRailroadIndex is int)
+        {
+            _dismissedRailroadOverlayOptionKey = _selectedPurchaseOptionKey;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PositionPurchaseOverlayAsync(RailroadSelectionEvent selectionEvent)
+    {
+        const double overlayGapPixels = 12;
+        const double overlayMarginPixels = 16;
+        const double overlayMaxWidthPixels = 704;
+        const double overlayEstimatedHeightPixels = 480;
+
+        var relativePoint = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _mapAreaElement,
+            selectionEvent.ClientX,
+            selectionEvent.ClientY);
+
+        var areaLeft = selectionEvent.ClientX - relativePoint.X;
+        var areaTop = selectionEvent.ClientY - relativePoint.Y;
+        var areaRight = areaLeft + relativePoint.Width;
+        var areaBottom = areaTop + relativePoint.Height;
+        var overlayWidth = Math.Min(overlayMaxWidthPixels, Math.Max(320, relativePoint.Width - (overlayMarginPixels * 2)));
+        var desiredLeft = selectionEvent.ClientX + overlayGapPixels;
+        var desiredTop = selectionEvent.ClientY + overlayGapPixels;
+        var rightOverflow = desiredLeft + overlayWidth + overlayMarginPixels - areaRight;
+
+        if (rightOverflow > 0 && _gameMap is not null)
+        {
+            await _gameMap.ShiftViewportByPixels(rightOverflow, 0);
+            desiredLeft -= rightOverflow;
+        }
+
+        var maxLeft = Math.Max(areaLeft + overlayMarginPixels, areaRight - overlayWidth - overlayMarginPixels);
+        desiredLeft = Math.Clamp(desiredLeft, areaLeft + overlayMarginPixels, maxLeft);
+
+        if (desiredTop + overlayEstimatedHeightPixels + overlayMarginPixels > areaBottom)
+        {
+            desiredTop = Math.Max(areaTop + overlayMarginPixels, areaBottom - overlayEstimatedHeightPixels - overlayMarginPixels);
+        }
+
+        _selectedRailroadOverlayClientX = desiredLeft;
+        _selectedRailroadOverlayClientY = Math.Max(areaTop + overlayMarginPixels, desiredTop);
+    }
 
     private string CurrentUserPlayerColor => _currentUserPlayerIndex >= 0
         ? _players[_currentUserPlayerIndex].Color
@@ -855,11 +1493,34 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private string CurrentMapPlayerColor => _mapPlayerStates.FirstOrDefault(playerState => playerState.IsActiveTurn)?.Color
         ?? _currentPlayerColor;
 
-    private Task ClosePurchaseOpportunityDialog()
+    private void SyncPurchaseSelection()
     {
-        _isPurchaseOpportunityDialogOpen = false;
+        if (CurrentPurchasePhase is null)
+        {
+            _selectedPurchaseTab = PurchaseExperienceTab.Map;
+            _dismissedRailroadOverlayOptionKey = null;
+            _selectedRailroadOverlayClientX = null;
+            _selectedRailroadOverlayClientY = null;
+        }
 
-        return InvokeAsync(StateHasChanged);
+        if (CurrentPurchasePhase?.TaskbarOptions.Count > 0)
+        {
+            if (!string.IsNullOrWhiteSpace(_selectedPurchaseOptionKey)
+                && !CurrentPurchasePhase.TaskbarOptions.Any(option => string.Equals(option.OptionKey, _selectedPurchaseOptionKey, StringComparison.Ordinal)))
+            {
+                _selectedPurchaseOptionKey = null;
+                _dismissedRailroadOverlayOptionKey = null;
+                _selectedRailroadOverlayClientX = null;
+                _selectedRailroadOverlayClientY = null;
+            }
+
+            return;
+        }
+
+        _selectedPurchaseOptionKey = null;
+        _dismissedRailroadOverlayOptionKey = null;
+        _selectedRailroadOverlayClientX = null;
+        _selectedRailroadOverlayClientY = null;
     }
 
     private async Task AutoSuggestRouteIfNeededAsync()
@@ -887,6 +1548,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             _gameState.TurnNumber.ToString(CultureInfo.InvariantCulture),
             _gameState.ActivePlayerIndex.ToString(CultureInfo.InvariantCulture),
             activePlayer.CurrentNodeId ?? string.Empty,
+            _gameState.Turn.MovementRemaining.ToString(CultureInfo.InvariantCulture),
+            _gameState.Turn.MovementAllowance.ToString(CultureInfo.InvariantCulture),
             activePlayer.DestinationCityName);
 
         if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal))
@@ -998,7 +1661,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 HomeCity = player.HomeCity,
                 IsActiveTurn = player.IsActiveTurn,
                 IsConnected = IsPlayerConnected(_playerUserIdsByIndex.GetValueOrDefault(player.Index)),
-                LocomotiveLabel = player.LocomotiveLabel
+                LocomotiveLabel = player.LocomotiveLabel,
+                CoverageMetrics = player.CoverageMetrics
             })
             .ToList();
 
@@ -1076,11 +1740,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             .Where(item => !existingEventIds.Contains(item.EventId))
             .ToList();
 
-        var purchaseOpportunitiesByBaseEventId = notifyCandidates
-            .Where(item => item.EventKind == EventTimelineKind.PurchaseOpportunity)
-            .GroupBy(GetTimelineEventBaseId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-
         foreach (var item in notifyCandidates.Where(ShouldNotifyTimelineItem))
         {
             var message = item.Description;
@@ -1095,17 +1754,14 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     message = $"{message}, Payoff ${payoff:N0}";
                 }
             }
-            else if (item.EventKind == EventTimelineKind.Arrival
-                && purchaseOpportunitiesByBaseEventId.TryGetValue(GetTimelineEventBaseId(item), out var purchaseOpportunity))
-            {
-                message = $"{item.Description} {purchaseOpportunity.Description}";
-            }
 
             Snackbar.Add(
                 message,
                 ResolveTimelineSeverity(item),
                 options =>
                 {
+                    options.Icon = ResolveTimelineSnackbarIcon(item);
+
                     var snackbarClass = ResolveTimelineSnackbarClass(item);
                     if (!string.IsNullOrWhiteSpace(snackbarClass))
                     {
@@ -1122,6 +1778,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             EventTimelineKind.NewDestination => true,
             EventTimelineKind.Move => true,
             EventTimelineKind.Arrival => true,
+            EventTimelineKind.PayFees => true,
             EventTimelineKind.Purchase => true,
             EventTimelineKind.DeclinedPurchase => true,
             _ => false
@@ -1141,6 +1798,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return item.EventKind switch
         {
             EventTimelineKind.Arrival => Severity.Success,
+            EventTimelineKind.PayFees => Severity.Warning,
             EventTimelineKind.PurchaseOpportunity => Severity.Warning,
             EventTimelineKind.Purchase => Severity.Warning,
             _ => Severity.Info
@@ -1158,6 +1816,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         var playerColor = PlayerColorOptions.NormalizeOrDefault(_players[item.ActingPlayerIndex.Value].Color);
         return $"player-snackbar player-snackbar-{playerColor}";
+    }
+
+    private static string ResolveTimelineSnackbarIcon(EventTimelineItem item)
+    {
+        return item.EventKind switch
+        {
+            EventTimelineKind.Move => Icons.Material.Filled.DirectionsRailway,
+            EventTimelineKind.NewDestination => Icons.Material.Filled.DirectionsRailway,
+            EventTimelineKind.Arrival => Icons.Material.Filled.AttachMoney,
+            EventTimelineKind.PayFees => Icons.Material.Filled.AttachMoney,
+            EventTimelineKind.Purchase => Icons.Material.Filled.ShoppingCart,
+            EventTimelineKind.DeclinedPurchase => Icons.Material.Filled.RemoveShoppingCart,
+            EventTimelineKind.PurchaseOpportunity => Icons.Material.Filled.LocalOffer,
+            _ => Icons.Material.Filled.Notifications
+        };
     }
 
     private Task OnToggleTestPlayerAsync(int playerIndex)
@@ -1221,33 +1894,74 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             : PlayerColorOptions.Colors[0];
     }
 
-    private void UpdatePurchaseOpportunityDialogState()
+    private async Task ResolvePurchasePhaseAsync()
     {
-        if (!HasArrivalPurchaseOpportunity || !IsCurrentUserActivePlayer || _gameState is null)
+        if (_gameState is null
+            || CurrentPurchasePhase is null
+            || !string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
+            || !IsCurrentUserActivePlayer)
         {
-            _isPurchaseOpportunityDialogOpen = false;
+            _lastPurchaseResolutionKey = null;
             return;
         }
 
-        var arrival = _turnViewState.ArrivalResolution!;
-        var purchaseOpportunityKey = string.Join(
+        if (CurrentPurchasePhase.HasActivePurchaseControls || _awaitingAuthoritativeUpdate)
+        {
+            return;
+        }
+
+        var purchaseResolutionKey = string.Join(
             ':',
             _gameState.TurnNumber.ToString(CultureInfo.InvariantCulture),
             _gameState.ActivePlayerIndex.ToString(CultureInfo.InvariantCulture),
-            arrival.DestinationCityName,
-            arrival.PayoutAmount.ToString(CultureInfo.InvariantCulture),
-            arrival.CashAfterPayout.ToString(CultureInfo.InvariantCulture));
+            CurrentPurchasePhase.CashAfterPayout.ToString(CultureInfo.InvariantCulture),
+            CurrentPurchasePhase.NoPurchaseNotification ?? string.Empty);
 
-        if (!string.Equals(_lastPurchaseOpportunityKey, purchaseOpportunityKey, StringComparison.Ordinal))
+        if (string.Equals(_lastPurchaseResolutionKey, purchaseResolutionKey, StringComparison.Ordinal))
         {
-            _lastPurchaseOpportunityKey = purchaseOpportunityKey;
-            _isPurchaseOpportunityDialogOpen = true;
+            return;
         }
+
+        _lastPurchaseResolutionKey = purchaseResolutionKey;
+
+        if (!string.IsNullOrWhiteSpace(CurrentPurchasePhase.NoPurchaseNotification))
+        {
+            Snackbar.Add(CurrentPurchasePhase.NoPurchaseNotification, Severity.Warning);
+        }
+
+        await DeclinePurchaseAsync();
+    }
+
+    private static string BuildRailroadOptionKey(int railroadIndex)
+    {
+        return $"railroad:{railroadIndex}";
+    }
+
+    private static string BuildEngineOptionKey(LocomotiveType locomotiveType)
+    {
+        return $"engine:{locomotiveType}";
     }
 
     private static string FormatFee(int fee)
     {
         return string.Format(CultureInfo.InvariantCulture, "${0:N0}", Math.Max(0, fee));
+    }
+
+    private static string BuildBonusPendingLabel(RailBaronGameState state, Boxcars.Engine.Persistence.PlayerState player)
+    {
+        if (!state.Turn.BonusRollAvailable)
+        {
+            return string.Empty;
+        }
+
+        if (string.Equals(player.LocomotiveType, LocomotiveType.Superchief.ToString(), StringComparison.OrdinalIgnoreCase)
+            && state.Turn.DiceResult?.RedDie is int redDie
+            && redDie > 0)
+        {
+            return $"Bonus {redDie} pending";
+        }
+
+        return "Bonus Pending";
     }
 
     public async ValueTask DisposeAsync()
@@ -1258,6 +1972,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         if (_gameStateSubscriptionInitialized)
         {
             SharedGameEngine.OnStateChanged -= OnSharedGameStateChanged;
+            SharedGameEngine.OnActionFailed -= OnSharedGameActionFailed;
             _gameStateSubscriptionInitialized = false;
         }
 

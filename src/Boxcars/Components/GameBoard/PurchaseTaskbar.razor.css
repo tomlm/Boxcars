@@ -1,0 +1,27 @@
+.purchase-taskbar-scope {
+    width: 100%;
+}
+
+.purchase-taskbar {
+    width: 100%;
+}
+
+.purchase-taskbar-select {
+    min-width: 18rem;
+}
+
+.purchase-taskbar-option-price-affordable {
+    color: var(--mud-palette-success);
+    font-weight: 700;
+}
+
+.purchase-taskbar-option-price-too-expensive {
+    color: var(--mud-palette-error);
+    font-weight: 700;
+}
+
+@media (max-width: 960px) {
+    .purchase-taskbar-select {
+        min-width: 10rem;
+    }
+}

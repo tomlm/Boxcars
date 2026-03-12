@@ -1,11 +1,18 @@
 using Boxcars.Data;
 using Boxcars.Data.Maps;
+using Boxcars.Engine.Data.Maps;
+using Boxcars.Engine.Domain;
+using Microsoft.Extensions.Options;
 using RailBaronGameState = Boxcars.Engine.Persistence.GameState;
 using PlayerStateSnapshot = Boxcars.Engine.Persistence.PlayerState;
 
 namespace Boxcars.Services;
 
-public sealed class GameBoardStateMapper
+public sealed class GameBoardStateMapper(
+    NetworkCoverageService networkCoverageService,
+    MapAnalysisService mapAnalysisService,
+    PurchaseRecommendationService purchaseRecommendationService,
+    IOptions<PurchaseRulesOptions> purchaseRulesOptions)
 {
     public IReadOnlyList<GamePlayerSelection> GetPlayerSelections(GameEntity? game)
     {
@@ -34,6 +41,7 @@ public sealed class GameBoardStateMapper
         GameEntity? game,
         RailBaronGameState? state,
         string? currentUserId,
+        MapDefinition? mapDefinition = null,
         TurnMovementPreview? preview = null,
         ArrivalResolutionModel? arrivalResolution = null)
     {
@@ -63,6 +71,8 @@ public sealed class GameBoardStateMapper
             : CalculateRollTotal(state);
         var movementRemaining = Math.Max(0, state.Turn.MovementRemaining - selectedRoutePreview.MoveCount);
 
+        var resolvedArrival = arrivalResolution ?? BuildArrivalResolution(state, mapDefinition, activePlayerIndex, activePlayer);
+
         return new BoardTurnViewState
         {
             ActivePlayerIndex = activePlayerIndex,
@@ -72,6 +82,7 @@ public sealed class GameBoardStateMapper
             WhiteDieOne = GetWhiteDie(state, 0),
             WhiteDieTwo = GetWhiteDie(state, 1),
             RedDie = state.Turn.DiceResult?.RedDie,
+            BonusRollAvailable = state.Turn.BonusRollAvailable,
             MovementAllowance = movementAllowance,
             MovementRemaining = movementRemaining,
             PreviewFee = selectedRoutePreview.FeeEstimate,
@@ -83,7 +94,8 @@ public sealed class GameBoardStateMapper
             IsCurrentUserActivePlayer = PlayerControlRules.CanUserControlSlot(activePlayerSlotUserId, currentUserId)
                 || (currentUserPlayerIndex >= 0 && currentUserPlayerIndex == activePlayerIndex),
             CanEndTurn = CanEndTurn(state, selectedRoutePreview),
-            ArrivalResolution = arrivalResolution ?? BuildArrivalResolution(state)
+            ArrivalResolution = resolvedArrival,
+            PurchasePhase = resolvedArrival?.PurchasePhase
         };
     }
 
@@ -105,6 +117,7 @@ public sealed class GameBoardStateMapper
                     PlayerId = selection?.UserId ?? player.Name,
                     Color = selection?.Color ?? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length],
                     HomeCityName = player.HomeCityName,
+                    TripStartCityName = player.TripStartCityName,
                     CurrentCityName = player.CurrentCityName,
                     StartNodeId = player.ActiveRoute?.NodeIds.FirstOrDefault(),
                     DestinationCityName = player.DestinationCityName,
@@ -173,26 +186,66 @@ public sealed class GameBoardStateMapper
             }
         }
 
-        var usesBankRailroad = false;
-        var opposingOwnerIndices = new HashSet<int>();
+        var activePlayer = state.Players[activePlayerIndex];
+        var grandfatheredRailroadIndices = SimulateGrandfatheredRailroads(activePlayer.GrandfatheredRailroadIndices, segmentKeys);
+        var usesBaseRateRailroad = false;
+        var ownerBuckets = new Dictionary<int, bool>();
 
         foreach (var railroadIndex in railroadIndices)
         {
             if (!state.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
             {
-                usesBankRailroad = true;
+                usesBaseRateRailroad = true;
+                continue;
+            }
+
+            if (ownerIndex.Value == activePlayerIndex)
+            {
+                usesBaseRateRailroad = true;
                 continue;
             }
 
             if (ownerIndex.Value != activePlayerIndex)
             {
-                opposingOwnerIndices.Add(ownerIndex.Value);
+                var requiresFullOwnerRate = !grandfatheredRailroadIndices.Contains(railroadIndex);
+                if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
+                {
+                    ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
+                }
+                else
+                {
+                    ownerBuckets[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
+                }
             }
         }
 
-        var bankFee = usesBankRailroad ? 1000 : 0;
+        var bankFee = usesBaseRateRailroad ? 1000 : 0;
         var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
-        return bankFee + (opposingOwnerIndices.Count * opponentRate);
+        return bankFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000);
+    }
+
+    private static HashSet<int> SimulateGrandfatheredRailroads(IReadOnlyList<int> currentGrandfatheredRailroads, IReadOnlyList<string> segmentKeys)
+    {
+        var grandfatheredRailroads = currentGrandfatheredRailroads.ToHashSet();
+
+        foreach (var segmentKey in segmentKeys)
+        {
+            if (!TryParseRailroadIndex(segmentKey, out var railroadIndex) || grandfatheredRailroads.Count == 0)
+            {
+                continue;
+            }
+
+            if (grandfatheredRailroads.Contains(railroadIndex))
+            {
+                grandfatheredRailroads.IntersectWith([railroadIndex]);
+            }
+            else
+            {
+                grandfatheredRailroads.Clear();
+            }
+        }
+
+        return grandfatheredRailroads;
     }
 
     private static bool TryParseRailroadIndex(string segmentKey, out int railroadIndex)
@@ -260,12 +313,18 @@ public sealed class GameBoardStateMapper
         return Math.Max(0, state.Turn.MovementRemaining - preview.MoveCount) <= 0 || preview.ExhaustsMovement;
     }
 
-    private static ArrivalResolutionModel? BuildArrivalResolution(RailBaronGameState state)
+    private ArrivalResolutionModel? BuildArrivalResolution(
+        RailBaronGameState state,
+        MapDefinition? mapDefinition,
+        int activePlayerIndex,
+        PlayerStateSnapshot activePlayer)
     {
         if (state.Turn.ArrivalResolution is null)
         {
             return null;
         }
+
+        var purchasePhase = BuildPurchasePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer);
 
         return new ArrivalResolutionModel
         {
@@ -275,7 +334,192 @@ public sealed class GameBoardStateMapper
             CashAfterPayout = state.Turn.ArrivalResolution.CashAfterPayout,
             PurchaseOpportunityAvailable = state.Turn.ArrivalResolution.PurchaseOpportunityAvailable,
             Message = state.Turn.ArrivalResolution.Message,
-            IsVisible = true
+            IsVisible = true,
+            PurchasePhase = purchasePhase,
+            HasActivePurchaseControls = purchasePhase?.HasActivePurchaseControls == true,
+            NoPurchaseNotification = purchasePhase?.NoPurchaseNotification
         };
+    }
+
+    private PurchasePhaseModel? BuildPurchasePhaseModel(
+        RailBaronGameState state,
+        MapDefinition? mapDefinition,
+        int activePlayerIndex,
+        PlayerStateSnapshot activePlayer)
+    {
+        if (!string.Equals(state.Turn.Phase, TurnPhase.Purchase.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var currentCoverage = mapDefinition is null
+            ? null
+            : networkCoverageService.BuildSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices);
+        var engineOptions = BuildEligibleEngineOptions(activePlayer);
+        var affordableRailroadOptions = mapDefinition is null
+            ? []
+            : BuildAffordableRailroadOptions(state, mapDefinition, activePlayer.Cash);
+        var railroadOptions = mapDefinition is null
+            ? []
+            : BuildAvailableRailroadOptions(state, mapDefinition, activePlayer.Cash);
+        var taskbarOptions = railroadOptions
+            .Select(railroadOption => new PurchaseOptionModel
+            {
+                OptionKey = BuildRailroadOptionKey(railroadOption.RailroadIndex),
+                OptionKind = PurchaseOptionKind.Railroad,
+                DisplayName = railroadOption.RailroadName,
+                PurchasePrice = railroadOption.PurchasePrice,
+                SortPriceDescendingKey = railroadOption.PurchasePrice,
+                IsAffordable = railroadOption.IsAffordable
+            })
+            .Concat(engineOptions.Select(engineOption => new PurchaseOptionModel
+            {
+                OptionKey = BuildEngineOptionKey(engineOption.EngineType),
+                OptionKind = PurchaseOptionKind.EngineUpgrade,
+                DisplayName = engineOption.DisplayName,
+                PurchasePrice = engineOption.PurchasePrice,
+                SortPriceDescendingKey = engineOption.PurchasePrice,
+                IsAffordable = engineOption.IsEligible
+            }))
+            .OrderByDescending(option => option.SortPriceDescendingKey)
+            .ThenBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        string? selectedOptionKey = null;
+        var selectedRailroad = selectedOptionKey is not null
+            ? railroadOptions.FirstOrDefault(option => string.Equals(BuildRailroadOptionKey(option.RailroadIndex), selectedOptionKey, StringComparison.Ordinal))
+            : null;
+        var projectedCoverage = mapDefinition is not null && selectedRailroad is not null && currentCoverage is not null
+            ? networkCoverageService.BuildProjectedSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices, selectedRailroad.RailroadIndex)
+            : null;
+        var mapAnalysisReport = mapDefinition is null ? null : mapAnalysisService.BuildReport(mapDefinition);
+        var unownedRailroads = mapDefinition is null
+            ? []
+            : mapDefinition.Railroads
+                .Where(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
+                .ToList();
+        var projectedCoverageByRailroad = mapDefinition is null
+            ? new Dictionary<int, NetworkCoverageSnapshot>()
+            : unownedRailroads.ToDictionary(
+                railroad => railroad.Index,
+                railroad => networkCoverageService.BuildProjectedSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices, railroad.Index));
+
+        var allEligibleEngineTypes = GetEligibleUpgradeTargets(ParseLocomotiveType(activePlayer.LocomotiveType)).ToList();
+        var hasUpgradeableEngine = allEligibleEngineTypes.Count > 0;
+        var hasUnownedRailroads = mapDefinition is not null && mapDefinition.Railroads.Any(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null);
+        var hasActivePurchaseControls = taskbarOptions.Count > 0;
+        var noPurchaseNotification = !hasActivePurchaseControls && (hasUnownedRailroads || hasUpgradeableEngine)
+            ? $"{activePlayer.Name} does not have enough money to purchase anything."
+            : null;
+
+        return new PurchasePhaseModel
+        {
+            PlayerIndex = activePlayerIndex,
+            PlayerName = activePlayer.Name,
+            CashAvailable = activePlayer.Cash,
+            DestinationCityName = state.Turn.ArrivalResolution?.DestinationCityName ?? string.Empty,
+            PayoutAmount = state.Turn.ArrivalResolution?.PayoutAmount ?? 0,
+            CashAfterPayout = state.Turn.ArrivalResolution?.CashAfterPayout ?? activePlayer.Cash,
+            RailroadOptions = railroadOptions,
+            EngineOptions = engineOptions,
+            TaskbarOptions = taskbarOptions,
+            TaskbarState = new PurchaseTaskbarState
+            {
+                Options = taskbarOptions,
+                SelectedOptionKey = selectedOptionKey,
+                CanBuy = false,
+                CanDecline = hasActivePurchaseControls
+            },
+            CanDecline = hasActivePurchaseControls,
+            CurrentCoverage = currentCoverage,
+            ProjectedCoverage = projectedCoverage,
+            SelectedTab = PurchaseExperienceTab.Map,
+            MapAnalysisReport = mapAnalysisReport,
+            SelectedOptionKey = selectedOptionKey,
+            SelectedRailroadOverlay = mapDefinition is not null && selectedRailroad is not null
+                ? networkCoverageService.BuildRailroadOverlayInfo(mapDefinition, activePlayer.OwnedRailroadIndices, selectedRailroad)
+                : null,
+            HasActivePurchaseControls = hasActivePurchaseControls,
+            NoPurchaseNotification = noPurchaseNotification,
+            RecommendationInputs = mapAnalysisReport is null
+                ? null
+                : purchaseRecommendationService.BuildInputSet(
+                    mapAnalysisReport,
+                    affordableRailroadOptions.Select(option => option.RailroadIndex),
+                    unownedRailroads.Select(railroad => railroad.Index),
+                    allEligibleEngineTypes,
+                    currentCoverage,
+                    projectedCoverageByRailroad)
+        };
+    }
+
+    private static List<RailroadPurchaseOption> BuildAvailableRailroadOptions(RailBaronGameState state, MapDefinition mapDefinition, int cashAvailable)
+    {
+        return mapDefinition.Railroads
+            .Where(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
+            .Select(railroad => new RailroadPurchaseOption
+            {
+                RailroadIndex = railroad.Index,
+                RailroadName = railroad.Name,
+                ShortName = railroad.ShortName ?? string.Empty,
+                PurchasePrice = railroad.PurchasePrice ?? Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(railroad.Index),
+                IsAffordable = cashAvailable >= (railroad.PurchasePrice ?? Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(railroad.Index))
+            })
+            .OrderByDescending(option => option.PurchasePrice)
+            .ThenBy(option => option.RailroadName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<RailroadPurchaseOption> BuildAffordableRailroadOptions(RailBaronGameState state, MapDefinition mapDefinition, int cashAvailable)
+    {
+        return BuildAvailableRailroadOptions(state, mapDefinition, cashAvailable)
+            .Where(option => option.IsAffordable)
+            .ToList();
+    }
+
+    private List<EngineUpgradeOption> BuildEligibleEngineOptions(PlayerStateSnapshot activePlayer)
+    {
+        var currentEngineType = ParseLocomotiveType(activePlayer.LocomotiveType);
+
+        return GetEligibleUpgradeTargets(currentEngineType)
+            .Select(targetEngineType =>
+            {
+                var price = Boxcars.Engine.Domain.GameEngine.GetUpgradeCost(currentEngineType, targetEngineType, purchaseRulesOptions.Value.SuperchiefPrice);
+                return new EngineUpgradeOption
+                {
+                    EngineType = targetEngineType,
+                    DisplayName = targetEngineType.ToString(),
+                    PurchasePrice = price,
+                    CurrentEngineType = currentEngineType,
+                    IsEligible = price > 0 && activePlayer.Cash >= price
+                };
+            })
+            .Where(option => option.PurchasePrice > 0)
+            .OrderByDescending(option => option.PurchasePrice)
+            .ThenBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IEnumerable<LocomotiveType> GetEligibleUpgradeTargets(LocomotiveType currentEngineType)
+    {
+        return Enum.GetValues<LocomotiveType>()
+            .Where(targetEngineType => targetEngineType > currentEngineType);
+    }
+
+    private static LocomotiveType ParseLocomotiveType(string locomotiveType)
+    {
+        return Enum.TryParse<LocomotiveType>(locomotiveType, out var parsedLocomotiveType)
+            ? parsedLocomotiveType
+            : LocomotiveType.Freight;
+    }
+
+    private static string BuildRailroadOptionKey(int railroadIndex)
+    {
+        return $"railroad:{railroadIndex}";
+    }
+
+    private static string BuildEngineOptionKey(LocomotiveType locomotiveType)
+    {
+        return $"engine:{locomotiveType}";
     }
 }

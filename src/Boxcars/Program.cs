@@ -7,6 +7,7 @@ using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using MudBlazor;
@@ -72,10 +73,17 @@ public class Program
         builder.Services.AddHostedService<GameStateBroadcastService>();
 
         // Application services
+        builder.Services.AddOptions<PurchaseRulesOptions>()
+            .Bind(builder.Configuration.GetSection(PurchaseRulesOptions.SectionName))
+            .Validate(static options => options.SuperchiefPrice > 0, "PurchaseRules:SuperchiefPrice must be greater than zero.")
+            .ValidateOnStart();
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
         builder.Services.AddSingleton<GamePresenceService>();
         builder.Services.AddScoped<GameBoardStateMapper>();
+        builder.Services.AddScoped<NetworkCoverageService>();
+        builder.Services.AddScoped<MapAnalysisService>();
+        builder.Services.AddScoped<PurchaseRecommendationService>();
         builder.Services.AddScoped<MapBackgroundResolver>();
         builder.Services.AddScoped<BoardProjectionService>();
         builder.Services.AddScoped<BoardViewportService>();

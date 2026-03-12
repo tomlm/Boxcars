@@ -82,6 +82,15 @@
     line-height: 1.1;
 }
 
+::deep .player-card-line-fees {
+    color: #b42318;
+}
+
+::deep .player-card-line-bonus {
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
 ::deep .player-card-test-row {
     margin-top: 0.2rem;
 }
@@ -93,6 +102,15 @@
 ::deep .player-status-connected,
 ::deep .player-status-disconnected {
     filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.55));
+}
+
+.player-card-tooltip {
+    min-width: 16rem;
+}
+
+.player-card-tooltip-table ::deep .mud-table-root,
+.player-card-tooltip-table ::deep table {
+    width: 100%;
 }
 
 ::deep .player-color-darkblue {

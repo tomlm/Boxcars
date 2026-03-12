@@ -8,8 +8,11 @@ using Boxcars.Engine;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
 using Boxcars.Identity;
+using Boxcars.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using RailBaronGameEngine = global::Boxcars.Engine.Domain.GameEngine;
 using RailBaronGameState = global::Boxcars.Engine.Persistence.GameState;
 
@@ -30,16 +33,25 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly TableClient _gamesTable;
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly PurchaseRulesOptions _purchaseRulesOptions;
+    private readonly ILogger<GameEngineService> _logger;
     private long _eventSequence;
     private MapDefinition? _mapDefinition;
 
-    public GameEngineService(IWebHostEnvironment webHostEnvironment, TableServiceClient tableServiceClient)
+    public GameEngineService(
+        IWebHostEnvironment webHostEnvironment,
+        TableServiceClient tableServiceClient,
+        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+        ILogger<GameEngineService> logger)
     {
         _webHostEnvironment = webHostEnvironment;
         _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
+        _purchaseRulesOptions = purchaseRulesOptions.Value;
+        _logger = logger;
     }
 
     public event Action<string, RailBaronGameState>? OnStateChanged;
+    public event Action<string, GameActionFailure>? OnActionFailed;
 
     public async Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -161,6 +173,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
                         ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
 
+                    var snapshotBeforeAction = gameEngine.ToSnapshot();
                     ProcessTurn(gameEntity, gameEngine, queuedAction.Action);
                     var snapshot = gameEngine.ToSnapshot();
 
@@ -168,7 +181,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.GameId,
                         snapshot,
                         queuedAction.Action.Kind.ToString(),
-                        DescribeAction(queuedAction.Action, snapshot, gameEngine),
+                        DescribeAction(queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
                         queuedAction.Action.PlayerId,
                         queuedAction.Action,
                         stoppingToken);
@@ -177,8 +190,28 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
                     OnStateChanged?.Invoke(queuedAction.GameId, snapshot);
                 }
-                catch (Exception)
+                catch (Exception exception)
                 {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+                    _logger.LogError(
+                        exception,
+                        "Failed to process queued action {ActionKind} for game {GameId}.",
+                        queuedAction.Action.Kind,
+                        queuedAction.GameId);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+
+                    OnActionFailed?.Invoke(
+                        queuedAction.GameId,
+                        new GameActionFailure
+                        {
+                            ActionKind = queuedAction.Action.Kind,
+                            Message = BuildActionFailureMessage(queuedAction.Action, exception)
+                        });
+
+                    if (_gameEngines.TryGetValue(queuedAction.GameId, out var failedGameEngine))
+                    {
+                        OnStateChanged?.Invoke(queuedAction.GameId, failedGameEngine.ToSnapshot());
+                    }
                 }
             }
         }
@@ -203,7 +236,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         _mapDefinition = loadResult.Definition;
     }
 
-    private static void ProcessTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
+    private void ProcessTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
     {
         var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
         if (action is not BidAction
@@ -273,7 +306,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 break;
 
             case BuyEngineAction buyEngineAction:
-                var expectedEnginePrice = GetEngineUpgradeCost(gameEngine.CurrentTurn.ActivePlayer.LocomotiveType, buyEngineAction.EngineType);
+                var expectedEnginePrice = RailBaronGameEngine.GetUpgradeCost(
+                    gameEngine.CurrentTurn.ActivePlayer.LocomotiveType,
+                    buyEngineAction.EngineType,
+                    _purchaseRulesOptions.SuperchiefPrice);
                 if (expectedEnginePrice < 0)
                 {
                     throw new InvalidOperationException($"Cannot upgrade from {gameEngine.CurrentTurn.ActivePlayer.LocomotiveType} to {buyEngineAction.EngineType}.");
@@ -392,7 +428,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             normalizedPlayers.Add($"Open Seat {normalizedPlayers.Count + 1}");
         }
 
-        return new RailBaronGameEngine(_mapDefinition, normalizedPlayers, new DefaultRandomProvider());
+        return new RailBaronGameEngine(_mapDefinition, normalizedPlayers, new DefaultRandomProvider(), _purchaseRulesOptions.SuperchiefPrice);
     }
 
     private RailBaronGameEngine RestoreGameEngine(RailBaronGameState snapshot)
@@ -402,7 +438,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
-        return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider());
+        return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider(), _purchaseRulesOptions.SuperchiefPrice);
     }
 
     private async Task PersistEventAsync(
@@ -454,6 +490,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 return snapshot;
             }
 
+            var snapshotBeforeAction = snapshot;
             ProcessAutomaticTurnAction(gameEngine, automaticAction);
             snapshot = gameEngine.ToSnapshot();
 
@@ -461,7 +498,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 gameId,
                 snapshot,
                 automaticAction.Kind.ToString(),
-                DescribeAction(automaticAction, snapshot, gameEngine),
+                DescribeAction(automaticAction, snapshotBeforeAction, snapshot, gameEngine),
                 automaticAction.PlayerId,
                 automaticAction,
                 cancellationToken);
@@ -508,16 +545,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return events;
     }
 
-    private static string DescribeAction(PlayerAction action, RailBaronGameState snapshot, RailBaronGameEngine gameEngine)
+    private static string DescribeAction(PlayerAction action, RailBaronGameState snapshotBeforeAction, RailBaronGameState snapshotAfterAction, RailBaronGameEngine gameEngine)
     {
-        var actorName = ResolveActorName(action, snapshot);
+        var actorName = ResolveActorName(action, snapshotBeforeAction);
 
         return action switch
         {
-            PickDestinationAction => DescribeDestinationPick(actorName, action, snapshot),
-            RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult, action as RollDiceAction)}",
+            PickDestinationAction => DescribeDestinationPick(actorName, action, snapshotAfterAction),
+            RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshotAfterAction.Turn.DiceResult, snapshotAfterAction.Turn.BonusRollAvailable, action as RollDiceAction)}",
             ChooseRouteAction => string.Empty,
-            MoveAction moveAction => DescribeMove(actorName, moveAction, snapshot),
+            MoveAction moveAction => DescribeMove(actorName, moveAction, snapshotBeforeAction),
             PurchaseRailroadAction purchaseAction => $"{actorName} bought the {GetRailroadDisplayName(FindRailroad(gameEngine, purchaseAction.RailroadIndex))} railroad for {FormatCurrency(ResolveAmountPaid(purchaseAction.AmountPaid, FindRailroad(gameEngine, purchaseAction.RailroadIndex).PurchasePrice))}",
             StartAuctionAction auctionAction => $"{actorName} started an auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, auctionAction.RailroadIndex))} railroad",
             BidAction bidAction => $"{actorName} bid {FormatCurrency(bidAction.AmountBid)} for the {GetRailroadDisplayName(FindRailroad(gameEngine, bidAction.RailroadIndex))} railroad",
@@ -527,6 +564,18 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             EndTurnAction => $"{actorName} ended their turn",
             _ => $"{actorName} performed {action.Kind}"
         };
+    }
+
+    private static string BuildActionFailureMessage(PlayerAction action, Exception exception)
+    {
+        if (action is MoveAction && string.Equals(exception.Message, "Segment reuse violation.", StringComparison.Ordinal))
+        {
+            return "That route reuses a track segment. Choose a route that does not travel the same segment twice in one trip.";
+        }
+
+        return string.IsNullOrWhiteSpace(exception.Message)
+            ? $"Unable to process {action.Kind}."
+            : exception.Message;
     }
 
     private static string DescribeDestinationPick(string actorName, PlayerAction action, RailBaronGameState snapshot)
@@ -539,77 +588,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static string DescribeMove(string actorName, MoveAction action, RailBaronGameState snapshot)
     {
-        var arrival = snapshot.Turn.ArrivalResolution;
-        if (arrival is not null)
-        {
-            return arrival.Message;
-        }
+        var moveAmount = Math.Max(0, action.PointsTaken.Count - 1);
+        var isBonusMove = snapshot.Turn.DiceResult?.WhiteDice is { Length: >= 2 } whiteDice
+            && whiteDice.All(value => value == 0)
+            && snapshot.Turn.DiceResult.RedDie.HasValue
+            && snapshot.Turn.MovementAllowance == snapshot.Turn.DiceResult.RedDie.Value;
+        var spaceLabel = moveAmount == 1 ? "space" : "spaces";
 
-        var steps = Math.Max(0, action.PointsTaken.Count - 1);
-        var moveSummary = steps == 1
-            ? $"{actorName} moved 1 space"
-            : $"{actorName} moved {steps} spaces";
-
-        var feeSummary = DescribeMoveFeeSummary(action, snapshot);
-        return string.IsNullOrWhiteSpace(feeSummary)
-            ? moveSummary
-            : $"{moveSummary} and paid {feeSummary}";
-    }
-
-    private static string DescribeMoveFeeSummary(MoveAction action, RailBaronGameState snapshot)
-    {
-        if (action.PointsTaken.Count < 2 || action.SelectedSegmentKeys.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var activePlayerIndex = ResolvePlayerIndex(action, snapshot);
-        var movedSegmentCount = Math.Min(action.PointsTaken.Count - 1, action.SelectedSegmentKeys.Count);
-        var usedPublicRailroad = false;
-        var opposingOwnerIndices = new HashSet<int>();
-
-        for (var index = 0; index < movedSegmentCount; index++)
-        {
-            var fromNodeId = action.PointsTaken[index];
-            var toNodeId = action.PointsTaken[index + 1];
-
-            int railroadIndex;
-            try
-            {
-                railroadIndex = TryParseSelectedSegmentKey(action.SelectedSegmentKeys, index, fromNodeId, toNodeId);
-            }
-            catch (InvalidOperationException)
-            {
-                return string.Empty;
-            }
-
-            if (!snapshot.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
-            {
-                usedPublicRailroad = true;
-                continue;
-            }
-
-            if (activePlayerIndex.HasValue && ownerIndex.Value == activePlayerIndex.Value)
-            {
-                continue;
-            }
-
-            opposingOwnerIndices.Add(ownerIndex.Value);
-        }
-
-        var feeParts = new List<string>();
-        if (usedPublicRailroad)
-        {
-            feeParts.Add($"{FormatCurrency(1000)} public fees");
-        }
-
-        var opponentRate = snapshot.AllRailroadsSold ? 10000 : 5000;
-        foreach (var ownerIndex in opposingOwnerIndices.OrderBy(index => index))
-        {
-            feeParts.Add($"{FormatCurrency(opponentRate)} to {ResolvePlayerName(snapshot, ownerIndex)}");
-        }
-
-        return FormatReadableList(feeParts);
+        return isBonusMove
+            ? $"{actorName} moved {moveAmount} bonus {spaceLabel}"
+            : $"{actorName} moved {moveAmount} {spaceLabel}";
     }
 
     private static int? ResolvePlayerIndex(PlayerAction action, RailBaronGameState snapshot)
@@ -684,17 +672,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return amountPaid > 0 ? amountPaid : fallbackAmount;
     }
 
-    private static int GetEngineUpgradeCost(LocomotiveType currentEngineType, LocomotiveType targetEngineType)
-    {
-        return (currentEngineType, targetEngineType) switch
-        {
-            (LocomotiveType.Freight, LocomotiveType.Express) => 4000,
-            (LocomotiveType.Freight, LocomotiveType.Superchief) => 20000,
-            (LocomotiveType.Express, LocomotiveType.Superchief) => 20000,
-            _ => -1
-        };
-    }
-
     private static string GetRailroadDisplayName(Railroad railroad)
     {
         return string.IsNullOrWhiteSpace(railroad.ShortName)
@@ -707,11 +684,22 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return amount.ToString("$#,0", CultureInfo.InvariantCulture);
     }
 
-    private static string FormatDiceRoll(Boxcars.Engine.Persistence.DiceResultState? diceResult, RollDiceAction? fallbackAction = null)
+    private static string FormatDiceRoll(Boxcars.Engine.Persistence.DiceResultState? diceResult, bool bonusRollAvailable, RollDiceAction? fallbackAction = null)
     {
+        if (diceResult is { RedDie: not null, WhiteDice.Length: >= 2 }
+            && diceResult.WhiteDice.All(value => value == 0))
+        {
+            return string.Concat("Bonus (", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")");
+        }
+
         if (diceResult?.WhiteDice is { Length: >= 2 })
         {
             var whiteDiceText = string.Join("+", diceResult.WhiteDice.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+            if (bonusRollAvailable && !diceResult.RedDie.HasValue)
+            {
+                return string.Concat(whiteDiceText, "+(Bonus)");
+            }
+
             return diceResult.RedDie.HasValue
                 ? string.Concat(whiteDiceText, "+(", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")")
                 : whiteDiceText;
@@ -948,7 +936,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static int CalculateRouteCost(RailBaronGameEngine state, Player player, IReadOnlyList<RouteSegment> segments)
     {
-        var usesBankRailroad = false;
+        var usesBaseRateRailroad = false;
         var opposingOwnerIndices = new HashSet<int>();
 
         foreach (var segment in segments)
@@ -956,17 +944,20 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             var railroad = state.Railroads.FirstOrDefault(candidate => candidate.Index == segment.RailroadIndex);
             if (railroad is null || railroad.Owner is null)
             {
-                usesBankRailroad = true;
+                usesBaseRateRailroad = true;
                 continue;
             }
 
-            if (railroad.Owner != player)
+            if (railroad.Owner == player)
             {
-                opposingOwnerIndices.Add(railroad.Owner.Index);
+                usesBaseRateRailroad = true;
+                continue;
             }
+
+            opposingOwnerIndices.Add(railroad.Owner.Index);
         }
 
-        var bankFee = usesBankRailroad ? 1000 : 0;
+        var bankFee = usesBaseRateRailroad ? 1000 : 0;
         var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
         return bankFee + (opposingOwnerIndices.Count * opponentRate);
     }

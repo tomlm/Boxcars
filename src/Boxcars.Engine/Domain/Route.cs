@@ -41,15 +41,16 @@ public readonly record struct SegmentKey : IComparable<SegmentKey>
 {
     public string NodeA { get; }
     public string NodeB { get; }
+    public int RailroadIndex { get; }
 
     public static bool operator <(SegmentKey left, SegmentKey right) => left.CompareTo(right) < 0;
     public static bool operator >(SegmentKey left, SegmentKey right) => left.CompareTo(right) > 0;
     public static bool operator <=(SegmentKey left, SegmentKey right) => left.CompareTo(right) <= 0;
     public static bool operator >=(SegmentKey left, SegmentKey right) => left.CompareTo(right) >= 0;
 
-    public SegmentKey(string from, string to)
+    public SegmentKey(string from, string to, int railroadIndex)
     {
-        // Normalize direction so (A,B) == (B,A)
+        // Normalize direction so (A,B,RR) == (B,A,RR)
         if (string.Compare(from, to, StringComparison.OrdinalIgnoreCase) <= 0)
         {
             NodeA = from;
@@ -60,13 +61,17 @@ public readonly record struct SegmentKey : IComparable<SegmentKey>
             NodeA = to;
             NodeB = from;
         }
+
+        RailroadIndex = railroadIndex;
     }
 
     public int CompareTo(SegmentKey other)
     {
         int cmp = string.Compare(NodeA, other.NodeA, StringComparison.OrdinalIgnoreCase);
-        return cmp != 0 ? cmp : string.Compare(NodeB, other.NodeB, StringComparison.OrdinalIgnoreCase);
+        if (cmp != 0) return cmp;
+        cmp = string.Compare(NodeB, other.NodeB, StringComparison.OrdinalIgnoreCase);
+        return cmp != 0 ? cmp : RailroadIndex.CompareTo(other.RailroadIndex);
     }
 
-    public override string ToString() => $"{NodeA}-{NodeB}";
+    public override string ToString() => $"{NodeA}-{NodeB}:{RailroadIndex}";
 }

@@ -175,6 +175,19 @@ public class SerializationTests
     }
 
     [Fact]
+    public void Snapshot_RoundTrip_PreservesGrandfatheredRailroads()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.Players[0].GrandfatheredRailroadIndices.Add(0);
+        engine.Players[0].GrandfatheredRailroadIndices.Add(1);
+
+        var snapshot = engine.ToSnapshot();
+        var restored = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal([0, 1], restored.Players[0].GrandfatheredRailroadIndices.OrderBy(index => index).ToArray());
+    }
+
+    [Fact]
     public void Snapshot_RoundTrip_PreservesArrivalResolutionAndPayout()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

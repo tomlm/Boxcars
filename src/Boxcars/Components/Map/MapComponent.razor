@@ -59,11 +59,11 @@
                     @foreach (var railroadSegment in _renderModel.RailroadSegments)
                     {
                         <line x1="@railroadSegment.X1"
-                              y1="@railroadSegment.Y1"
-                              x2="@railroadSegment.X2"
-                              y2="@railroadSegment.Y2"
-                              stroke="@railroadSegment.StrokeColor"
-                              class="@GetRailroadSegmentClass(railroadSegment)" />
+                            y1="@railroadSegment.Y1"
+                            x2="@railroadSegment.X2"
+                            y2="@railroadSegment.Y2"
+                            stroke="@GetRailroadSegmentStrokeColor(railroadSegment)"
+                            class="@GetRailroadSegmentClass(railroadSegment)" />
                         <line x1="@railroadSegment.X1"
                               y1="@railroadSegment.Y1"
                               x2="@railroadSegment.X2"
@@ -71,7 +71,7 @@
                               class="game-map-railroad-hitbox"
                               data-mapboard-pan-ignore="true"
                               @onmousedown:stopPropagation="true"
-                              @onclick="@(() => OnRailroadSegmentClicked(railroadSegment.RailroadIndex))"
+                                                            @onclick="@((MouseEventArgs args) => OnRailroadSegmentClicked(railroadSegment.RailroadIndex, args))"
                                 @onclick:stopPropagation="@(SelectionMode == MapSelectionMode.Rail)" />
                     }
                 </g>
@@ -86,6 +86,48 @@
                                   transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 1.2)">@city.Name</svg:text>
                     }
                 </g>
+
+                @if (_routeSuggestionSegmentOverlays.Count > 0)
+                {
+                    <g class="game-map-route-suggestion-segments">
+                        @foreach (var segOverlay in _routeSuggestionSegmentOverlays)
+                        {
+                            <line x1="@segOverlay.X1"
+                                  y1="@segOverlay.Y1"
+                                  x2="@segOverlay.X2"
+                                  y2="@segOverlay.Y2"
+                                  stroke="@segOverlay.BorderColor"
+                                  class="@GetRouteSuggestionSegmentBorderClass(segOverlay)" />
+                            <line x1="@segOverlay.X1"
+                                  y1="@segOverlay.Y1"
+                                  x2="@segOverlay.X2"
+                                  y2="@segOverlay.Y2"
+                                  stroke="@segOverlay.StrokeColor"
+                                  class="@GetRouteSuggestionSegmentClass(segOverlay)" />
+                        }
+                    </g>
+                }
+
+                @if (SelectionMode == MapSelectionMode.Route && _selectedRouteSegments.Count > 0)
+                {
+                    <g class="game-map-route-suggestion-segments">
+                        @foreach (var overlay in GetSelectedSegmentOverlays())
+                        {
+                            <line x1="@overlay.X1"
+                                  y1="@overlay.Y1"
+                                  x2="@overlay.X2"
+                                  y2="@overlay.Y2"
+                                  stroke="@overlay.BorderColor"
+                                  class="game-map-route-suggestion-segment game-map-route-suggestion-segment-border" />
+                            <line x1="@overlay.X1"
+                                  y1="@overlay.Y1"
+                                  x2="@overlay.X2"
+                                  y2="@overlay.Y2"
+                                  stroke="@overlay.StrokeColor"
+                                  class="game-map-route-suggestion-segment game-map-route-suggestion-segment-fill" />
+                        }
+                    </g>
+                }
 
                 <g class="game-map-train-dots">
                     @foreach (var dot in _renderModel.TrainDots)
@@ -122,11 +164,22 @@
                     </g>
                     }
 
-                @if (_playerDestinationCityMarkers.Count > 0
+                @if (_playerStartCityMarkers.Count > 0
+                    || _playerDestinationCityMarkers.Count > 0
                     || _playerCurrentLocationMarkers.Count > 0
                     || _playerTraveledSegmentMarkers.Count > 0)
                 {
                     <g class="game-map-player-overlays">
+                        @foreach (var marker in _playerStartCityMarkers)
+                        {
+                            <circle cx="@marker.X"
+                                    cy="@marker.Y"
+                                    r="2.4"
+                                    fill="none"
+                                    stroke="@marker.Color"
+                                    class="game-map-player-start-city" />
+                        }
+
                         @foreach (var marker in _playerDestinationCityMarkers)
                         {
                             <circle cx="@marker.X"
@@ -150,19 +203,32 @@
 
                         @foreach (var marker in _playerTraveledSegmentMarkers)
                         {
-                            <line x1="@(marker.X - 1.0)"
-                                y1="@(marker.Y - 1.0)"
-                                x2="@(marker.X + 1.0)"
-                                y2="@(marker.Y + 1.0)"
+                            <line x1="@(marker.X - 1.35)"
+                                y1="@(marker.Y - 1.35)"
+                                x2="@(marker.X + 1.35)"
+                                y2="@(marker.Y + 1.35)"
                                   stroke="@marker.Color"
                                   class="game-map-player-traveled-segment" />
-                            <line x1="@(marker.X - 1.0)"
-                                y1="@(marker.Y + 1.0)"
-                                x2="@(marker.X + 1.0)"
-                                y2="@(marker.Y - 1.0)"
+                            <line x1="@(marker.X - 1.35)"
+                                y1="@(marker.Y + 1.35)"
+                                x2="@(marker.X + 1.35)"
+                                y2="@(marker.Y - 1.35)"
                                   stroke="@marker.Color"
                                   class="game-map-player-traveled-segment" />
                         }
+                    </g>
+                }
+
+                @if (TryGetCurrentRouteEndpointMarker(out var currentRouteEndpointMarker))
+                {
+                    <g class="game-map-current-route-endpoint-highlights">
+                        <rect x="@(currentRouteEndpointMarker.X - 2.2)"
+                              y="@(currentRouteEndpointMarker.Y - 2.2)"
+                              width="4.4"
+                              height="4.4"
+                              fill="none"
+                              stroke="@currentRouteEndpointMarker.Color"
+                              class="game-map-current-route-endpoint" />
                     </g>
                 }
 
@@ -182,33 +248,6 @@
                                   @oncontextmenu:preventDefault="true"
                                   @oncontextmenu:stopPropagation="true" />
                         }
-                    </g>
-                }
-
-                @if (_routeSuggestionHighlights.Count > 0)
-                {
-                    <g class="game-map-route-suggestion-highlights">
-                        @foreach (var highlight in _routeSuggestionHighlights)
-                        {
-                            <circle cx="@highlight.X"
-                                    cy="@highlight.Y"
-                                    r="@highlight.Radius"
-                                    fill="none"
-                                    stroke="@highlight.Color"
-                                    class="@GetRouteSuggestionCircleClass(highlight)" />
-                        }
-                    </g>
-                }
-
-                @if (TryGetCurrentRouteEndpointMarker(out var currentRouteEndpointMarker))
-                {
-                    <g class="game-map-current-route-endpoint-highlights">
-                        <circle cx="@currentRouteEndpointMarker.X"
-                                cy="@currentRouteEndpointMarker.Y"
-                                r="2.2"
-                                fill="none"
-                                stroke="@currentRouteEndpointMarker.Color"
-                                class="game-map-current-route-endpoint" />
                     </g>
                 }
 
@@ -351,7 +390,16 @@
     public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
 
     [Parameter]
-    public EventCallback<int> RailroadSelected { get; set; }
+    public IReadOnlyDictionary<int, string>? RailroadOwnerColors { get; set; }
+
+    [Parameter]
+    public IReadOnlyCollection<int>? SelectableRailroadIndices { get; set; }
+
+    [Parameter]
+    public int? SelectedRailroadIndex { get; set; }
+
+    [Parameter]
+    public EventCallback<RailroadSelectionEvent> RailroadSelected { get; set; }
 
     [Parameter]
     public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }
@@ -402,7 +450,8 @@
     private readonly List<string> _pendingRestoredRouteSegmentKeys = new();
     private readonly List<RouteCityOption> _routeCityOptions = new();
     private readonly Dictionary<int, string> _railroadStrokeColors = new();
-    private readonly List<RouteSuggestionHighlight> _routeSuggestionHighlights = new();
+    private readonly List<RouteSuggestionSegmentOverlay> _routeSuggestionSegmentOverlays = new();
+    private readonly List<PlayerNodeMarker> _playerStartCityMarkers = new();
     private readonly List<PlayerNodeMarker> _playerDestinationCityMarkers = new();
     private readonly List<PlayerNodeMarker> _playerCurrentLocationMarkers = new();
     private readonly List<PlayerNodeMarker> _playerTraveledSegmentMarkers = new();
@@ -454,14 +503,17 @@
 
         if (string.Equals(_loadedMapFileName, configuredMapFile, StringComparison.OrdinalIgnoreCase))
         {
+            _selectedRailroadIndex = SelectionMode == MapSelectionMode.Rail
+                ? SelectedRailroadIndex
+                : null;
             BuildPlayerOverlays();
             InitializeRouteSelectionFromPlayerStates();
+            ApplyPendingRestoredRouteSelection();
+
             if (_routeSuggestion is not null)
             {
                 BuildSuggestionHighlights(_routeSuggestion);
             }
-
-            ApplyPendingRestoredRouteSelection();
 
             return;
         }
@@ -483,7 +535,7 @@
             _selectedRouteSegments.Clear();
             _selectedRouteNodeIds.Clear();
             _routeSuggestion = null;
-            _routeSuggestionHighlights.Clear();
+            _routeSuggestionSegmentOverlays.Clear();
             ResetRouteCycleState();
 
             if (!string.IsNullOrWhiteSpace(_routeStartNodeId))
@@ -551,7 +603,7 @@
         _destinationCityName = null;
         _destinationNodeId = null;
         _routeSuggestion = null;
-        _routeSuggestionHighlights.Clear();
+        _routeSuggestionSegmentOverlays.Clear();
         ResetRouteCycleState();
         DismissRouteNodeRailMenu();
         DismissDestinationMenu();
@@ -652,6 +704,70 @@
         StateHasChanged();
     }
 
+    public async Task ShiftViewportByPixels(double deltaX, double deltaY)
+    {
+        if (_mapDefinition is null)
+        {
+            return;
+        }
+
+        var zoomScale = _viewport.ZoomPercent / 100.0;
+        var currentViewWidth = _mapDefinition.ScaleWidth / Math.Max(0.0001, zoomScale);
+        var currentViewHeight = _mapDefinition.ScaleHeight / Math.Max(0.0001, zoomScale);
+        var boardDeltaX = deltaX * (currentViewWidth / Math.Max(1.0, _viewportRenderWidth));
+        var boardDeltaY = deltaY * (currentViewHeight / Math.Max(1.0, _viewportRenderHeight));
+        var halfViewWidth = currentViewWidth / 2.0;
+        var halfViewHeight = currentViewHeight / 2.0;
+        var minCenterX = _mapDefinition.ScaleLeft + halfViewWidth;
+        var maxCenterX = _mapDefinition.ScaleLeft + _mapDefinition.ScaleWidth - halfViewWidth;
+        var minCenterY = _mapDefinition.ScaleTop + halfViewHeight;
+        var maxCenterY = _mapDefinition.ScaleTop + _mapDefinition.ScaleHeight - halfViewHeight;
+
+        _viewport = new BoardViewport
+        {
+            ZoomPercent = _viewport.ZoomPercent,
+            CenterX = ClampViewportCenter(_viewport.CenterX + boardDeltaX, minCenterX, maxCenterX),
+            CenterY = ClampViewportCenter(_viewport.CenterY + boardDeltaY, minCenterY, maxCenterY),
+            ZoomAnchor = ZoomAnchor.ViewportCenter
+        };
+
+        await NotifyViewportChanged();
+        StateHasChanged();
+    }
+
+    public async Task<RailroadSelectionEvent?> GetRailroadClientAnchorAsync(int railroadIndex)
+    {
+        if (_mapDefinition is null || _renderModel is null)
+        {
+            return null;
+        }
+
+        var segments = _renderModel.RailroadSegments
+            .Where(segment => segment.RailroadIndex == railroadIndex)
+            .ToList();
+
+        if (segments.Count == 0)
+        {
+            return null;
+        }
+
+        var averageX = segments.Average(segment => (segment.X1 + segment.X2) / 2.0);
+        var averageY = segments.Average(segment => (segment.Y1 + segment.Y2) / 2.0);
+        var (relativeX, relativeY) = GetViewportRelativePoint(averageX, averageY);
+        var origin = await JavaScriptRuntime.InvokeAsync<RelativePoint>(
+            "mapBoard.getRelativePoint",
+            _boardViewportElement,
+            0,
+            0);
+
+        return new RailroadSelectionEvent
+        {
+            RailroadIndex = railroadIndex,
+            ClientX = relativeX - origin.X,
+            ClientY = relativeY - origin.Y
+        };
+    }
+
     public async Task FocusRouteAsync(IReadOnlyList<string>? nodeIds, double? targetAspectRatio = null, double maxZoomPercent = 200)
     {
         if (_mapDefinition is null || nodeIds is null || nodeIds.Count == 0)
@@ -747,6 +863,16 @@
         {
             await PanCenterYChanged.InvokeAsync(_viewport.CenterY);
         }
+    }
+
+    private static double ClampViewportCenter(double value, double minimum, double maximum)
+    {
+        if (minimum > maximum)
+        {
+            return (minimum + maximum) / 2.0;
+        }
+
+        return Math.Clamp(value, minimum, maximum);
     }
 
     private async Task InitializeCameraInteropAsync()
@@ -871,7 +997,26 @@
             $"translate({x:F4} {y:F4}) scale({compensationScaleX:F6} 1) translate({-x:F4} {-y:F4})");
     }
 
-    private void OnRailroadSegmentClicked(int railroadIndex)
+    private (double X, double Y) GetViewportRelativePoint(double boardX, double boardY)
+    {
+        if (_mapDefinition is null)
+        {
+            return (0, 0);
+        }
+
+        var zoomScale = _viewport.ZoomPercent / 100.0;
+        var mapCenterX = _mapDefinition.ScaleLeft + (_mapDefinition.ScaleWidth / 2.0);
+        var mapCenterY = _mapDefinition.ScaleTop + (_mapDefinition.ScaleHeight / 2.0);
+        var cameraX = mapCenterX + (zoomScale * (boardX - _viewport.CenterX));
+        var cameraY = mapCenterY + (zoomScale * (boardY - _viewport.CenterY));
+        var correctedY = mapCenterY + (VerticalAspectCorrectionFactor * (cameraY - mapCenterY));
+        var viewBox = GetAspectCorrectedViewBox();
+        var relativeX = ((cameraX - viewBox.X) / Math.Max(0.0001, viewBox.Width)) * _viewportRenderWidth;
+        var relativeY = ((correctedY - viewBox.Y) / Math.Max(0.0001, viewBox.Height)) * _viewportRenderHeight;
+        return (relativeX, relativeY);
+    }
+
+    private void OnRailroadSegmentClicked(int railroadIndex, MouseEventArgs args)
     {
         DismissRouteNodeRailMenu();
         DismissDestinationMenu();
@@ -881,7 +1026,7 @@
             return;
         }
 
-        if (railroadIndex <= 0)
+        if (railroadIndex <= 0 || (SelectableRailroadIndices?.Contains(railroadIndex) == false))
         {
             return;
         }
@@ -890,7 +1035,12 @@
 
         if (RailroadSelected.HasDelegate)
         {
-            _ = RailroadSelected.InvokeAsync(railroadIndex);
+            _ = RailroadSelected.InvokeAsync(new RailroadSelectionEvent
+            {
+                RailroadIndex = railroadIndex,
+                ClientX = args.ClientX,
+                ClientY = args.ClientY
+            });
         }
     }
 
@@ -905,6 +1055,34 @@
         {
             return;
         }
+
+        // Clicking the start node toggles between no selection and suggested route
+        if (string.Equals(routeNode.NodeId, _routeStartNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (_selectedRouteSegments.Count > 0)
+            {
+                // Has selection → clear it
+                _selectedRouteSegments.Clear();
+                _selectedRouteNodeIds.Clear();
+                _selectedRouteNodeIds.Add(_routeStartNodeId);
+                ResetRouteCycleState();
+                _ = NotifyRoutePreviewChangedAsync();
+            }
+            else if (_routeSuggestion is not null && _routeSuggestion.Status == RouteSuggestionStatus.Success)
+            {
+                // No selection + suggestion available → apply suggested route
+                ApplySuggestionToSelection(_routeSuggestion);
+            }
+            else if (!string.IsNullOrWhiteSpace(_destinationNodeId))
+            {
+                // No selection, no cached suggestion → recalculate and apply
+                _ = RecalculateRouteSuggestionAsync();
+            }
+
+            return;
+        }
+
+        // User is manually selecting a custom route — keep suggestion visible
 
         if (_selectedRouteNodeIds.Count == 0)
         {
@@ -1047,7 +1225,7 @@
         return CanUseSegmentForState(_selectedRouteSegments, segment, replacingLastSegment: false);
     }
 
-    private static bool CanUseSegmentForState(
+    private bool CanUseSegmentForState(
         IReadOnlyList<RouteGraphEdge> segments,
         RouteGraphEdge segment,
         bool replacingLastSegment)
@@ -1056,7 +1234,8 @@
             ? segments.Take(Math.Max(0, segments.Count - 1)).ToList()
             : segments.ToList();
 
-        return !usableSegments.Any(traveled => IsSameRailroadSegment(traveled, segment));
+        return !usableSegments.Any(traveled => IsSameRailroadSegment(traveled, segment))
+            && !IsSegmentAlreadyTraveledThisTrip(segment);
     }
 
     private static bool IsSameRailroadSegment(RouteGraphEdge left, RouteGraphEdge right)
@@ -1398,7 +1577,7 @@
 
     private string GetRouteNodeRailMenuStyle()
     {
-        return FormattableString.Invariant($"left:{_routeNodeRailMenuClientX:F0}px;top:{_routeNodeRailMenuClientY:F0}px;");
+        return FormattableString.Invariant($"left:{_routeNodeRailMenuClientX:F0}px;top:{_routeNodeRailMenuClientY:F0}px;transform:translate(calc(-100% - 0.5rem), 0);");
     }
 
     private void DismissRouteNodeRailMenu()
@@ -1489,7 +1668,7 @@
         return Task.CompletedTask;
     }
 
-    private async Task RecalculateRouteSuggestionAsync()
+    private async Task RecalculateRouteSuggestionAsync(bool applySuggestionToSelection = true, bool notifySuggestionChange = true)
     {
         if (_routeContext is null || string.IsNullOrWhiteSpace(_destinationNodeId))
         {
@@ -1510,13 +1689,26 @@
                 StartNodeId = startNodeId,
                 DestinationNodeId = _destinationNodeId,
                 MovementType = MovementType,
+                MovementCapacity = CurrentTurnMovementRemaining,
+                TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
                 PlayerColor = PlayerColor,
                 ResolveRailroadOwnership = ResolveRailroadOwnershipCategory
             });
 
         _routeSuggestion = suggestion;
-        ApplySuggestionToSelection(suggestion);
+
+        if (applySuggestionToSelection)
+        {
+            ApplySuggestionToSelection(suggestion);
+        }
+
         BuildSuggestionHighlights(suggestion);
+
+        if (!notifySuggestionChange)
+        {
+            return;
+        }
+
         await PublishRouteSuggestionUpdateAsync(suggestion);
 
         if (RouteSuggestionChanged.HasDelegate)
@@ -1541,26 +1733,21 @@
     {
         if (OtherOwnedRailroadIndices?.Contains(railroadIndex) == true)
         {
-            return RailroadOwnershipCategory.OwnedByOtherPlayer;
+            return RailroadOwnershipCategory.Unfriendly;
         }
 
         if (PlayerOwnedRailroadIndices?.Contains(railroadIndex) == true)
         {
-            return RailroadOwnershipCategory.OwnedByPlayer;
+            return RailroadOwnershipCategory.Friendly;
         }
 
         var hasOwnedSegment = _renderModel?.RailroadSegments.Any(segment =>
             segment.RailroadIndex == railroadIndex && segment.IsOwned) == true;
-        return hasOwnedSegment ? RailroadOwnershipCategory.OwnedByPlayer : RailroadOwnershipCategory.Unowned;
+        return hasOwnedSegment ? RailroadOwnershipCategory.Friendly : RailroadOwnershipCategory.Public;
     }
 
     private string ResolveCurrentPlayerNodeId()
     {
-        if (_selectedRouteNodeIds.Count > 0)
-        {
-            return _selectedRouteNodeIds[^1];
-        }
-
         return _routeStartNodeId ?? string.Empty;
     }
 
@@ -1589,12 +1776,19 @@
         _selectedRouteNodeIds.Add(suggestion.NodeIds[0]);
         _selectedRouteSegments.Clear();
 
-        for (var index = 0; index < suggestion.NodeIds.Count - 1 && _selectedRouteSegments.Count < selectionSegmentLimit; index++)
+        for (var index = 0; index < suggestion.Segments.Count && _selectedRouteSegments.Count < selectionSegmentLimit; index++)
         {
-            var fromNodeId = suggestion.NodeIds[index];
-            var toNodeId = suggestion.NodeIds[index + 1];
-            var routeSegment = _routeContext.Adjacency[fromNodeId]
-                .FirstOrDefault(edge => string.Equals(edge.ToNodeId, toNodeId, StringComparison.OrdinalIgnoreCase));
+            var segment = suggestion.Segments[index];
+            if (!_routeContext.Adjacency.TryGetValue(segment.FromNodeId, out var adjEdges))
+            {
+                continue;
+            }
+
+            var routeSegment = adjEdges.FirstOrDefault(edge =>
+                string.Equals(edge.ToNodeId, segment.ToNodeId, StringComparison.OrdinalIgnoreCase)
+                && edge.RailroadIndex == segment.RailroadIndex)
+                ?? adjEdges.FirstOrDefault(edge =>
+                    string.Equals(edge.ToNodeId, segment.ToNodeId, StringComparison.OrdinalIgnoreCase));
             if (routeSegment is not null)
             {
                 _selectedRouteSegments.Add(routeSegment);
@@ -1607,31 +1801,52 @@
 
     private void BuildSuggestionHighlights(RouteSuggestionResult suggestion)
     {
-        _routeSuggestionHighlights.Clear();
+        _routeSuggestionSegmentOverlays.Clear();
 
         if (_routeContext is null || suggestion.Status != RouteSuggestionStatus.Success)
         {
             return;
         }
 
-        var movementRemaining = Math.Max(0, CurrentTurnMovementRemaining);
+        var thisTurnSegmentCount = _selectedRouteSegments.Count;
 
-        for (var index = 1; index < suggestion.NodeIds.Count; index++)
+        // Build segment overlays for the entire suggestion route
+        for (var index = 0; index < suggestion.Segments.Count; index++)
         {
-            var nodeId = suggestion.NodeIds[index];
-            if (!_routeContext.DotLookup.TryGetValue(nodeId, out var dot))
+            var segment = suggestion.Segments[index];
+            if (!_routeContext.Adjacency.TryGetValue(segment.FromNodeId, out var adjEdges))
             {
                 continue;
             }
 
-            _routeSuggestionHighlights.Add(new RouteSuggestionHighlight
+            var edge = adjEdges.FirstOrDefault(e =>
+                string.Equals(e.ToNodeId, segment.ToNodeId, StringComparison.OrdinalIgnoreCase)
+                && e.RailroadIndex == segment.RailroadIndex)
+                ?? adjEdges.FirstOrDefault(e =>
+                    string.Equals(e.ToNodeId, segment.ToNodeId, StringComparison.OrdinalIgnoreCase));
+            if (edge is null)
             {
-                NodeId = nodeId,
-                X = dot.X,
-                Y = dot.Y,
-                Color = PlayerColor,
-                Radius = 1.8,
-                IsDashed = index > movementRemaining
+                continue;
+            }
+
+            var rrColor = _railroadStrokeColors.TryGetValue(edge.RailroadIndex, out var rc) ? rc : "#000000";
+            var ownerColor = RailroadOwnerColors is not null
+                && RailroadOwnerColors.TryGetValue(edge.RailroadIndex, out var oc)
+                && !string.IsNullOrWhiteSpace(oc)
+                    ? oc
+                    : string.Empty;
+
+            _routeSuggestionSegmentOverlays.Add(new RouteSuggestionSegmentOverlay
+            {
+                X1 = edge.X1,
+                Y1 = edge.Y1,
+                X2 = edge.X2,
+                Y2 = edge.Y2,
+                PlayerColor = PlayerColor,
+                RailroadColor = rrColor,
+                OwnerColor = ownerColor,
+                OwnershipCategory = segment.OwnershipCategory,
+                IsThisTurn = false
             });
         }
     }
@@ -1655,8 +1870,41 @@
         return true;
     }
 
+    private IEnumerable<RouteSuggestionSegmentOverlay> GetSelectedSegmentOverlays()
+    {
+        if (_routeContext is null)
+        {
+            yield break;
+        }
+
+        foreach (var edge in _selectedRouteSegments)
+        {
+            var rrColor = _railroadStrokeColors.TryGetValue(edge.RailroadIndex, out var rc) ? rc : "#000000";
+            var ownerColor = RailroadOwnerColors is not null
+                && RailroadOwnerColors.TryGetValue(edge.RailroadIndex, out var oc)
+                && !string.IsNullOrWhiteSpace(oc)
+                    ? oc
+                    : string.Empty;
+            var ownership = ResolveRailroadOwnershipCategory(edge.RailroadIndex);
+
+            yield return new RouteSuggestionSegmentOverlay
+            {
+                X1 = edge.X1,
+                Y1 = edge.Y1,
+                X2 = edge.X2,
+                Y2 = edge.Y2,
+                PlayerColor = PlayerColor,
+                RailroadColor = rrColor,
+                OwnerColor = ownerColor,
+                OwnershipCategory = ownership,
+                IsThisTurn = true
+            };
+        }
+    }
+
     private void BuildPlayerOverlays()
     {
+        _playerStartCityMarkers.Clear();
         _playerDestinationCityMarkers.Clear();
         _playerCurrentLocationMarkers.Clear();
         _playerTraveledSegmentMarkers.Clear();
@@ -1666,11 +1914,20 @@
             return;
         }
 
-        foreach (var playerState in PlayerStates)
+        for (var playerIndex = 0; playerIndex < PlayerStates.Count; playerIndex++)
         {
+            var playerState = PlayerStates[playerIndex];
             var color = string.IsNullOrWhiteSpace(playerState.Color)
                 ? "var(--accent-fill-rest)"
                 : playerState.Color;
+            var traveledMarkerOffsetX = playerIndex * 0.35;
+
+            var startNodeId = ResolveNodeIdForPlayerStart(playerState);
+            if (!string.IsNullOrWhiteSpace(startNodeId)
+                && _routeContext.DotLookup.TryGetValue(startNodeId, out var startDot))
+            {
+                _playerStartCityMarkers.Add(new PlayerNodeMarker(startDot.X, startDot.Y, color));
+            }
 
             var destinationNodeId = ResolveNodeIdForCityName(playerState.DestinationCityName);
             if (!string.IsNullOrWhiteSpace(destinationNodeId)
@@ -1693,17 +1950,17 @@
                     continue;
                 }
 
-                _playerTraveledSegmentMarkers.Add(new PlayerNodeMarker(midpointX, midpointY, color));
+                _playerTraveledSegmentMarkers.Add(new PlayerNodeMarker(midpointX + traveledMarkerOffsetX, midpointY, color));
             }
         }
     }
 
     private string? ResolveNodeIdForPlayerStart(PlayerMapState playerState)
     {
-        var homeNodeId = ResolveNodeIdForCityName(playerState.HomeCityName);
-        if (!string.IsNullOrWhiteSpace(homeNodeId))
+        var tripStartNodeId = ResolveNodeIdForCityName(playerState.TripStartCityName);
+        if (!string.IsNullOrWhiteSpace(tripStartNodeId))
         {
-            return homeNodeId;
+            return tripStartNodeId;
         }
 
         if (!string.IsNullOrWhiteSpace(playerState.StartNodeId))
@@ -1711,7 +1968,7 @@
             return playerState.StartNodeId;
         }
 
-        return ResolveNodeIdForCurrentLocation(playerState);
+        return null;
     }
 
     private string? ResolveNodeIdForCurrentLocation(PlayerMapState playerState)
@@ -1764,7 +2021,17 @@
             return false;
         }
 
-        var parts = segmentKey.Split('-', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        // Format: "NodeA-NodeB:RR" or legacy "NodeA-NodeB"
+        var colonIndex = segmentKey.LastIndexOf(':');
+        var nodePart = colonIndex >= 0 ? segmentKey.Substring(0, colonIndex) : segmentKey;
+        var rrPart = colonIndex >= 0 ? segmentKey.Substring(colonIndex + 1) : null;
+        int parsedRailroadIndex = -1;
+        if (rrPart is not null)
+        {
+            _ = int.TryParse(rrPart, out parsedRailroadIndex);
+        }
+
+        var parts = nodePart.Split('-', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2)
         {
             return false;
@@ -1775,8 +2042,12 @@
             return false;
         }
 
-        var edge = edges.FirstOrDefault(candidate =>
-            string.Equals(candidate.ToNodeId, parts[1], StringComparison.OrdinalIgnoreCase));
+        var edge = parsedRailroadIndex >= 0
+            ? edges.FirstOrDefault(candidate =>
+                string.Equals(candidate.ToNodeId, parts[1], StringComparison.OrdinalIgnoreCase)
+                && candidate.RailroadIndex == parsedRailroadIndex)
+            : edges.FirstOrDefault(candidate =>
+                string.Equals(candidate.ToNodeId, parts[1], StringComparison.OrdinalIgnoreCase));
         if (edge is null)
         {
             return false;
@@ -1859,10 +2130,29 @@
         return null;
     }
 
-    private static bool IsRailroadOwnedByPlayer(int railroadIndex)
+    private bool IsRailroadOwnedByPlayer(int railroadIndex)
     {
-        _ = railroadIndex;
-        return false;
+        return PlayerOwnedRailroadIndices?.Contains(railroadIndex) == true;
+    }
+
+    private IReadOnlyList<string> GetActivePlayerTraveledSegmentKeys()
+    {
+        return PlayerStates?.FirstOrDefault(playerState => playerState.IsActiveTurn)?.TraveledSegmentKeys
+            ?? Array.Empty<string>();
+    }
+
+    private bool IsSegmentAlreadyTraveledThisTrip(RouteGraphEdge segment)
+    {
+        return GetActivePlayerTraveledSegmentKeys().Contains(
+            BuildNormalizedSegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string BuildNormalizedSegmentKey(string fromNodeId, string toNodeId, int railroadIndex)
+    {
+        return string.Compare(fromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase) <= 0
+            ? string.Concat(fromNodeId, "-", toNodeId, ":", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            : string.Concat(toNodeId, "-", fromNodeId, ":", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private static bool AreCoLocated(RouteNodeRenderItem left, RouteNodeRenderItem right)
@@ -1946,7 +2236,7 @@
                 _selectedRouteNodeIds.Clear();
                 _selectedRouteSegments.Clear();
                 _routeSuggestion = null;
-                _routeSuggestionHighlights.Clear();
+                _routeSuggestionSegmentOverlays.Clear();
                 ResetRouteCycleState();
             }
 
@@ -1994,7 +2284,7 @@
         _selectedRouteNodeIds.Add(routeNode.NodeId);
         _selectedRouteSegments.Clear();
         _routeSuggestion = null;
-        _routeSuggestionHighlights.Clear();
+        _routeSuggestionSegmentOverlays.Clear();
         ResetRouteCycleState();
 
         if (publishStartCityChanged && StartCityChanged.HasDelegate)
@@ -2194,8 +2484,14 @@
 
     private string GetRailroadSegmentClass(RailroadRenderSegment segment)
     {
-        var ownershipClass = segment.IsOwned ? "owned" : "unowned";
+        var isOwned = IsRailroadOwned(segment.RailroadIndex);
+        var ownershipClass = isOwned ? "owned" : "unowned";
         var classes = new List<string> { ownershipClass };
+
+        if (!isOwned && SelectionMode == MapSelectionMode.Rail && SelectableRailroadIndices?.Contains(segment.RailroadIndex) == false)
+        {
+            classes.Add("disabled");
+        }
 
         if (_selectedRailroadIndex == segment.RailroadIndex)
         {
@@ -2210,11 +2506,32 @@
         return string.Join(' ', classes);
     }
 
-    private static string GetRouteSuggestionCircleClass(RouteSuggestionHighlight highlight)
+    private string GetRailroadSegmentStrokeColor(RailroadRenderSegment segment)
     {
-        return highlight.IsDashed
-            ? "game-map-route-suggestion-circle game-map-route-suggestion-circle-dashed"
-            : "game-map-route-suggestion-circle game-map-route-suggestion-circle-solid";
+        return RailroadOwnerColors is not null
+            && RailroadOwnerColors.TryGetValue(segment.RailroadIndex, out var ownerColor)
+            && !string.IsNullOrWhiteSpace(ownerColor)
+                ? ownerColor
+                : segment.StrokeColor;
+    }
+
+    private bool IsRailroadOwned(int railroadIndex)
+    {
+        return RailroadOwnerColors?.ContainsKey(railroadIndex) == true;
+    }
+
+    private static string GetRouteSuggestionSegmentBorderClass(RouteSuggestionSegmentOverlay overlay)
+    {
+        return overlay.IsThisTurn
+            ? "game-map-route-suggestion-segment game-map-route-suggestion-segment-border"
+            : "game-map-route-suggestion-segment game-map-route-suggestion-segment-future-border";
+    }
+
+    private static string GetRouteSuggestionSegmentClass(RouteSuggestionSegmentOverlay overlay)
+    {
+        return overlay.IsThisTurn
+            ? "game-map-route-suggestion-segment game-map-route-suggestion-segment-fill"
+            : "game-map-route-suggestion-segment game-map-route-suggestion-segment-future";
     }
 
     private static string GetPlayerCurrentLocationClass(PlayerNodeMarker marker)
@@ -2294,7 +2611,9 @@
             return 0;
         }
 
-        var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie
+            ? CurrentTurnMovementRemaining > 0 ? CurrentTurnMovementRemaining : 3
+            : 2;
         var totalCost = 0;
         var pointsUsedInCurrentTurn = 0;
         var lastRailroadIndex = -1;
@@ -2302,7 +2621,7 @@
         foreach (var segment in _selectedRouteSegments)
         {
             var ownershipCategory = ResolveRailroadOwnershipCategory(segment.RailroadIndex);
-            var costPerTurn = ownershipCategory == RailroadOwnershipCategory.OwnedByOtherPlayer ? 5000 : 1000;
+            var costPerTurn = ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 5000 : 1000;
 
             var isFirstEdge = lastRailroadIndex < 0;
             var switchedRailroad = lastRailroadIndex >= 0 && lastRailroadIndex != segment.RailroadIndex;

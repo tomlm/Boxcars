@@ -25,6 +25,7 @@ public enum EventTimelineKind
     DiceRoll,
     Move,
     Arrival,
+    PayFees,
     PurchaseOpportunity,
     Purchase,
     DeclinedPurchase

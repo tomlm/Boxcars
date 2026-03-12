@@ -80,6 +80,15 @@ public sealed class Turn : ObservableBase
     }
 }
 
+internal static class TurnBonusExtensions
+{
+    public static bool WhiteDiceAreCleared(this Turn turn)
+    {
+        return turn.DiceResult?.WhiteDice is { Length: >= 2 } whiteDice
+            && whiteDice.All(value => value == 0);
+    }
+}
+
 public sealed class ArrivalResolution
 {
     public int PlayerIndex { get; init; } = -1;

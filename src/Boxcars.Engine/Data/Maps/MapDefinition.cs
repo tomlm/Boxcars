@@ -352,6 +352,7 @@ public sealed class MapDefinition
         var mediumName = tokens.Count > 1 ? tokens[1].Trim() : null;
         var shortName = tokens.Count > 2 ? tokens[2].Trim() : null;
         var colorIndex = tokens.Count > 3 ? TryParseInt(tokens[3]) : null;
+        var purchasePrice = tokens.Count > 5 ? TryParseInt(tokens[5]) : null;
         var blue = tokens.Count > 6 ? TryParseInt(tokens[6]) : null;
         var green = tokens.Count > 7 ? TryParseInt(tokens[7]) : null;
         var red = tokens.Count > 8 ? TryParseInt(tokens[8]) : null;
@@ -362,6 +363,7 @@ public sealed class MapDefinition
             Name = name,
             MediumName = string.IsNullOrWhiteSpace(mediumName) ? null : mediumName,
             ShortName = string.IsNullOrWhiteSpace(shortName) ? null : shortName,
+            PurchasePrice = purchasePrice,
             ColorIndex = colorIndex,
             Red = red,
             Green = green,
@@ -782,6 +784,7 @@ public sealed class RailroadDefinition
     public required string Name { get; init; }
     public string? MediumName { get; init; }
     public string? ShortName { get; init; }
+    public int? PurchasePrice { get; init; }
     public int? ColorIndex { get; init; }
     public int? Red { get; init; }
     public int? Green { get; init; }
