@@ -89,6 +89,33 @@ public class PurchasePhaseActionTests
     }
 
     [Fact]
+    public void BuyRailroad_WhenPurchaseLeavesFeeShortfall_TransitionsIntoForcedSale()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        if (engine.CurrentTurn.Phase != TurnPhase.Purchase) return;
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var railroadToBuy = engine.Railroads.First(rr => rr.Index == 0);
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var feeOwner = engine.Players[1];
+        feeRailroad.Owner = feeOwner;
+        feeOwner.OwnedRailroads.Add(feeRailroad);
+        player.Cash = railroadToBuy.PurchasePrice + 4_000;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+
+        engine.BuyRailroad(railroadToBuy);
+
+        Assert.Equal(TurnPhase.UseFees, engine.CurrentTurn.Phase);
+        Assert.Equal(10_000, engine.CurrentTurn.PendingFeeAmount);
+        Assert.NotNull(engine.CurrentTurn.ForcedSaleState);
+        Assert.False(engine.CurrentTurn.ForcedSaleState!.CanPayNow);
+        Assert.Equal(railroadToBuy.Index, engine.CurrentTurn.SelectedRailroadForSaleIndex);
+    }
+
+    [Fact]
     public void DeclinePurchase_AdvancesPastPurchasePhase()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

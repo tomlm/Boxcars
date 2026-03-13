@@ -239,7 +239,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private void ProcessTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
     {
         var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
-        if (action is not BidAction
+        if (action is not (BidAction or AuctionPassAction or AuctionDropOutAction)
             && !string.Equals(activePlayer.Name, action.PlayerId, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Action player '{action.PlayerId}' does not match active player '{activePlayer.Name}'.");
@@ -291,18 +291,39 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     throw new InvalidOperationException($"Bidder '{bidAction.PlayerId}' is not in the game.");
                 }
 
-                gameEngine.ResolveAuction(railroadToBid, bidder, bidAction.AmountBid);
+                gameEngine.SubmitAuctionBid(railroadToBid, bidder, bidAction.AmountBid);
+                break;
+
+            case AuctionPassAction passAction:
+                var passingPlayer = gameEngine.Players.FirstOrDefault(player => string.Equals(player.Name, passAction.PlayerId, StringComparison.Ordinal));
+                if (passingPlayer is null)
+                {
+                    throw new InvalidOperationException($"Auction participant '{passAction.PlayerId}' is not in the game.");
+                }
+
+                gameEngine.PassAuctionTurn(FindRailroad(gameEngine, passAction.RailroadIndex), passingPlayer);
+                break;
+
+            case AuctionDropOutAction dropOutAction:
+                var droppingPlayer = gameEngine.Players.FirstOrDefault(player => string.Equals(player.Name, dropOutAction.PlayerId, StringComparison.Ordinal));
+                if (droppingPlayer is null)
+                {
+                    throw new InvalidOperationException($"Auction participant '{dropOutAction.PlayerId}' is not in the game.");
+                }
+
+                gameEngine.DropOutOfAuction(FindRailroad(gameEngine, dropOutAction.RailroadIndex), droppingPlayer);
                 break;
 
             case SellRailroadAction sellRailroadAction:
-                if (sellRailroadAction.AmountReceived != 0)
+                var railroadToSell = FindRailroad(gameEngine, sellRailroadAction.RailroadIndex);
+                var expectedSalePrice = railroadToSell.PurchasePrice / 2;
+                if (sellRailroadAction.AmountReceived != 0
+                    && sellRailroadAction.AmountReceived != expectedSalePrice)
                 {
-                    throw new InvalidOperationException("Selling to bank currently requires AmountReceived = 0.");
+                    throw new InvalidOperationException($"Selling to bank requires AmountReceived = 0 or {expectedSalePrice}.");
                 }
 
-                var railroadToSell = FindRailroad(gameEngine, sellRailroadAction.RailroadIndex);
-                gameEngine.AuctionRailroad(railroadToSell);
-                gameEngine.ResolveAuction(railroadToSell, winner: null, winningBid: 0);
+                gameEngine.SellRailroadToBank(railroadToSell);
                 break;
 
             case BuyEngineAction buyEngineAction:
@@ -338,27 +359,41 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static void ValidateActionAuthorization(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
     {
-        if (action is BidAction)
-        {
-            return;
-        }
-
         var activePlayerIndex = gameEngine.CurrentTurn.ActivePlayer.Index;
-        if (action.PlayerIndex.HasValue && action.PlayerIndex.Value != activePlayerIndex)
+        var allowsNonActiveParticipant = action is BidAction or AuctionPassAction or AuctionDropOutAction;
+        if (!allowsNonActiveParticipant && action.PlayerIndex.HasValue && action.PlayerIndex.Value != activePlayerIndex)
         {
             throw new InvalidOperationException($"Action player index '{action.PlayerIndex.Value}' does not match active player index '{activePlayerIndex}'.");
         }
 
-        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
-        if (activePlayerIndex < 0 || activePlayerIndex >= selections.Count)
+        var actionPlayerIndex = action.PlayerIndex
+            ?? gameEngine.Players
+                .Select((player, index) => new { player, index })
+                .Where(entry => string.Equals(entry.player.Name, action.PlayerId, StringComparison.Ordinal))
+                .Select(entry => entry.index)
+                .DefaultIfEmpty(-1)
+                .First();
+
+        if (actionPlayerIndex >= 0
+            && actionPlayerIndex < gameEngine.Players.Count
+            && !gameEngine.Players[actionPlayerIndex].IsActive)
         {
-            throw new InvalidOperationException("Unable to resolve the active player's roster binding.");
+            throw new InvalidOperationException("Eliminated players may only spectate and cannot perform game actions.");
         }
 
-        var slotUserId = selections[activePlayerIndex].UserId;
+        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
+        var authorizedPlayerIndex = allowsNonActiveParticipant ? actionPlayerIndex : activePlayerIndex;
+        if (authorizedPlayerIndex < 0 || authorizedPlayerIndex >= selections.Count)
+        {
+            throw new InvalidOperationException("Unable to resolve the acting player's roster binding.");
+        }
+
+        var slotUserId = selections[authorizedPlayerIndex].UserId;
         if (!PlayerControlRules.CanUserControlSlot(slotUserId, action.ActorUserId))
         {
-            throw new InvalidOperationException("Only the controlling participant for the active player may perform this action.");
+            throw new InvalidOperationException(allowsNonActiveParticipant
+                ? "Only the controlling participant for the acting player may perform this auction action."
+                : "Only the controlling participant for the active player may perform this action.");
         }
     }
 
@@ -556,8 +591,30 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             ChooseRouteAction => string.Empty,
             MoveAction moveAction => DescribeMove(actorName, moveAction, snapshotBeforeAction),
             PurchaseRailroadAction purchaseAction => $"{actorName} bought the {GetRailroadDisplayName(FindRailroad(gameEngine, purchaseAction.RailroadIndex))} railroad for {FormatCurrency(ResolveAmountPaid(purchaseAction.AmountPaid, FindRailroad(gameEngine, purchaseAction.RailroadIndex).PurchasePrice))}",
-            StartAuctionAction auctionAction => $"{actorName} started an auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, auctionAction.RailroadIndex))} railroad",
-            BidAction bidAction => $"{actorName} bid {FormatCurrency(bidAction.AmountBid)} for the {GetRailroadDisplayName(FindRailroad(gameEngine, bidAction.RailroadIndex))} railroad",
+            StartAuctionAction auctionAction => DescribeAuctionAction(
+                auctionAction,
+                snapshotBeforeAction,
+                snapshotAfterAction,
+                gameEngine,
+                $"{actorName} started an auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, auctionAction.RailroadIndex))} railroad"),
+            BidAction bidAction => DescribeAuctionAction(
+                bidAction,
+                snapshotBeforeAction,
+                snapshotAfterAction,
+                gameEngine,
+                $"{actorName} bid {FormatCurrency(bidAction.AmountBid)} for the {GetRailroadDisplayName(FindRailroad(gameEngine, bidAction.RailroadIndex))} railroad"),
+            AuctionPassAction passAction => DescribeAuctionAction(
+                passAction,
+                snapshotBeforeAction,
+                snapshotAfterAction,
+                gameEngine,
+                $"{actorName} passed in the auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, passAction.RailroadIndex))} railroad"),
+            AuctionDropOutAction dropOutAction => DescribeAuctionAction(
+                dropOutAction,
+                snapshotBeforeAction,
+                snapshotAfterAction,
+                gameEngine,
+                $"{actorName} dropped out of the auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, dropOutAction.RailroadIndex))} railroad"),
             SellRailroadAction sellAction => DescribeRailroadSale(actorName, sellAction, gameEngine),
             BuyEngineAction buyEngineAction => $"{actorName} bought a {buyEngineAction.EngineType} for {FormatCurrency(buyEngineAction.AmountPaid)}",
             DeclinePurchaseAction => $"{actorName} declined the purchase opportunity",
@@ -634,12 +691,81 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private static string DescribeRailroadSale(string actorName, SellRailroadAction action, RailBaronGameEngine gameEngine)
     {
         var railroad = FindRailroad(gameEngine, action.RailroadIndex);
-        if (action.AmountReceived > 0)
+        var amountReceived = action.AmountReceived > 0
+            ? action.AmountReceived
+            : railroad.PurchasePrice / 2;
+        if (amountReceived > 0)
         {
-            return $"{actorName} sold the {GetRailroadDisplayName(railroad)} railroad for {FormatCurrency(action.AmountReceived)}";
+            return $"{actorName} sold the {GetRailroadDisplayName(railroad)} railroad to the bank for {FormatCurrency(amountReceived)}";
         }
 
         return $"{actorName} sold the {GetRailroadDisplayName(railroad)} railroad to the bank";
+    }
+
+    private static string DescribeAuctionAction(
+        PlayerAction action,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction,
+        RailBaronGameEngine gameEngine,
+        string defaultDescription)
+    {
+        var railroadIndex = action switch
+        {
+            StartAuctionAction startAuctionAction => startAuctionAction.RailroadIndex,
+            BidAction bidAction => bidAction.RailroadIndex,
+            AuctionPassAction passAction => passAction.RailroadIndex,
+            AuctionDropOutAction dropOutAction => dropOutAction.RailroadIndex,
+            _ => -1
+        };
+
+        if (railroadIndex < 0)
+        {
+            return defaultDescription;
+        }
+
+        var railroad = FindRailroad(gameEngine, railroadIndex);
+
+        var sellerPlayerIndex = snapshotBeforeAction.Turn.Auction?.SellerPlayerIndex ?? ResolvePlayerIndex(action, snapshotBeforeAction);
+        var sellerOwnedRailroadBeforeAction = sellerPlayerIndex.HasValue
+            && sellerPlayerIndex.Value >= 0
+            && sellerPlayerIndex.Value < snapshotBeforeAction.Players.Count
+            && snapshotBeforeAction.Players[sellerPlayerIndex.Value].OwnedRailroadIndices.Contains(railroadIndex);
+
+        if (string.Equals(snapshotBeforeAction.Turn.Phase, nameof(TurnPhase.UseFees), StringComparison.OrdinalIgnoreCase)
+            && sellerOwnedRailroadBeforeAction
+            && railroad.Owner is null)
+        {
+            return $"{GetRailroadDisplayName(railroad)} was sold to the bank for {FormatCurrency(railroad.PurchasePrice / 2)}";
+        }
+
+        var auctionBeforeAction = snapshotBeforeAction.Turn.Auction;
+        if (auctionBeforeAction is null || auctionBeforeAction.RailroadIndex != railroadIndex)
+        {
+            return defaultDescription;
+        }
+
+        if (railroad.Owner is null || railroad.Owner.Index == auctionBeforeAction.SellerPlayerIndex)
+        {
+            return defaultDescription;
+        }
+
+        var winningBid = action switch
+        {
+            BidAction bidAction => bidAction.AmountBid,
+            AuctionPassAction or AuctionDropOutAction => auctionBeforeAction.CurrentBid,
+            _ => 0
+        };
+
+        if (winningBid <= 0)
+        {
+            return defaultDescription;
+        }
+
+        var sellerName = string.IsNullOrWhiteSpace(auctionBeforeAction.SellerPlayerName)
+            ? ResolvePlayerName(snapshotAfterAction, auctionBeforeAction.SellerPlayerIndex)
+            : auctionBeforeAction.SellerPlayerName;
+
+        return $"{railroad.Owner.Name} bought the {GetRailroadDisplayName(railroad)} railroad for {FormatCurrency(winningBid)}; {FormatCurrency(winningBid)} was transferred to {sellerName}.";
     }
 
     private static string ResolveActorName(PlayerAction action, RailBaronGameState snapshot)

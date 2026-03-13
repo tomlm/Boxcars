@@ -1,0 +1,40 @@
+.railroad-auction-panel {
+    min-width: 22rem;
+}
+
+.railroad-auction-bid-input {
+    min-width: 9rem;
+}
+
+::deep .railroad-auction-participant-chip {
+    gap: 0.25rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+::deep .railroad-auction-participant-chip.auction-participant-chip--active {
+    border-width: 2px;
+    border-color: color-mix(in srgb, white 88%, transparent 12%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, white 50%, transparent), 0 0 10px color-mix(in srgb, white 18%, transparent);
+    transform: translateY(-1px);
+}
+
+::deep .railroad-auction-participant-chip.auction-participant-chip--active .mud-chip-content {
+    font-weight: 600;
+}
+
+::deep .railroad-auction-participant-chip.auction-participant-chip--dropped {
+    opacity: 0.5;
+}
+
+::deep .railroad-auction-participant-label {
+    color: var(--mud-palette-text-primary);
+}
+
+::deep .railroad-auction-participant-detail {
+    color: var(--mud-palette-text-secondary);
+}
+
+::deep .railroad-auction-participant-detail.auction-participant-detail--leader {
+    color: var(--mud-palette-success);
+    font-weight: 700;
+}

@@ -72,6 +72,7 @@ public sealed class GameBoardStateMapper(
         var movementRemaining = Math.Max(0, state.Turn.MovementRemaining - selectedRoutePreview.MoveCount);
 
         var resolvedArrival = arrivalResolution ?? BuildArrivalResolution(state, mapDefinition, activePlayerIndex, activePlayer);
+        var forcedSalePhase = BuildForcedSalePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer, bindings, currentUserId);
 
         return new BoardTurnViewState
         {
@@ -91,11 +92,12 @@ public sealed class GameBoardStateMapper(
             ActivePlayerDestinationCity = activePlayer.DestinationCityName ?? string.Empty,
             SelectedRoutePreview = selectedRoutePreview,
             TraveledSegmentKeys = activePlayer.UsedSegments,
-            IsCurrentUserActivePlayer = PlayerControlRules.CanUserControlSlot(activePlayerSlotUserId, currentUserId)
-                || (currentUserPlayerIndex >= 0 && currentUserPlayerIndex == activePlayerIndex),
+            IsCurrentUserActivePlayer = PlayerControlRules.IsDirectlyBoundToUser(activePlayerSlotUserId, currentUserId)
+                || (activePlayer.IsActive && currentUserPlayerIndex >= 0 && currentUserPlayerIndex == activePlayerIndex),
             CanEndTurn = CanEndTurn(state, selectedRoutePreview),
             ArrivalResolution = resolvedArrival,
-            PurchasePhase = resolvedArrival?.PurchasePhase
+            PurchasePhase = resolvedArrival?.PurchasePhase,
+            ForcedSalePhase = forcedSalePhase
         };
     }
 
@@ -516,6 +518,210 @@ public sealed class GameBoardStateMapper(
     private static string BuildRailroadOptionKey(int railroadIndex)
     {
         return $"railroad:{railroadIndex}";
+    }
+
+    private ForcedSalePhaseModel? BuildForcedSalePhaseModel(
+        RailBaronGameState state,
+        MapDefinition? mapDefinition,
+        int activePlayerIndex,
+        PlayerStateSnapshot activePlayer,
+        IReadOnlyList<PlayerControlBinding> bindings,
+        string? currentUserId)
+    {
+        if (!string.Equals(state.Turn.Phase, TurnPhase.UseFees.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        bool hasForcedSaleState = state.Turn.ForcedSale is not null || state.Turn.PendingFeeAmount > activePlayer.Cash;
+        if (!hasForcedSaleState)
+        {
+            return null;
+        }
+
+        int? effectiveSelectedRailroadIndex = state.Turn.SelectedRailroadForSaleIndex
+            ?? activePlayer.OwnedRailroadIndices.OrderBy(index => index).Select(index => (int?)index).FirstOrDefault();
+        var saleCandidates = BuildSaleCandidates(activePlayer, mapDefinition, effectiveSelectedRailroadIndex);
+        var currentNetwork = mapDefinition is null
+            ? null
+            : networkCoverageService.BuildSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices);
+        var projectedNetworkAfterSale = mapDefinition is not null && effectiveSelectedRailroadIndex is int selectedRailroadIndex
+            ? networkCoverageService.BuildProjectedSnapshotAfterSale(mapDefinition, activePlayer.OwnedRailroadIndices, selectedRailroadIndex)
+            : null;
+
+        return new ForcedSalePhaseModel
+        {
+            PlayerIndex = activePlayerIndex,
+            PlayerName = activePlayer.Name,
+            AmountOwed = Math.Max(state.Turn.PendingFeeAmount, state.Turn.ForcedSale?.AmountOwed ?? 0),
+            CashOnHand = activePlayer.Cash,
+            FeeShortfall = Math.Max(0, Math.Max(state.Turn.PendingFeeAmount, state.Turn.ForcedSale?.AmountOwed ?? 0) - activePlayer.Cash),
+            SaleCandidates = saleCandidates,
+            SelectedRailroadIndex = effectiveSelectedRailroadIndex,
+            CurrentNetwork = currentNetwork,
+            ProjectedNetworkAfterSale = projectedNetworkAfterSale,
+            NetworkTab = new NetworkTabModel
+            {
+                PlayerName = activePlayer.Name,
+                RailroadSummaries = saleCandidates
+                    .Select(candidate => new NetworkRailroadSummaryModel
+                    {
+                        RailroadIndex = candidate.RailroadIndex,
+                        RailroadName = candidate.RailroadName,
+                        OriginalPurchasePrice = candidate.OriginalPurchasePrice,
+                        AccessPercentWithCurrentOwnership = currentNetwork?.AccessibleCityPercent ?? 0m,
+                        MonopolyPercentWithCurrentOwnership = currentNetwork?.MonopolyCityPercent ?? 0m,
+                        AccessPercentIfSold = mapDefinition is null
+                            ? null
+                            : networkCoverageService.BuildProjectedSnapshotAfterSale(mapDefinition, activePlayer.OwnedRailroadIndices, candidate.RailroadIndex).AccessibleCityPercent,
+                        MonopolyPercentIfSold = mapDefinition is null
+                            ? null
+                            : networkCoverageService.BuildProjectedSnapshotAfterSale(mapDefinition, activePlayer.OwnedRailroadIndices, candidate.RailroadIndex).MonopolyCityPercent
+                    })
+                    .ToList(),
+                SelectedRailroadImpact = effectiveSelectedRailroadIndex is int selectedCandidateRailroadIndex && currentNetwork is not null && projectedNetworkAfterSale is not null
+                    ? new RailroadOverlayInfo
+                    {
+                        RailroadIndex = selectedCandidateRailroadIndex,
+                        RailroadName = saleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == selectedCandidateRailroadIndex)?.RailroadName ?? string.Empty,
+                        PurchasePrice = saleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == selectedCandidateRailroadIndex)?.OriginalPurchasePrice ?? 0,
+                        IsAffordable = true,
+                        MetricRows = BuildOverlayMetricRows(currentNetwork, projectedNetworkAfterSale, mapDefinition!)
+                    }
+                    : null
+            },
+            AuctionState = state.Turn.Auction is null
+                ? null
+                : new ForcedSaleAuctionStateModel
+                {
+                    RailroadIndex = state.Turn.Auction.RailroadIndex,
+                    RailroadName = state.Turn.Auction.RailroadName,
+                    SellerPlayerIndex = state.Turn.Auction.SellerPlayerIndex,
+                    SellerPlayerName = state.Turn.Auction.SellerPlayerName,
+                    StartingPrice = state.Turn.Auction.StartingPrice,
+                    CurrentBid = state.Turn.Auction.CurrentBid,
+                    LastBidderPlayerIndex = state.Turn.Auction.LastBidderPlayerIndex,
+                    CurrentBidderPlayerIndex = state.Turn.Auction.CurrentBidderPlayerIndex,
+                    CurrentBidderPlayerName = state.Turn.Auction.CurrentBidderPlayerIndex is int currentBidderPlayerIndex
+                        && currentBidderPlayerIndex >= 0
+                        && currentBidderPlayerIndex < state.Players.Count
+                            ? state.Players[currentBidderPlayerIndex].Name
+                            : string.Empty,
+                    MinimumBid = state.Turn.Auction.CurrentBid > 0
+                        ? state.Turn.Auction.CurrentBid + Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement
+                        : state.Turn.Auction.StartingPrice,
+                    RoundNumber = state.Turn.Auction.RoundNumber,
+                    ConsecutiveNoBidTurnCount = state.Turn.Auction.ConsecutiveNoBidTurnCount,
+                    Status = ParseAuctionStatus(state.Turn.Auction.Status),
+                    CanCurrentUserAct = state.Turn.Auction.CurrentBidderPlayerIndex is int currentBidderIndex
+                        && currentBidderIndex >= 0
+                        && currentBidderIndex < bindings.Count
+                        && state.Players[currentBidderIndex].IsActive
+                        && PlayerControlRules.IsDirectlyBoundToUser(bindings[currentBidderIndex].UserId, currentUserId),
+                    Participants = state.Turn.Auction.Participants
+                        .Select(participant => new AuctionParticipantModel
+                        {
+                            PlayerIndex = participant.PlayerIndex,
+                            PlayerName = participant.PlayerName,
+                            CashOnHand = participant.CashOnHand,
+                            LastBidAmount = participant.LastBidAmount,
+                            IsEligible = participant.IsEligible,
+                            HasDroppedOut = participant.HasDroppedOut,
+                            HasPassedThisRound = participant.HasPassedThisRound,
+                            LastAction = ParseAuctionParticipantAction(participant.LastAction)
+                        })
+                        .ToList()
+                },
+            CanSellToBank = effectiveSelectedRailroadIndex.HasValue && state.Turn.Auction is null,
+            CanStartAuction = effectiveSelectedRailroadIndex.HasValue && state.Turn.Auction is null,
+            CanResolveFees = (state.Turn.ForcedSale?.CanPayNow ?? false) && state.Turn.Auction is null
+        };
+    }
+
+    private static List<SaleCandidateModel> BuildSaleCandidates(PlayerStateSnapshot activePlayer, MapDefinition? mapDefinition, int? selectedRailroadIndex)
+    {
+        if (mapDefinition is null)
+        {
+            return [];
+        }
+
+        var ownedIndices = activePlayer.OwnedRailroadIndices.ToHashSet();
+        return mapDefinition.Railroads
+            .Where(railroad => ownedIndices.Contains(railroad.Index))
+            .Select(railroad =>
+            {
+                var price = railroad.PurchasePrice ?? Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(railroad.Index);
+                return new SaleCandidateModel
+                {
+                    RailroadIndex = railroad.Index,
+                    RailroadName = railroad.Name,
+                    ShortName = railroad.ShortName ?? string.Empty,
+                    OriginalPurchasePrice = price,
+                    BankSalePrice = price / 2,
+                    IsSelected = selectedRailroadIndex == railroad.Index
+                };
+            })
+            .OrderBy(candidate => candidate.RailroadName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<RailroadOverlayMetricRow> BuildOverlayMetricRows(
+        NetworkCoverageSnapshot currentCoverage,
+        NetworkCoverageSnapshot projectedCoverage,
+        MapDefinition mapDefinition)
+    {
+        var currentAccessByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedAccessByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var currentMonopolyByCode = currentCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var projectedMonopolyByCode = projectedCoverage.RegionAccess.ToDictionary(region => region.RegionCode, region => region.MonopolyDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var rows = new List<RailroadOverlayMetricRow>
+        {
+            new()
+            {
+                Label = "Total",
+                AccessPercent = currentCoverage.AccessibleDestinationPercent,
+                ProjectedAccessPercent = projectedCoverage.AccessibleDestinationPercent,
+                MonopolyPercent = currentCoverage.MonopolyDestinationPercent,
+                ProjectedMonopolyPercent = projectedCoverage.MonopolyDestinationPercent,
+                AccessDeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
+                MonopolyDeltaPercent = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
+            }
+        };
+
+        rows.AddRange(mapDefinition.Regions.Select(region =>
+        {
+            var currentAccessPercent = currentAccessByCode.TryGetValue(region.Code, out var currentAccessValue) ? currentAccessValue : 0m;
+            var projectedAccessPercent = projectedAccessByCode.TryGetValue(region.Code, out var projectedAccessValue) ? projectedAccessValue : 0m;
+            var currentMonopolyPercent = currentMonopolyByCode.TryGetValue(region.Code, out var currentMonopolyValue) ? currentMonopolyValue : 0m;
+            var projectedMonopolyPercent = projectedMonopolyByCode.TryGetValue(region.Code, out var projectedMonopolyValue) ? projectedMonopolyValue : 0m;
+
+            return new RailroadOverlayMetricRow
+            {
+                Label = region.Code,
+                AccessPercent = currentAccessPercent,
+                ProjectedAccessPercent = projectedAccessPercent,
+                MonopolyPercent = currentMonopolyPercent,
+                ProjectedMonopolyPercent = projectedMonopolyPercent,
+                AccessDeltaPercent = Math.Round(projectedAccessPercent - currentAccessPercent, 1, MidpointRounding.AwayFromZero),
+                MonopolyDeltaPercent = Math.Round(projectedMonopolyPercent - currentMonopolyPercent, 1, MidpointRounding.AwayFromZero)
+            };
+        }));
+
+        return rows;
+    }
+
+    private static ForcedSaleAuctionStatusModel ParseAuctionStatus(string status)
+    {
+        return Enum.TryParse<ForcedSaleAuctionStatusModel>(status, out var parsedStatus)
+            ? parsedStatus
+            : ForcedSaleAuctionStatusModel.Open;
+    }
+
+    private static AuctionParticipantActionModel ParseAuctionParticipantAction(string action)
+    {
+        return Enum.TryParse<AuctionParticipantActionModel>(action, out var parsedAction)
+            ? parsedAction
+            : AuctionParticipantActionModel.None;
     }
 
     private static string BuildEngineOptionKey(LocomotiveType locomotiveType)

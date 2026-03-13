@@ -11,6 +11,59 @@ namespace Boxcars.Engine.Tests.Unit;
 public class BankruptcyTests
 {
     [Fact]
+    public void DeclinePurchase_WhenPlayerCannotPayAndOwnsNoRailroads_EliminatesPlayer()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var feeOwner = engine.Players[1];
+        feeRailroad.Owner = feeOwner;
+        feeOwner.OwnedRailroads.Add(feeRailroad);
+        player.Cash = 0;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+
+        engine.DeclinePurchase();
+
+        Assert.True(player.IsBankrupt);
+        Assert.False(player.IsActive);
+        Assert.NotNull(engine.CurrentTurn.ForcedSaleState);
+        Assert.True(engine.CurrentTurn.ForcedSaleState!.EliminationTriggered);
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+    }
+
+    [Fact]
+    public void SellRailroadToBank_WhenFinalSaleStillCannotCoverFees_EliminatesPlayer()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var feeOwner = engine.Players[1];
+        feeRailroad.Owner = feeOwner;
+        feeOwner.OwnedRailroads.Add(feeRailroad);
+        ownedRailroad.Owner = player;
+        player.OwnedRailroads.Add(ownedRailroad);
+        player.Cash = 0;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+
+        engine.DeclinePurchase();
+        engine.SellRailroadToBank(ownedRailroad);
+
+        Assert.True(player.IsBankrupt);
+        Assert.False(player.IsActive);
+        Assert.NotNull(engine.CurrentTurn.ForcedSaleState);
+        Assert.True(engine.CurrentTurn.ForcedSaleState!.EliminationTriggered);
+        Assert.Equal(1, engine.CurrentTurn.ForcedSaleState.SalesCompletedCount);
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+    }
+
+    [Fact]
     public void Player_NegativeCash_IsBankrupt()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();

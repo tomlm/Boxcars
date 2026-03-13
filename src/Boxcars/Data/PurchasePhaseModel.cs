@@ -3,7 +3,10 @@ namespace Boxcars.Data;
 public enum PurchaseExperienceTab
 {
     Map,
-    Information
+    Regions,
+    Cities,
+    Railroads,
+    Network
 }
 
 public sealed class PurchasePhaseModel
@@ -51,7 +54,7 @@ public sealed class PurchasePhaseModel
 
 public sealed class PurchaseTaskbarState
 {
-    public string Label { get; init; } = "Options";
+    public string Label { get; init; } = "Purchase Options";
 
     public IReadOnlyList<PurchaseOptionModel> Options { get; init; } = [];
 

@@ -185,4 +185,93 @@ public class UseFeesTests
         Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
         Assert.Equal(cashBeforePurchase - railroad.PurchasePrice - 1000, rider.Cash);
     }
+
+    [Fact]
+    public void DeclinePurchase_WhenFeesExceedCashAndPlayerOwnsRailroads_EntersForcedSale()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        ownedRailroad.Owner = player;
+        player.OwnedRailroads.Add(ownedRailroad);
+        player.Cash = 500;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(1);
+
+        engine.DeclinePurchase();
+
+        Assert.Equal(TurnPhase.UseFees, engine.CurrentTurn.Phase);
+        Assert.Equal(1000, engine.CurrentTurn.PendingFeeAmount);
+        Assert.NotNull(engine.CurrentTurn.ForcedSaleState);
+        Assert.Equal(1000, engine.CurrentTurn.ForcedSaleState!.AmountOwed);
+        Assert.Equal(500, engine.CurrentTurn.ForcedSaleState.CashBeforeFees);
+        Assert.False(engine.CurrentTurn.ForcedSaleState.CanPayNow);
+    }
+
+    [Fact]
+    public void SellRailroadToBank_WhenStillShort_RemainsInForcedSale()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var firstRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var secondRailroad = new Railroad(
+            new global::Boxcars.Engine.Data.Maps.RailroadDefinition { Index = 99, Name = "Reserve Line" },
+            4000,
+            isPublic: false);
+        engine.Railroads.Add(secondRailroad);
+        firstRailroad.Owner = player;
+        secondRailroad.Owner = player;
+        player.OwnedRailroads.Add(firstRailroad);
+        player.OwnedRailroads.Add(secondRailroad);
+        player.Cash = 0;
+        var feeOwner = engine.Players[1];
+        feeRailroad.Owner = feeOwner;
+        feeOwner.OwnedRailroads.Add(feeRailroad);
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+
+        engine.DeclinePurchase();
+        engine.SellRailroadToBank(firstRailroad);
+
+        Assert.Equal(TurnPhase.UseFees, engine.CurrentTurn.Phase);
+        Assert.Equal(firstRailroad.PurchasePrice / 2, player.Cash);
+        Assert.NotNull(engine.CurrentTurn.ForcedSaleState);
+        Assert.Equal(1, engine.CurrentTurn.ForcedSaleState!.SalesCompletedCount);
+        Assert.False(engine.CurrentTurn.ForcedSaleState.CanPayNow);
+        Assert.Equal(5000, engine.CurrentTurn.PendingFeeAmount);
+    }
+
+    [Fact]
+    public void SellRailroadToBank_WhenSaleCoversFees_PaysFeesAndEndsTurn()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var owner = engine.Players[1];
+        var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        ownedRailroad.Owner = player;
+        feeRailroad.Owner = owner;
+        player.OwnedRailroads.Add(ownedRailroad);
+        owner.OwnedRailroads.Add(feeRailroad);
+        player.Cash = 4000;
+        owner.Cash = 0;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+
+        engine.DeclinePurchase();
+        engine.SellRailroadToBank(ownedRailroad);
+
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+        Assert.Null(engine.CurrentTurn.ForcedSaleState);
+        Assert.Equal(0, engine.CurrentTurn.PendingFeeAmount);
+        Assert.Equal(4000 + (ownedRailroad.PurchasePrice / 2) - 5000, player.Cash);
+        Assert.Equal(5000, owner.Cash);
+    }
 }

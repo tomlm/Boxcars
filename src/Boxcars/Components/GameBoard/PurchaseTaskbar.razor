@@ -3,26 +3,28 @@
 
 <div class="purchase-taskbar-scope">
     <MudPaper Class="purchase-taskbar pa-3" Outlined="true">
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-            <MudText Typo="Typo.subtitle2">@TaskbarState.Label</MudText>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h4">Purchase Opportunity</MudText>
 
-            <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0">
-                @foreach (var option in TaskbarState.Options)
-                {
-                    <MudSelectItem T="string" Value="@option.OptionKey">
-                        <span class="purchase-taskbar-option-label">@option.DisplayName</span>
-                        <span class="@GetOptionPriceClass(option)"> (@FormatCurrency(option.PurchasePrice))</span>
-                    </MudSelectItem>
-                }
-            </MudSelect>
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+                <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0">
+                    @foreach (var option in TaskbarState.Options)
+                    {
+                        <MudSelectItem T="string" Value="@option.OptionKey">
+                            <span class="purchase-taskbar-option-label">@option.DisplayName</span>
+                            <span class="@GetOptionPriceClass(option)"> (@FormatCurrency(option.PurchasePrice))</span>
+                        </MudSelectItem>
+                    }
+                </MudSelect>
 
-            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy" OnClick="OnBuyRequestedAsync">
-                BUY
-            </MudButton>
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy" OnClick="OnBuyRequestedAsync">
+                    BUY
+                </MudButton>
 
-            <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline" OnClick="OnDeclineRequestedAsync">
-                DECLINE
-            </MudButton>
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline" OnClick="OnDeclineRequestedAsync">
+                    DECLINE
+                </MudButton>
+            </MudStack>
         </MudStack>
 
     </MudPaper>

@@ -1,0 +1,192 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<div class="railroad-auction-panel-scope">
+    <MudPaper Class="railroad-auction-panel pa-3" Outlined="true">
+        <MudStack Spacing="2">
+            <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.h3">@AuctionState.RailroadName auction</MudText>
+                <MudChip T="string" Color="@ResolveStatusColor()" Variant="Variant.Filled" Size="Size.Small">@AuctionState.Status</MudChip>
+            </MudStack>
+
+            <MudText Typo="Typo.body2">Seller: @AuctionState.SellerPlayerName</MudText>
+            <MudText Typo="Typo.body2">Current bid: @CurrentBidLabel</MudText>
+            <MudText Typo="Typo.body2">Awaiting: @(string.IsNullOrWhiteSpace(AuctionState.CurrentBidderPlayerName) ? "Auction resolution" : AuctionState.CurrentBidderPlayerName)</MudText>
+
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                @foreach (var participant in AuctionState.Participants)
+                {
+                    <MudChip T="string"
+                             Variant="Variant.Outlined"
+                             Size="Size.Small"
+                             Class="@GetParticipantChipClass(participant)">
+                        <span class="railroad-auction-participant-label">@participant.PlayerName</span>
+                        <span class="railroad-auction-participant-detail @GetParticipantDetailClass(participant)">@BuildParticipantStatusLabel(participant)</span>
+                    </MudChip>
+                }
+            </MudStack>
+
+            @if (CanCurrentUserAct)
+            {
+                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudNumericField T="int"
+                                     Value="BidAmount"
+                                     ValueChanged="OnBidAmountChangedAsync"
+                                     Min="@AuctionState.MinimumBid"
+                                     Step="@Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement"
+                                     Immediate="true"
+                                     Label="Bid amount"
+                                     Class="railroad-auction-bid-input" />
+
+                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="OnBidRequestedAsync">
+                        Bid
+                    </MudButton>
+
+                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" OnClick="OnPassRequestedAsync">
+                        Pass
+                    </MudButton>
+
+                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" OnClick="OnDropOutRequestedAsync">
+                        Drop Out
+                    </MudButton>
+                </MudStack>
+            }
+        </MudStack>
+    </MudPaper>
+</div>
+
+@code {
+    [Parameter]
+    public required ForcedSaleAuctionStateModel AuctionState { get; set; }
+
+    [Parameter]
+    public bool CanCurrentUserAct { get; set; }
+
+    [Parameter]
+    public int BidAmount { get; set; }
+
+    [Parameter]
+    public EventCallback<int> BidAmountChanged { get; set; }
+
+    [Parameter]
+    public EventCallback BidRequested { get; set; }
+
+    [Parameter]
+    public EventCallback PassRequested { get; set; }
+
+    [Parameter]
+    public EventCallback DropOutRequested { get; set; }
+
+    private string CurrentBidLabel => AuctionState.CurrentBid > 0
+        ? FormatCurrency(AuctionState.CurrentBid)
+        : $"Opening bid {FormatCurrency(AuctionState.MinimumBid)}";
+
+    private async Task OnBidAmountChangedAsync(int bidAmount)
+    {
+        await BidAmountChanged.InvokeAsync(bidAmount);
+    }
+
+    private async Task OnBidRequestedAsync()
+    {
+        await BidRequested.InvokeAsync();
+    }
+
+    private async Task OnPassRequestedAsync()
+    {
+        await PassRequested.InvokeAsync();
+    }
+
+    private async Task OnDropOutRequestedAsync()
+    {
+        await DropOutRequested.InvokeAsync();
+    }
+
+    private MudBlazor.Color ResolveStatusColor()
+    {
+        return AuctionState.Status switch
+        {
+            ForcedSaleAuctionStatusModel.Awarded => MudBlazor.Color.Success,
+            ForcedSaleAuctionStatusModel.BankFallback => MudBlazor.Color.Warning,
+            _ => MudBlazor.Color.Info
+        };
+    }
+
+    private string GetParticipantChipClass(AuctionParticipantModel participant)
+    {
+        var classes = new List<string>
+        {
+            "railroad-auction-participant-chip"
+        };
+
+        if (participant.HasDroppedOut)
+        {
+            classes.Add("auction-participant-chip--dropped");
+        }
+
+        if (participant.PlayerIndex == AuctionState.CurrentBidderPlayerIndex)
+        {
+            classes.Add("auction-participant-chip--active");
+        }
+
+        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && participant.LastBidAmount.HasValue)
+        {
+            classes.Add("auction-participant-chip--leader");
+        }
+
+        return string.Join(" ", classes);
+    }
+
+    private string GetParticipantDetailClass(AuctionParticipantModel participant)
+    {
+        var classes = new List<string>
+        {
+            "railroad-auction-participant-detail"
+        };
+
+        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && participant.LastBidAmount.HasValue)
+        {
+            classes.Add("auction-participant-detail--leader");
+        }
+
+        return string.Join(" ", classes);
+    }
+
+    private string BuildParticipantStatusLabel(AuctionParticipantModel participant)
+    {
+        if (participant.HasDroppedOut)
+        {
+            return "(out)";
+        }
+
+        if (participant.LastAction == AuctionParticipantActionModel.Pass)
+        {
+            return "(Pass)";
+        }
+
+        if (participant.LastBidAmount.HasValue)
+        {
+            return $"({FormatCurrency(participant.LastBidAmount.Value)})";
+        }
+
+        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && AuctionState.CurrentBid > 0)
+        {
+            return $"({FormatCurrency(AuctionState.CurrentBid)})";
+        }
+
+        var status = participant.LastAction switch
+            {
+                AuctionParticipantActionModel.Bid => "bid",
+                AuctionParticipantActionModel.Pass => "pass",
+                AuctionParticipantActionModel.DropOut => "out",
+                AuctionParticipantActionModel.AutoDropOut => "auto-out",
+                _ => "ready"
+            };
+
+        return $"({char.ToUpperInvariant(status[0])}{status[1..]})";
+    }
+
+    private static string FormatCurrency(int amount)
+    {
+        return $"${Math.Max(0, amount):N0}";
+    }
+}

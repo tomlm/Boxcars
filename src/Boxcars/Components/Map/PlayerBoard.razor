@@ -72,51 +72,61 @@
                                 <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
                             </MudText>
                             <MudText Typo="Typo.caption" Class="player-card-line">
-                                <span class="player-card-label">Cash:</span> @player.GetMoneyDisplay()
+                                <span class="player-card-label">Cash:</span> <span class="@GetCashValueClass(player)">@player.GetMoneyDisplay()</span>
                             </MudText>
                             @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
                             {
-                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-bonus">
-                                    @player.BonusPendingLabel
+                                <MudText Typo="Typo.caption" Class="player-card-line">
+                                    <span class="player-card-status-value player-card-status-value-bonus">@player.BonusPendingLabel</span>
                                 </MudText>
                             }
                             @if (player.FeesOwed > 0)
                             {
-                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-fees">
-                                    <span class="player-card-label">Fees Due:</span> $@player.FeesOwed.ToString("N0")
+                                <MudText Typo="Typo.caption" Class="player-card-line">
+                                    <span class="player-card-label">Fees Due:</span> <span class="player-card-status-value player-card-status-value-fees">$@player.FeesOwed.ToString("N0")</span>
                                 </MudText>
                             }
 
                             @if (player.CanUseTestControl)
                             {
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="player-card-test-row">
-                                    <MudText Typo="Typo.caption" Class="player-card-label">
-                                        @(player.IsTestControlled ? "Test control enabled" : "Mock player")
-                                    </MudText>
-                                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                                        @if (player.CanToggleConnection)
-                                        {
-                                            <MudButton Variant="Variant.Outlined"
-                                                       Color="@(player.IsConnected ? MudBlazor.Color.Warning : MudBlazor.Color.Success)"
-                                                       Size="Size.Small"
-                                                       OnClick="() => OnToggleConnection.InvokeAsync(player.Index)">
-                                                @(player.IsConnected ? "DISCONNECT" : "CONNECT")
-                                            </MudButton>
-                                        }
-
-                                        <MudButton Variant="Variant.Outlined"
-                                                   Color="MudBlazor.Color.Primary"
-                                                   Size="Size.Small"
-                                                   OnClick="() => OnToggleTestPlayer.InvokeAsync(player.Index)">
-                                            @(player.IsTestControlled ? "TESTING" : "TEST")
-                                        </MudButton>
-                                    </MudStack>
-                                </MudStack>
+                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-test-state">
+                                    @(player.IsTestControlled ? "Test mode enabled" : "Mock player")
+                                </MudText>
                             }
                         </MudStack>
+
+                        @if (player.CanUseTestControl)
+                        {
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
+                                @if (player.CanToggleConnection)
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="@(player.IsConnected ? MudBlazor.Color.Warning : MudBlazor.Color.Success)"
+                                               Size="Size.Small"
+                                               OnClick="() => OnToggleConnection.InvokeAsync(player.Index)">
+                                        @(player.IsConnected ? "DISCONNECT" : "CONNECT")
+                                    </MudButton>
+                                }
+                            </MudStack>
+                        }
                     </MudPaper>
                 </ChildContent>
             </MudTooltip>
+        }
+
+        @if (HasAnyMockPlayers)
+        {
+            <MudPaper Class="player-board-test-toolbar pa-2" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.caption">Local mock-player control</MudText>
+                    <MudButton Variant="@(IsTestModeEnabled ? Variant.Filled : Variant.Outlined)"
+                               Color="MudBlazor.Color.Primary"
+                               Size="Size.Small"
+                               OnClick="OnToggleTestModeAsync">
+                        @(IsTestModeEnabled ? "TEST MODE ON" : "TEST MODE")
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
         }
     </MudStack>
 </div>
@@ -126,10 +136,15 @@
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
 
     [Parameter]
-    public EventCallback<int> OnToggleTestPlayer { get; set; }
+    public bool IsTestModeEnabled { get; set; }
+
+    [Parameter]
+    public EventCallback OnToggleTestMode { get; set; }
 
     [Parameter]
     public EventCallback<int> OnToggleConnection { get; set; }
+
+    private bool HasAnyMockPlayers => Players.Any(player => player.CanUseTestControl);
 
     private static string GetInitial(string name)
     {
@@ -164,9 +179,26 @@
             : "player-status-disconnected player-avatar-status";
     }
 
+    private static string GetCashValueClass(PlayerBoardModel player)
+    {
+        if (player.IsCurrentUser || player.IsTestControlled)
+        {
+            return string.Empty;
+        }
+
+        return player.Cash >= Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(0)
+            ? "player-card-cash-value player-card-cash-value-affordable"
+            : "player-card-cash-value player-card-cash-value-too-expensive";
+    }
+
     private static string FormatPercent(decimal value)
     {
         return $"{value:N1}%";
+    }
+
+    private Task OnToggleTestModeAsync()
+    {
+        return OnToggleTestMode.InvokeAsync();
     }
 
     private static string GetColorClass(string color)

@@ -12,89 +12,86 @@
     {
         <MudStack Spacing="3">
             <MudStack Spacing="0">
-                <MudText Typo="Typo.h6">Map Analysis</MudText>
+                <MudText Typo="Typo.h6">@SectionHeading</MudText>
                 <MudText Typo="Typo.body2">@Report.MapName</MudText>
             </MudStack>
 
-            <MudTabs @bind-ActivePanelIndex="_activeTabIndex" Rounded="true" PanelClass="purchase-analysis-tab-panel">
-                <MudTabPanel Text="Railroads">
-                    <div class="purchase-analysis-layout">
-                        <div class="purchase-analysis-table-host purchase-analysis-table-host-railroad">
-                            <MudTable T="RailroadAnalysisRow" Items="UnownedRailroadRows" Dense="true" Hover="true">
-                                <HeaderContent>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.FullName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.PurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.CitiesServedCount)"><strong>Cities</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ServicePercentage)"><strong>Access %</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.MonopolyPercentage)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerAccessDelta(row))"><strong>Player Access</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerMonopolyDelta(row))"><strong>Player Monopoly</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ConnectionCount)"><strong>Connections</strong></MudTableSortLabel></MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd>
-                                        <span class="@GetRailroadRowTextClass(context)">@context.FullName</span>
-                                    </MudTd>
-                                    <MudTd>
-                                        <span class="@GetRailroadPriceClass(context)">@FormatCurrency(context.PurchasePrice)</span>
-                                    </MudTd>
-                                    <MudTd>@context.CitiesServedCount</MudTd>
-                                    <MudTd>@FormatRailroadPercent(context.ServicePercentage)</MudTd>
-                                    <MudTd>@FormatRailroadPercent(context.MonopolyPercentage)</MudTd>
-                                    <MudTd>@FormatSignedOptionalPercent(GetPlayerAccessDelta(context))</MudTd>
-                                    <MudTd>@FormatSignedOptionalPercent(GetPlayerMonopolyDelta(context))</MudTd>
-                                    <MudTd>@context.ConnectionCount</MudTd>
-                                </RowTemplate>
-                            </MudTable>
-                        </div>
+            @if (View == PurchaseExperienceTab.Railroads)
+            {
+                <div class="purchase-analysis-layout">
+                    <div class="purchase-analysis-table-host purchase-analysis-table-host-railroad">
+                        <MudTable T="RailroadAnalysisRow" Items="UnownedRailroadRows" Dense="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.FullName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.PurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.CitiesServedCount)"><strong>Cities</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ServicePercentage)"><strong>Access %</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.MonopolyPercentage)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerAccessDelta(row))"><strong>Player Access</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => GetPlayerMonopolyDelta(row))"><strong>Player Monopoly</strong></MudTableSortLabel></MudTh>
+                                <MudTh><MudTableSortLabel T="RailroadAnalysisRow" SortBy="@(row => row.ConnectionCount)"><strong>Connections</strong></MudTableSortLabel></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>
+                                    <span class="@GetRailroadRowTextClass(context)">@context.FullName</span>
+                                </MudTd>
+                                <MudTd>
+                                    <span class="@GetRailroadPriceClass(context)">@FormatCurrency(context.PurchasePrice)</span>
+                                </MudTd>
+                                <MudTd>@context.CitiesServedCount</MudTd>
+                                <MudTd>@FormatRailroadPercent(context.ServicePercentage)</MudTd>
+                                <MudTd>@FormatRailroadPercent(context.MonopolyPercentage)</MudTd>
+                                <MudTd>@FormatSignedOptionalPercent(GetPlayerAccessDelta(context))</MudTd>
+                                <MudTd>@FormatSignedOptionalPercent(GetPlayerMonopolyDelta(context))</MudTd>
+                                <MudTd>@context.ConnectionCount</MudTd>
+                            </RowTemplate>
+                        </MudTable>
                     </div>
-                </MudTabPanel>
+                </div>
+            }
+            else if (View == PurchaseExperienceTab.Regions)
+            {
+                <MudPaper Class="purchase-analysis-city-section pa-3" Outlined="true">
+                    <div class="purchase-analysis-region-table-grid">
+                        @foreach (var regionGroup in RegionCityGroups)
+                        {
+                            <div class="purchase-analysis-table-host purchase-analysis-table-host-region-city">
+                                <MudText Typo="Typo.h6" Class="purchase-analysis-region-title">@regionGroup.RegionName</MudText>
+                                <MudText Typo="Typo.caption" Class="purchase-analysis-region-probability">Map Probability: @FormatPercent(regionGroup.RegionProbabilityPercentage)</MudText>
+                                <MudTable T="CityAccessRow" Items="regionGroup.Cities" Dense="true" Hover="true">
+                                    <HeaderContent>
+                                        <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
+                                        <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.WithinRegionPercentage)"><strong>Region %</strong></MudTableSortLabel></MudTh>
+                                    </HeaderContent>
+                                    <RowTemplate>
+                                        <MudTd>@context.CityName</MudTd>
+                                        <MudTd>@FormatCityPercent(context.WithinRegionPercentage)</MudTd>
+                                    </RowTemplate>
+                                </MudTable>
+                            </div>
+                        }
+                    </div>
+                </MudPaper>
+            }
+            else if (View == PurchaseExperienceTab.Cities)
+            {
+                <MudPaper Class="purchase-analysis-city-section pa-3" Outlined="true">
+                    <MudText Typo="Typo.subtitle2" Class="purchase-analysis-city-heading">Map City Access</MudText>
 
-                <MudTabPanel Text="Regions">
-                    <MudPaper Class="purchase-analysis-city-section pa-3" Outlined="true">
-                        <div class="purchase-analysis-region-table-grid">
-                            @foreach (var regionGroup in RegionCityGroups)
-                            {
-                                <div class="purchase-analysis-table-host purchase-analysis-table-host-region-city">
-                                    <MudText Typo="Typo.h6" Class="purchase-analysis-region-title">@regionGroup.RegionName</MudText>
-                                    <MudText Typo="Typo.caption" Class="purchase-analysis-region-probability">Map Probability: @FormatPercent(regionGroup.RegionProbabilityPercentage)</MudText>
-                                    <MudTable T="CityAccessRow" Items="regionGroup.Cities" Dense="true" Hover="true">
-                                        <HeaderContent>
-                                            <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
-                                            <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.WithinRegionPercentage)"><strong>Region %</strong></MudTableSortLabel></MudTh>
-                                        </HeaderContent>
-                                        <RowTemplate>
-                                            <MudTd>@context.CityName</MudTd>
-                                            <MudTd>@FormatCityPercent(context.WithinRegionPercentage)</MudTd>
-                                        </RowTemplate>
-                                    </MudTable>
-                                </div>
-                            }
-                        </div>
-                    </MudPaper>
-                </MudTabPanel>
-
-                <MudTabPanel Text="Cities">
-                    <MudPaper Class="purchase-analysis-city-section pa-3" Outlined="true">
-                        <MudText Typo="Typo.subtitle2" Class="purchase-analysis-city-heading">Map City Access</MudText>
-
-                        <div class="purchase-analysis-table-host purchase-analysis-table-host-map-city">
-                            <MudTable T="CityAccessRow" Items="SortedCityRows" Dense="true" Hover="true">
-                                <HeaderContent>
-                                    <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.RegionName)"><strong>Region</strong></MudTableSortLabel></MudTh>
-                                    <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.GlobalAccessPercentage)"><strong>Map %</strong></MudTableSortLabel></MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd>@context.CityName</MudTd>
-                                    <MudTd>@context.RegionCode</MudTd>
-                                    <MudTd>@FormatCityPercent(context.GlobalAccessPercentage)</MudTd>
-                                </RowTemplate>
-                            </MudTable>
-                        </div>
-                    </MudPaper>
-                </MudTabPanel>
-            </MudTabs>
+                    <div class="purchase-analysis-city-columns">
+                        @foreach (var city in SortedCityRows)
+                        {
+                            <div class="purchase-analysis-city-entry">
+                                <MudText Typo="Typo.body2" Class="purchase-analysis-city-name">@city.CityName</MudText>
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="purchase-analysis-city-meta">
+                                    <MudText Typo="Typo.caption" Class="purchase-analysis-city-region">@city.RegionCode</MudText>
+                                    <MudText Typo="Typo.caption" Class="purchase-analysis-city-percent">@FormatCityPercent(city.GlobalAccessPercentage)</MudText>
+                                </MudStack>
+                            </div>
+                        }
+                    </div>
+                </MudPaper>
+            }
 
             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
                 <MudChip T="string">Avg Trip Length: @Report.AverageTripLengthDots.ToString("N1")</MudChip>
@@ -112,7 +109,15 @@
     [Parameter]
     public RecommendationInputSet? RecommendationInputs { get; set; }
 
-    private int _activeTabIndex;
+    [Parameter]
+    public PurchaseExperienceTab View { get; set; } = PurchaseExperienceTab.Railroads;
+
+    private string SectionHeading => View switch
+    {
+        PurchaseExperienceTab.Regions => "Region Analysis",
+        PurchaseExperienceTab.Cities => "City Analysis",
+        _ => "Railroad Analysis"
+    };
 
     private IReadOnlyList<RailroadAnalysisRow> UnownedRailroadRows => (Report?.RailroadRows ?? Array.Empty<RailroadAnalysisRow>())
         .Where(IsUnownedRailroad)

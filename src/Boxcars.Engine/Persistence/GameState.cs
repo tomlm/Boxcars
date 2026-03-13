@@ -61,8 +61,50 @@ public sealed class TurnState
     public int MovementAllowance { get; set; }
     public int MovementRemaining { get; set; }
     public bool BonusRollAvailable { get; set; }
+    public int PendingFeeAmount { get; set; }
+    public int? SelectedRailroadForSaleIndex { get; set; }
     public List<int> RailroadsRiddenThisTurn { get; set; } = new();
     public ArrivalResolutionState? ArrivalResolution { get; set; }
+    public ForcedSaleTurnState? ForcedSale { get; set; }
+    public AuctionTurnState? Auction { get; set; }
+}
+
+public sealed class ForcedSaleTurnState
+{
+    public int AmountOwed { get; set; }
+    public int CashBeforeFees { get; set; }
+    public int CashAfterLastSale { get; set; }
+    public int SalesCompletedCount { get; set; }
+    public bool CanPayNow { get; set; }
+    public bool EliminationTriggered { get; set; }
+}
+
+public sealed class AuctionTurnState
+{
+    public int RailroadIndex { get; set; } = -1;
+    public string RailroadName { get; set; } = string.Empty;
+    public int SellerPlayerIndex { get; set; } = -1;
+    public string SellerPlayerName { get; set; } = string.Empty;
+    public int StartingPrice { get; set; }
+    public int CurrentBid { get; set; }
+    public int? LastBidderPlayerIndex { get; set; }
+    public int? CurrentBidderPlayerIndex { get; set; }
+    public int RoundNumber { get; set; } = 1;
+    public int ConsecutiveNoBidTurnCount { get; set; }
+    public string Status { get; set; } = "Open";
+    public List<AuctionParticipantTurnState> Participants { get; set; } = new();
+}
+
+public sealed class AuctionParticipantTurnState
+{
+    public int PlayerIndex { get; set; } = -1;
+    public string PlayerName { get; set; } = string.Empty;
+    public int CashOnHand { get; set; }
+    public int? LastBidAmount { get; set; }
+    public bool IsEligible { get; set; }
+    public bool HasDroppedOut { get; set; }
+    public bool HasPassedThisRound { get; set; }
+    public string LastAction { get; set; } = "None";
 }
 
 public sealed class ArrivalResolutionState

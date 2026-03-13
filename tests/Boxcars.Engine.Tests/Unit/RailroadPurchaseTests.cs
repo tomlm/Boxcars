@@ -27,7 +27,7 @@ public class RailroadPurchaseTests
 
                 Assert.Equal(player, rr.Owner);
                 Assert.Contains(rr, player.OwnedRailroads);
-                Assert.Equal(cashBefore - rr.PurchasePrice, player.Cash);
+                Assert.Equal(cashBefore - rr.PurchasePrice - 1000, player.Cash);
             }
         }
     }
@@ -236,5 +236,41 @@ public class RailroadPurchaseTests
 
         var ex = Assert.Throws<InvalidOperationException>(() => engine.DeclinePurchase());
         Assert.Contains("Not in Purchase phase", ex.Message);
+    }
+
+    [Fact]
+    public void SellRailroadToBank_ValidForcedSale_ReturnsRailroadToBank()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var railroad = engine.Railroads.First(rr => rr.Index == 0);
+        railroad.Owner = player;
+        player.OwnedRailroads.Add(railroad);
+        player.Cash = 500;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(1);
+
+        engine.DeclinePurchase();
+        engine.SellRailroadToBank(railroad);
+
+        Assert.Null(railroad.Owner);
+        Assert.DoesNotContain(railroad, player.OwnedRailroads);
+    }
+
+    [Fact]
+    public void SellRailroadToBank_NotInForcedSale_ThrowsInvalidOperation()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var railroad = engine.Railroads.First(rr => rr.Index == 0);
+        railroad.Owner = player;
+        player.OwnedRailroads.Add(railroad);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => engine.SellRailroadToBank(railroad));
+
+        Assert.Contains("UseFees", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

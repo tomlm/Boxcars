@@ -1,7 +1,7 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="turn-status-panel">
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
     @if (!IsPurchasePhase)
     {
         @if (IsBonusMove)
@@ -31,8 +31,6 @@
 
     private bool IsPurchasePhase => string.Equals(State.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
     private bool IsBonusMove => State.RedDie.HasValue && State.WhiteDieOne <= 0 && State.WhiteDieTwo <= 0;
-
-    private string DisplayPhase => string.IsNullOrWhiteSpace(State.TurnPhase) ? "Unknown" : State.TurnPhase;
 
     private static string FormatCurrency(int value)
     {

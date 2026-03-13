@@ -28,6 +28,7 @@
 @inject MapAnalysisService MapAnalysisService
 @inject PlayerProfileService ProfileService
 @inject IGameEngine SharedGameEngine
+@inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JavaScriptRuntime
 @inject IWebHostEnvironment WebHostEnvironment
@@ -37,7 +38,8 @@
 <div class="map-board-shell">
     <div class="map-board-sidebar">
         <PlayerBoard Players="_players"
-                 OnToggleTestPlayer="OnToggleTestPlayerAsync"
+                 IsTestModeEnabled="@_isMockPlayerTestModeEnabled"
+                 OnToggleTestMode="OnToggleTestModeAsync"
                  OnToggleConnection="OnTogglePlayerConnectionAsync" />
     </div>
 
@@ -61,10 +63,25 @@
                            OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Map)">
                     Map
                 </MudButton>
-                <MudButton Variant="@(!IsMapPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(!IsMapPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Information)">
-                    Information
+                <MudButton Variant="@(IsRegionsPurchaseTabActive ? Variant.Filled : Variant.Text)"
+                           Color="@(IsRegionsPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Regions)">
+                    Regions
+                </MudButton>
+                <MudButton Variant="@(IsCitiesPurchaseTabActive ? Variant.Filled : Variant.Text)"
+                           Color="@(IsCitiesPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Cities)">
+                    Cities
+                </MudButton>
+                <MudButton Variant="@(IsRailroadsPurchaseTabActive ? Variant.Filled : Variant.Text)"
+                           Color="@(IsRailroadsPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Railroads)">
+                    Railroads
+                </MudButton>
+                <MudButton Variant="@(IsNetworkPurchaseTabActive ? Variant.Filled : Variant.Text)"
+                           Color="@(IsNetworkPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Network)">
+                    Network
                 </MudButton>
             </div>
         }
@@ -86,7 +103,7 @@
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync"
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
 
-            @if (SelectedRailroadOverlay is not null && ShouldShowPurchaseTaskbar && IsMapPurchaseTabActive)
+            @if (SelectedRailroadOverlay is not null && IsMapPurchaseTabActive && _selectionMode == MapSelectionMode.Rail)
             {
                 <div class="map-board-purchase-overlay" style="@SelectedRailroadOverlayStyle">
                     <RailroadPurchaseOverlay Overlay="SelectedRailroadOverlay"
@@ -98,18 +115,43 @@
         @if (ShouldShowPurchaseExperienceTabs)
         {
             <div class="@AnalysisAreaClass">
-                <PurchaseAnalysisReport Report="@CurrentMapAnalysisReport"
-                                        RecommendationInputs="@DisplayRecommendationInputs" />
+                @if (IsNetworkPurchaseTabActive)
+                {
+                    <MudStack Spacing="2">
+                        <NetworkTabPanel NetworkTab="CurrentDisplayNetworkTab" />
+                        @if (CurrentForcedSaleImpact is not null)
+                        {
+                            <SaleImpactPanel Overlay="CurrentForcedSaleImpact"
+                                             BankSalePrice="@(SelectedForcedSaleCandidate?.BankSalePrice ?? 0)"
+                                             FeeShortfall="@(CurrentForcedSalePhase?.FeeShortfall ?? 0)" />
+                        }
+                    </MudStack>
+                }
+                else if (ShouldShowPurchaseAnalysisPanel)
+                {
+                    <PurchaseAnalysisReport Report="@CurrentMapAnalysisReport"
+                                            RecommendationInputs="@DisplayRecommendationInputs"
+                                            View="@_selectedPurchaseTab" />
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        Analysis is not available for the selected player yet.
+                    </MudAlert>
+                }
             </div>
         }
 
         @* ── Status strip: turn state center, zoom right ── *@
         <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center"
                   Class="map-board-status-bar px-3 py-2" Spacing="2">
-            @if (IsCurrentUserActivePlayer)
+            @if (ShouldShowStatusControls)
             {
                 <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
-                    <TurnStatusPanel State="@_turnViewState" />
+                    @if (!ShouldShowAuctionPanel && !ShouldShowForcedSalePanel)
+                    {
+                        <MovementStatusPanel State="@_turnViewState" />
+                    }
 
                     @if (ShouldShowPurchaseTaskbar)
                     {
@@ -122,17 +164,39 @@
                                          ProjectedCoverage="SelectedProjectedCoverage"
                                          SelectedEngineOption="SelectedEngineOption" />
                     }
-                    else if (!ShouldHidePrimaryAction)
+                    else if (ShouldShowAuctionPanel)
+                    {
+                        <RailroadAuctionPanel AuctionState="CurrentAuctionPanelState"
+                                             CanCurrentUserAct="CanCurrentUserActInAuction"
+                                             BidAmount="@AuctionBidAmount"
+                                             BidAmountChanged="OnAuctionBidAmountChangedAsync"
+                                             BidRequested="OnSubmitAuctionBidAsync"
+                                             PassRequested="OnAuctionPassAsync"
+                                             DropOutRequested="OnAuctionDropOutAsync" />
+                    }
+                    else if (ShouldShowForcedSalePanel)
+                    {
+                        <ForcedSalePanel Phase="CurrentForcedSalePhase!"
+                                         SelectedRailroadIndex="@SelectedForcedSaleCandidate?.RailroadIndex"
+                                         SelectedRailroadIndexChanged="OnForcedSaleRailroadChangedAsync"
+                                         SellToBankRequested="OnSellRailroadToBankAsync"
+                                         StartAuctionRequested="OnStartAuctionAsync" />
+                    }
+                    else if (ShouldShowCommitMoveAction)
                     {
                         <MudButton Variant="Variant.Filled"
                                    Color="MudBlazor.Color.Primary"
-                                   Disabled="@(!CanPrimaryGameAction)"
-                                   OnClick="OnPrimaryGameActionAsync"
+                                   Disabled="@(!CanCommitMoveAction)"
+                                   OnClick="OnCommitMoveActionAsync"
                                    Class="map-board-primary-action">
-                            @PrimaryGameActionLabel
+                            @CommitMoveActionLabel
                         </MudButton>
                     }
                 </MudStack>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="status-bar-text">@SpectatorStatusMessage</MudText>
             }
         </MudStack>
     </div>
@@ -167,9 +231,10 @@
     private ElementReference _mapAreaElement;
     private PurchaseExperienceTab _selectedPurchaseTab = PurchaseExperienceTab.Map;
     private bool _wasPurchasePhaseActive;
-    private int _testControlledPlayerIndex = -1;
+    private bool _isMockPlayerTestModeEnabled;
     private bool _awaitingAuthoritativeUpdate;
     private bool _autoZoomEnabled;
+    private int _auctionBidAmount;
     private readonly string _pagePresenceRegistrationId = Guid.NewGuid().ToString("N");
     private bool _pagePresenceRegistered;
     private bool _presenceNotificationsEnabled;
@@ -250,34 +315,21 @@
         Navigation.NavigateTo("/dashboard");
     }
 
-    private string PrimaryGameActionLabel => _turnViewState.TurnPhase switch
-    {
-        "DrawDestination" => "AUTOMATIC",
-        "Roll" => "AUTOMATIC",
-        "Move" => IsPendingBonusMove ? "MOVE BONUS" : "MOVE",
-        "EndTurn" => "AUTOMATIC",
-        _ => "TURN ACTION"
-    };
+    private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
-    private bool CanPrimaryGameAction => !string.IsNullOrWhiteSpace(GameId)
+    private bool CanCommitMoveAction => !string.IsNullOrWhiteSpace(GameId)
         && _gameState is not null
         && !_awaitingAuthoritativeUpdate
         && IsCurrentUserActivePlayer
-        && _turnViewState.TurnPhase switch
-        {
-            "DrawDestination" => false,
-            "Roll" => false,
-            "Move" => CurrentRouteMoveCount > 0 && CanCommitMoveSelection(),
-            "Purchase" => false,
-            "EndTurn" => false,
-            _ => false
-        };
+        && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+        && CurrentRouteMoveCount > 0
+        && CanCommitMoveSelection();
 
     private string ObserverTurnMessage => string.IsNullOrWhiteSpace(_turnViewState.ActivePlayerName)
         ? "Waiting for the active player to complete their turn."
         : $"Waiting for {_turnViewState.ActivePlayerName} to complete their turn.";
 
-    private async Task OnPrimaryGameActionAsync()
+    private async Task OnCommitMoveActionAsync()
     {
         if (string.IsNullOrWhiteSpace(GameId) || _gameState is null || _gameState.Players.Count == 0)
         {
@@ -289,20 +341,12 @@
             return;
         }
 
-        switch (_turnViewState.TurnPhase)
+        if (!string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
         {
-            case "DrawDestination":
-            case "Roll":
-            case "EndTurn":
-                return;
-
-            case "Move":
-                await CommitMovePhaseAsync();
-                break;
-
-            case "Purchase":
-                return;
+            return;
         }
+
+        await CommitMovePhaseAsync();
     }
 
     private async Task OnSelectedPurchaseOptionChangedAsync(string? optionKey)
@@ -347,13 +391,7 @@
 
     private async Task OnRailroadSelectedAsync(RailroadSelectionEvent selectionEvent)
     {
-        if (CurrentPurchasePhase is null)
-        {
-            return;
-        }
-
-        var matchingRailroad = CurrentPurchasePhase.RailroadOptions.FirstOrDefault(option => option.RailroadIndex == selectionEvent.RailroadIndex);
-        if (matchingRailroad is null)
+        if (_selectionMode != MapSelectionMode.Rail)
         {
             return;
         }
@@ -413,6 +451,176 @@
                 EngineType = selectedEngine.EngineType,
                 AmountPaid = selectedEngine.PurchasePrice
             });
+        }
+    }
+
+    private async Task OnSellRailroadToBankAsync()
+    {
+        if (_gameState is null || SelectedForcedSaleCandidate is null || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        var confirmed = await ConfirmForcedSaleActionAsync(
+            "Confirm Sellback",
+            $"Are you sure you want to sell {SelectedForcedSaleCandidate.RailroadName} to the bank?");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        MarkAuthoritativeUpdatePending();
+
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new SellRailroadAction
+                {
+                    PlayerId = CurrentTurnPlayerName,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = _gameState.ActivePlayerIndex,
+                    RailroadIndex = SelectedForcedSaleCandidate.RailroadIndex,
+                    AmountReceived = SelectedForcedSaleCandidate.BankSalePrice
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
+    }
+
+    private async Task OnStartAuctionAsync()
+    {
+        if (_gameState is null || SelectedForcedSaleCandidate is null || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        var confirmed = await ConfirmForcedSaleActionAsync(
+            "Confirm Auction",
+            $"Are you sure you want to auction {SelectedForcedSaleCandidate.RailroadName}?");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        MarkAuthoritativeUpdatePending();
+
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new StartAuctionAction
+                {
+                    PlayerId = CurrentTurnPlayerName,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = _gameState.ActivePlayerIndex,
+                    RailroadIndex = SelectedForcedSaleCandidate.RailroadIndex
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
+    }
+
+    private Task OnAuctionBidAmountChangedAsync(int bidAmount)
+    {
+        _auctionBidAmount = bidAmount;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnSubmitAuctionBidAsync()
+    {
+        if (_gameState is null || CurrentAuctionState is null || CurrentAuctionActorPlayerIndex is not int bidderPlayerIndex || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        var amountBid = Math.Max(AuctionBidAmount, CurrentAuctionState.MinimumBid);
+        MarkAuthoritativeUpdatePending();
+
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new BidAction
+                {
+                    PlayerId = _gameState.Players[bidderPlayerIndex].Name,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = bidderPlayerIndex,
+                    RailroadIndex = CurrentAuctionState.RailroadIndex,
+                    AmountBid = amountBid
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
+    }
+
+    private async Task OnAuctionPassAsync()
+    {
+        if (_gameState is null || CurrentAuctionState is null || CurrentAuctionActorPlayerIndex is not int bidderPlayerIndex || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        MarkAuthoritativeUpdatePending();
+
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new AuctionPassAction
+                {
+                    PlayerId = _gameState.Players[bidderPlayerIndex].Name,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = bidderPlayerIndex,
+                    RailroadIndex = CurrentAuctionState.RailroadIndex
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
+    }
+
+    private async Task OnAuctionDropOutAsync()
+    {
+        if (_gameState is null || CurrentAuctionState is null || CurrentAuctionActorPlayerIndex is not int bidderPlayerIndex || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        MarkAuthoritativeUpdatePending();
+
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new AuctionDropOutAction
+                {
+                    PlayerId = _gameState.Players[bidderPlayerIndex].Name,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = bidderPlayerIndex,
+                    RailroadIndex = CurrentAuctionState.RailroadIndex
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
         }
     }
 
@@ -640,7 +848,8 @@
     {
         _gameState = state;
         _turnViewState = GameBoardStateMapper.BuildTurnViewState(_game, state, _currentUserId, _playerBoardMapDefinition);
-        _selectionMode = ResolveSelectionMode(_turnViewState);
+        _selectionMode = ResolveSelectionMode(_turnViewState, CanInspectRailroadsWhileWaiting);
+        _auctionBidAmount = CurrentAuctionState?.MinimumBid ?? 0;
         _currentUserPlayerIndex = _turnViewState.CurrentUserPlayerIndex;
         _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_game, state, _currentUserId).ToList();
 
@@ -693,7 +902,7 @@
                     Payoff = CalculateTripPayoff(player),
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
-                    IsTestControlled = index == _testControlledPlayerIndex,
+                    IsTestControlled = _isMockPlayerTestModeEnabled && canUseTestControl,
                     CanUseTestControl = canUseTestControl,
                     CanToggleConnection = canUseTestControl,
                     HomeCity = player.HomeCityName,
@@ -901,10 +1110,13 @@ destinationPayoutIndex)
             : 0;
     }
 
-    private static MapSelectionMode ResolveSelectionMode(BoardTurnViewState turnViewState)
+    private static MapSelectionMode ResolveSelectionMode(BoardTurnViewState turnViewState, bool canInspectRailroadsWhileWaiting)
     {
-        return string.Equals(turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
-            && turnViewState.PurchasePhase is { HasActivePurchaseControls: true, RailroadOptions.Count: > 0 }
+        return canInspectRailroadsWhileWaiting
+            || (string.Equals(turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
+                && turnViewState.PurchasePhase is { HasActivePurchaseControls: true, RailroadOptions.Count: > 0 })
+            || (string.Equals(turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase)
+                && turnViewState.ForcedSalePhase is { SaleCandidates.Count: > 0 })
             ? MapSelectionMode.Rail
             : MapSelectionMode.Route;
     }
@@ -1165,10 +1377,18 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool IsAuthenticatedUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer;
 
     private bool IsActivePlayerUnderTestControl => _gameState is not null
-        && _testControlledPlayerIndex >= 0
-        && _testControlledPlayerIndex == _gameState.ActivePlayerIndex;
+        && _isMockPlayerTestModeEnabled
+        && _playerUserIdsByIndex.TryGetValue(_gameState.ActivePlayerIndex, out var activePlayerSlotUserId)
+        && PlayerControlRules.IsBeatlesSlot(activePlayerSlotUserId)
+        && _gameState.Players[_gameState.ActivePlayerIndex].IsActive;
 
     private PurchasePhaseModel? CurrentPurchasePhase => _turnViewState.PurchasePhase;
+
+    private ForcedSalePhaseModel? CurrentForcedSalePhase => _turnViewState.ForcedSalePhase;
+
+    private ForcedSaleAuctionStateModel? CurrentAuctionState => CurrentForcedSalePhase?.AuctionState;
+
+    private ForcedSaleAuctionStateModel CurrentAuctionPanelState => CurrentAuctionState ?? new ForcedSaleAuctionStateModel();
 
     private MapAnalysisReport? CurrentMapAnalysisReport => CurrentPurchasePhase?.MapAnalysisReport ?? _mapAnalysisReport;
 
@@ -1242,6 +1462,14 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool IsMapPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Map;
 
+    private bool IsRegionsPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Regions;
+
+    private bool IsCitiesPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Cities;
+
+    private bool IsRailroadsPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Railroads;
+
+    private bool IsNetworkPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Network;
+
     private string MapAreaClass => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
         ? "map-board-map-area map-board-panel-hidden"
         : "map-board-map-area";
@@ -1250,11 +1478,31 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         ? "map-board-analysis-area map-board-panel-hidden"
         : "map-board-analysis-area";
 
+    private bool ShouldShowPurchaseAnalysisPanel => (IsRegionsPurchaseTabActive || IsCitiesPurchaseTabActive || IsRailroadsPurchaseTabActive)
+        && CurrentMapAnalysisReport is not null;
+
+    private bool CanInspectRailroadsWhileWaiting => !IsCurrentUserActivePlayer
+        && CurrentPurchasePhase is null
+        && CurrentForcedSalePhase is null
+        && _gameState is not null
+        && _playerBoardMapDefinition is not null;
+
     private bool ShouldShowPurchaseTaskbar => CurrentPurchasePhase is { HasActivePurchaseControls: true }
         && IsCurrentUserActivePlayer
         && string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
 
-    private bool ShouldHidePrimaryAction => string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
+    private bool ShouldShowAuctionPanel => CurrentAuctionState is not null
+        && string.Equals(_turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase)
+        && (IsCurrentUserActivePlayer || CanCurrentUserActInAuction);
+
+    private bool ShouldShowForcedSalePanel => CurrentForcedSalePhase is { SaleCandidates.Count: > 0 }
+        && IsCurrentUserActivePlayer
+        && CurrentAuctionState is null
+        && string.Equals(_turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase);
+
+    private bool ShouldShowStatusControls => IsCurrentUserActivePlayer || CanCurrentUserActInAuction;
+
+    private bool ShouldShowCommitMoveAction => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase);
 
     private PurchaseTaskbarState CurrentPurchaseTaskbarState => CurrentPurchasePhase is null
         ? new PurchaseTaskbarState()
@@ -1320,44 +1568,267 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 entry => entry.Key,
                 entry => _players[entry.Value!.Value].Color);
 
-    private IReadOnlyCollection<int> SelectableRailroadIndices => CurrentPurchasePhase?.RailroadOptions.Select(option => option.RailroadIndex).ToArray()
-        ?? Array.Empty<int>();
+    private IReadOnlyCollection<int> SelectableRailroadIndices => _selectionMode == MapSelectionMode.Rail && _playerBoardMapDefinition is not null
+        ? _playerBoardMapDefinition.Railroads.Select(railroad => railroad.Index).ToArray()
+        : Array.Empty<int>();
 
-    private int? SelectedRailroadIndex => CurrentPurchasePhase?.RailroadOptions
-        .FirstOrDefault(option => string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal))
-        ?.RailroadIndex;
+    private int? SelectedRailroadIndex => ParseSelectedRailroadIndex(_selectedPurchaseOptionKey)
+        ?? SelectedForcedSaleCandidate?.RailroadIndex
+        ?? WaitingRailroadOptions
+            .FirstOrDefault(option => string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal))
+            ?.RailroadIndex
+        ?? CurrentPurchasePhase?.RailroadOptions
+            .FirstOrDefault(option => string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal))
+            ?.RailroadIndex;
+
+    private SaleCandidateModel? SelectedForcedSaleCandidate => CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault(candidate =>
+            string.Equals(BuildRailroadOptionKey(candidate.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal))
+        ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == CurrentForcedSalePhase.SelectedRailroadIndex)
+        ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault();
+
+    private bool CanCurrentUserActInAuction => CurrentAuctionActorPlayerIndex.HasValue;
+
+    private int AuctionBidAmount => Math.Max(_auctionBidAmount, CurrentAuctionState?.MinimumBid ?? 0);
+
+    private int? CurrentAuctionActorPlayerIndex => CurrentAuctionState?.CurrentBidderPlayerIndex is int currentBidderPlayerIndex
+        && CanCurrentUserControlPlayer(currentBidderPlayerIndex)
+            ? currentBidderPlayerIndex
+            : null;
+
+    private string SpectatorStatusMessage => CurrentControlledPlayerState is { IsActive: false }
+        ? "You have been eliminated and can only spectate for the rest of this game."
+        : ObserverTurnMessage;
+
+    private RailroadOverlayInfo? CurrentForcedSaleImpact => CurrentForcedSalePhase?.NetworkTab.SelectedRailroadImpact;
+
+    private NetworkTabModel CurrentDisplayNetworkTab
+    {
+        get
+        {
+            if (CurrentForcedSalePhase is not null)
+            {
+                return CurrentForcedSalePhase.NetworkTab;
+            }
+
+            if (_gameState is null || _playerBoardMapDefinition is null)
+            {
+                return new NetworkTabModel();
+            }
+
+            var playerIndex = EffectiveRecommendationPlayerIndex;
+            if (playerIndex < 0 || playerIndex >= _gameState.Players.Count)
+            {
+                return new NetworkTabModel();
+            }
+
+            var player = _gameState.Players[playerIndex];
+            var ownedRailroadIndices = player.OwnedRailroadIndices;
+            if (ownedRailroadIndices.Count == 0)
+            {
+                return new NetworkTabModel { PlayerName = player.Name };
+            }
+
+            var currentCoverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, ownedRailroadIndices);
+            var summaries = _playerBoardMapDefinition.Railroads
+                .Where(railroad => ownedRailroadIndices.Contains(railroad.Index))
+                .OrderBy(railroad => railroad.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(railroad =>
+                {
+                    var purchasePrice = railroad.PurchasePrice ?? RailBaronGameEngine.GetRailroadPurchasePrice(railroad.Index);
+                    var projectedCoverage = NetworkCoverageService.BuildProjectedSnapshotAfterSale(_playerBoardMapDefinition, ownedRailroadIndices, railroad.Index);
+                    return new NetworkRailroadSummaryModel
+                    {
+                        RailroadIndex = railroad.Index,
+                        RailroadName = railroad.Name,
+                        OriginalPurchasePrice = purchasePrice,
+                        AccessPercentWithCurrentOwnership = currentCoverage.AccessibleCityPercent,
+                        MonopolyPercentWithCurrentOwnership = currentCoverage.MonopolyCityPercent,
+                        AccessPercentIfSold = projectedCoverage.AccessibleCityPercent,
+                        MonopolyPercentIfSold = projectedCoverage.MonopolyCityPercent
+                    };
+                })
+                .ToList();
+
+            return new NetworkTabModel
+            {
+                PlayerName = player.Name,
+                RailroadSummaries = summaries
+            };
+        }
+    }
+
+    private bool CanCurrentUserControlPlayer(int playerIndex)
+    {
+        var isPlayerActive = _gameState is not null
+            && playerIndex >= 0
+            && playerIndex < _gameState.Players.Count
+            && _gameState.Players[playerIndex].IsActive;
+
+        var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
+        var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId);
+        var isLocallyTestControlled = _isMockPlayerTestModeEnabled
+            && PlayerControlRules.IsBeatlesSlot(slotUserId);
+
+        return playerIndex >= 0
+            && isPlayerActive
+            && (isDirectlyBound || isLocallyTestControlled);
+    }
+
+    private Boxcars.Engine.Persistence.PlayerState? CurrentControlledPlayerState
+    {
+        get
+        {
+            if (_gameState is null)
+            {
+                return null;
+            }
+
+            if (_currentUserPlayerIndex >= 0 && _currentUserPlayerIndex < _gameState.Players.Count)
+            {
+                return _gameState.Players[_currentUserPlayerIndex];
+            }
+
+            if (_gameState.ActivePlayerIndex >= 0
+                && _gameState.ActivePlayerIndex < _gameState.Players.Count
+                && _isMockPlayerTestModeEnabled
+                && _playerUserIdsByIndex.TryGetValue(_gameState.ActivePlayerIndex, out var activePlayerSlotUserId)
+                && PlayerControlRules.IsBeatlesSlot(activePlayerSlotUserId))
+            {
+                return _gameState.Players[_gameState.ActivePlayerIndex];
+            }
+
+            return null;
+        }
+    }
 
     private RailroadOverlayInfo? SelectedRailroadOverlay
     {
         get
         {
-            if (CurrentPurchasePhase?.CurrentCoverage is null
-                || SelectedRailroadIndex is not int railroadIndex
-                || string.Equals(_selectedPurchaseOptionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
+            if (string.Equals(_selectedPurchaseOptionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
             {
                 return null;
             }
 
-            var railroadOption = CurrentPurchasePhase.RailroadOptions.FirstOrDefault(option => option.RailroadIndex == railroadIndex);
-            if (railroadOption is null)
-            {
-                return null;
-            }
+            var selectedRailroadIndex = SelectedRailroadIndex;
 
-            var projectedCoverage = SelectedProjectedCoverage;
-            if (projectedCoverage is null)
+            return selectedRailroadIndex is int railroadIndex
+                ? BuildSelectedRailroadOverlay(railroadIndex)
+                : null;
+        }
+    }
+
+    private RailroadOverlayInfo? BuildSelectedRailroadOverlay(int railroadIndex)
+    {
+        if (_gameState is null || _playerBoardMapDefinition is null)
+        {
+            return null;
+        }
+
+        var effectivePlayerIndex = EffectiveRecommendationPlayerIndex;
+        if (effectivePlayerIndex < 0 || effectivePlayerIndex >= _gameState.Players.Count)
+        {
+            return null;
+        }
+
+        var effectivePlayer = _gameState.Players[effectivePlayerIndex];
+        var railroad = _playerBoardMapDefinition.Railroads.FirstOrDefault(entry => entry.Index == railroadIndex);
+        if (railroad is null)
+        {
+            return null;
+        }
+
+        var ownedRailroadIndices = effectivePlayer.OwnedRailroadIndices;
+        var currentCoverage = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, ownedRailroadIndices);
+        var purchasePrice = railroad.PurchasePrice ?? RailBaronGameEngine.GetRailroadPurchasePrice(railroad.Index);
+        var bankSalePrice = purchasePrice / 2;
+        var ownerIndex = _gameState.RailroadOwnership.TryGetValue(railroad.Index, out var resolvedOwnerIndex) ? resolvedOwnerIndex : null;
+
+        if (ownerIndex == effectivePlayerIndex)
+        {
+            var projectedCoverage = NetworkCoverageService.BuildProjectedSnapshotAfterSale(_playerBoardMapDefinition, ownedRailroadIndices, railroad.Index);
+            return new RailroadOverlayInfo
             {
-                return null;
-            }
+                RailroadIndex = railroad.Index,
+                RailroadName = railroad.Name,
+                ContextLabel = "Owned by you",
+                ValueLabel = "Bank sale value",
+                PurchasePrice = bankSalePrice,
+                IsAffordable = true,
+                ValueKind = RailroadOverlayValueKind.Sale,
+                MetricRows = BuildOverlayMetricRows(currentCoverage, projectedCoverage, CurrentMapAnalysisReport)
+            };
+        }
+
+        var projectedPurchaseCoverage = NetworkCoverageService.BuildProjectedSnapshot(_playerBoardMapDefinition, ownedRailroadIndices, railroad.Index);
+        if (ownerIndex.HasValue)
+        {
+            var ownerName = ownerIndex.Value >= 0 && ownerIndex.Value < _gameState.Players.Count
+                ? _gameState.Players[ownerIndex.Value].Name
+                : "another player";
+            var canAffordAuctionOpeningBid = effectivePlayer.Cash >= bankSalePrice;
 
             return new RailroadOverlayInfo
             {
-                RailroadIndex = railroadOption.RailroadIndex,
-                RailroadName = railroadOption.RailroadName,
-                PurchasePrice = railroadOption.PurchasePrice,
-                IsAffordable = railroadOption.IsAffordable,
-                MetricRows = BuildOverlayMetricRows(CurrentPurchasePhase.CurrentCoverage, projectedCoverage, CurrentPurchasePhase.MapAnalysisReport)
+                RailroadIndex = railroad.Index,
+                RailroadName = railroad.Name,
+                ContextLabel = $"Owned by {ownerName}",
+                ValueLabel = "Auction opening bid",
+                PurchasePrice = bankSalePrice,
+                IsAffordable = canAffordAuctionOpeningBid,
+                ValueKind = canAffordAuctionOpeningBid ? RailroadOverlayValueKind.Affordable : RailroadOverlayValueKind.TooExpensive,
+                MetricRows = BuildOverlayMetricRows(currentCoverage, projectedPurchaseCoverage, CurrentMapAnalysisReport)
             };
+        }
+
+        var isAffordable = effectivePlayer.Cash >= purchasePrice;
+        return new RailroadOverlayInfo
+        {
+            RailroadIndex = railroad.Index,
+            RailroadName = railroad.Name,
+            ContextLabel = "Unowned railroad",
+            ValueLabel = "Purchase price",
+            PurchasePrice = purchasePrice,
+            IsAffordable = isAffordable,
+            ValueKind = isAffordable ? RailroadOverlayValueKind.Affordable : RailroadOverlayValueKind.TooExpensive,
+            MetricRows = BuildOverlayMetricRows(currentCoverage, projectedPurchaseCoverage, CurrentMapAnalysisReport)
+        };
+    }
+
+    private IReadOnlyList<RailroadPurchaseOption> WaitingRailroadOptions
+    {
+        get
+        {
+            if (_gameState is null || _playerBoardMapDefinition is null)
+            {
+                return [];
+            }
+
+            var effectivePlayerIndex = EffectiveRecommendationPlayerIndex;
+            if (effectivePlayerIndex < 0 || effectivePlayerIndex >= _gameState.Players.Count)
+            {
+                return [];
+            }
+
+            var cashAvailable = _gameState.Players[effectivePlayerIndex].Cash;
+            return _playerBoardMapDefinition.Railroads
+                .Where(railroad => !_gameState.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
+                .Select(railroad =>
+                {
+                    var purchasePrice = railroad.PurchasePrice ?? RailBaronGameEngine.GetRailroadPurchasePrice(railroad.Index);
+                    return new RailroadPurchaseOption
+                    {
+                        RailroadIndex = railroad.Index,
+                        RailroadName = railroad.Name,
+                        ShortName = railroad.ShortName ?? string.Empty,
+                        PurchasePrice = purchasePrice,
+                        IsAffordable = cashAvailable >= purchasePrice,
+                        IsSelected = string.Equals(BuildRailroadOptionKey(railroad.Index), _selectedPurchaseOptionKey, StringComparison.Ordinal)
+                    };
+                })
+                .OrderByDescending(option => option.PurchasePrice)
+                .ThenBy(option => option.RailroadName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
     }
 
@@ -1457,6 +1928,38 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
     }
 
+    private static int? ParseSelectedRailroadIndex(string? optionKey)
+    {
+        if (string.IsNullOrWhiteSpace(optionKey) || !optionKey.StartsWith("railroad:", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return int.TryParse(optionKey["railroad:".Length..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var railroadIndex)
+            ? railroadIndex
+            : null;
+    }
+
+    private Task OnForcedSaleRailroadChangedAsync(int? railroadIndex)
+    {
+        _selectedPurchaseOptionKey = railroadIndex.HasValue
+            ? BuildRailroadOptionKey(railroadIndex.Value)
+            : null;
+        _dismissedRailroadOverlayOptionKey = null;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<bool> ConfirmForcedSaleActionAsync(string title, string message)
+    {
+        var result = await DialogService.ShowMessageBox(
+            title,
+            message,
+            yesText: "Yes",
+            noText: "No");
+
+        return result == true;
+    }
+
     private Task DismissSelectedRailroadOverlayAsync()
     {
         if (SelectedRailroadIndex is int)
@@ -1520,18 +2023,22 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private void SyncPurchaseSelection()
     {
-        if (CurrentPurchasePhase is null)
+        if (CurrentPurchasePhase is null && CurrentForcedSalePhase is null)
         {
-            _selectedPurchaseTab = PurchaseExperienceTab.Map;
             _dismissedRailroadOverlayOptionKey = null;
             _selectedRailroadOverlayClientX = null;
             _selectedRailroadOverlayClientY = null;
         }
 
-        if (CurrentPurchasePhase?.TaskbarOptions.Count > 0)
+        var availableRailroadOptionKeys = (CurrentForcedSalePhase?.SaleCandidates ?? [])
+            .Select(candidate => BuildRailroadOptionKey(candidate.RailroadIndex))
+            .Concat((CurrentPurchasePhase?.TaskbarOptions ?? []).Select(option => option.OptionKey))
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (availableRailroadOptionKeys.Count > 0)
         {
             if (!string.IsNullOrWhiteSpace(_selectedPurchaseOptionKey)
-                && !CurrentPurchasePhase.TaskbarOptions.Any(option => string.Equals(option.OptionKey, _selectedPurchaseOptionKey, StringComparison.Ordinal)))
+                && !availableRailroadOptionKeys.Contains(_selectedPurchaseOptionKey))
             {
                 _selectedPurchaseOptionKey = null;
                 _dismissedRailroadOverlayOptionKey = null;
@@ -1858,32 +2365,36 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         };
     }
 
-    private Task OnToggleTestPlayerAsync(int playerIndex)
+    private async Task OnToggleTestModeAsync()
     {
-        var selectedPlayer = _players.FirstOrDefault(player => player.Index == playerIndex);
-        if (selectedPlayer is null || !selectedPlayer.CanUseTestControl)
+        var hasAnyMockPlayers = _players.Any(player => player.CanUseTestControl);
+        if (!hasAnyMockPlayers)
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        if (_testControlledPlayerIndex == playerIndex)
+        _isMockPlayerTestModeEnabled = !_isMockPlayerTestModeEnabled;
+
+        if (_isMockPlayerTestModeEnabled)
         {
-            _testControlledPlayerIndex = -1;
-            Snackbar.Add($"Stopped local test control for {selectedPlayer.Name}.", Severity.Info);
+            Snackbar.Add("Enabled local test mode for all mock players.", Severity.Info);
         }
         else
         {
-            _testControlledPlayerIndex = playerIndex;
-            Snackbar.Add($"Enabled local test control for {selectedPlayer.Name}.", Severity.Info);
+            Snackbar.Add("Stopped local test mode for mock players.", Severity.Info);
         }
 
         if (_gameState is not null)
         {
             ApplyGameState(_gameState);
+            if (_isMockPlayerTestModeEnabled)
+            {
+                _lastAutoSuggestKey = null;
+                await AutoSuggestRouteIfNeededAsync();
+            }
+
             StateHasChanged();
         }
-
-        return Task.CompletedTask;
     }
 
     private Task OnTogglePlayerConnectionAsync(int playerIndex)

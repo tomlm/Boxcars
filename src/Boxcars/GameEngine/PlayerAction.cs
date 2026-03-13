@@ -11,6 +11,8 @@ public enum PlayerActionKind
     PurchaseRailroad,
     StartAuction,
     Bid,
+    AuctionPass,
+    AuctionDropOut,
     SellRailroad,
     BuyEngine,
     DeclinePurchase,
@@ -71,6 +73,18 @@ public sealed record BidAction : PlayerAction
     public required int RailroadIndex { get; init; }
     public required int AmountBid { get; init; }
     public override PlayerActionKind Kind => PlayerActionKind.Bid;
+}
+
+public sealed record AuctionPassAction : PlayerAction
+{
+    public required int RailroadIndex { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.AuctionPass;
+}
+
+public sealed record AuctionDropOutAction : PlayerAction
+{
+    public required int RailroadIndex { get; init; }
+    public override PlayerActionKind Kind => PlayerActionKind.AuctionDropOut;
 }
 
 public sealed record SellRailroadAction : PlayerAction
