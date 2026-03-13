@@ -1,0 +1,83 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<div class="forced-sale-panel-scope">
+    <MudPaper Class="forced-sale-panel pa-3" Outlined="true">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.h3">Forced sale required</MudText>
+            <MudText Typo="Typo.body2">@SummaryLine</MudText>
+            <MudText Typo="Typo.body2">Shortfall: @FormatCurrency(Phase.FeeShortfall)</MudText>
+            <MudSelect T="int?"
+                       Value="SelectedRailroadIndex"
+                       ValueChanged="OnSelectedRailroadIndexChangedAsync"
+                       Label="Railroad to liquidate"
+                       Dense="true">
+                @foreach (var candidate in Phase.SaleCandidates)
+                {
+                    <MudSelectItem T="int?" Value="@candidate.RailroadIndex">@candidate.RailroadName (@FormatCurrency(candidate.BankSalePrice) bank value)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Error"
+                           Disabled="@(!CanSellToBank)"
+                           OnClick="OnSellToBankRequestedAsync">
+                    Sell To Bank
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="MudBlazor.Color.Primary"
+                           Disabled="@(!CanStartAuction)"
+                           OnClick="OnStartAuctionRequestedAsync">
+                    Auction
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+</div>
+
+@code {
+    [Parameter]
+    public required ForcedSalePhaseModel Phase { get; set; }
+
+    [Parameter]
+    public int? SelectedRailroadIndex { get; set; }
+
+    [Parameter]
+    public EventCallback<int?> SelectedRailroadIndexChanged { get; set; }
+
+    [Parameter]
+    public EventCallback SellToBankRequested { get; set; }
+
+    [Parameter]
+    public EventCallback StartAuctionRequested { get; set; }
+
+    private SaleCandidateModel? SelectedCandidate => Phase.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == SelectedRailroadIndex)
+        ?? Phase.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == Phase.SelectedRailroadIndex)
+        ?? Phase.SaleCandidates.FirstOrDefault();
+
+    private bool CanSellToBank => Phase.CanSellToBank && SelectedCandidate is not null;
+
+    private bool CanStartAuction => Phase.CanStartAuction && SelectedCandidate is not null;
+
+    private string SummaryLine => $"{Phase.PlayerName} owes {FormatCurrency(Phase.AmountOwed)} and has {FormatCurrency(Phase.CashOnHand)}.";
+
+    private async Task OnSelectedRailroadIndexChangedAsync(int? railroadIndex)
+    {
+        await SelectedRailroadIndexChanged.InvokeAsync(railroadIndex);
+    }
+
+    private async Task OnSellToBankRequestedAsync()
+    {
+        await SellToBankRequested.InvokeAsync();
+    }
+
+    private async Task OnStartAuctionRequestedAsync()
+    {
+        await StartAuctionRequested.InvokeAsync();
+    }
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+}

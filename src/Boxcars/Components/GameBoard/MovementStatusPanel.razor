@@ -1,8 +1,8 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="turn-status-panel">
-    @if (!IsPurchasePhase && !SuppressRollAndFeeDetails)
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
+    @if (!IsPurchasePhase)
     {
         @if (IsBonusMove)
         {
@@ -19,7 +19,7 @@
     {
         <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
     }
-    @if (!IsPurchasePhase && !SuppressRollAndFeeDetails)
+    @if (!IsPurchasePhase)
     {
         <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
     }
@@ -29,13 +29,8 @@
     [Parameter]
     public BoardTurnViewState State { get; set; } = new();
 
-    [Parameter]
-    public bool SuppressRollAndFeeDetails { get; set; }
-
     private bool IsPurchasePhase => string.Equals(State.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
     private bool IsBonusMove => State.RedDie.HasValue && State.WhiteDieOne <= 0 && State.WhiteDieTwo <= 0;
-
-    private string DisplayPhase => string.IsNullOrWhiteSpace(State.TurnPhase) ? "Unknown" : State.TurnPhase;
 
     private static string FormatCurrency(int value)
     {

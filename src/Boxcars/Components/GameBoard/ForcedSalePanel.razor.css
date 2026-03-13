@@ -1,0 +1,10 @@
+.forced-sale-panel {
+    min-width: 22rem;
+}
+
+@media (max-width: 960px) {
+    .forced-sale-panel {
+        min-width: 0;
+        width: 100%;
+    }
+}

@@ -150,7 +150,7 @@
                 <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
                     @if (!ShouldShowAuctionPanel && !ShouldShowForcedSalePanel)
                     {
-                        <TurnStatusPanel State="@_turnViewState" />
+                        <MovementStatusPanel State="@_turnViewState" />
                     }
 
                     @if (ShouldShowPurchaseTaskbar)
@@ -176,46 +176,20 @@
                     }
                     else if (ShouldShowForcedSalePanel)
                     {
-                        <MudPaper Class="map-board-forced-sale-panel pa-3" Outlined="true">
-                            <MudStack Spacing="1">
-                                <MudText Typo="Typo.h3">Forced sale required</MudText>
-                                <MudText Typo="Typo.body2">@ForcedSaleSummaryLine</MudText>
-                                <MudText Typo="Typo.body2">Shortfall: @FormatFee(CurrentForcedSalePhase?.FeeShortfall ?? 0)</MudText>
-                                <MudSelect T="int?"
-                                           Value="@ForcedSaleSelectedRailroadIndex"
-                                           ValueChanged="OnForcedSaleRailroadChangedAsync"
-                                           Label="Railroad to liquidate"
-                                           Dense="true">
-                                    @foreach (var candidate in CurrentForcedSalePhase?.SaleCandidates ?? [])
-                                    {
-                                        <MudSelectItem T="int?" Value="@candidate.RailroadIndex">@candidate.RailroadName (@FormatFee(candidate.BankSalePrice) bank value)</MudSelectItem>
-                                    }
-                                </MudSelect>
-                                <MudStack Row="true" Spacing="2">
-                                    <MudButton Variant="Variant.Filled"
-                                               Color="MudBlazor.Color.Error"
-                                               Disabled="@(!CanSellSelectedRailroadToBank)"
-                                               OnClick="OnSellRailroadToBankAsync">
-                                        Sell To Bank
-                                    </MudButton>
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="MudBlazor.Color.Primary"
-                                               Disabled="@(!CanStartAuctionForSelectedRailroad)"
-                                               OnClick="OnStartAuctionAsync">
-                                        Auction
-                                    </MudButton>
-                                </MudStack>
-                            </MudStack>
-                        </MudPaper>
+                        <ForcedSalePanel Phase="CurrentForcedSalePhase!"
+                                         SelectedRailroadIndex="@SelectedForcedSaleCandidate?.RailroadIndex"
+                                         SelectedRailroadIndexChanged="OnForcedSaleRailroadChangedAsync"
+                                         SellToBankRequested="OnSellRailroadToBankAsync"
+                                         StartAuctionRequested="OnStartAuctionAsync" />
                     }
-                    else if (!ShouldHidePrimaryAction)
+                    else if (ShouldShowCommitMoveAction)
                     {
                         <MudButton Variant="Variant.Filled"
                                    Color="MudBlazor.Color.Primary"
-                                   Disabled="@(!CanPrimaryGameAction)"
-                                   OnClick="OnPrimaryGameActionAsync"
+                                   Disabled="@(!CanCommitMoveAction)"
+                                   OnClick="OnCommitMoveActionAsync"
                                    Class="map-board-primary-action">
-                            @PrimaryGameActionLabel
+                            @CommitMoveActionLabel
                         </MudButton>
                     }
                 </MudStack>
@@ -341,34 +315,21 @@
         Navigation.NavigateTo("/dashboard");
     }
 
-    private string PrimaryGameActionLabel => _turnViewState.TurnPhase switch
-    {
-        "DrawDestination" => "AUTOMATIC",
-        "Roll" => "AUTOMATIC",
-        "Move" => IsPendingBonusMove ? "MOVE BONUS" : "MOVE",
-        "EndTurn" => "AUTOMATIC",
-        _ => "TURN ACTION"
-    };
+    private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
-    private bool CanPrimaryGameAction => !string.IsNullOrWhiteSpace(GameId)
+    private bool CanCommitMoveAction => !string.IsNullOrWhiteSpace(GameId)
         && _gameState is not null
         && !_awaitingAuthoritativeUpdate
         && IsCurrentUserActivePlayer
-        && _turnViewState.TurnPhase switch
-        {
-            "DrawDestination" => false,
-            "Roll" => false,
-            "Move" => CurrentRouteMoveCount > 0 && CanCommitMoveSelection(),
-            "Purchase" => false,
-            "EndTurn" => false,
-            _ => false
-        };
+        && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+        && CurrentRouteMoveCount > 0
+        && CanCommitMoveSelection();
 
     private string ObserverTurnMessage => string.IsNullOrWhiteSpace(_turnViewState.ActivePlayerName)
         ? "Waiting for the active player to complete their turn."
         : $"Waiting for {_turnViewState.ActivePlayerName} to complete their turn.";
 
-    private async Task OnPrimaryGameActionAsync()
+    private async Task OnCommitMoveActionAsync()
     {
         if (string.IsNullOrWhiteSpace(GameId) || _gameState is null || _gameState.Players.Count == 0)
         {
@@ -380,20 +341,12 @@
             return;
         }
 
-        switch (_turnViewState.TurnPhase)
+        if (!string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
         {
-            case "DrawDestination":
-            case "Roll":
-            case "EndTurn":
-                return;
-
-            case "Move":
-                await CommitMovePhaseAsync();
-                break;
-
-            case "Purchase":
-                return;
+            return;
         }
+
+        await CommitMovePhaseAsync();
     }
 
     private async Task OnSelectedPurchaseOptionChangedAsync(string? optionKey)
@@ -1549,8 +1502,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool ShouldShowStatusControls => IsCurrentUserActivePlayer || CanCurrentUserActInAuction;
 
-    private bool ShouldHidePrimaryAction => string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(_turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase);
+    private bool ShouldShowCommitMoveAction => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase);
 
     private PurchaseTaskbarState CurrentPurchaseTaskbarState => CurrentPurchasePhase is null
         ? new PurchaseTaskbarState()
@@ -1634,12 +1586,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == CurrentForcedSalePhase.SelectedRailroadIndex)
         ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault();
 
-    private int? ForcedSaleSelectedRailroadIndex => SelectedForcedSaleCandidate?.RailroadIndex;
-
-    private bool CanSellSelectedRailroadToBank => CurrentForcedSalePhase?.CanSellToBank == true && SelectedForcedSaleCandidate is not null;
-
-    private bool CanStartAuctionForSelectedRailroad => CurrentForcedSalePhase?.CanStartAuction == true && SelectedForcedSaleCandidate is not null;
-
     private bool CanCurrentUserActInAuction => CurrentAuctionActorPlayerIndex.HasValue;
 
     private int AuctionBidAmount => Math.Max(_auctionBidAmount, CurrentAuctionState?.MinimumBid ?? 0);
@@ -1648,10 +1594,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         && CanCurrentUserControlPlayer(currentBidderPlayerIndex)
             ? currentBidderPlayerIndex
             : null;
-
-    private string ForcedSaleSummaryLine => CurrentForcedSalePhase is null
-        ? string.Empty
-        : $"{CurrentForcedSalePhase.PlayerName} owes {FormatFee(CurrentForcedSalePhase.AmountOwed)} and has {FormatFee(CurrentForcedSalePhase.CashOnHand)}.";
 
     private string SpectatorStatusMessage => CurrentControlledPlayerState is { IsActive: false }
         ? "You have been eliminated and can only spectate for the rest of this game."
