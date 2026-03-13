@@ -866,9 +866,10 @@
             {
                 var selection = index < playerSelections.Count ? playerSelections[index] : null;
                 var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
-                var canUseTestControl = PlayerControlRules.IsBeatlesSlot(resolvedUserId);
+                var isConnected = IsPlayerConnected(resolvedUserId);
+                var canUseTestControl = PlayerControlRules.CanUseLocalTestControl(resolvedUserId, isConnected);
 
-                if (canUseTestControl && !string.IsNullOrWhiteSpace(resolvedUserId))
+                if (PlayerControlRules.IsBeatlesSlot(resolvedUserId) && !string.IsNullOrWhiteSpace(resolvedUserId))
                 {
                     GamePresenceService.EnsureMockConnectionState(GameId, resolvedUserId, defaultConnected: true);
                 }
@@ -904,10 +905,10 @@
                     IsCurrentUser = isCurrentUser,
                     IsTestControlled = _isMockPlayerTestModeEnabled && canUseTestControl,
                     CanUseTestControl = canUseTestControl,
-                    CanToggleConnection = canUseTestControl,
+                    CanToggleConnection = PlayerControlRules.IsBeatlesSlot(resolvedUserId),
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
-                    IsConnected = IsPlayerConnected(resolvedUserId),
+                    IsConnected = isConnected,
                     LocomotiveLabel = player.LocomotiveType,
                     BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
                     FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index) : 0,
@@ -1379,7 +1380,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool IsActivePlayerUnderTestControl => _gameState is not null
         && _isMockPlayerTestModeEnabled
         && _playerUserIdsByIndex.TryGetValue(_gameState.ActivePlayerIndex, out var activePlayerSlotUserId)
-        && PlayerControlRules.IsBeatlesSlot(activePlayerSlotUserId)
+        && PlayerControlRules.CanUseLocalTestControl(activePlayerSlotUserId, IsPlayerConnected(activePlayerSlotUserId))
         && _gameState.Players[_gameState.ActivePlayerIndex].IsActive;
 
     private PurchasePhaseModel? CurrentPurchasePhase => _turnViewState.PurchasePhase;
@@ -1667,7 +1668,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
         var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId);
         var isLocallyTestControlled = _isMockPlayerTestModeEnabled
-            && PlayerControlRules.IsBeatlesSlot(slotUserId);
+            && PlayerControlRules.CanUseLocalTestControl(slotUserId, IsPlayerConnected(slotUserId));
 
         return playerIndex >= 0
             && isPlayerActive
@@ -1692,7 +1693,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 && _gameState.ActivePlayerIndex < _gameState.Players.Count
                 && _isMockPlayerTestModeEnabled
                 && _playerUserIdsByIndex.TryGetValue(_gameState.ActivePlayerIndex, out var activePlayerSlotUserId)
-                && PlayerControlRules.IsBeatlesSlot(activePlayerSlotUserId))
+                && PlayerControlRules.CanUseLocalTestControl(activePlayerSlotUserId, IsPlayerConnected(activePlayerSlotUserId)))
             {
                 return _gameState.Players[_gameState.ActivePlayerIndex];
             }
@@ -2377,11 +2378,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         if (_isMockPlayerTestModeEnabled)
         {
-            Snackbar.Add("Enabled local test mode for all mock players.", Severity.Info);
+            Snackbar.Add("Enabled local test mode for eligible mock or disconnected players.", Severity.Info);
         }
         else
         {
-            Snackbar.Add("Stopped local test mode for mock players.", Severity.Info);
+            Snackbar.Add("Stopped local test mode for eligible mock or disconnected players.", Severity.Info);
         }
 
         if (_gameState is not null)

@@ -30,6 +30,11 @@ public static class PlayerControlRules
             || IsBeatlesSlot(slotUserId);
     }
 
+    public static bool CanUseLocalTestControl(string? slotUserId, bool isConnected)
+    {
+        return IsBeatlesSlot(slotUserId) || !isConnected;
+    }
+
     public static bool IsBeatlesSlot(string? slotUserId)
     {
         return !string.IsNullOrWhiteSpace(slotUserId)
