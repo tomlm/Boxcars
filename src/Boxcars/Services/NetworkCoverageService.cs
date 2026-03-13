@@ -64,6 +64,16 @@ public sealed class NetworkCoverageService
         return BuildSnapshot(mapDefinition, projectedOwnedIndices);
     }
 
+    public NetworkCoverageSnapshot BuildProjectedSnapshotAfterSale(MapDefinition mapDefinition, IEnumerable<int> ownedRailroadIndices, int railroadIndex)
+    {
+        ArgumentNullException.ThrowIfNull(mapDefinition);
+        ArgumentNullException.ThrowIfNull(ownedRailroadIndices);
+
+        var projectedOwnedIndices = ownedRailroadIndices.ToHashSet();
+        projectedOwnedIndices.Remove(railroadIndex);
+        return BuildSnapshot(mapDefinition, projectedOwnedIndices);
+    }
+
     public RailroadOverlayInfo BuildRailroadOverlayInfo(
         MapDefinition mapDefinition,
         IEnumerable<int> ownedRailroadIndices,
@@ -78,8 +88,10 @@ public sealed class NetworkCoverageService
         {
             RailroadIndex = railroadOption.RailroadIndex,
             RailroadName = railroadOption.RailroadName,
+            ValueLabel = "Purchase price",
             PurchasePrice = railroadOption.PurchasePrice,
             IsAffordable = railroadOption.IsAffordable,
+            ValueKind = railroadOption.IsAffordable ? RailroadOverlayValueKind.Affordable : RailroadOverlayValueKind.TooExpensive,
             MetricRows = BuildOverlayMetricRows(currentCoverage, projectedCoverage, mapDefinition)
         };
     }

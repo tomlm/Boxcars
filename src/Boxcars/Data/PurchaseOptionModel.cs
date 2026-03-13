@@ -61,11 +61,24 @@ public sealed class RailroadOverlayInfo
 
     public string RailroadName { get; init; } = string.Empty;
 
+    public string ContextLabel { get; init; } = string.Empty;
+
+    public string ValueLabel { get; init; } = "Price";
+
     public int PurchasePrice { get; init; }
 
     public bool IsAffordable { get; init; } = true;
 
+    public RailroadOverlayValueKind ValueKind { get; init; } = RailroadOverlayValueKind.Affordable;
+
     public IReadOnlyList<RailroadOverlayMetricRow> MetricRows { get; init; } = [];
+}
+
+public enum RailroadOverlayValueKind
+{
+    Affordable,
+    TooExpensive,
+    Sale
 }
 
 public sealed class RailroadOverlayMetricRow

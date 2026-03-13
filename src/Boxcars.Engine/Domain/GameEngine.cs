@@ -12,6 +12,8 @@ namespace Boxcars.Engine.Domain;
 /// </summary>
 public sealed class GameEngine : ObservableBase
 {
+    public const int AuctionBidIncrement = 250;
+
     private GameStatus _gameStatus;
     private Turn _currentTurn = null!;
     private bool _allRailroadsSold;
@@ -532,7 +534,208 @@ public sealed class GameEngine : ObservableBase
             throw new InvalidOperationException("Player does not own this railroad.");
 
         var eligibleBidders = Players.Where(p => p.IsActive && p != CurrentTurn.ActivePlayer).ToList();
-        AuctionStarted?.Invoke(this, new AuctionStartedEventArgs(railroad, eligibleBidders));
+        int startingPrice = railroad.PurchasePrice / 2;
+        var orderedParticipants = eligibleBidders
+            .OrderBy(player => (player.Index - CurrentTurn.ActivePlayer.Index + Players.Count) % Players.Count)
+            .Select(player => new AuctionParticipant
+            {
+                PlayerIndex = player.Index,
+                PlayerName = player.Name,
+                CashOnHand = player.Cash,
+                LastBidAmount = null,
+                IsEligible = player.Cash >= startingPrice,
+                HasDroppedOut = player.Cash < startingPrice,
+                HasPassedThisRound = false,
+                LastAction = player.Cash >= startingPrice
+                    ? AuctionParticipantAction.None
+                    : AuctionParticipantAction.AutoDropOut
+            })
+            .ToList();
+
+        orderedParticipants = UpdateAuctionParticipantAffordability(orderedParticipants, startingPrice, leaderPlayerIndex: null);
+
+        CurrentTurn.SelectedRailroadForSaleIndex = railroad.Index;
+        CurrentTurn.AuctionState = new AuctionState
+        {
+            RailroadIndex = railroad.Index,
+            RailroadName = railroad.Name,
+            SellerPlayerIndex = CurrentTurn.ActivePlayer.Index,
+            SellerPlayerName = CurrentTurn.ActivePlayer.Name,
+            StartingPrice = startingPrice,
+            CurrentBid = 0,
+            LastBidderPlayerIndex = null,
+            CurrentBidderPlayerIndex = GetNextOpenParticipantIndex(orderedParticipants, CurrentTurn.ActivePlayer.Index),
+            RoundNumber = 1,
+            ConsecutiveNoBidTurnCount = 0,
+            Status = AuctionStatus.Open,
+            Participants = orderedParticipants
+        };
+
+        if (!orderedParticipants.Any(participant => participant.IsEligible && !participant.HasDroppedOut))
+        {
+            CompleteAuctionWithBankFallback(railroad);
+            return;
+        }
+
+        AuctionStarted?.Invoke(this, new AuctionStartedEventArgs(
+            railroad,
+            eligibleBidders.Where(player => player.Cash >= startingPrice).ToList()));
+    }
+
+    public void SubmitAuctionBid(Railroad railroad, Player bidder, int winningBid)
+    {
+        EnsureInProgress();
+        ArgumentNullException.ThrowIfNull(railroad);
+        ArgumentNullException.ThrowIfNull(bidder);
+
+        var auctionState = RequireOpenAuctionState(railroad);
+        RequireCurrentAuctionParticipant(auctionState, bidder);
+
+        if (winningBid > bidder.Cash)
+        {
+            DropOutOfAuction(railroad, bidder, automatic: true);
+            return;
+        }
+
+        int requiredBid = auctionState.CurrentBid > 0
+            ? auctionState.CurrentBid + AuctionBidIncrement
+            : auctionState.StartingPrice;
+        if (winningBid < requiredBid)
+            throw new InvalidOperationException($"Bid must be at least {requiredBid}.");
+
+        var updatedParticipants = auctionState.Participants
+            .Select(participant => new AuctionParticipant
+            {
+                PlayerIndex = participant.PlayerIndex,
+                PlayerName = participant.PlayerName,
+                CashOnHand = Players[participant.PlayerIndex].Cash,
+                LastBidAmount = participant.PlayerIndex == bidder.Index ? winningBid : participant.LastBidAmount,
+                IsEligible = participant.IsEligible,
+                HasDroppedOut = participant.HasDroppedOut,
+                HasPassedThisRound = false,
+                LastAction = participant.PlayerIndex == bidder.Index ? AuctionParticipantAction.Bid : AuctionParticipantAction.None
+            })
+            .ToList();
+
+        updatedParticipants = UpdateAuctionParticipantAffordability(
+            updatedParticipants,
+            winningBid + AuctionBidIncrement,
+            bidder.Index);
+
+        var updatedAuctionState = new AuctionState
+        {
+            RailroadIndex = auctionState.RailroadIndex,
+            RailroadName = auctionState.RailroadName,
+            SellerPlayerIndex = auctionState.SellerPlayerIndex,
+            SellerPlayerName = auctionState.SellerPlayerName,
+            StartingPrice = auctionState.StartingPrice,
+            CurrentBid = winningBid,
+            LastBidderPlayerIndex = bidder.Index,
+            CurrentBidderPlayerIndex = GetNextOpenParticipantIndex(updatedParticipants, bidder.Index),
+            RoundNumber = auctionState.RoundNumber,
+            ConsecutiveNoBidTurnCount = 0,
+            Status = AuctionStatus.Open,
+            Participants = updatedParticipants
+        };
+
+        CurrentTurn.AuctionState = updatedAuctionState;
+        EvaluateAuctionCompletion(railroad);
+    }
+
+    public void PassAuctionTurn(Railroad railroad, Player player)
+    {
+        EnsureInProgress();
+        ArgumentNullException.ThrowIfNull(railroad);
+        ArgumentNullException.ThrowIfNull(player);
+
+        var auctionState = RequireOpenAuctionState(railroad);
+        RequireCurrentAuctionParticipant(auctionState, player);
+
+        var updatedParticipants = auctionState.Participants
+            .Select(participant => new AuctionParticipant
+            {
+                PlayerIndex = participant.PlayerIndex,
+                PlayerName = participant.PlayerName,
+                CashOnHand = Players[participant.PlayerIndex].Cash,
+                LastBidAmount = participant.LastBidAmount,
+                IsEligible = participant.IsEligible,
+                HasDroppedOut = participant.HasDroppedOut,
+                HasPassedThisRound = participant.PlayerIndex == player.Index || participant.HasPassedThisRound,
+                LastAction = participant.PlayerIndex == player.Index ? AuctionParticipantAction.Pass : participant.LastAction
+            })
+            .ToList();
+
+        updatedParticipants = UpdateAuctionParticipantAffordability(
+            updatedParticipants,
+            auctionState.CurrentBid > 0 ? auctionState.CurrentBid + AuctionBidIncrement : auctionState.StartingPrice,
+            auctionState.LastBidderPlayerIndex);
+
+        CurrentTurn.AuctionState = new AuctionState
+        {
+            RailroadIndex = auctionState.RailroadIndex,
+            RailroadName = auctionState.RailroadName,
+            SellerPlayerIndex = auctionState.SellerPlayerIndex,
+            SellerPlayerName = auctionState.SellerPlayerName,
+            StartingPrice = auctionState.StartingPrice,
+            CurrentBid = auctionState.CurrentBid,
+            LastBidderPlayerIndex = auctionState.LastBidderPlayerIndex,
+            CurrentBidderPlayerIndex = GetNextOpenParticipantIndex(updatedParticipants, player.Index),
+            RoundNumber = auctionState.RoundNumber,
+            ConsecutiveNoBidTurnCount = auctionState.ConsecutiveNoBidTurnCount + 1,
+            Status = AuctionStatus.Open,
+            Participants = updatedParticipants
+        };
+
+        EvaluateAuctionCompletion(railroad);
+    }
+
+    public void DropOutOfAuction(Railroad railroad, Player player, bool automatic = false)
+    {
+        EnsureInProgress();
+        ArgumentNullException.ThrowIfNull(railroad);
+        ArgumentNullException.ThrowIfNull(player);
+
+        var auctionState = RequireOpenAuctionState(railroad);
+        RequireCurrentAuctionParticipant(auctionState, player);
+
+        var updatedParticipants = auctionState.Participants
+            .Select(participant => new AuctionParticipant
+            {
+                PlayerIndex = participant.PlayerIndex,
+                PlayerName = participant.PlayerName,
+                CashOnHand = Players[participant.PlayerIndex].Cash,
+                LastBidAmount = participant.LastBidAmount,
+                IsEligible = participant.IsEligible,
+                HasDroppedOut = participant.PlayerIndex == player.Index || participant.HasDroppedOut,
+                HasPassedThisRound = participant.HasPassedThisRound,
+                LastAction = participant.PlayerIndex == player.Index
+                    ? (automatic ? AuctionParticipantAction.AutoDropOut : AuctionParticipantAction.DropOut)
+                    : participant.LastAction
+            })
+            .ToList();
+
+                updatedParticipants = UpdateAuctionParticipantAffordability(
+                    updatedParticipants,
+                    auctionState.CurrentBid > 0 ? auctionState.CurrentBid + AuctionBidIncrement : auctionState.StartingPrice,
+                    auctionState.LastBidderPlayerIndex);
+
+        CurrentTurn.AuctionState = new AuctionState
+        {
+            RailroadIndex = auctionState.RailroadIndex,
+            RailroadName = auctionState.RailroadName,
+            SellerPlayerIndex = auctionState.SellerPlayerIndex,
+            SellerPlayerName = auctionState.SellerPlayerName,
+            StartingPrice = auctionState.StartingPrice,
+            CurrentBid = auctionState.CurrentBid,
+            LastBidderPlayerIndex = auctionState.LastBidderPlayerIndex,
+            CurrentBidderPlayerIndex = GetNextOpenParticipantIndex(updatedParticipants, player.Index),
+            RoundNumber = auctionState.RoundNumber,
+            ConsecutiveNoBidTurnCount = auctionState.ConsecutiveNoBidTurnCount + 1,
+            Status = AuctionStatus.Open,
+            Participants = updatedParticipants
+        };
+
+        EvaluateAuctionCompletion(railroad);
     }
 
     /// <summary>
@@ -577,6 +780,69 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
+    /// Sells an owned railroad directly to the bank during forced fee resolution.
+    /// </summary>
+    public void SellRailroadToBank(Railroad railroad)
+    {
+        EnsureInProgress();
+        ArgumentNullException.ThrowIfNull(railroad);
+
+        if (CurrentTurn.Phase != TurnPhase.UseFees)
+            throw new InvalidOperationException("Railroads can only be sold to the bank during UseFees.");
+
+        if (CurrentTurn.ForcedSaleState is null && CurrentTurn.PendingFeeAmount <= 0)
+            throw new InvalidOperationException("A railroad can only be sold to the bank during forced sale.");
+
+        var player = CurrentTurn.ActivePlayer;
+        if (railroad.Owner != player)
+            throw new InvalidOperationException("Player does not own this railroad.");
+
+        int salePrice = railroad.PurchasePrice / 2;
+
+        player.Cash += salePrice;
+        player.OwnedRailroads.Remove(railroad);
+        railroad.Owner = null;
+
+        UpdateGrandfatheringForOwnershipChange(railroad.Index, newOwner: null);
+        CheckAllRailroadsSold();
+
+        var amountOwed = CurrentTurn.PendingFeeAmount > 0
+            ? CurrentTurn.PendingFeeAmount
+            : CalculatePendingFeeAmount(player);
+        var previousSalesCompletedCount = CurrentTurn.ForcedSaleState?.SalesCompletedCount ?? 0;
+
+        CurrentTurn.AuctionState = null;
+        CurrentTurn.SelectedRailroadForSaleIndex = player.OwnedRailroads
+            .OrderBy(ownedRailroad => ownedRailroad.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(ownedRailroad => (int?)ownedRailroad.Index)
+            .FirstOrDefault();
+        CurrentTurn.ForcedSaleState = new ForcedSaleState
+        {
+            AmountOwed = amountOwed,
+            CashBeforeFees = CurrentTurn.ForcedSaleState?.CashBeforeFees ?? player.Cash - salePrice,
+            CashAfterLastSale = player.Cash,
+            SalesCompletedCount = previousSalesCompletedCount + 1,
+            CanPayNow = player.Cash >= amountOwed,
+            EliminationTriggered = false
+        };
+
+        if (player.Cash >= amountOwed)
+        {
+            ResolveUseFees();
+            return;
+        }
+
+        if (player.OwnedRailroads.Count == 0)
+        {
+            EliminatePlayerForUnpaidFees(
+                player,
+                amountOwed,
+                CurrentTurn.ForcedSaleState.CashBeforeFees,
+                CurrentTurn.ForcedSaleState.SalesCompletedCount);
+        }
+    }
+
+    /// <summary>
     /// Skips purchase opportunity and advances to fee resolution.
     /// </summary>
     public void DeclinePurchase()
@@ -607,6 +873,7 @@ public sealed class GameEngine : ObservableBase
         CurrentTurn.MovementRemaining = 0;
         CurrentTurn.BonusRollAvailable = false;
         CurrentTurn.ArrivalResolution = null;
+        ClearForcedSaleContext();
 
         // Find next active player
         int currentIndex = CurrentTurn.ActivePlayer.Index;
@@ -657,6 +924,8 @@ public sealed class GameEngine : ObservableBase
                 MovementAllowance = CurrentTurn.MovementAllowance,
                 MovementRemaining = CurrentTurn.MovementRemaining,
                 BonusRollAvailable = CurrentTurn.BonusRollAvailable,
+                PendingFeeAmount = CurrentTurn.PendingFeeAmount,
+                SelectedRailroadForSaleIndex = CurrentTurn.SelectedRailroadForSaleIndex,
                 RailroadsRiddenThisTurn = CurrentTurn.RailroadsRiddenThisTurn.ToList(),
                 ArrivalResolution = CurrentTurn.ArrivalResolution is null
                     ? null
@@ -668,6 +937,46 @@ public sealed class GameEngine : ObservableBase
                         CashAfterPayout = CurrentTurn.ArrivalResolution.CashAfterPayout,
                         PurchaseOpportunityAvailable = CurrentTurn.ArrivalResolution.PurchaseOpportunityAvailable,
                         Message = CurrentTurn.ArrivalResolution.Message
+                    },
+                ForcedSale = CurrentTurn.ForcedSaleState is null
+                    ? null
+                    : new ForcedSaleTurnState
+                    {
+                        AmountOwed = CurrentTurn.ForcedSaleState.AmountOwed,
+                        CashBeforeFees = CurrentTurn.ForcedSaleState.CashBeforeFees,
+                        CashAfterLastSale = CurrentTurn.ForcedSaleState.CashAfterLastSale,
+                        SalesCompletedCount = CurrentTurn.ForcedSaleState.SalesCompletedCount,
+                        CanPayNow = CurrentTurn.ForcedSaleState.CanPayNow,
+                        EliminationTriggered = CurrentTurn.ForcedSaleState.EliminationTriggered
+                    },
+                Auction = CurrentTurn.AuctionState is null
+                    ? null
+                    : new AuctionTurnState
+                    {
+                        RailroadIndex = CurrentTurn.AuctionState.RailroadIndex,
+                        RailroadName = CurrentTurn.AuctionState.RailroadName,
+                        SellerPlayerIndex = CurrentTurn.AuctionState.SellerPlayerIndex,
+                        SellerPlayerName = CurrentTurn.AuctionState.SellerPlayerName,
+                        StartingPrice = CurrentTurn.AuctionState.StartingPrice,
+                        CurrentBid = CurrentTurn.AuctionState.CurrentBid,
+                        LastBidderPlayerIndex = CurrentTurn.AuctionState.LastBidderPlayerIndex,
+                        CurrentBidderPlayerIndex = CurrentTurn.AuctionState.CurrentBidderPlayerIndex,
+                        RoundNumber = CurrentTurn.AuctionState.RoundNumber,
+                        ConsecutiveNoBidTurnCount = CurrentTurn.AuctionState.ConsecutiveNoBidTurnCount,
+                        Status = CurrentTurn.AuctionState.Status.ToString(),
+                        Participants = CurrentTurn.AuctionState.Participants
+                            .Select(participant => new AuctionParticipantTurnState
+                            {
+                                PlayerIndex = participant.PlayerIndex,
+                                PlayerName = participant.PlayerName,
+                                CashOnHand = participant.CashOnHand,
+                                LastBidAmount = participant.LastBidAmount,
+                                IsEligible = participant.IsEligible,
+                                HasDroppedOut = participant.HasDroppedOut,
+                                HasPassedThisRound = participant.HasPassedThisRound,
+                                LastAction = participant.LastAction.ToString()
+                            })
+                            .ToList()
                     },
                 DiceResult = CurrentTurn.DiceResult != null
                     ? new DiceResultState
@@ -846,6 +1155,8 @@ public sealed class GameEngine : ObservableBase
             MovementAllowance = snapshot.Turn.MovementAllowance,
             MovementRemaining = snapshot.Turn.MovementRemaining,
             BonusRollAvailable = snapshot.Turn.BonusRollAvailable,
+            PendingFeeAmount = snapshot.Turn.PendingFeeAmount,
+            SelectedRailroadForSaleIndex = snapshot.Turn.SelectedRailroadForSaleIndex,
             ArrivalResolution = snapshot.Turn.ArrivalResolution is null
                 ? null
                 : new ArrivalResolution
@@ -856,6 +1167,50 @@ public sealed class GameEngine : ObservableBase
                     CashAfterPayout = snapshot.Turn.ArrivalResolution.CashAfterPayout,
                     PurchaseOpportunityAvailable = snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable,
                     Message = snapshot.Turn.ArrivalResolution.Message
+                },
+            ForcedSaleState = snapshot.Turn.ForcedSale is null
+                ? null
+                : new ForcedSaleState
+                {
+                    AmountOwed = snapshot.Turn.ForcedSale.AmountOwed,
+                    CashBeforeFees = snapshot.Turn.ForcedSale.CashBeforeFees,
+                    CashAfterLastSale = snapshot.Turn.ForcedSale.CashAfterLastSale,
+                    SalesCompletedCount = snapshot.Turn.ForcedSale.SalesCompletedCount,
+                    CanPayNow = snapshot.Turn.ForcedSale.CanPayNow,
+                    EliminationTriggered = snapshot.Turn.ForcedSale.EliminationTriggered
+                },
+            AuctionState = snapshot.Turn.Auction is null
+                ? null
+                : new AuctionState
+                {
+                    RailroadIndex = snapshot.Turn.Auction.RailroadIndex,
+                    RailroadName = snapshot.Turn.Auction.RailroadName,
+                    SellerPlayerIndex = snapshot.Turn.Auction.SellerPlayerIndex,
+                    SellerPlayerName = snapshot.Turn.Auction.SellerPlayerName,
+                    StartingPrice = snapshot.Turn.Auction.StartingPrice,
+                    CurrentBid = snapshot.Turn.Auction.CurrentBid,
+                    LastBidderPlayerIndex = snapshot.Turn.Auction.LastBidderPlayerIndex,
+                    CurrentBidderPlayerIndex = snapshot.Turn.Auction.CurrentBidderPlayerIndex,
+                    RoundNumber = snapshot.Turn.Auction.RoundNumber,
+                    ConsecutiveNoBidTurnCount = snapshot.Turn.Auction.ConsecutiveNoBidTurnCount,
+                    Status = Enum.TryParse<AuctionStatus>(snapshot.Turn.Auction.Status, out var parsedStatus)
+                        ? parsedStatus
+                        : AuctionStatus.Open,
+                    Participants = snapshot.Turn.Auction.Participants
+                        .Select(participant => new AuctionParticipant
+                        {
+                            PlayerIndex = participant.PlayerIndex,
+                            PlayerName = participant.PlayerName,
+                            CashOnHand = participant.CashOnHand,
+                            LastBidAmount = participant.LastBidAmount,
+                            IsEligible = participant.IsEligible,
+                            HasDroppedOut = participant.HasDroppedOut,
+                            HasPassedThisRound = participant.HasPassedThisRound,
+                            LastAction = Enum.TryParse<AuctionParticipantAction>(participant.LastAction, out var parsedAction)
+                                ? parsedAction
+                                : AuctionParticipantAction.None
+                        })
+                        .ToList()
                 }
         };
 
@@ -1072,10 +1427,19 @@ public sealed class GameEngine : ObservableBase
     {
         var player = CurrentTurn.ActivePlayer;
         var feeBuckets = BuildFeeBuckets(player, CurrentTurn.RailroadsRiddenThisTurn);
+        var pendingFeeAmount = CalculatePendingFeeAmount(player);
+        CurrentTurn.PendingFeeAmount = pendingFeeAmount;
 
-        if (feeBuckets.Count == 0)
+        if (feeBuckets.Count == 0 || pendingFeeAmount <= 0)
         {
+            ClearForcedSaleContext();
             CurrentTurn.Phase = TurnPhase.EndTurn;
+            return;
+        }
+
+        if (player.Cash < pendingFeeAmount)
+        {
+            BeginForcedSale(player, pendingFeeAmount);
             return;
         }
 
@@ -1095,19 +1459,56 @@ public sealed class GameEngine : ObservableBase
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, feeBucket.Owner, fee, feeBucket.Railroads));
         }
 
-        // Check for bankruptcy
-        if (player.Cash < 0)
+        ClearForcedSaleContext();
+        CurrentTurn.Phase = TurnPhase.EndTurn;
+    }
+
+    private void BeginForcedSale(Player player, int amountOwed)
+    {
+        CurrentTurn.PendingFeeAmount = amountOwed;
+
+        if (player.OwnedRailroads.Count == 0)
         {
-            HandleBankruptcy(player);
+            EliminatePlayerForUnpaidFees(player, amountOwed, player.Cash, salesCompletedCount: 0);
+            return;
         }
 
+        CurrentTurn.ForcedSaleState = new ForcedSaleState
+        {
+            AmountOwed = amountOwed,
+            CashBeforeFees = player.Cash,
+            CashAfterLastSale = player.Cash,
+            SalesCompletedCount = 0,
+            CanPayNow = false,
+            EliminationTriggered = false
+        };
+        CurrentTurn.AuctionState = null;
+        CurrentTurn.SelectedRailroadForSaleIndex = player.OwnedRailroads
+            .OrderBy(ownedRailroad => ownedRailroad.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(ownedRailroad => (int?)ownedRailroad.Index)
+            .FirstOrDefault();
+        CurrentTurn.Phase = TurnPhase.UseFees;
+    }
+
+    private void EliminatePlayerForUnpaidFees(Player player, int amountOwed, int cashBeforeFees, int salesCompletedCount)
+    {
+        CurrentTurn.ForcedSaleState = new ForcedSaleState
+        {
+            AmountOwed = amountOwed,
+            CashBeforeFees = cashBeforeFees,
+            CashAfterLastSale = player.Cash,
+            SalesCompletedCount = salesCompletedCount,
+            CanPayNow = false,
+            EliminationTriggered = true
+        };
+        CurrentTurn.AuctionState = null;
+        CurrentTurn.SelectedRailroadForSaleIndex = null;
+        HandleBankruptcy(player);
         CurrentTurn.Phase = TurnPhase.EndTurn;
     }
 
     private void HandleBankruptcy(Player player)
     {
-        // If player has railroads, they could auction them
-        // For now, simplified: mark bankrupt if cash < 0 and no railroads to sell
         if (player.OwnedRailroads.Count == 0)
         {
             player.IsBankrupt = true;
@@ -1123,8 +1524,192 @@ public sealed class GameEngine : ObservableBase
                 GameOver?.Invoke(this, new GameOverEventArgs(activePlayers[0]));
             }
         }
-        // If player has railroads, they should auction them first
-        // The UI/caller would call AuctionRailroad() before the engine forces bankruptcy
+    }
+
+    private void ClearForcedSaleContext()
+    {
+        CurrentTurn.PendingFeeAmount = 0;
+        CurrentTurn.SelectedRailroadForSaleIndex = null;
+        CurrentTurn.ForcedSaleState = null;
+        CurrentTurn.AuctionState = null;
+    }
+
+    private AuctionState RequireOpenAuctionState(Railroad railroad)
+    {
+        var auctionState = CurrentTurn.AuctionState
+            ?? throw new InvalidOperationException("There is no active auction.");
+
+        if (auctionState.Status != AuctionStatus.Open)
+            throw new InvalidOperationException("The auction is no longer open.");
+
+        if (auctionState.RailroadIndex != railroad.Index)
+            throw new InvalidOperationException("This railroad is not the subject of the active auction.");
+
+        return auctionState;
+    }
+
+    private static void RequireCurrentAuctionParticipant(AuctionState auctionState, Player player)
+    {
+        if (auctionState.CurrentBidderPlayerIndex != player.Index)
+            throw new InvalidOperationException("It is not this player's turn in the auction.");
+
+        var participant = auctionState.Participants.FirstOrDefault(entry => entry.PlayerIndex == player.Index)
+            ?? throw new InvalidOperationException("The player is not participating in this auction.");
+
+        if (participant.HasDroppedOut || !participant.IsEligible)
+            throw new InvalidOperationException("The player is not eligible to act in this auction.");
+    }
+
+    private void EvaluateAuctionCompletion(Railroad railroad)
+    {
+        var auctionState = CurrentTurn.AuctionState;
+        if (auctionState is null)
+        {
+            return;
+        }
+
+        var remainingParticipants = auctionState.Participants
+            .Where(participant => participant.IsEligible && !participant.HasDroppedOut)
+            .ToList();
+
+        if (auctionState.LastBidderPlayerIndex is null)
+        {
+            if (remainingParticipants.Count == 0 || remainingParticipants.All(participant => participant.HasPassedThisRound))
+            {
+                CompleteAuctionWithBankFallback(railroad);
+            }
+
+            return;
+        }
+
+        var nonLeadingParticipants = remainingParticipants
+            .Where(participant => participant.PlayerIndex != auctionState.LastBidderPlayerIndex.Value)
+            .ToList();
+
+        if (nonLeadingParticipants.Count == 0 || nonLeadingParticipants.All(participant => participant.HasPassedThisRound))
+        {
+            var winner = Players[auctionState.LastBidderPlayerIndex.Value];
+            CompleteAuctionWithWinner(railroad, winner, auctionState.CurrentBid);
+        }
+    }
+
+    private List<AuctionParticipant> UpdateAuctionParticipantAffordability(
+        List<AuctionParticipant> participants,
+        int requiredBid,
+        int? leaderPlayerIndex)
+    {
+        return participants
+            .Select(participant =>
+            {
+                var cashOnHand = Players[participant.PlayerIndex].Cash;
+                var shouldMarkAutoDrop = !participant.HasDroppedOut
+                    && participant.IsEligible
+                    && participant.PlayerIndex != leaderPlayerIndex
+                    && cashOnHand < requiredBid;
+
+                return new AuctionParticipant
+                {
+                    PlayerIndex = participant.PlayerIndex,
+                    PlayerName = participant.PlayerName,
+                    CashOnHand = cashOnHand,
+                    IsEligible = participant.IsEligible && !shouldMarkAutoDrop,
+                    HasDroppedOut = participant.HasDroppedOut || shouldMarkAutoDrop,
+                    HasPassedThisRound = participant.HasPassedThisRound || shouldMarkAutoDrop,
+                    LastAction = shouldMarkAutoDrop ? AuctionParticipantAction.AutoDropOut : participant.LastAction
+                };
+            })
+            .ToList();
+    }
+
+    private void CompleteAuctionWithWinner(Railroad railroad, Player winner, int winningBid)
+    {
+        CurrentTurn.AuctionState = CurrentTurn.AuctionState is null
+            ? null
+            : new AuctionState
+            {
+                RailroadIndex = CurrentTurn.AuctionState.RailroadIndex,
+                RailroadName = CurrentTurn.AuctionState.RailroadName,
+                SellerPlayerIndex = CurrentTurn.AuctionState.SellerPlayerIndex,
+                SellerPlayerName = CurrentTurn.AuctionState.SellerPlayerName,
+                StartingPrice = CurrentTurn.AuctionState.StartingPrice,
+                CurrentBid = winningBid,
+                LastBidderPlayerIndex = winner.Index,
+                CurrentBidderPlayerIndex = null,
+                RoundNumber = CurrentTurn.AuctionState.RoundNumber,
+                ConsecutiveNoBidTurnCount = CurrentTurn.AuctionState.ConsecutiveNoBidTurnCount,
+                Status = AuctionStatus.Awarded,
+                Participants = CurrentTurn.AuctionState.Participants
+            };
+
+        ResolveAuction(railroad, winner, winningBid);
+        CurrentTurn.AuctionState = null;
+
+        if (CurrentTurn.Phase == TurnPhase.UseFees)
+        {
+            ResolveUseFees();
+        }
+    }
+
+    private void CompleteAuctionWithBankFallback(Railroad railroad)
+    {
+        CurrentTurn.AuctionState = CurrentTurn.AuctionState is null
+            ? null
+            : new AuctionState
+            {
+                RailroadIndex = CurrentTurn.AuctionState.RailroadIndex,
+                RailroadName = CurrentTurn.AuctionState.RailroadName,
+                SellerPlayerIndex = CurrentTurn.AuctionState.SellerPlayerIndex,
+                SellerPlayerName = CurrentTurn.AuctionState.SellerPlayerName,
+                StartingPrice = CurrentTurn.AuctionState.StartingPrice,
+                CurrentBid = 0,
+                LastBidderPlayerIndex = null,
+                CurrentBidderPlayerIndex = null,
+                RoundNumber = CurrentTurn.AuctionState.RoundNumber,
+                ConsecutiveNoBidTurnCount = CurrentTurn.AuctionState.ConsecutiveNoBidTurnCount,
+                Status = AuctionStatus.BankFallback,
+                Participants = CurrentTurn.AuctionState.Participants
+            };
+
+        if (CurrentTurn.Phase == TurnPhase.UseFees)
+        {
+            CurrentTurn.AuctionState = null;
+            SellRailroadToBank(railroad);
+            return;
+        }
+
+        ResolveAuction(railroad, winner: null, winningBid: 0);
+        CurrentTurn.AuctionState = null;
+    }
+
+    private static int? GetNextOpenParticipantIndex(List<AuctionParticipant> participants, int currentPlayerIndex)
+    {
+        if (participants.Count == 0)
+        {
+            return null;
+        }
+
+        var currentPosition = participants
+            .Select((participant, index) => new { participant, index })
+            .Where(entry => entry.participant.PlayerIndex == currentPlayerIndex)
+            .Select(entry => entry.index)
+            .DefaultIfEmpty(-1)
+            .First();
+
+        if (currentPosition < 0)
+        {
+            return participants.FirstOrDefault(participant => participant.IsEligible && !participant.HasDroppedOut)?.PlayerIndex;
+        }
+
+        for (var offset = 1; offset <= participants.Count; offset++)
+        {
+            var candidate = participants[(currentPosition + offset) % participants.Count];
+            if (candidate.IsEligible && !candidate.HasDroppedOut)
+            {
+                return candidate.PlayerIndex;
+            }
+        }
+
+        return null;
     }
 
     private void CheckAllRailroadsSold()

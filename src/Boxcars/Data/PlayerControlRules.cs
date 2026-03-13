@@ -11,6 +11,16 @@ public static class PlayerControlRules
 
     public static bool CanUserControlSlot(string? slotUserId, string? currentUserId)
     {
+        return CanUserControlSlot(slotUserId, currentUserId, isPlayerActive: true);
+    }
+
+    public static bool CanUserControlSlot(string? slotUserId, string? currentUserId, bool isPlayerActive)
+    {
+        if (!isPlayerActive)
+        {
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(currentUserId))
         {
             return false;

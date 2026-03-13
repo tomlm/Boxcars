@@ -75,6 +75,7 @@
 
 ::deep .player-card-info {
     padding: 0.4rem 0.5rem 0.45rem;
+    flex: 1 1 auto;
 }
 
 ::deep .player-card-line {
@@ -82,17 +83,56 @@
     line-height: 1.1;
 }
 
-::deep .player-card-line-fees {
+::deep .player-card-cash-value {
+    font-weight: 700;
+}
+
+::deep .player-card-cash-value-affordable {
+    color: var(--mud-palette-success);
+}
+
+::deep .player-card-cash-value-too-expensive {
+    color: var(--mud-palette-error);
+}
+
+::deep .player-card-status-value {
+    display: inline-block;
+    font-weight: 700;
+    text-shadow: -1px -1px 0 rgb(255 255 255 / 0.95),
+        0 -1px 0 rgb(255 255 255 / 0.95),
+        1px -1px 0 rgb(255 255 255 / 0.95),
+        -1px 0 0 rgb(255 255 255 / 0.95),
+        1px 0 0 rgb(255 255 255 / 0.95),
+        -1px 1px 0 rgb(255 255 255 / 0.95),
+        0 1px 0 rgb(255 255 255 / 0.95),
+        1px 1px 0 rgb(255 255 255 / 0.95);
+}
+
+::deep .player-card-status-value-fees {
     color: #b42318;
 }
 
-::deep .player-card-line-bonus {
+::deep .player-card-status-value-bonus {
     color: #1d4ed8;
-    font-weight: 600;
 }
 
-::deep .player-card-test-row {
+::deep .player-card-line-test-state {
     margin-top: 0.2rem;
+    color: var(--mud-palette-text-secondary);
+}
+
+::deep .player-card-action-row {
+    margin-top: auto;
+    padding: 0.35rem 0.5rem 0.5rem;
+    border-top: 1px solid color-mix(in srgb, var(--mud-palette-divider) 72%, transparent);
+}
+
+::deep .player-card-test-button {
+    min-width: 5rem;
+}
+
+::deep .player-board-test-toolbar {
+    margin: 0 0.2rem;
 }
 
 ::deep .player-card-label {

@@ -173,6 +173,63 @@ public class ObservabilityTests
     }
 
     [Fact]
+    public void Turn_ForcedSaleStateChange_FiresPropertyChanged()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var feeOwner = engine.Players[1];
+        ownedRailroad.Owner = player;
+        player.OwnedRailroads.Add(ownedRailroad);
+        feeRailroad.Owner = feeOwner;
+        feeOwner.OwnedRailroads.Add(feeRailroad);
+        player.Cash = 0;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+
+        var changedProps = new List<string>();
+        engine.CurrentTurn.PropertyChanged += (s, e) => changedProps.Add(e.PropertyName!);
+
+        engine.DeclinePurchase();
+
+        Assert.Contains("ForcedSaleState", changedProps);
+        Assert.Contains("PendingFeeAmount", changedProps);
+        Assert.Contains("SelectedRailroadForSaleIndex", changedProps);
+    }
+
+    [Fact]
+    public void ForcedSaleSnapshot_Restore_PreservesReconnectState()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var feeOwner = engine.Players[1];
+        ownedRailroad.Owner = player;
+        player.OwnedRailroads.Add(ownedRailroad);
+        feeRailroad.Owner = feeOwner;
+        feeOwner.OwnedRailroads.Add(feeRailroad);
+        player.Cash = 0;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+
+        engine.DeclinePurchase();
+
+        var snapshot = engine.ToSnapshot();
+        var restored = global::Boxcars.Engine.Domain.GameEngine.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal(snapshot.Turn.PendingFeeAmount, restored.CurrentTurn.PendingFeeAmount);
+        Assert.Equal(snapshot.Turn.SelectedRailroadForSaleIndex, restored.CurrentTurn.SelectedRailroadForSaleIndex);
+        Assert.NotNull(restored.CurrentTurn.ForcedSaleState);
+        Assert.Equal(snapshot.Turn.ForcedSale!.AmountOwed, restored.CurrentTurn.ForcedSaleState!.AmountOwed);
+    }
+
+    [Fact]
     public void Turn_ActivePlayerChange_FiresPropertyChanged()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

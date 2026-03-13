@@ -10,8 +10,14 @@
                 <MudText Typo="Typo.subtitle2">
                     <span class="railroad-purchase-overlay-text">@Overlay.RailroadName</span>
                 </MudText>
+                @if (!string.IsNullOrWhiteSpace(Overlay.ContextLabel))
+                {
+                    <MudText Typo="Typo.body2">
+                        <span class="railroad-purchase-overlay-text">@Overlay.ContextLabel</span>
+                    </MudText>
+                }
                 <MudText Typo="Typo.body2">
-                    <span class="@OverlayPriceClass">Price: @FormatCurrency(Overlay.PurchasePrice)</span>
+                    <span class="@OverlayPriceClass">@Overlay.ValueLabel: @FormatCurrency(Overlay.PurchasePrice)</span>
                 </MudText>
 
                 @if (VisibleMetricRows.Count > 0)
@@ -70,9 +76,14 @@
         .ToArray()
         ?? [];
 
-    private string OverlayPriceClass => Overlay?.IsAffordable == false
-        ? "railroad-purchase-overlay-text railroad-purchase-overlay-price-too-expensive"
-        : "railroad-purchase-overlay-text railroad-purchase-overlay-price-affordable";
+    private string OverlayPriceClass => Overlay?.ValueKind switch
+    {
+        RailroadOverlayValueKind.TooExpensive => "railroad-purchase-overlay-text railroad-purchase-overlay-price-too-expensive",
+        RailroadOverlayValueKind.Sale => "railroad-purchase-overlay-text railroad-purchase-overlay-price-affordable",
+        _ => Overlay?.IsAffordable == false
+            ? "railroad-purchase-overlay-text railroad-purchase-overlay-price-too-expensive"
+            : "railroad-purchase-overlay-text railroad-purchase-overlay-price-affordable"
+    };
 
     private static string FormatCurrency(int value)
     {

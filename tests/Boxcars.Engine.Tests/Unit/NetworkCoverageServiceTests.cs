@@ -1,4 +1,5 @@
 using Boxcars.Engine.Data.Maps;
+using Boxcars.Engine.Tests.Fixtures;
 using Boxcars.Services;
 
 namespace Boxcars.Engine.Tests.Unit;
@@ -49,6 +50,21 @@ public class NetworkCoverageServiceTests
         }
 
         Assert.True(foundOverlapCase, "Expected to find at least one overlapping railroad pair where projected access gain is smaller than naive candidate-only access.");
+    }
+
+    [Fact]
+    public void BuildProjectedSnapshotAfterSale_RemovesOwnedCoverage()
+    {
+        var mapDefinition = GameEngineFixture.CreateTestMap();
+        var service = new NetworkCoverageService();
+
+        var currentCoverage = service.BuildSnapshot(mapDefinition, [0, 1]);
+        var projectedCoverage = service.BuildProjectedSnapshotAfterSale(mapDefinition, [0, 1], 0);
+        var expectedCoverage = service.BuildSnapshot(mapDefinition, [1]);
+
+        Assert.True(projectedCoverage.AccessibleCityPercent < currentCoverage.AccessibleCityPercent);
+        Assert.Equal(expectedCoverage.AccessibleCityPercent, projectedCoverage.AccessibleCityPercent);
+        Assert.Equal(expectedCoverage.MonopolyCityPercent, projectedCoverage.MonopolyCityPercent);
     }
 
     private static string? FindStandardMapPath()

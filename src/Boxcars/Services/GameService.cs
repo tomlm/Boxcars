@@ -235,6 +235,56 @@ public class GameService
                 }
                 break;
 
+            case "SellRailroad":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:sale",
+                    EventTimelineKind.PayFees,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} sold a railroad to raise cash for fees."
+                        : gameEvent.ChangeSummary));
+                break;
+
+            case "StartAuction":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:auction-start",
+                    EventTimelineKind.PayFees,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} started a railroad auction."
+                        : gameEvent.ChangeSummary));
+                break;
+
+            case "Bid":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:auction-bid",
+                    EventTimelineKind.PayFees,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} placed an auction bid."
+                        : gameEvent.ChangeSummary));
+                break;
+
+            case "AuctionPass":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:auction-pass",
+                    EventTimelineKind.PayFees,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} passed in the auction."
+                        : gameEvent.ChangeSummary));
+                break;
+
+            case "AuctionDropOut":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:auction-dropout",
+                    EventTimelineKind.PayFees,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} dropped out of the auction."
+                        : gameEvent.ChangeSummary));
+                break;
+
             case "PurchaseRailroad":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
@@ -318,6 +368,11 @@ public class GameService
             "RollDice" => EventTimelineKind.DiceRoll,
             "Move" => EventTimelineKind.Move,
             "EndTurn" => EventTimelineKind.PayFees,
+            "SellRailroad" => EventTimelineKind.PayFees,
+            "StartAuction" => EventTimelineKind.PayFees,
+            "Bid" => EventTimelineKind.PayFees,
+            "AuctionPass" => EventTimelineKind.PayFees,
+            "AuctionDropOut" => EventTimelineKind.PayFees,
             "PurchaseRailroad" => EventTimelineKind.Purchase,
             "BuyEngine" => EventTimelineKind.Purchase,
             "BuySuperchief" => EventTimelineKind.Purchase,
@@ -390,6 +445,12 @@ public class GameService
 
         var actingPlayer = ResolveActingPlayer(previousSnapshot, gameEvent.ActingPlayerIndex);
         var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+
+        if (previousSnapshot.Turn.ForcedSale?.EliminationTriggered == true || actingPlayer?.IsBankrupt == true)
+        {
+            return $"{actingPlayerName} could not cover the required fees and is now spectating.";
+        }
+
         var feeSummary = DescribeFeeSummary(previousSnapshot, gameEvent.ActingPlayerIndex);
         return string.IsNullOrWhiteSpace(feeSummary)
             ? null

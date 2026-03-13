@@ -1,0 +1,134 @@
+@using Boxcars.Data
+@using MudBlazor
+@using System.Globalization
+
+<div class="network-tab-panel-scope">
+    <MudStack Spacing="2">
+        <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.h6">Network</MudText>
+            <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@BuildOwnerLabel()</MudChip>
+        </MudStack>
+
+        @if (NetworkTab.RailroadSummaries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                No owned railroads are available for network analysis yet.
+            </MudAlert>
+        }
+        else
+        {
+            <div class="network-tab-table-host">
+                <MudTable T="NetworkRailroadSummaryModel" Items="NetworkTab.RailroadSummaries" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh><strong>Railroad</strong></MudTh>
+                        <MudTh><strong>Original Price</strong></MudTh>
+                        <MudTh><strong>Access</strong></MudTh>
+                        <MudTh><strong>Access If Sold</strong></MudTh>
+                        <MudTh><strong>Monopoly</strong></MudTh>
+                        <MudTh><strong>Monopoly If Sold</strong></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>
+                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                <MudText Typo="Typo.body2">@context.RailroadName</MudText>
+                                @if (IsSelected(context))
+                                {
+                                    <MudChip T="string" Variant="Variant.Filled" Color="MudBlazor.Color.Info" Size="Size.Small">Selected</MudChip>
+                                }
+                            </MudStack>
+                        </MudTd>
+                        <MudTd>@FormatCurrency(context.OriginalPurchasePrice)</MudTd>
+                        <MudTd>@FormatPercent(context.AccessPercentWithCurrentOwnership)</MudTd>
+                        <MudTd>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body2">@FormatOptionalPercent(context.AccessPercentIfSold)</MudText>
+                                <MudText Typo="Typo.caption" Class="@GetDeltaClass(context.AccessPercentIfSold - context.AccessPercentWithCurrentOwnership)">
+                                    @FormatSignedOptionalPercent(context.AccessPercentIfSold - context.AccessPercentWithCurrentOwnership)
+                                </MudText>
+                            </MudStack>
+                        </MudTd>
+                        <MudTd>@FormatPercent(context.MonopolyPercentWithCurrentOwnership)</MudTd>
+                        <MudTd>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body2">@FormatOptionalPercent(context.MonopolyPercentIfSold)</MudText>
+                                <MudText Typo="Typo.caption" Class="@GetDeltaClass(context.MonopolyPercentIfSold - context.MonopolyPercentWithCurrentOwnership)">
+                                    @FormatSignedOptionalPercent(context.MonopolyPercentIfSold - context.MonopolyPercentWithCurrentOwnership)
+                                </MudText>
+                            </MudStack>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </div>
+        }
+
+        @if (NetworkTab.SelectedRailroadImpact is not null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                Showing projected network impact for @NetworkTab.SelectedRailroadImpact.RailroadName.
+            </MudAlert>
+        }
+    </MudStack>
+</div>
+
+@code {
+    [Parameter]
+    public required NetworkTabModel NetworkTab { get; set; }
+
+    private bool IsSelected(NetworkRailroadSummaryModel summary)
+    {
+        return NetworkTab.SelectedRailroadImpact?.RailroadIndex == summary.RailroadIndex;
+    }
+
+    private string BuildOwnerLabel()
+    {
+        return string.IsNullOrWhiteSpace(NetworkTab.PlayerName)
+            ? "Current player"
+            : NetworkTab.PlayerName;
+    }
+
+    private static string FormatPercent(decimal value)
+    {
+        return value.ToString("0.#", CultureInfo.InvariantCulture) + "%";
+    }
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${Math.Max(0, value):N0}";
+    }
+
+    private static string FormatOptionalPercent(decimal? value)
+    {
+        return value.HasValue ? FormatPercent(value.Value) : "-";
+    }
+
+    private static string FormatSignedOptionalPercent(decimal? value)
+    {
+        if (!value.HasValue)
+        {
+            return "-";
+        }
+
+        var formattedValue = value.Value.ToString("0.#", CultureInfo.InvariantCulture);
+        return value.Value >= 0m ? $"+{formattedValue}%" : $"{formattedValue}%";
+    }
+
+    private static string GetDeltaClass(decimal? value)
+    {
+        if (!value.HasValue)
+        {
+            return string.Empty;
+        }
+
+        if (value.Value > 0m)
+        {
+            return "network-tab-delta-positive";
+        }
+
+        if (value.Value < 0m)
+        {
+            return "network-tab-delta-negative";
+        }
+
+        return "network-tab-delta-neutral";
+    }
+}

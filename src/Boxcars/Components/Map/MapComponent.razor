@@ -1026,7 +1026,7 @@
             return;
         }
 
-        if (railroadIndex <= 0 || (SelectableRailroadIndices?.Contains(railroadIndex) == false))
+        if (railroadIndex < 0 || (SelectableRailroadIndices?.Contains(railroadIndex) == false))
         {
             return;
         }

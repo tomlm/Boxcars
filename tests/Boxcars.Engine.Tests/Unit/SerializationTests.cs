@@ -225,4 +225,59 @@ public class SerializationTests
         Assert.Equal(engine.CurrentTurn.ArrivalResolution.CashAfterPayout, restored.CurrentTurn.ArrivalResolution.CashAfterPayout);
         Assert.Equal(engine.CurrentTurn.ArrivalResolution.Message, restored.CurrentTurn.ArrivalResolution.Message);
     }
+
+    [Fact]
+    public void Snapshot_RoundTrip_PreservesForcedSaleAndAuctionTurnState()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.PendingFeeAmount = 12_000;
+        engine.CurrentTurn.SelectedRailroadForSaleIndex = 3;
+        engine.CurrentTurn.ForcedSaleState = new ForcedSaleState
+        {
+            AmountOwed = 12_000,
+            CashBeforeFees = 4_000,
+            CashAfterLastSale = 8_000,
+            SalesCompletedCount = 1,
+            CanPayNow = false,
+            EliminationTriggered = false
+        };
+        engine.CurrentTurn.AuctionState = new AuctionState
+        {
+            RailroadIndex = 3,
+            RailroadName = "Test Railroad",
+            SellerPlayerIndex = 0,
+            SellerPlayerName = engine.Players[0].Name,
+            StartingPrice = 5_000,
+            CurrentBid = 6_000,
+            LastBidderPlayerIndex = 1,
+            CurrentBidderPlayerIndex = 1,
+            RoundNumber = 2,
+            ConsecutiveNoBidTurnCount = 1,
+            Status = AuctionStatus.Open,
+            Participants =
+            [
+                new AuctionParticipant
+                {
+                    PlayerIndex = 1,
+                    PlayerName = engine.Players[1].Name,
+                    CashOnHand = engine.Players[1].Cash,
+                    IsEligible = true,
+                    LastAction = AuctionParticipantAction.Bid
+                }
+            ]
+        };
+
+        var snapshot = engine.ToSnapshot();
+        var restored = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal(12_000, restored.CurrentTurn.PendingFeeAmount);
+        Assert.Equal(3, restored.CurrentTurn.SelectedRailroadForSaleIndex);
+        Assert.NotNull(restored.CurrentTurn.ForcedSaleState);
+        Assert.Equal(8_000, restored.CurrentTurn.ForcedSaleState!.CashAfterLastSale);
+        Assert.NotNull(restored.CurrentTurn.AuctionState);
+        Assert.Equal("Test Railroad", restored.CurrentTurn.AuctionState!.RailroadName);
+        var restoredParticipant = Assert.Single(restored.CurrentTurn.AuctionState.Participants);
+        Assert.Equal(AuctionParticipantAction.Bid, restoredParticipant.LastAction);
+    }
 }

@@ -13,6 +13,10 @@ public sealed class Turn : ObservableBase
     private int _movementRemaining;
     private bool _bonusRollAvailable;
     private ArrivalResolution? _arrivalResolution;
+    private int _pendingFeeAmount;
+    private int? _selectedRailroadForSaleIndex;
+    private ForcedSaleState? _forcedSaleState;
+    private AuctionState? _auctionState;
 
     /// <summary>Whose turn it is.</summary>
     public Player ActivePlayer
@@ -70,6 +74,34 @@ public sealed class Turn : ObservableBase
         internal set => SetField(ref _arrivalResolution, value);
     }
 
+    /// <summary>Authoritative fee amount still owed when UseFees is active.</summary>
+    public int PendingFeeAmount
+    {
+        get => _pendingFeeAmount;
+        internal set => SetField(ref _pendingFeeAmount, value);
+    }
+
+    /// <summary>The currently selected railroad index for forced sale, if any.</summary>
+    public int? SelectedRailroadForSaleIndex
+    {
+        get => _selectedRailroadForSaleIndex;
+        internal set => SetField(ref _selectedRailroadForSaleIndex, value);
+    }
+
+    /// <summary>Current forced-sale state while resolving insufficient funds.</summary>
+    public ForcedSaleState? ForcedSaleState
+    {
+        get => _forcedSaleState;
+        internal set => SetField(ref _forcedSaleState, value);
+    }
+
+    /// <summary>Current auction state, if a railroad auction is in progress.</summary>
+    public AuctionState? AuctionState
+    {
+        get => _auctionState;
+        internal set => SetField(ref _auctionState, value);
+    }
+
     /// <summary>Railroad indices used this turn (for use fee calculation).</summary>
     internal HashSet<int> RailroadsRiddenThisTurn { get; } = new();
 
@@ -97,4 +129,58 @@ public sealed class ArrivalResolution
     public int CashAfterPayout { get; init; }
     public bool PurchaseOpportunityAvailable { get; init; }
     public string Message { get; init; } = string.Empty;
+}
+
+public sealed class ForcedSaleState
+{
+    public int AmountOwed { get; init; }
+    public int CashBeforeFees { get; init; }
+    public int CashAfterLastSale { get; init; }
+    public int SalesCompletedCount { get; init; }
+    public bool CanPayNow { get; init; }
+    public bool EliminationTriggered { get; init; }
+}
+
+public enum AuctionParticipantAction
+{
+    None,
+    Bid,
+    Pass,
+    DropOut,
+    AutoDropOut
+}
+
+public enum AuctionStatus
+{
+    Open,
+    Awarded,
+    BankFallback
+}
+
+public sealed class AuctionParticipant
+{
+    public int PlayerIndex { get; init; } = -1;
+    public string PlayerName { get; init; } = string.Empty;
+    public int CashOnHand { get; init; }
+    public int? LastBidAmount { get; init; }
+    public bool IsEligible { get; init; }
+    public bool HasDroppedOut { get; init; }
+    public bool HasPassedThisRound { get; init; }
+    public AuctionParticipantAction LastAction { get; init; }
+}
+
+public sealed class AuctionState
+{
+    public int RailroadIndex { get; init; } = -1;
+    public string RailroadName { get; init; } = string.Empty;
+    public int SellerPlayerIndex { get; init; } = -1;
+    public string SellerPlayerName { get; init; } = string.Empty;
+    public int StartingPrice { get; init; }
+    public int CurrentBid { get; init; }
+    public int? LastBidderPlayerIndex { get; init; }
+    public int? CurrentBidderPlayerIndex { get; init; }
+    public int RoundNumber { get; init; } = 1;
+    public int ConsecutiveNoBidTurnCount { get; init; }
+    public AuctionStatus Status { get; init; } = AuctionStatus.Open;
+    public IReadOnlyList<AuctionParticipant> Participants { get; init; } = [];
 }
