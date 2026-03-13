@@ -557,11 +557,6 @@ public class GameService
             return new GameActionResult { Success = false, Reason = "Game is no longer active." };
         }
 
-        if (!string.Equals(game.CreatorId, playerId, StringComparison.OrdinalIgnoreCase))
-        {
-            return new GameActionResult { Success = false, Reason = "Only the game creator can end this game." };
-        }
-
         var rowsToDelete = new List<(string PartitionKey, string RowKey, ETag ETag)>();
         await foreach (var tableEntity in _gamesTable.QueryAsync<TableEntity>(
                            entity => entity.PartitionKey == gameId,

@@ -1,21 +1,21 @@
 <!--
 Sync Impact Report
 ===================
-Version change: 1.8.0 → 1.9.0
+Version change: 1.9.0 → 1.10.0
 Modified principles:
-  - III. Simplicity & Ship Fast (expanded to keep temporary guidance out of
-    project-wide standards)
+  - Blazor UI Conventions (expanded component naming guidance to require
+    concrete behavior-aligned names and reject speculative generic labels)
 Added sections:
-  - V. Stable Guidance Becomes Standard
-  - Decision Capture & Guidance Promotion
+  - N/A
 Removed sections: N/A
 Templates requiring updates:
-  - ✅ Updated: .specify/templates/plan-template.md
-  - ✅ Updated: .specify/templates/agent-file-template.md
+  - ✅ Reviewed only: .specify/templates/plan-template.md
+  - ✅ Reviewed only: .specify/templates/agent-file-template.md
   - ✅ Reviewed only: .specify/templates/spec-template.md
   - ✅ Reviewed only: .specify/templates/tasks-template.md
   - ✅ Reviewed only: .specify/templates/checklist-template.md
   - ✅ No command templates present under .specify/templates/commands/
+  - ✅ No runtime guidance docs present at repo root (README.md/docs/quickstart.md)
 Follow-up TODOs: None
 -->
 
@@ -252,6 +252,13 @@ exceptions.
 - **Component naming**: Blazor components SHOULD be named
   after the domain concept they represent (e.g.,
   `GameMap.razor`, `PlayerPanel.razor`, `DiceRoller.razor`).
+- **Behavior-aligned naming**: Component names, action labels,
+  helper methods, and similar UI-facing abstractions MUST describe
+  the concrete behavior they currently implement. Avoid speculative
+  generic names such as `PrimaryAction` or `TurnStatus` when the code
+  actually commits movement or renders movement status. When a
+  component or helper narrows to one responsibility over time, it MUST
+  be renamed to match that responsibility.
 - **Parameter discipline**: Components SHOULD accept data via
   `[Parameter]` properties and communicate upward via
   `EventCallback`. Avoid injecting broad state objects when
@@ -327,4 +334,4 @@ architectural decisions MUST align with these principles.
   takes precedence. If Principle I is not involved, prefer
   Simplicity (Principle III).
 
-**Version**: 1.9.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-12
+**Version**: 1.10.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-13

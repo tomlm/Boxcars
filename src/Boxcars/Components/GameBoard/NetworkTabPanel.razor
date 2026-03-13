@@ -20,12 +20,12 @@
             <div class="network-tab-table-host">
                 <MudTable T="NetworkRailroadSummaryModel" Items="NetworkTab.RailroadSummaries" Dense="true" Hover="true">
                     <HeaderContent>
-                        <MudTh><strong>Railroad</strong></MudTh>
-                        <MudTh><strong>Original Price</strong></MudTh>
-                        <MudTh><strong>Access</strong></MudTh>
-                        <MudTh><strong>Access If Sold</strong></MudTh>
-                        <MudTh><strong>Monopoly</strong></MudTh>
-                        <MudTh><strong>Monopoly If Sold</strong></MudTh>
+                        <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.RailroadName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.OriginalPurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.AccessPercentWithCurrentOwnership)"><strong>Access %</strong></MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.MonopolyPercentWithCurrentOwnership)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => GetAccessDelta(row))"><strong>Player Access</strong></MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => GetMonopolyDelta(row))"><strong>Player Monopoly</strong></MudTableSortLabel></MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd>
@@ -39,22 +39,16 @@
                         </MudTd>
                         <MudTd>@FormatCurrency(context.OriginalPurchasePrice)</MudTd>
                         <MudTd>@FormatPercent(context.AccessPercentWithCurrentOwnership)</MudTd>
-                        <MudTd>
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">@FormatOptionalPercent(context.AccessPercentIfSold)</MudText>
-                                <MudText Typo="Typo.caption" Class="@GetDeltaClass(context.AccessPercentIfSold - context.AccessPercentWithCurrentOwnership)">
-                                    @FormatSignedOptionalPercent(context.AccessPercentIfSold - context.AccessPercentWithCurrentOwnership)
-                                </MudText>
-                            </MudStack>
-                        </MudTd>
                         <MudTd>@FormatPercent(context.MonopolyPercentWithCurrentOwnership)</MudTd>
                         <MudTd>
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">@FormatOptionalPercent(context.MonopolyPercentIfSold)</MudText>
-                                <MudText Typo="Typo.caption" Class="@GetDeltaClass(context.MonopolyPercentIfSold - context.MonopolyPercentWithCurrentOwnership)">
-                                    @FormatSignedOptionalPercent(context.MonopolyPercentIfSold - context.MonopolyPercentWithCurrentOwnership)
-                                </MudText>
-                            </MudStack>
+                            <MudText Typo="Typo.body2" Class="@GetDeltaClass(GetAccessDelta(context))">
+                                @FormatSignedOptionalPercent(GetAccessDelta(context))
+                            </MudText>
+                        </MudTd>
+                        <MudTd>
+                            <MudText Typo="Typo.body2" Class="@GetDeltaClass(GetMonopolyDelta(context))">
+                                @FormatSignedOptionalPercent(GetMonopolyDelta(context))
+                            </MudText>
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
@@ -96,9 +90,18 @@
         return $"${Math.Max(0, value):N0}";
     }
 
-    private static string FormatOptionalPercent(decimal? value)
+    private static decimal? GetAccessDelta(NetworkRailroadSummaryModel summary)
     {
-        return value.HasValue ? FormatPercent(value.Value) : "-";
+        return summary.AccessPercentIfSold.HasValue
+            ? Math.Round(summary.AccessPercentIfSold.Value - summary.AccessPercentWithCurrentOwnership, 1, MidpointRounding.AwayFromZero)
+            : null;
+    }
+
+    private static decimal? GetMonopolyDelta(NetworkRailroadSummaryModel summary)
+    {
+        return summary.MonopolyPercentIfSold.HasValue
+            ? Math.Round(summary.MonopolyPercentIfSold.Value - summary.MonopolyPercentWithCurrentOwnership, 1, MidpointRounding.AwayFromZero)
+            : null;
     }
 
     private static string FormatSignedOptionalPercent(decimal? value)

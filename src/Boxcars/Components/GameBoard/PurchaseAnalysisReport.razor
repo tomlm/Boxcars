@@ -78,19 +78,17 @@
                 <MudPaper Class="purchase-analysis-city-section pa-3" Outlined="true">
                     <MudText Typo="Typo.subtitle2" Class="purchase-analysis-city-heading">Map City Access</MudText>
 
-                    <div class="purchase-analysis-table-host purchase-analysis-table-host-map-city">
-                        <MudTable T="CityAccessRow" Items="SortedCityRows" Dense="true" Hover="true">
-                            <HeaderContent>
-                                <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
-                                <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.RegionName)"><strong>Region</strong></MudTableSortLabel></MudTh>
-                                <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.GlobalAccessPercentage)"><strong>Map %</strong></MudTableSortLabel></MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd>@context.CityName</MudTd>
-                                <MudTd>@context.RegionCode</MudTd>
-                                <MudTd>@FormatCityPercent(context.GlobalAccessPercentage)</MudTd>
-                            </RowTemplate>
-                        </MudTable>
+                    <div class="purchase-analysis-city-columns">
+                        @foreach (var city in SortedCityRows)
+                        {
+                            <div class="purchase-analysis-city-entry">
+                                <MudText Typo="Typo.body2" Class="purchase-analysis-city-name">@city.CityName</MudText>
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="purchase-analysis-city-meta">
+                                    <MudText Typo="Typo.caption" Class="purchase-analysis-city-region">@city.RegionCode</MudText>
+                                    <MudText Typo="Typo.caption" Class="purchase-analysis-city-percent">@FormatCityPercent(city.GlobalAccessPercentage)</MudText>
+                                </MudStack>
+                            </div>
+                        }
                     </div>
                 </MudPaper>
             }
