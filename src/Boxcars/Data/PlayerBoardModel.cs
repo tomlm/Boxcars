@@ -47,12 +47,6 @@ public sealed class PlayerBoardModel
     /// <summary>True if the current user can act for this player via delegated control.</summary>
     public bool IsDelegatedToCurrentUser { get; init; }
 
-    /// <summary>True when this mock player is selected for local test control.</summary>
-    public bool IsTestControlled { get; init; }
-
-    /// <summary>True when this player supports the local test-control toggle.</summary>
-    public bool CanUseTestControl { get; init; }
-
     /// <summary>True when this player supports the local mock connect/disconnect toggle.</summary>
     public bool CanToggleConnection { get; init; }
 
@@ -99,7 +93,7 @@ public sealed class PlayerBoardModel
     /// </summary>
     public string GetMoneyDisplay()
     {
-        if (IsCurrentUser || IsDelegatedToCurrentUser || IsTestControlled)
+        if (IsCurrentUser || IsDelegatedToCurrentUser)
         {
             return $"${Cash:N0}";
         }

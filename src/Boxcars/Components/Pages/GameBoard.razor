@@ -38,8 +38,6 @@
 <div class="map-board-shell">
     <div class="map-board-sidebar">
         <PlayerBoard Players="_players"
-                 IsTestModeEnabled="@_isMockPlayerTestModeEnabled"
-                 OnToggleTestMode="OnToggleTestModeAsync"
                  OnToggleConnection="OnTogglePlayerConnectionAsync"
                  OnToggleDelegatedControl="OnToggleDelegatedControlAsync" />
     </div>
@@ -245,7 +243,6 @@
     private ElementReference _mapAreaElement;
     private PurchaseExperienceTab _selectedPurchaseTab = PurchaseExperienceTab.Map;
     private bool _wasPurchasePhaseActive;
-    private bool _isMockPlayerTestModeEnabled;
     private bool _awaitingAuthoritativeUpdate;
     private bool _autoZoomEnabled;
     private int _auctionBidAmount;
@@ -902,7 +899,6 @@
                 }
 
                 var isConnected = IsPlayerConnected(resolvedUserId);
-                var canUseTestControl = PlayerControlRules.CanUseLocalTestControl(resolvedUserId, isConnected);
                 var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, resolvedUserId) ?? string.Empty;
                 var isDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
 
@@ -936,8 +932,6 @@
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
                     IsDelegatedToCurrentUser = isDelegatedToCurrentUser,
-                    IsTestControlled = _isMockPlayerTestModeEnabled && canUseTestControl,
-                    CanUseTestControl = canUseTestControl,
                     CanToggleConnection = PlayerControlRules.IsBeatlesSlot(resolvedUserId),
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
@@ -1422,12 +1416,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool IsAuthenticatedUserActivePlayer => _gameState is not null
         && CanCurrentUserAuthenticatedlyControlPlayer(_gameState.ActivePlayerIndex);
 
-    private bool IsActivePlayerUnderTestControl => _gameState is not null
-        && _isMockPlayerTestModeEnabled
-        && _playerUserIdsByIndex.TryGetValue(_gameState.ActivePlayerIndex, out var activePlayerSlotUserId)
-        && PlayerControlRules.CanUseLocalTestControl(activePlayerSlotUserId, IsPlayerConnected(activePlayerSlotUserId))
-        && _gameState.Players[_gameState.ActivePlayerIndex].IsActive;
-
     private PurchasePhaseModel? CurrentPurchasePhase => _turnViewState.PurchasePhase;
 
     private ForcedSalePhaseModel? CurrentForcedSalePhase => _turnViewState.ForcedSalePhase;
@@ -1740,10 +1728,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
         var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId);
         var isDelegatedController = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
-        var isLocallyTestControlled = _isMockPlayerTestModeEnabled
-            && PlayerControlRules.CanUseLocalTestControl(slotUserId, IsPlayerConnected(slotUserId));
 
-        return isDirectlyBound || isDelegatedController || isLocallyTestControlled;
+        return isDirectlyBound || isDelegatedController;
     }
 
     private bool CanCurrentUserAuthenticatedlyControlPlayer(int playerIndex)
@@ -2280,8 +2266,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     Cash = player.Cash,
                     IsCurrentUser = player.IsCurrentUser,
                     IsDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId),
-                    IsTestControlled = player.IsTestControlled,
-                    CanUseTestControl = player.CanUseTestControl,
                     CanToggleConnection = player.CanToggleConnection,
                     HomeCity = player.HomeCity,
                     IsActiveTurn = player.IsActiveTurn,
@@ -2512,38 +2496,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             EventTimelineKind.PurchaseOpportunity => Icons.Material.Filled.LocalOffer,
             _ => Icons.Material.Filled.Notifications
         };
-    }
-
-    private async Task OnToggleTestModeAsync()
-    {
-        var hasAnyMockPlayers = _players.Any(player => player.CanUseTestControl);
-        if (!hasAnyMockPlayers)
-        {
-            return;
-        }
-
-        _isMockPlayerTestModeEnabled = !_isMockPlayerTestModeEnabled;
-
-        if (_isMockPlayerTestModeEnabled)
-        {
-            Snackbar.Add("Enabled local test mode for eligible mock or disconnected players.", Severity.Info);
-        }
-        else
-        {
-            Snackbar.Add("Stopped local test mode for eligible mock or disconnected players.", Severity.Info);
-        }
-
-        if (_gameState is not null)
-        {
-            ApplyGameState(_gameState);
-            if (_isMockPlayerTestModeEnabled)
-            {
-                _lastAutoSuggestKey = null;
-                await AutoSuggestRouteIfNeededAsync();
-            }
-
-            StateHasChanged();
-        }
     }
 
     private Task OnTogglePlayerConnectionAsync(int playerIndex)

@@ -36,8 +36,7 @@ public static class PlayerControlRules
         }
 
         return IsDirectlyBoundToUser(slotUserId, currentUserId)
-            || IsDelegatedController(delegatedControllerUserId, currentUserId)
-            || IsBeatlesSlot(slotUserId);
+            || IsDelegatedController(delegatedControllerUserId, currentUserId);
     }
 
     public static bool IsDelegatedController(string? delegatedControllerUserId, string? currentUserId)
@@ -45,11 +44,6 @@ public static class PlayerControlRules
         return !string.IsNullOrWhiteSpace(delegatedControllerUserId)
             && !string.IsNullOrWhiteSpace(currentUserId)
             && string.Equals(delegatedControllerUserId, currentUserId, StringComparison.OrdinalIgnoreCase);
-    }
-
-    public static bool CanUseLocalTestControl(string? slotUserId, bool isConnected)
-    {
-        return IsBeatlesSlot(slotUserId) || !isConnected;
     }
 
     public static bool IsBeatlesSlot(string? slotUserId)

@@ -137,23 +137,10 @@
     font-weight: 600;
 }
 
-::deep .player-card-line-test-state {
-    margin-top: 0.2rem;
-    color: var(--mud-palette-text-secondary);
-}
-
 ::deep .player-card-action-row {
     margin-top: auto;
     padding: 0.35rem 0.5rem 0.5rem;
     border-top: 1px solid color-mix(in srgb, var(--mud-palette-divider) 72%, transparent);
-}
-
-::deep .player-card-test-button {
-    min-width: 5rem;
-}
-
-::deep .player-board-test-toolbar {
-    margin: 0 0.2rem;
 }
 
 ::deep .player-card-label {

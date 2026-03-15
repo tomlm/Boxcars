@@ -94,15 +94,9 @@
                                 </MudText>
                             }
 
-                            @if (player.CanUseTestControl)
-                            {
-                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-test-state">
-                                    @(player.IsTestControlled ? "Test mode enabled" : "Mock player")
-                                </MudText>
-                            }
                         </MudStack>
 
-                        @if (player.CanUseTestControl || player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
+                        @if (player.CanToggleConnection || player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
                                 @if (player.CanToggleConnection)
@@ -130,21 +124,6 @@
                 </ChildContent>
             </MudTooltip>
         }
-
-        @if (HasAnyMockPlayers)
-        {
-            <MudPaper Class="player-board-test-toolbar pa-2" Outlined="true">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.caption">Local mock-player control</MudText>
-                    <MudButton Variant="@(IsTestModeEnabled ? Variant.Filled : Variant.Outlined)"
-                               Color="MudBlazor.Color.Primary"
-                               Size="Size.Small"
-                               OnClick="OnToggleTestModeAsync">
-                        @(IsTestModeEnabled ? "TEST MODE ON" : "TEST MODE")
-                    </MudButton>
-                </MudStack>
-            </MudPaper>
-        }
     </MudStack>
 </div>
 
@@ -153,18 +132,10 @@
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
 
     [Parameter]
-    public bool IsTestModeEnabled { get; set; }
-
-    [Parameter]
-    public EventCallback OnToggleTestMode { get; set; }
-
-    [Parameter]
     public EventCallback<int> OnToggleConnection { get; set; }
 
     [Parameter]
     public EventCallback<int> OnToggleDelegatedControl { get; set; }
-
-    private bool HasAnyMockPlayers => Players.Any(player => player.CanUseTestControl);
 
     private static string GetInitial(string name)
     {
@@ -206,7 +177,7 @@
 
     private static string GetCashValueClass(PlayerBoardModel player)
     {
-        if (player.IsCurrentUser || player.IsDelegatedToCurrentUser || player.IsTestControlled)
+        if (player.IsCurrentUser || player.IsDelegatedToCurrentUser)
         {
             return string.Empty;
         }
@@ -219,11 +190,6 @@
     private static string FormatPercent(decimal value)
     {
         return $"{value:N1}%";
-    }
-
-    private Task OnToggleTestModeAsync()
-    {
-        return OnToggleTestMode.InvokeAsync();
     }
 
     private static string GetColorClass(string color)
