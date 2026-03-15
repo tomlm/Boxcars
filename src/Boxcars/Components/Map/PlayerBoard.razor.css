@@ -118,7 +118,8 @@
 }
 
 ::deep .player-card-status-value-fees {
-    color: #b42318;
+    color: #ff3b30;
+    text-shadow: none;
 }
 
 ::deep .player-card-status-value-bonus {
