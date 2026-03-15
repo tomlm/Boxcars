@@ -2,9 +2,15 @@
 @using MudBlazor
 
 <div class="purchase-taskbar-scope">
-    <MudPaper Class="purchase-taskbar pa-3" Outlined="true">
+    <MudPaper Class="@TaskbarClass" Outlined="true">
         <MudStack Spacing="2">
             <MudText Typo="Typo.h4">Purchase Opportunity</MudText>
+            @if (!string.IsNullOrWhiteSpace(DelegatedControlLabel))
+            {
+                <MudText Typo="Typo.subtitle2" Class="purchase-taskbar-delegated-control">
+                    @DelegatedControlLabel
+                </MudText>
+            }
 
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
                 <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0">
@@ -55,6 +61,11 @@
     [Parameter]
     public EngineUpgradeOption? SelectedEngineOption { get; set; }
 
+    [Parameter]
+    public string DelegatedControlLabel { get; set; } = string.Empty;
+
+    private string TaskbarClass => "purchase-taskbar pa-3";
+
     private async Task OnSelectedOptionChangedAsync(string? optionKey)
     {
         await SelectedOptionKeyChanged.InvokeAsync(optionKey);
@@ -86,4 +97,5 @@
     {
         return value.HasValue ? $"{value.Value:N1}%" : "-";
     }
+
 }

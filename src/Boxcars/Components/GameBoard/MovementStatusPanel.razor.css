@@ -1,3 +1,15 @@
+.movement-status-panel-scope {
+    display: flex;
+}
+
+::deep .movement-status-paper {
+    background: var(--mud-palette-surface);
+    border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent);
+    border-radius: 0.9rem;
+    box-shadow: 0 8px 20px rgb(0 0 0 / 0.16);
+    padding: 0.55rem 1rem;
+}
+
 .movement-status-panel {
     color: var(--mud-palette-text-primary);
     font-family: "Consolas", "Courier New", monospace;

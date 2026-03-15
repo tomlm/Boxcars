@@ -6,6 +6,12 @@
     width: 100%;
 }
 
+.purchase-taskbar-delegated-control {
+    font-style: italic;
+    font-weight: 600;
+    color: var(--mud-palette-text-secondary);
+}
+
 .purchase-taskbar-select {
     min-width: 18rem;
 }

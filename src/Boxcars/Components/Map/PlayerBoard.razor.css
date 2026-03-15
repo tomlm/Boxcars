@@ -28,6 +28,15 @@
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--player-glow-color, var(--player-color, #888)) 30%, white 70%), 0 0 10px 2px color-mix(in srgb, var(--player-glow-color, var(--player-color, #888)) 34%, white 18%), 0 0 18px 4px color-mix(in srgb, var(--player-glow-color, var(--player-color, #888)) 30%, transparent);
 }
 
+::deep .player-card-eliminated {
+    opacity: 0.45;
+    filter: saturate(0.35);
+}
+
+::deep .player-card-eliminated .player-card-portrait {
+    background-color: color-mix(in srgb, var(--player-color, #888) 45%, #1b1b1b 55%);
+}
+
 ::deep .player-card-portrait {
     padding: 0.4rem 0.5rem 0.25rem;
     background-color: var(--player-color, #888);
@@ -114,6 +123,17 @@
 
 ::deep .player-card-status-value-bonus {
     color: #1d4ed8;
+}
+
+::deep .player-card-line-controlled-by {
+    font-style: italic;
+    color: var(--mud-palette-text-secondary);
+}
+
+::deep .player-card-line-controlled-by .player-card-label,
+::deep .player-card-controlled-by-value {
+    font-style: italic;
+    font-weight: 600;
 }
 
 ::deep .player-card-line-test-state {

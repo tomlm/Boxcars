@@ -34,6 +34,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly PurchaseRulesOptions _purchaseRulesOptions;
+    private readonly GamePresenceService _gamePresenceService;
     private readonly ILogger<GameEngineService> _logger;
     private long _eventSequence;
     private MapDefinition? _mapDefinition;
@@ -41,11 +42,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     public GameEngineService(
         IWebHostEnvironment webHostEnvironment,
         TableServiceClient tableServiceClient,
+        GamePresenceService gamePresenceService,
         IOptions<PurchaseRulesOptions> purchaseRulesOptions,
         ILogger<GameEngineService> logger)
     {
         _webHostEnvironment = webHostEnvironment;
         _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
+        _gamePresenceService = gamePresenceService;
         _purchaseRulesOptions = purchaseRulesOptions.Value;
         _logger = logger;
     }
@@ -357,7 +360,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
     }
 
-    private static void ValidateActionAuthorization(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
+    private void ValidateActionAuthorization(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
     {
         var activePlayerIndex = gameEngine.CurrentTurn.ActivePlayer.Index;
         var allowsNonActiveParticipant = action is BidAction or AuctionPassAction or AuctionDropOutAction;
@@ -389,7 +392,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var slotUserId = selections[authorizedPlayerIndex].UserId;
-        if (!PlayerControlRules.CanUserControlSlot(slotUserId, action.ActorUserId))
+        var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameEntity.GameId, slotUserId);
+        if (!PlayerControlRules.CanUserControlSlot(slotUserId, action.ActorUserId, delegatedControllerUserId, isPlayerActive: true))
         {
             throw new InvalidOperationException(allowsNonActiveParticipant
                 ? "Only the controlling participant for the acting player may perform this auction action."

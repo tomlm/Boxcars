@@ -44,6 +44,9 @@ public sealed class PlayerBoardModel
     /// <summary>True if this player is the currently logged-in user.</summary>
     public bool IsCurrentUser { get; init; }
 
+    /// <summary>True if the current user can act for this player via delegated control.</summary>
+    public bool IsDelegatedToCurrentUser { get; init; }
+
     /// <summary>True when this mock player is selected for local test control.</summary>
     public bool IsTestControlled { get; init; }
 
@@ -59,8 +62,23 @@ public sealed class PlayerBoardModel
     /// <summary>True if the player's turn is active.</summary>
     public bool IsActiveTurn { get; init; }
 
+    /// <summary>True when the player has been eliminated and is out of the game.</summary>
+    public bool IsEliminated { get; init; }
+
     /// <summary>True when the player is currently connected to the game session.</summary>
     public bool IsConnected { get; init; } = true;
+
+    /// <summary>True when the current user can take delegated control of this player.</summary>
+    public bool CanTakeDelegatedControl { get; init; }
+
+    /// <summary>True when the current user can release delegated control of this player.</summary>
+    public bool CanReleaseDelegatedControl { get; init; }
+
+    /// <summary>User id of the participant currently controlling this player via delegation.</summary>
+    public string DelegatedControllerUserId { get; init; } = string.Empty;
+
+    /// <summary>Display name of the participant currently controlling this player via delegation.</summary>
+    public string DelegatedControllerDisplayName { get; init; } = string.Empty;
 
     /// <summary>Locomotive type label (e.g. "Freight", "Express", "Superchief").</summary>
     public string LocomotiveLabel { get; init; } = "Freight";
@@ -81,7 +99,7 @@ public sealed class PlayerBoardModel
     /// </summary>
     public string GetMoneyDisplay()
     {
-        if (IsCurrentUser || IsTestControlled)
+        if (IsCurrentUser || IsDelegatedToCurrentUser || IsTestControlled)
         {
             return $"${Cash:N0}";
         }

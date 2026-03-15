@@ -68,26 +68,89 @@
 }
 
 /* ── Status bar below map ── */
+.map-board-status-bar-anchor {
+    display: flex;
+    flex-shrink: 0;
+    background: color-mix(in srgb, var(--mud-palette-surface) 68%, black 32%);
+    color: var(--mud-palette-text-primary);
+    border-top: 1px solid var(--mud-palette-divider);
+    transition: background-color 120ms ease;
+}
+
 .map-board-status-bar {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    font-size: 0.85rem;
+    min-height: 3.75rem;
+    padding: 0.55rem 1rem;
+}
+
+.map-board-status-action-anchor {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 1rem;
-    flex-shrink: 0;
-    background: color-mix(in srgb, var(--mud-palette-surface) 70%, black 30%);
-    color: var(--mud-palette-text-primary);
-    font-size: 0.85rem;
-    min-height: 3.25rem;
-    border-top: 1px solid var(--mud-palette-divider);
+    width: 100%;
 }
 
-.map-board-status-main {
+.map-board-status-action-slot {
+    display: inline-flex;
     justify-content: center;
-    min-width: 0;
+    align-items: center;
+    gap: 1rem;
+    width: auto;
+    max-width: 100%;
     margin: 0 auto;
 }
 
+.map-board-status-bar-darkblue {
+    background: #0b3d91;
+}
+
+.map-board-status-bar-blue {
+    background: #2563eb;
+}
+
+.map-board-status-bar-cyan {
+    background: #06b6d4;
+}
+
+.map-board-status-bar-red {
+    background: #dc2626;
+}
+
+.map-board-status-bar-darkred {
+    background: #7f1d1d;
+}
+
+.map-board-status-bar-orange {
+    background: #ea580c;
+}
+
+.map-board-status-bar-yellow {
+    background: #facc15;
+    color: #1f2937;
+}
+
+.map-board-status-bar-purple {
+    background: #9333ea;
+}
+
+.map-board-status-bar-green {
+    background: #16a34a;
+}
+
+.map-board-status-bar-darkgreen {
+    background: #166534;
+}
+
+.map-board-status-bar-default {
+    background: color-mix(in srgb, var(--mud-palette-surface) 70%, black 30%);
+}
+
 .status-bar-text {
+    display: block;
+    text-align: center;
     white-space: nowrap;
 }
 
@@ -95,6 +158,42 @@
     flex: 0 0 auto;
     min-width: 9rem;
     white-space: nowrap;
+}
+
+.map-board-primary-action-shell {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto;
+}
+
+.map-board-turn-action-shell {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto;
+}
+
+::deep .map-board-turn-action-paper {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.9rem;
+    background: var(--mud-palette-surface);
+    border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent);
+    box-shadow: 0 8px 20px rgb(0 0 0 / 0.16);
+}
+
+::deep .map-board-primary-action-paper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.45rem;
+    border-radius: 0.9rem;
+    background: var(--mud-palette-surface);
+    border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent);
+    box-shadow: 0 8px 20px rgb(0 0 0 / 0.16);
 }
 
 .map-board-turn-status {
@@ -115,13 +214,14 @@
         gap: 0.35rem;
     }
 
-    .map-board-status-bar {
+    .map-board-status-bar-anchor {
         display: flex;
         justify-content: center;
     }
 
-    .map-board-status-main {
+    .map-board-status-action-slot {
         justify-content: center;
+        flex-wrap: wrap;
     }
 
     .map-board-purchase-overlay {

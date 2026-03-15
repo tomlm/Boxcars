@@ -11,10 +11,19 @@ public static class PlayerControlRules
 
     public static bool CanUserControlSlot(string? slotUserId, string? currentUserId)
     {
-        return CanUserControlSlot(slotUserId, currentUserId, isPlayerActive: true);
+        return CanUserControlSlot(slotUserId, currentUserId, delegatedControllerUserId: null, isPlayerActive: true);
     }
 
     public static bool CanUserControlSlot(string? slotUserId, string? currentUserId, bool isPlayerActive)
+    {
+        return CanUserControlSlot(slotUserId, currentUserId, delegatedControllerUserId: null, isPlayerActive);
+    }
+
+    public static bool CanUserControlSlot(
+        string? slotUserId,
+        string? currentUserId,
+        string? delegatedControllerUserId,
+        bool isPlayerActive)
     {
         if (!isPlayerActive)
         {
@@ -27,7 +36,15 @@ public static class PlayerControlRules
         }
 
         return IsDirectlyBoundToUser(slotUserId, currentUserId)
+            || IsDelegatedController(delegatedControllerUserId, currentUserId)
             || IsBeatlesSlot(slotUserId);
+    }
+
+    public static bool IsDelegatedController(string? delegatedControllerUserId, string? currentUserId)
+    {
+        return !string.IsNullOrWhiteSpace(delegatedControllerUserId)
+            && !string.IsNullOrWhiteSpace(currentUserId)
+            && string.Equals(delegatedControllerUserId, currentUserId, StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool CanUseLocalTestControl(string? slotUserId, bool isConnected)

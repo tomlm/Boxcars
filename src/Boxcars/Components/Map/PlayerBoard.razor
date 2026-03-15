@@ -74,6 +74,13 @@
                             <MudText Typo="Typo.caption" Class="player-card-line">
                                 <span class="player-card-label">Cash:</span> <span class="@GetCashValueClass(player)">@player.GetMoneyDisplay()</span>
                             </MudText>
+                            @if (!string.IsNullOrWhiteSpace(player.DelegatedControllerDisplayName))
+                            {
+                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-controlled-by">
+                                    <span class="player-card-label">Controlled by:</span>
+                                    <span class="player-card-controlled-by-value">@player.DelegatedControllerDisplayName</span>
+                                </MudText>
+                            }
                             @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
                             {
                                 <MudText Typo="Typo.caption" Class="player-card-line">
@@ -95,7 +102,7 @@
                             }
                         </MudStack>
 
-                        @if (player.CanUseTestControl)
+                        @if (player.CanUseTestControl || player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
                                 @if (player.CanToggleConnection)
@@ -105,6 +112,16 @@
                                                Size="Size.Small"
                                                OnClick="() => OnToggleConnection.InvokeAsync(player.Index)">
                                         @(player.IsConnected ? "DISCONNECT" : "CONNECT")
+                                    </MudButton>
+                                }
+
+                                @if (player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="MudBlazor.Color.Primary"
+                                               Size="Size.Small"
+                                               OnClick="() => OnToggleDelegatedControl.InvokeAsync(player.Index)">
+                                        @(player.CanReleaseDelegatedControl ? "RELEASE" : "TAKE CONTROL")
                                     </MudButton>
                                 }
                             </MudStack>
@@ -144,6 +161,9 @@
     [Parameter]
     public EventCallback<int> OnToggleConnection { get; set; }
 
+    [Parameter]
+    public EventCallback<int> OnToggleDelegatedControl { get; set; }
+
     private bool HasAnyMockPlayers => Players.Any(player => player.CanUseTestControl);
 
     private static string GetInitial(string name)
@@ -157,6 +177,11 @@
         if (player.IsActiveTurn)
         {
             classes += " player-card-active";
+        }
+
+        if (player.IsEliminated)
+        {
+            classes += " player-card-eliminated";
         }
 
         return classes;
@@ -181,7 +206,7 @@
 
     private static string GetCashValueClass(PlayerBoardModel player)
     {
-        if (player.IsCurrentUser || player.IsTestControlled)
+        if (player.IsCurrentUser || player.IsDelegatedToCurrentUser || player.IsTestControlled)
         {
             return string.Empty;
         }

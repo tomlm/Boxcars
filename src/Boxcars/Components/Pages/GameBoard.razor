@@ -40,7 +40,8 @@
         <PlayerBoard Players="_players"
                  IsTestModeEnabled="@_isMockPlayerTestModeEnabled"
                  OnToggleTestMode="OnToggleTestModeAsync"
-                 OnToggleConnection="OnTogglePlayerConnectionAsync" />
+                 OnToggleConnection="OnTogglePlayerConnectionAsync"
+                 OnToggleDelegatedControl="OnToggleDelegatedControlAsync" />
     </div>
 
     <div class="map-board-main">
@@ -143,62 +144,75 @@
         }
 
         @* ── Status strip: turn state center, zoom right ── *@
-        <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center"
-                  Class="map-board-status-bar px-3 py-2" Spacing="2">
-            @if (ShouldShowStatusControls)
-            {
-                <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="map-board-status-main" Spacing="2">
-                    @if (!ShouldShowAuctionPanel && !ShouldShowForcedSalePanel)
-                    {
-                        <MovementStatusPanel State="@_turnViewState" />
-                    }
+        <div class="@StatusBarAnchorClass">
+            <div class="map-board-status-bar">
+                <div class="map-board-status-action-anchor">
+                    <div class="map-board-status-action-slot">
+                        @if (ShouldShowStatusControls)
+                        {
+                            @if (!ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
+                            {
+                                <MovementStatusPanel State="@_turnViewState" />
+                            }
 
-                    @if (ShouldShowPurchaseTaskbar)
-                    {
-                        <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
-                                         SelectedOptionKey="@_selectedPurchaseOptionKey"
-                                         SelectedOptionKeyChanged="OnSelectedPurchaseOptionChangedAsync"
-                                         BuyRequested="OnBuyPurchaseAsync"
-                                         DeclineRequested="DeclinePurchaseAsync"
-                                         CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
-                                         ProjectedCoverage="SelectedProjectedCoverage"
-                                         SelectedEngineOption="SelectedEngineOption" />
-                    }
-                    else if (ShouldShowAuctionPanel)
-                    {
-                        <RailroadAuctionPanel AuctionState="CurrentAuctionPanelState"
-                                             CanCurrentUserAct="CanCurrentUserActInAuction"
-                                             BidAmount="@AuctionBidAmount"
-                                             BidAmountChanged="OnAuctionBidAmountChangedAsync"
-                                             BidRequested="OnSubmitAuctionBidAsync"
-                                             PassRequested="OnAuctionPassAsync"
-                                             DropOutRequested="OnAuctionDropOutAsync" />
-                    }
-                    else if (ShouldShowForcedSalePanel)
-                    {
-                        <ForcedSalePanel Phase="CurrentForcedSalePhase!"
-                                         SelectedRailroadIndex="@SelectedForcedSaleCandidate?.RailroadIndex"
-                                         SelectedRailroadIndexChanged="OnForcedSaleRailroadChangedAsync"
-                                         SellToBankRequested="OnSellRailroadToBankAsync"
-                                         StartAuctionRequested="OnStartAuctionAsync" />
-                    }
-                    else if (ShouldShowCommitMoveAction)
-                    {
-                        <MudButton Variant="Variant.Filled"
-                                   Color="MudBlazor.Color.Primary"
-                                   Disabled="@(!CanCommitMoveAction)"
-                                   OnClick="OnCommitMoveActionAsync"
-                                   Class="map-board-primary-action">
-                            @CommitMoveActionLabel
-                        </MudButton>
-                    }
-                </MudStack>
-            }
-            else
-            {
-                <MudText Typo="Typo.body2" Class="status-bar-text">@SpectatorStatusMessage</MudText>
-            }
-        </MudStack>
+                            @if (ShouldShowPurchaseTaskbar)
+                            {
+                                <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
+                                                 SelectedOptionKey="@_selectedPurchaseOptionKey"
+                                                 SelectedOptionKeyChanged="OnSelectedPurchaseOptionChangedAsync"
+                                                 BuyRequested="OnBuyPurchaseAsync"
+                                                 DeclineRequested="DeclinePurchaseAsync"
+                                                 DelegatedControlLabel="@CurrentDelegatedControlLabel"
+                                                 CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
+                                                 ProjectedCoverage="SelectedProjectedCoverage"
+                                                 SelectedEngineOption="SelectedEngineOption" />
+                            }
+                            else if (ShouldShowAuctionPanel)
+                            {
+                                <RailroadAuctionPanel AuctionState="CurrentAuctionPanelState"
+                                                     CanCurrentUserAct="CanCurrentUserActInAuction"
+                                                     BidAmount="@AuctionBidAmount"
+                                                     BidAmountChanged="OnAuctionBidAmountChangedAsync"
+                                                     BidRequested="OnSubmitAuctionBidAsync"
+                                                     PassRequested="OnAuctionPassAsync"
+                                                     DropOutRequested="OnAuctionDropOutAsync" />
+                            }
+                            else if (ShouldShowForcedSalePanel)
+                            {
+                                <ForcedSalePanel Phase="CurrentForcedSalePhase!"
+                                                 SelectedRailroadIndex="@SelectedForcedSaleCandidate?.RailroadIndex"
+                                                 SelectedRailroadIndexChanged="OnForcedSaleRailroadChangedAsync"
+                                                 SellToBankRequested="OnSellRailroadToBankAsync"
+                                                 StartAuctionRequested="OnStartAuctionAsync" />
+                            }
+                            else if (ShouldShowCommitMoveAction)
+                            {
+                                <div class="map-board-turn-action-shell">
+                                    <MudPaper Class="map-board-turn-action-paper" Outlined="true">
+                                        <MovementStatusPanel State="@_turnViewState" UsePaper="false" />
+                                        <MudButton Variant="Variant.Filled"
+                                                   Color="MudBlazor.Color.Primary"
+                                                   Disabled="@(!CanCommitMoveAction)"
+                                                   OnClick="OnCommitMoveActionAsync"
+                                                   Class="map-board-primary-action">
+                                            @CommitMoveActionLabel
+                                        </MudButton>
+                                    </MudPaper>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="map-board-primary-action-shell">
+                                <MudPaper Class="map-board-primary-action-paper" Outlined="true">
+                                    <MudText Typo="Typo.body2" Class="status-bar-text">@SpectatorStatusMessage</MudText>
+                                </MudPaper>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -861,18 +875,36 @@
             .GroupBy(selection => selection.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First().UserId, StringComparer.OrdinalIgnoreCase);
 
+        var playerDisplayNamesByUserId = playerSelections
+            .Where(selection => !string.IsNullOrWhiteSpace(selection.UserId))
+            .ToDictionary(
+                selection => selection.UserId,
+                selection => string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName,
+                StringComparer.OrdinalIgnoreCase);
+
+        var resolvedUserIdsByIndex = state.Players
+            .Select((player, index) =>
+            {
+                var selection = index < playerSelections.Count ? playerSelections[index] : null;
+                return ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
+            })
+            .ToList();
+
         _players = state.Players
             .Select((player, index) =>
             {
                 var selection = index < playerSelections.Count ? playerSelections[index] : null;
-                var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
-                var isConnected = IsPlayerConnected(resolvedUserId);
-                var canUseTestControl = PlayerControlRules.CanUseLocalTestControl(resolvedUserId, isConnected);
+                var resolvedUserId = resolvedUserIdsByIndex[index];
 
                 if (PlayerControlRules.IsBeatlesSlot(resolvedUserId) && !string.IsNullOrWhiteSpace(resolvedUserId))
                 {
                     GamePresenceService.EnsureMockConnectionState(GameId, resolvedUserId, defaultConnected: true);
                 }
+
+                var isConnected = IsPlayerConnected(resolvedUserId);
+                var canUseTestControl = PlayerControlRules.CanUseLocalTestControl(resolvedUserId, isConnected);
+                var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, resolvedUserId) ?? string.Empty;
+                var isDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
 
                 var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
                     && !string.IsNullOrWhiteSpace(resolvedUserId)
@@ -903,12 +935,18 @@
                     Payoff = CalculateTripPayoff(player),
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
+                    IsDelegatedToCurrentUser = isDelegatedToCurrentUser,
                     IsTestControlled = _isMockPlayerTestModeEnabled && canUseTestControl,
                     CanUseTestControl = canUseTestControl,
                     CanToggleConnection = PlayerControlRules.IsBeatlesSlot(resolvedUserId),
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
+                    IsEliminated = !player.IsActive,
                     IsConnected = isConnected,
+                    CanTakeDelegatedControl = CanCurrentUserTakeDelegatedControl(index, resolvedUserId, delegatedControllerUserId),
+                    CanReleaseDelegatedControl = CanCurrentUserReleaseDelegatedControl(delegatedControllerUserId),
+                    DelegatedControllerUserId = delegatedControllerUserId,
+                    DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, playerDisplayNamesByUserId),
                     LocomotiveLabel = player.LocomotiveType,
                     BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
                     FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index) : 0,
@@ -917,19 +955,24 @@
             })
             .ToList();
 
-        _playerUserIdsByIndex = state.Players
-            .Select((player, index) =>
-            {
-                var selection = index < playerSelections.Count ? playerSelections[index] : null;
-                var resolvedUserId = ResolvePlayerUserId(player, selection, playerUserIdsByDisplayName);
-                return new KeyValuePair<int, string?>(index, resolvedUserId);
-            })
+        _playerUserIdsByIndex = resolvedUserIdsByIndex
+            .Select((resolvedUserId, index) => new KeyValuePair<int, string?>(index, resolvedUserId))
             .ToDictionary(pair => pair.Key, pair => pair.Value);
 
         _currentPlayerColor = ResolveActionPlayerColor(state);
         SyncPurchaseSelection();
         TrackPurchasePhaseTransition();
         _pendingRestoredRouteSelection = true;
+    }
+
+    private void ReevaluatePlayerPresenceState()
+    {
+        if (_gameState is null)
+        {
+            return;
+        }
+
+        RefreshPlayerConnectionStates();
     }
 
     private void TrackPurchasePhaseTransition()
@@ -1373,9 +1416,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         ? PlayerMovementType.ThreeDie
         : PlayerMovementType.TwoDie;
 
-    private bool IsCurrentUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer || IsActivePlayerUnderTestControl;
+    private bool IsCurrentUserActivePlayer => _gameState is not null
+        && CanCurrentUserControlPlayer(_gameState.ActivePlayerIndex);
 
-    private bool IsAuthenticatedUserActivePlayer => _turnViewState.IsCurrentUserActivePlayer;
+    private bool IsAuthenticatedUserActivePlayer => _gameState is not null
+        && CanCurrentUserAuthenticatedlyControlPlayer(_gameState.ActivePlayerIndex);
 
     private bool IsActivePlayerUnderTestControl => _gameState is not null
         && _isMockPlayerTestModeEnabled
@@ -1402,7 +1447,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 return -1;
             }
 
-            if (IsActivePlayerUnderTestControl)
+            if (CanCurrentUserControlPlayer(_gameState.ActivePlayerIndex))
             {
                 return _gameState.ActivePlayerIndex;
             }
@@ -1479,6 +1524,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         ? "map-board-analysis-area map-board-panel-hidden"
         : "map-board-analysis-area";
 
+    private string StatusBarAnchorClass => $"map-board-status-bar-anchor {GetStatusBarColorClass(_currentPlayerColor)}";
+
     private bool ShouldShowPurchaseAnalysisPanel => (IsRegionsPurchaseTabActive || IsCitiesPurchaseTabActive || IsRailroadsPurchaseTabActive)
         && CurrentMapAnalysisReport is not null;
 
@@ -1515,6 +1562,27 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             CanBuy = CanBuySelectedPurchaseOption,
             CanDecline = CurrentPurchasePhase.CanDecline
         };
+
+    private string CurrentDelegatedControlLabel
+    {
+        get
+        {
+            if (_gameState is null
+                || _gameState.ActivePlayerIndex < 0
+                || _gameState.ActivePlayerIndex >= _players.Count)
+            {
+                return string.Empty;
+            }
+
+            var activePlayer = _players[_gameState.ActivePlayerIndex];
+            if (string.IsNullOrWhiteSpace(activePlayer.DelegatedControllerDisplayName))
+            {
+                return string.Empty;
+            }
+
+            return $"Acting for {activePlayer.Name}: {activePlayer.DelegatedControllerDisplayName}";
+        }
+    }
 
     private bool CanBuySelectedPurchaseOption => CurrentPurchasePhase is not null
         && !string.IsNullOrWhiteSpace(_selectedPurchaseOptionKey)
@@ -1660,19 +1728,38 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool CanCurrentUserControlPlayer(int playerIndex)
     {
-        var isPlayerActive = _gameState is not null
-            && playerIndex >= 0
-            && playerIndex < _gameState.Players.Count
-            && _gameState.Players[playerIndex].IsActive;
+        if (_gameState is null
+            || playerIndex < 0
+            || playerIndex >= _gameState.Players.Count
+            || !_gameState.Players[playerIndex].IsActive)
+        {
+            return false;
+        }
 
         var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
+        var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
         var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId);
+        var isDelegatedController = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
         var isLocallyTestControlled = _isMockPlayerTestModeEnabled
             && PlayerControlRules.CanUseLocalTestControl(slotUserId, IsPlayerConnected(slotUserId));
 
-        return playerIndex >= 0
-            && isPlayerActive
-            && (isDirectlyBound || isLocallyTestControlled);
+        return isDirectlyBound || isDelegatedController || isLocallyTestControlled;
+    }
+
+    private bool CanCurrentUserAuthenticatedlyControlPlayer(int playerIndex)
+    {
+        if (_gameState is null
+            || playerIndex < 0
+            || playerIndex >= _gameState.Players.Count
+            || !_gameState.Players[playerIndex].IsActive)
+        {
+            return false;
+        }
+
+        var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
+        var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
+        return PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)
+            || PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
     }
 
     private Boxcars.Engine.Persistence.PlayerState? CurrentControlledPlayerState
@@ -1684,18 +1771,16 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 return null;
             }
 
+            if (_gameState.ActivePlayerIndex >= 0
+                && _gameState.ActivePlayerIndex < _gameState.Players.Count
+                && CanCurrentUserControlPlayer(_gameState.ActivePlayerIndex))
+            {
+                return _gameState.Players[_gameState.ActivePlayerIndex];
+            }
+
             if (_currentUserPlayerIndex >= 0 && _currentUserPlayerIndex < _gameState.Players.Count)
             {
                 return _gameState.Players[_currentUserPlayerIndex];
-            }
-
-            if (_gameState.ActivePlayerIndex >= 0
-                && _gameState.ActivePlayerIndex < _gameState.Players.Count
-                && _isMockPlayerTestModeEnabled
-                && _playerUserIdsByIndex.TryGetValue(_gameState.ActivePlayerIndex, out var activePlayerSlotUserId)
-                && PlayerControlRules.CanUseLocalTestControl(activePlayerSlotUserId, IsPlayerConnected(activePlayerSlotUserId)))
-            {
-                return _gameState.Players[_gameState.ActivePlayerIndex];
             }
 
             return null;
@@ -2173,35 +2258,51 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         var previousConnectionStates = _players
             .ToDictionary(player => player.Index, player => player.IsConnected);
+        var previousDelegatedControllers = _players
+            .ToDictionary(player => player.Index, player => player.DelegatedControllerUserId);
 
         _players = _players
-            .Select(player => new PlayerBoardModel
+            .Select(player =>
             {
-                Index = player.Index,
-                Name = player.Name,
-                ThumbnailUrl = player.ThumbnailUrl,
-                Color = player.Color,
-                IsAtDestination = player.IsAtDestination,
-                TripStartLabel = player.TripStartLabel,
-                TripDestinationLabel = player.TripDestinationLabel,
-                DistanceToDestination = player.DistanceToDestination,
-                Payoff = player.Payoff,
-                Cash = player.Cash,
-                IsCurrentUser = player.IsCurrentUser,
-                IsTestControlled = player.IsTestControlled,
-                CanUseTestControl = player.CanUseTestControl,
-                CanToggleConnection = player.CanToggleConnection,
-                HomeCity = player.HomeCity,
-                IsActiveTurn = player.IsActiveTurn,
-                IsConnected = IsPlayerConnected(_playerUserIdsByIndex.GetValueOrDefault(player.Index)),
-                LocomotiveLabel = player.LocomotiveLabel,
-                CoverageMetrics = player.CoverageMetrics
+                var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(player.Index);
+                var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId) ?? string.Empty;
+                return new PlayerBoardModel
+                {
+                    Index = player.Index,
+                    Name = player.Name,
+                    ThumbnailUrl = player.ThumbnailUrl,
+                    Color = player.Color,
+                    IsAtDestination = player.IsAtDestination,
+                    TripStartLabel = player.TripStartLabel,
+                    TripDestinationLabel = player.TripDestinationLabel,
+                    DistanceToDestination = player.DistanceToDestination,
+                    Payoff = player.Payoff,
+                    Cash = player.Cash,
+                    IsCurrentUser = player.IsCurrentUser,
+                    IsDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId),
+                    IsTestControlled = player.IsTestControlled,
+                    CanUseTestControl = player.CanUseTestControl,
+                    CanToggleConnection = player.CanToggleConnection,
+                    HomeCity = player.HomeCity,
+                    IsActiveTurn = player.IsActiveTurn,
+                    IsEliminated = player.IsEliminated,
+                    IsConnected = IsPlayerConnected(slotUserId),
+                    CanTakeDelegatedControl = CanCurrentUserTakeDelegatedControl(player.Index, slotUserId, delegatedControllerUserId),
+                    CanReleaseDelegatedControl = CanCurrentUserReleaseDelegatedControl(delegatedControllerUserId),
+                    DelegatedControllerUserId = delegatedControllerUserId,
+                    DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, null),
+                    LocomotiveLabel = player.LocomotiveLabel,
+                    FeesOwed = player.FeesOwed,
+                    BonusPendingLabel = player.BonusPendingLabel,
+                    CoverageMetrics = player.CoverageMetrics
+                };
             })
             .ToList();
 
         if (_presenceNotificationsEnabled)
         {
             NotifyPresenceChanges(previousConnectionStates);
+            NotifyDelegatedControlChanges(previousDelegatedControllers);
         }
     }
 
@@ -2214,7 +2315,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         _pagePresenceRegistered = true;
         GamePresenceService.AddConnection(GameId, _currentUserId, _pagePresenceRegistrationId);
-        RefreshPlayerConnectionStates();
+        ReevaluatePlayerPresenceState();
         _presenceNotificationsEnabled = true;
         StateHasChanged();
     }
@@ -2240,7 +2341,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         _ = InvokeAsync(() =>
         {
-            RefreshPlayerConnectionStates();
+            ReevaluatePlayerPresenceState();
             StateHasChanged();
         });
     }
@@ -2264,6 +2365,53 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     var playerColor = PlayerColorOptions.NormalizeOrDefault(player.Color);
                     options.SnackbarTypeClass = $"player-snackbar player-snackbar-{playerColor}";
                 });
+        }
+    }
+
+    private void NotifyDelegatedControlChanges(IReadOnlyDictionary<int, string> previousDelegatedControllers)
+    {
+        foreach (var player in _players)
+        {
+            previousDelegatedControllers.TryGetValue(player.Index, out var previousControllerUserId);
+            var currentControllerUserId = player.DelegatedControllerUserId;
+
+            if (string.Equals(previousControllerUserId, currentControllerUserId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string? message;
+            Severity severity;
+
+            if (!string.IsNullOrWhiteSpace(currentControllerUserId))
+            {
+                var controllerName = string.IsNullOrWhiteSpace(player.DelegatedControllerDisplayName)
+                    ? "Another player"
+                    : player.DelegatedControllerDisplayName;
+                var previousControllerName = ResolveParticipantDisplayName(previousControllerUserId, null);
+                message = string.IsNullOrWhiteSpace(previousControllerName)
+                    ? $"{controllerName} took control of {player.Name}."
+                    : $"{controllerName} took control of {player.Name} from {previousControllerName}.";
+                severity = Severity.Info;
+            }
+            else if (!string.IsNullOrWhiteSpace(previousControllerUserId))
+            {
+                var previousControllerName = ResolveParticipantDisplayName(previousControllerUserId, null);
+                message = player.IsConnected
+                    ? $"{player.Name} reconnected. {previousControllerName} lost delegated control."
+                    : $"{previousControllerName} stopped controlling {player.Name}.";
+                severity = player.IsConnected ? Severity.Success : Severity.Warning;
+            }
+            else
+            {
+                continue;
+            }
+
+            Snackbar.Add(message, severity, options =>
+            {
+                var playerColor = PlayerColorOptions.NormalizeOrDefault(player.Color);
+                options.SnackbarTypeClass = $"player-snackbar player-snackbar-{playerColor}";
+            });
         }
     }
 
@@ -2416,6 +2564,114 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         GamePresenceService.SetMockConnectionState(GameId, userId, nextConnectedState);
 
         return Task.CompletedTask;
+    }
+
+    private Task OnToggleDelegatedControlAsync(int playerIndex)
+    {
+        if (string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return Task.CompletedTask;
+        }
+
+        var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
+        if (string.IsNullOrWhiteSpace(slotUserId))
+        {
+            return Task.CompletedTask;
+        }
+
+        var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
+        var changed = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId)
+            ? GamePresenceService.ReleaseDelegatedControl(GameId, slotUserId, _currentUserId)
+            : GamePresenceService.TryTakeDelegatedControl(GameId, slotUserId, _currentUserId);
+
+        if (!changed)
+        {
+            Snackbar.Add("Unable to update delegated control for that player.", Severity.Warning);
+            return Task.CompletedTask;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private bool CanCurrentUserTakeDelegatedControl(int playerIndex, string? slotUserId, string? delegatedControllerUserId)
+    {
+        if (_gameState is null
+            || string.IsNullOrWhiteSpace(_currentUserId)
+            || string.IsNullOrWhiteSpace(slotUserId)
+            || playerIndex < 0
+            || playerIndex >= _gameState.Players.Count
+            || !_gameState.Players[playerIndex].IsActive
+            || PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)
+            || IsPlayerConnected(slotUserId)
+            || !IsCurrentUserInGameRoster())
+        {
+            return false;
+        }
+
+        return !PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+    }
+
+    private bool CanCurrentUserReleaseDelegatedControl(string? delegatedControllerUserId)
+    {
+        return !string.IsNullOrWhiteSpace(_currentUserId)
+            && PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+    }
+
+    private bool IsCurrentUserInGameRoster()
+    {
+        return _gameState is not null
+            && _currentUserPlayerIndex >= 0
+            && _currentUserPlayerIndex < _gameState.Players.Count;
+    }
+
+    private string ResolveParticipantDisplayName(string? userId, IReadOnlyDictionary<string, string>? playerDisplayNamesByUserId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return string.Empty;
+        }
+
+        if (playerDisplayNamesByUserId is not null
+            && playerDisplayNamesByUserId.TryGetValue(userId, out var displayName)
+            && !string.IsNullOrWhiteSpace(displayName))
+        {
+            return displayName;
+        }
+
+        if (_playerProfilesByUserId.TryGetValue(userId, out var profile))
+        {
+            if (!string.IsNullOrWhiteSpace(profile.Nickname))
+            {
+                return profile.Nickname;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.Name))
+            {
+                return profile.Name;
+            }
+        }
+
+        var matchingPlayer = _players.FirstOrDefault(player =>
+            string.Equals(_playerUserIdsByIndex.GetValueOrDefault(player.Index), userId, StringComparison.OrdinalIgnoreCase));
+        return matchingPlayer?.Name ?? userId;
+    }
+
+    private static string GetStatusBarColorClass(string color)
+    {
+        return PlayerColorOptions.NormalizeOrDefault(color) switch
+        {
+            "darkblue" => "map-board-status-bar-darkblue",
+            "blue" => "map-board-status-bar-blue",
+            "cyan" => "map-board-status-bar-cyan",
+            "red" => "map-board-status-bar-red",
+            "darkred" => "map-board-status-bar-darkred",
+            "orange" => "map-board-status-bar-orange",
+            "yellow" => "map-board-status-bar-yellow",
+            "purple" => "map-board-status-bar-purple",
+            "green" => "map-board-status-bar-green",
+            "darkgreen" => "map-board-status-bar-darkgreen",
+            _ => "map-board-status-bar-default"
+        };
     }
 
     private string ResolveActionPlayerColor(RailBaronGameState state)

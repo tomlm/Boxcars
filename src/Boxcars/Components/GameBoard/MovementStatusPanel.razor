@@ -1,33 +1,69 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
-    @if (!IsPurchasePhase)
+<div class="movement-status-panel-scope">
+    @if (UsePaper)
     {
-        @if (IsBonusMove)
-        {
-            <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
-            <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
-        }
-        else
-        {
-            <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
-            <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
-        }
+        <MudPaper Class="movement-status-paper" Outlined="true">
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
+                @if (!IsPurchasePhase)
+                {
+                    @if (IsBonusMove)
+                    {
+                        <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
+                        <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+                        <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
+                    }
+                }
+                @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
+                {
+                    <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
+                }
+                @if (!IsPurchasePhase)
+                {
+                    <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+                }
+            </MudStack>
+        </MudPaper>
     }
-    @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
+    else
     {
-        <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
+            @if (!IsPurchasePhase)
+            {
+                @if (IsBonusMove)
+                {
+                    <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
+                    <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+                    <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
+                }
+            }
+            @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
+            {
+                <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
+            }
+            @if (!IsPurchasePhase)
+            {
+                <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+            }
+        </MudStack>
     }
-    @if (!IsPurchasePhase)
-    {
-        <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
-    }
-</MudStack>
+</div>
 
 @code {
     [Parameter]
     public BoardTurnViewState State { get; set; } = new();
+
+    [Parameter]
+    public bool UsePaper { get; set; } = true;
 
     private bool IsPurchasePhase => string.Equals(State.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
     private bool IsBonusMove => State.RedDie.HasValue && State.WhiteDieOne <= 0 && State.WhiteDieTwo <= 0;
