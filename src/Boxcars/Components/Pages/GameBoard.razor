@@ -859,10 +859,7 @@
     {
         _gameState = state;
         _turnViewState = GameBoardStateMapper.BuildTurnViewState(_game, state, _currentUserId, _playerBoardMapDefinition);
-        _selectionMode = ResolveSelectionMode(_turnViewState, CanInspectRailroadsWhileWaiting);
-        _auctionBidAmount = CurrentAuctionState?.MinimumBid ?? 0;
         _currentUserPlayerIndex = _turnViewState.CurrentUserPlayerIndex;
-        _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_game, state, _currentUserId).ToList();
 
         var playerSelections = GameBoardStateMapper.GetPlayerSelections(_game);
         var suggestedRouteDistances = BuildSuggestedRouteDistances(state);
@@ -953,6 +950,9 @@
             .Select((resolvedUserId, index) => new KeyValuePair<int, string?>(index, resolvedUserId))
             .ToDictionary(pair => pair.Key, pair => pair.Value);
 
+        _selectionMode = ResolveSelectionMode(_turnViewState, CanInspectRailroadsWhileWaiting);
+        _auctionBidAmount = CurrentAuctionState?.MinimumBid ?? 0;
+        _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_game, state, _currentUserId).ToList();
         _currentPlayerColor = ResolveActionPlayerColor(state);
         SyncPurchaseSelection();
         TrackPurchasePhaseTransition();
