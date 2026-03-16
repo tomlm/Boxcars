@@ -967,6 +967,7 @@
         }
 
         RefreshPlayerConnectionStates();
+        _selectionMode = ResolveSelectionMode(_turnViewState, CanInspectRailroadsWhileWaiting);
     }
 
     private void TrackPurchasePhaseTransition()
