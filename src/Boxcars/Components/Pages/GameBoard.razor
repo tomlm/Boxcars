@@ -895,7 +895,7 @@
 
                 if (PlayerControlRules.IsBeatlesSlot(resolvedUserId) && !string.IsNullOrWhiteSpace(resolvedUserId))
                 {
-                    GamePresenceService.EnsureMockConnectionState(GameId, resolvedUserId, defaultConnected: true);
+                    GamePresenceService.EnsureMockConnectionState(GameId, resolvedUserId, defaultConnected: false);
                 }
 
                 var isConnected = IsPlayerConnected(resolvedUserId);
