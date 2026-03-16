@@ -47,7 +47,7 @@ public class Program
         builder.Services.AddHttpClient();
         builder.Services.AddMudServices(config =>
         {
-            config.SnackbarConfiguration.PositionClass = $"{Defaults.Classes.Position.BottomLeft} boxcars-snackbar-zone";
+            config.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
             config.SnackbarConfiguration.NewestOnTop = false;
             config.SnackbarConfiguration.MaxDisplayedSnackbars = 4;
             config.SnackbarConfiguration.PreventDuplicates = true;
@@ -107,9 +107,9 @@ public class Program
         var beatlesUsers = new[]
         {
             (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple"),
-            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "red"),
-            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "green"),
-            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "orange")
+            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "orange"),
+            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow"),
+            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "blue")
         };
 
         foreach (var beatle in beatlesUsers)

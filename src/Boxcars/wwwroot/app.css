@@ -101,16 +101,3 @@ h1:focus {
     --player-snackbar-color: darkgreen;
 }
 
-.boxcars-snackbar-zone {
-    bottom: calc(env(safe-area-inset-bottom) + 1rem);
-    left: max(0.75rem, env(safe-area-inset-left));
-    right: auto;
-    width: min(28rem, calc(100vw - 1.5rem));
-}
-
-@media (max-width: 600px) {
-    .boxcars-snackbar-zone {
-        left: max(0.5rem, env(safe-area-inset-left));
-        width: calc(100vw - 1rem);
-    }
-}

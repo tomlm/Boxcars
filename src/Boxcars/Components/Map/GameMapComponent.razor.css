@@ -26,9 +26,9 @@
 
 .game-map-host ::deep .game-map-zoom-overlay {
     position: absolute !important;
-    right: 1rem !important;
+    right: auto !important;
     bottom: 1rem !important;
-    left: auto !important;
+    left: 1rem !important;
     top: auto !important;
     z-index: 40;
     padding: 0.5rem 0.75rem;
@@ -72,8 +72,9 @@
 
 @media (max-width: 960px) {
     .game-map-host ::deep .game-map-zoom-overlay {
-        right: 0.75rem;
+        right: auto;
         bottom: 0.75rem;
+        left: 0.75rem;
         max-width: calc(100% - 1.5rem);
     }
 
