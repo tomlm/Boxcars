@@ -11,6 +11,35 @@ public sealed class NetworkCoverageService
         ArgumentNullException.ThrowIfNull(ownedRailroadIndices);
 
         var ownedIndices = ownedRailroadIndices.ToHashSet();
+        return BuildSnapshotCore(mapDefinition, ownedIndices, ownedIndices);
+    }
+
+    public NetworkCoverageSnapshot BuildSnapshotIncludingPublicRailroads(
+        MapDefinition mapDefinition,
+        IEnumerable<int> ownedRailroadIndices,
+        IEnumerable<int> otherOwnedRailroadIndices)
+    {
+        ArgumentNullException.ThrowIfNull(mapDefinition);
+        ArgumentNullException.ThrowIfNull(ownedRailroadIndices);
+        ArgumentNullException.ThrowIfNull(otherOwnedRailroadIndices);
+
+        var ownedIndices = ownedRailroadIndices.ToHashSet();
+        var blockedIndices = otherOwnedRailroadIndices.ToHashSet();
+        blockedIndices.ExceptWith(ownedIndices);
+
+        var accessibleIndices = mapDefinition.Railroads
+            .Select(railroad => railroad.Index)
+            .Where(index => !blockedIndices.Contains(index))
+            .ToHashSet();
+
+        return BuildSnapshotCore(mapDefinition, ownedIndices, accessibleIndices);
+    }
+
+    private static NetworkCoverageSnapshot BuildSnapshotCore(
+        MapDefinition mapDefinition,
+        IReadOnlySet<int> ownedIndices,
+        IReadOnlySet<int> accessibleRailroadIndices)
+    {
         var cityCoverage = BuildCityCoverage(mapDefinition);
         var totalCityCount = cityCoverage.Count;
 
@@ -19,10 +48,10 @@ public sealed class NetworkCoverageService
             return NetworkCoverageSnapshot.Empty;
         }
 
-        var accessibleCityCount = cityCoverage.Count(entry => entry.ServingRailroads.Overlaps(ownedIndices));
+        var accessibleCityCount = cityCoverage.Count(entry => entry.ServingRailroads.Overlaps(accessibleRailroadIndices));
         var monopolyCityCount = cityCoverage.Count(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains));
         var accessibleDestinationPercent = Math.Round(cityCoverage
-            .Where(entry => entry.ServingRailroads.Overlaps(ownedIndices))
+            .Where(entry => entry.ServingRailroads.Overlaps(accessibleRailroadIndices))
             .Sum(entry => entry.GlobalAccessPercentage), 1, MidpointRounding.AwayFromZero);
         var monopolyDestinationPercent = Math.Round(cityCoverage
             .Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains))
@@ -33,7 +62,7 @@ public sealed class NetworkCoverageService
             {
                 RegionCode = group.Key,
                 AccessibleDestinationPercent = Math.Round(group
-                    .Where(entry => entry.ServingRailroads.Overlaps(ownedIndices))
+                    .Where(entry => entry.ServingRailroads.Overlaps(accessibleRailroadIndices))
                     .Sum(entry => entry.WithinRegionPercentage), 1, MidpointRounding.AwayFromZero),
                 MonopolyDestinationPercent = Math.Round(group
                     .Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains))

@@ -534,10 +534,17 @@ public sealed class GameBoardStateMapper(
             return null;
         }
 
+        var otherOwnedRailroadIndices = state.RailroadOwnership
+            .Where(entry => entry.Value.HasValue && entry.Value.Value != activePlayerIndex)
+            .Select(entry => entry.Key)
+            .ToArray();
         var pendingRegionChoice = state.Turn.PendingRegionChoice;
         var coverageByRegionCode = mapDefinition is null
             ? new Dictionary<string, RegionCoverageSnapshot>(StringComparer.OrdinalIgnoreCase)
-            : networkCoverageService.BuildSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices)
+            : networkCoverageService.BuildSnapshotIncludingPublicRailroads(
+                    mapDefinition,
+                    activePlayer.OwnedRailroadIndices,
+                    otherOwnedRailroadIndices)
                 .RegionAccess
                 .ToDictionary(region => region.RegionCode, region => region, StringComparer.OrdinalIgnoreCase);
         var regionByCode = mapDefinition?.Regions.ToDictionary(region => region.Code, StringComparer.OrdinalIgnoreCase)
@@ -567,7 +574,7 @@ public sealed class GameBoardStateMapper(
                     EligibleCityCount = eligibleCityCount
                 };
             })
-            .OrderByDescending(option => option.RegionProbabilityPercent)
+            .OrderByDescending(option => option.AccessibleDestinationPercent)
             .ThenBy(option => option.RegionName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 

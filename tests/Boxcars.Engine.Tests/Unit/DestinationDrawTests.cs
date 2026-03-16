@@ -122,7 +122,7 @@ public class DestinationDrawTests
         Assert.Null(engine.CurrentTurn.ActivePlayer.Destination);
         Assert.NotNull(engine.CurrentTurn.PendingRegionChoice);
         Assert.Equal("NE", engine.CurrentTurn.PendingRegionChoice!.CurrentRegionCode);
-        Assert.DoesNotContain("NE", engine.CurrentTurn.PendingRegionChoice.EligibleRegionCodes, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("NE", engine.CurrentTurn.PendingRegionChoice.EligibleRegionCodes, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("SE", engine.CurrentTurn.PendingRegionChoice.EligibleRegionCodes, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -155,10 +155,29 @@ public class DestinationDrawTests
         random.QueueWeightedDraw(1);
         engine.DrawDestination();
 
-        var exception = Assert.Throws<InvalidOperationException>(() => engine.ChooseDestinationRegion("NE"));
+        var exception = Assert.Throws<InvalidOperationException>(() => engine.ChooseDestinationRegion("MW"));
 
         Assert.Contains("not an eligible replacement region", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(TurnPhase.RegionChoice, engine.CurrentTurn.Phase);
         Assert.NotNull(engine.CurrentTurn.PendingRegionChoice);
+    }
+
+    [Fact]
+    public void ChooseDestinationRegion_CurrentRegionSameCity_EndsTurnWithoutAssigningDestination()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        random.QueueWeightedDraw(0);
+        var city = engine.ChooseDestinationRegion("NE");
+
+        Assert.Equal("New York", city.Name);
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+        Assert.Null(engine.CurrentTurn.PendingRegionChoice);
+        Assert.Null(engine.CurrentTurn.ActivePlayer.Destination);
+        Assert.Null(engine.CurrentTurn.ActivePlayer.TripOriginCity);
     }
 }

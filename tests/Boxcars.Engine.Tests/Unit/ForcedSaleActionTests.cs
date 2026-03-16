@@ -168,6 +168,33 @@ public class ForcedSaleActionTests
     }
 
     [Fact]
+    public void DescribeAction_ChooseDestinationRegion_SameCityRedraw_ReportsLostTurn()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        var snapshotBeforeAction = engine.ToSnapshot();
+        var action = new ChooseDestinationRegionAction
+        {
+            PlayerId = engine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            ActorUserId = "alice@example.com",
+            SelectedRegionCode = "NE"
+        };
+
+        random.QueueWeightedDraw(0);
+        engine.ChooseDestinationRegion("NE");
+        var snapshotAfterAction = engine.ToSnapshot();
+
+        var summary = InvokeDescribeAction(action, snapshotBeforeAction, snapshotAfterAction, engine);
+
+        Assert.Equal("Alice chose NE as the replacement destination region and lost the turn after redrawing the current city.", summary);
+    }
+
+    [Fact]
     public void ValidateActionAuthorization_RejectsRegionChoice_WhenActorDoesNotControlActivePlayerSlot()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

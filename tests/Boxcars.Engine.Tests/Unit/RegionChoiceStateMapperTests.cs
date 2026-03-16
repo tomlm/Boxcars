@@ -43,10 +43,12 @@ public class RegionChoiceStateMapperTests
         Assert.Equal("New York", state.RegionChoicePhase.CurrentCityName);
         Assert.Equal("NE", state.RegionChoicePhase.CurrentRegionCode);
         Assert.Equal("Northeast", state.RegionChoicePhase.CurrentRegionName);
-        Assert.Single(state.RegionChoicePhase.Options);
-        Assert.Equal("SE", state.RegionChoicePhase.Options[0].RegionCode);
+        Assert.Equal(2, state.RegionChoicePhase.Options.Count);
+        Assert.Equal("NE", state.RegionChoicePhase.Options[0].RegionCode);
         Assert.Equal(2, state.RegionChoicePhase.Options[0].EligibleCityCount);
-        Assert.Equal(0m, state.RegionChoicePhase.Options[0].AccessibleDestinationPercent);
+        Assert.Equal(1.0m, state.RegionChoicePhase.Options[0].AccessibleDestinationPercent);
         Assert.Equal(0m, state.RegionChoicePhase.Options[0].MonopolyDestinationPercent);
+        Assert.Equal("SE", state.RegionChoicePhase.Options[1].RegionCode);
+        Assert.Equal(1.0m, state.RegionChoicePhase.Options[1].AccessibleDestinationPercent);
     }
 }

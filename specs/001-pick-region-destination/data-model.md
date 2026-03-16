@@ -12,7 +12,6 @@
   - `EligibleCityCountsByRegion` (dictionary keyed by region code, required)
 - **Validation**:
   - `PlayerIndex` must match the active player while this state is pending.
-  - `CurrentRegionCode` must not appear in `EligibleRegionCodes`.
   - Each eligible region must have at least one valid city candidate for weighted selection.
 
 ## Entity: DestinationRegionOption
@@ -71,7 +70,8 @@
 2. `DrawDestination` -> initial region draw matches current region -> `PendingRegionChoice` persisted and broadcast.
 3. `PendingRegionChoice` -> controlling participant selects replacement region -> server performs weighted city draw within that region.
 4. `PendingRegionChoice` -> final city assigned -> `Roll` or `Move` with pending choice cleared.
-5. `PendingRegionChoice` -> reconnect/reload -> state restored unchanged until a valid region selection completes.
+5. `PendingRegionChoice` -> selected-region redraw matches current city -> `EndTurn` with no destination assigned and pending choice cleared.
+6. `PendingRegionChoice` -> reconnect/reload -> state restored unchanged until a valid region selection completes.
 
 ## Relationships
 

@@ -1375,7 +1375,6 @@ public sealed class GameEngine : ObservableBase
     {
         var currentRegionCode = player.CurrentCity.RegionCode;
         var eligibleRegions = MapDefinition.Regions
-            .Where(region => !string.Equals(region.Code, currentRegionCode, StringComparison.OrdinalIgnoreCase))
             .Select(region => new
             {
                 region.Code,
@@ -1407,6 +1406,15 @@ public sealed class GameEngine : ObservableBase
 
     private void FinalizeDestinationAssignment(Player player, CityDefinition city)
     {
+        if (string.Equals(city.RegionCode, player.CurrentCity.RegionCode, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(city.Name, player.CurrentCity.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            player.Destination = null;
+            player.TripOriginCity = null;
+            CurrentTurn.Phase = TurnPhase.EndTurn;
+            return;
+        }
+
         player.Destination = city;
         player.TripOriginCity = player.CurrentCity;
         DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));

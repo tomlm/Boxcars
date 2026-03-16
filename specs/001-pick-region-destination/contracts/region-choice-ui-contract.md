@@ -21,7 +21,7 @@ Define the authoritative state and UI interaction contract for resolving same-re
   - `eligibleRegionCodes[]`
   - `eligibleCityCountsByRegion{}`
 - **Invariants**:
-  - `eligibleRegionCodes[]` excludes `currentRegionCode`
+  - `eligibleRegionCodes[]` may include `currentRegionCode`
   - every eligible region has at least one valid weighted city candidate
   - final destination city remains unset until region confirmation completes
 
@@ -58,6 +58,7 @@ Define the authoritative state and UI interaction contract for resolving same-re
 
 - On valid confirmation, the provider performs the weighted city draw using the selected region's existing city probability table.
 - The finalized destination city must belong to the chosen region.
+- If the finalized city matches the active player's current city, the provider ends the turn without assigning an active destination.
 - The pending region-choice state is cleared after the final destination assignment is persisted.
 - The updated game state is broadcast to all connected clients.
 

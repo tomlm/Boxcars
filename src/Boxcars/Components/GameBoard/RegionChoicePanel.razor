@@ -6,17 +6,17 @@
         <MudStack Spacing="0">
             <MudText Typo="Typo.h6">Choose Destination Region</MudText>
             <MudText Typo="Typo.body2">
-                @Phase.PlayerName is in @Phase.CurrentCityName, @Phase.CurrentRegionName. Pick a different destination region before the city is drawn.
+                @Phase.PlayerName is in @Phase.CurrentCityName, @Phase.CurrentRegionName. Choose any eligible destination region. If the redraw lands on the current city, the turn is lost.
             </MudText>
         </MudStack>
 
-        <MudTable Items="Phase.Options" Dense="true" Hover="true" Bordered="true" Breakpoint="Breakpoint.Sm">
+        <MudTable T="DestinationRegionOption" Items="Phase.Options" Dense="true" Hover="true" Bordered="true" Breakpoint="Breakpoint.Sm">
             <HeaderContent>
-                <MudTh>Region</MudTh>
-                <MudTh>Region %</MudTh>
-                <MudTh>Access %</MudTh>
-                <MudTh>Monopoly %</MudTh>
-                <MudTh>Cities</MudTh>
+                <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.RegionName)"><strong>Region</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.RegionProbabilityPercent)"><strong>Region %</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.AccessibleDestinationPercent)"><strong>Access %</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.MonopolyDestinationPercent)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.EligibleCityCount)"><strong>Cities</strong></MudTableSortLabel></MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -37,7 +37,7 @@
 
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="region-choice-panel-footer">
             <MudText Typo="Typo.caption">
-                Final destination city will be drawn using the selected region's existing weighted city probabilities.
+                Final destination city will be drawn using the selected region's existing weighted city probabilities. Rows start sorted by Access %.
             </MudText>
             <MudButton Variant="Variant.Filled"
                        Color="MudBlazor.Color.Primary"

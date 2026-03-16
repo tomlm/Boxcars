@@ -67,6 +67,20 @@ public class NetworkCoverageServiceTests
         Assert.Equal(expectedCoverage.MonopolyCityPercent, projectedCoverage.MonopolyCityPercent);
     }
 
+    [Fact]
+    public void BuildSnapshotIncludingPublicRailroads_TreatsUnownedRailroadsAsAccessible()
+    {
+        var mapDefinition = GameEngineFixture.CreateTestMap();
+        var service = new NetworkCoverageService();
+
+        var coverage = service.BuildSnapshotIncludingPublicRailroads(mapDefinition, [], []);
+
+        Assert.Equal(100m, coverage.AccessibleCityPercent);
+        Assert.All(coverage.RegionAccess, region => Assert.True(region.AccessibleDestinationPercent > 0m));
+        Assert.Equal(0m, coverage.MonopolyCityPercent);
+        Assert.Equal(0m, coverage.MonopolyDestinationPercent);
+    }
+
     private static string? FindStandardMapPath()
     {
         var dir = AppContext.BaseDirectory;

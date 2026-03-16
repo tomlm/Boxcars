@@ -663,7 +663,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         var destinationName = TryGetPlayerState(action, snapshot)?.DestinationCityName;
         if (string.IsNullOrWhiteSpace(destinationName))
         {
-            return $"{actorName} chose {action.SelectedRegionCode} as the replacement destination region.";
+            return string.Equals(snapshot.Turn.Phase, nameof(TurnPhase.EndTurn), StringComparison.OrdinalIgnoreCase)
+                ? $"{actorName} chose {action.SelectedRegionCode} as the replacement destination region and lost the turn after redrawing the current city."
+                : $"{actorName} chose {action.SelectedRegionCode} as the replacement destination region.";
         }
 
         return $"{actorName} chose {action.SelectedRegionCode} as the replacement destination region and received {destinationName}.";

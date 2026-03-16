@@ -7,9 +7,9 @@
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Choose a replacement destination region (Priority: P1)
+### User Story 1 - Choose a destination region after a same-region draw (Priority: P1)
 
-As the active player, when a destination draw would keep me in the same region as my current city, I can choose a different destination region instead of being assigned a same-region destination automatically.
+As the active player, when a destination draw would keep me in the same region as my current city, I can choose the destination region used for the redraw before the final city is assigned.
 
 **Why this priority**: This is the core rules behavior being added. Without it, same-region destination selection remains incorrect and players cannot make the required choice.
 
@@ -19,7 +19,8 @@ As the active player, when a destination draw would keep me in the same region a
 
 1. **Given** the active player is selecting a destination and the rolled destination city belongs to the same region as the player's current city, **When** the draw is evaluated, **Then** the system presents a list of eligible destination regions and does not finalize the destination city yet.
 2. **Given** the active player is presented with eligible destination regions, **When** they select one region, **Then** the system uses that chosen region as the source for the final destination city draw.
-3. **Given** the active player is choosing a replacement region, **When** the choice is pending, **Then** no turn advancement or destination finalization occurs until the region has been selected.
+3. **Given** the active player selects their current region and the final city draw resolves to the player's current city, **When** the redraw is finalized, **Then** the system ends the player's turn without assigning an active destination.
+4. **Given** the active player is choosing a replacement region, **When** the choice is pending, **Then** no turn advancement or destination finalization occurs until the region has been selected.
 
 ---
 
@@ -67,7 +68,7 @@ As the active player, once I choose a region, the final destination city is draw
 - **FR-001**: System MUST detect when a destination city draw resolves to the same region as the active player's current city.
 - **FR-002**: System MUST interrupt destination finalization when a same-region draw is detected and require an eligible replacement region to be selected first.
 - **FR-003**: System MUST present the active player's controlling participant with the list of eligible destination regions before the final destination city is assigned.
-- **FR-004**: System MUST exclude the player's current region from the selectable replacement regions.
+- **FR-004**: System MUST include the player's current region in the selectable regions when it has at least one valid destination city available for weighted selection.
 - **FR-005**: System MUST exclude any region that has no valid destination cities available for weighted selection.
 - **FR-006**: System MUST show access statistics for each eligible region at the time the replacement region is selected.
 - **FR-007**: System MUST present the region access statistics in a consistent format that allows comparison across eligible regions.
@@ -81,6 +82,7 @@ As the active player, once I choose a region, the final destination city is draw
 - **FR-015**: System MUST propagate the pending region-choice state and the finalized destination result to all connected participants in real time.
 - **FR-016**: System MUST preserve the normal destination-selection flow when the initially drawn city is already in a different region from the player's current city.
 - **FR-017**: System MUST keep replacement-region selection and final city assignment consistent with official Rail Baron destination probabilities.
+- **FR-018**: System MUST end the player's turn without assigning a destination when the selected-region redraw resolves to the player's current city.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -94,7 +96,7 @@ As the active player, once I choose a region, the final destination city is draw
 
 - The existing destination-selection rules already define weighted city probabilities within each region, and this feature reuses those probabilities unchanged.
 - "Access stats" refers to the same region-level access metrics already used elsewhere in the product for strategic comparison, rather than introducing a new scoring system.
-- Eligible replacement regions are all destination regions other than the player's current region that have at least one valid weighted city candidate.
+- Eligible replacement regions are all destination regions that have at least one valid weighted city candidate, including the player's current region.
 - Destination selection remains server-authoritative, even if the client presents the region-choice UI and statistics.
 - Existing delegated-control rules apply to this decision point, so an authorized controlling participant can make the choice on behalf of the active player.
 
