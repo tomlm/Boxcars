@@ -106,4 +106,59 @@ public class DestinationDrawTests
 
         Assert.NotNull(dest);
     }
+
+    [Fact]
+    public void DrawDestination_SameRegion_TransitionsToRegionChoiceWithoutAssigningDestination()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+
+        var drawnCity = engine.DrawDestination();
+
+        Assert.Equal("Boston", drawnCity.Name);
+        Assert.Equal(TurnPhase.RegionChoice, engine.CurrentTurn.Phase);
+        Assert.Null(engine.CurrentTurn.ActivePlayer.Destination);
+        Assert.NotNull(engine.CurrentTurn.PendingRegionChoice);
+        Assert.Equal("NE", engine.CurrentTurn.PendingRegionChoice!.CurrentRegionCode);
+        Assert.DoesNotContain("NE", engine.CurrentTurn.PendingRegionChoice.EligibleRegionCodes, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("SE", engine.CurrentTurn.PendingRegionChoice.EligibleRegionCodes, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ChooseDestinationRegion_EligibleRegion_AssignsWeightedDestinationFromSelectedRegion()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        random.QueueWeightedDraw(1);
+        var city = engine.ChooseDestinationRegion("SE");
+
+        Assert.Equal(TurnPhase.Roll, engine.CurrentTurn.Phase);
+        Assert.Null(engine.CurrentTurn.PendingRegionChoice);
+        Assert.Equal("Atlanta", city.Name);
+        Assert.Equal("SE", city.RegionCode);
+        Assert.NotNull(engine.CurrentTurn.ActivePlayer.Destination);
+        Assert.Equal("Atlanta", engine.CurrentTurn.ActivePlayer.Destination!.Name);
+    }
+
+    [Fact]
+    public void ChooseDestinationRegion_IneligibleRegion_ThrowsAndKeepsPendingChoice()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => engine.ChooseDestinationRegion("NE"));
+
+        Assert.Contains("not an eligible replacement region", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(TurnPhase.RegionChoice, engine.CurrentTurn.Phase);
+        Assert.NotNull(engine.CurrentTurn.PendingRegionChoice);
+    }
 }

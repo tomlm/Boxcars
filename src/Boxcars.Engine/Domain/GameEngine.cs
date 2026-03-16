@@ -244,23 +244,42 @@ public sealed class GameEngine : ObservableBase
             throw new InvalidOperationException("Player already has a destination.");
 
         var city = DrawRandomCity();
-
-        // Re-draw if same as current city
-        int maxRetries = 20;
-        while (string.Equals(city.Name, player.CurrentCity.Name, StringComparison.OrdinalIgnoreCase) && maxRetries-- > 0)
+        if (string.Equals(city.RegionCode, player.CurrentCity.RegionCode, StringComparison.OrdinalIgnoreCase))
         {
-            city = DrawRandomCity();
+            var pendingRegionChoice = BuildPendingRegionChoice(player, city.RegionCode);
+            if (pendingRegionChoice is not null)
+            {
+                CurrentTurn.PendingRegionChoice = pendingRegionChoice;
+                CurrentTurn.Phase = TurnPhase.RegionChoice;
+                return city;
+            }
         }
 
-        player.Destination = city;
-        player.TripOriginCity = player.CurrentCity;
-        DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
+        FinalizeDestinationAssignment(player, city);
+        return city;
+    }
 
-        // Bonus movement resumes immediately after drawing a new destination.
-        CurrentTurn.Phase = HasPreparedBonusMove()
-            ? TurnPhase.Move
-            : TurnPhase.Roll;
+    public CityDefinition ChooseDestinationRegion(string regionCode)
+    {
+        EnsureInProgress();
 
+        if (CurrentTurn.Phase != TurnPhase.RegionChoice)
+        {
+            throw new InvalidOperationException("Not in RegionChoice phase.");
+        }
+
+        var player = CurrentTurn.ActivePlayer;
+        var pendingRegionChoice = CurrentTurn.PendingRegionChoice
+            ?? throw new InvalidOperationException("No pending region choice exists.");
+
+        if (!pendingRegionChoice.EligibleRegionCodes.Contains(regionCode, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Region '{regionCode}' is not an eligible replacement region.");
+        }
+
+        var city = DrawRandomCityFromRegion(regionCode);
+        CurrentTurn.PendingRegionChoice = null;
+        FinalizeDestinationAssignment(player, city);
         return city;
     }
 
@@ -978,6 +997,20 @@ public sealed class GameEngine : ObservableBase
                             })
                             .ToList()
                     },
+                PendingRegionChoice = CurrentTurn.PendingRegionChoice is null
+                    ? null
+                    : new PendingRegionChoiceTurnState
+                    {
+                        PlayerIndex = CurrentTurn.PendingRegionChoice.PlayerIndex,
+                        CurrentCityName = CurrentTurn.PendingRegionChoice.CurrentCityName,
+                        CurrentRegionCode = CurrentTurn.PendingRegionChoice.CurrentRegionCode,
+                        TriggeredByInitialRegionCode = CurrentTurn.PendingRegionChoice.TriggeredByInitialRegionCode,
+                        EligibleRegionCodes = CurrentTurn.PendingRegionChoice.EligibleRegionCodes.ToList(),
+                        EligibleCityCountsByRegion = CurrentTurn.PendingRegionChoice.EligibleCityCountsByRegion.ToDictionary(
+                            entry => entry.Key,
+                            entry => entry.Value,
+                            StringComparer.OrdinalIgnoreCase)
+                    },
                 DiceResult = CurrentTurn.DiceResult != null
                     ? new DiceResultState
                     {
@@ -1211,6 +1244,17 @@ public sealed class GameEngine : ObservableBase
                                 : AuctionParticipantAction.None
                         })
                         .ToList()
+                },
+            PendingRegionChoice = snapshot.Turn.PendingRegionChoice is null
+                ? null
+                : new PendingRegionChoice
+                {
+                    PlayerIndex = snapshot.Turn.PendingRegionChoice.PlayerIndex,
+                    CurrentCityName = snapshot.Turn.PendingRegionChoice.CurrentCityName,
+                    CurrentRegionCode = snapshot.Turn.PendingRegionChoice.CurrentRegionCode,
+                    TriggeredByInitialRegionCode = snapshot.Turn.PendingRegionChoice.TriggeredByInitialRegionCode,
+                    EligibleRegionCodes = snapshot.Turn.PendingRegionChoice.EligibleRegionCodes,
+                    EligibleCityCountsByRegion = snapshot.Turn.PendingRegionChoice.EligibleCityCountsByRegion
                 }
         };
 
@@ -1307,6 +1351,69 @@ public sealed class GameEngine : ObservableBase
         var cityProbs = citiesInRegion.Select(c => c.Probability!.Value).ToList();
         int cityIdx = _randomProvider.WeightedDraw(cityProbs);
         return citiesInRegion[cityIdx];
+    }
+
+    private CityDefinition DrawRandomCityFromRegion(string regionCode)
+    {
+        var citiesInRegion = MapDefinition.Cities
+            .Where(city => string.Equals(city.RegionCode, regionCode, StringComparison.OrdinalIgnoreCase)
+                && city.Probability.HasValue
+                && city.Probability.Value > 0)
+            .ToList();
+
+        if (citiesInRegion.Count == 0)
+        {
+            throw new InvalidOperationException($"Region '{regionCode}' has no weighted destination city candidates.");
+        }
+
+        var cityProbabilities = citiesInRegion.Select(city => city.Probability!.Value).ToList();
+        var cityIndex = _randomProvider.WeightedDraw(cityProbabilities);
+        return citiesInRegion[cityIndex];
+    }
+
+    private PendingRegionChoice? BuildPendingRegionChoice(Player player, string triggeredRegionCode)
+    {
+        var currentRegionCode = player.CurrentCity.RegionCode;
+        var eligibleRegions = MapDefinition.Regions
+            .Where(region => !string.Equals(region.Code, currentRegionCode, StringComparison.OrdinalIgnoreCase))
+            .Select(region => new
+            {
+                region.Code,
+                EligibleCityCount = MapDefinition.Cities.Count(city => string.Equals(city.RegionCode, region.Code, StringComparison.OrdinalIgnoreCase)
+                    && city.Probability.HasValue
+                    && city.Probability.Value > 0)
+            })
+            .Where(region => region.EligibleCityCount > 0)
+            .ToList();
+
+        if (eligibleRegions.Count == 0)
+        {
+            return null;
+        }
+
+        return new PendingRegionChoice
+        {
+            PlayerIndex = player.Index,
+            CurrentCityName = player.CurrentCity.Name,
+            CurrentRegionCode = currentRegionCode,
+            TriggeredByInitialRegionCode = triggeredRegionCode,
+            EligibleRegionCodes = eligibleRegions.Select(region => region.Code).ToList(),
+            EligibleCityCountsByRegion = eligibleRegions.ToDictionary(
+                region => region.Code,
+                region => region.EligibleCityCount,
+                StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    private void FinalizeDestinationAssignment(Player player, CityDefinition city)
+    {
+        player.Destination = city;
+        player.TripOriginCity = player.CurrentCity;
+        DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
+
+        CurrentTurn.Phase = HasPreparedBonusMove()
+            ? TurnPhase.Move
+            : TurnPhase.Roll;
     }
 
     private void HandleArrival(Player player, int actualSteps)

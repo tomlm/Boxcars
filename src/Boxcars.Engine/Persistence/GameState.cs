@@ -67,6 +67,17 @@ public sealed class TurnState
     public ArrivalResolutionState? ArrivalResolution { get; set; }
     public ForcedSaleTurnState? ForcedSale { get; set; }
     public AuctionTurnState? Auction { get; set; }
+    public PendingRegionChoiceTurnState? PendingRegionChoice { get; set; }
+}
+
+public sealed class PendingRegionChoiceTurnState
+{
+    public int PlayerIndex { get; set; } = -1;
+    public string CurrentCityName { get; set; } = string.Empty;
+    public string CurrentRegionCode { get; set; } = string.Empty;
+    public string TriggeredByInitialRegionCode { get; set; } = string.Empty;
+    public List<string> EligibleRegionCodes { get; set; } = new();
+    public Dictionary<string, int> EligibleCityCountsByRegion { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class ForcedSaleTurnState

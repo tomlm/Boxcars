@@ -148,12 +148,19 @@
                     <div class="map-board-status-action-slot">
                         @if (ShouldShowStatusControls)
                         {
-                            @if (!ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
+                            @if (!ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
                             {
                                 <MovementStatusPanel State="@_turnViewState" />
                             }
 
-                            @if (ShouldShowPurchaseTaskbar)
+                            @if (ShouldShowRegionChoicePanel)
+                            {
+                                <RegionChoicePanel Phase="CurrentRegionChoicePhase!"
+                                                   SelectedRegionCode="@_selectedRegionChoiceCode"
+                                                   SelectedRegionCodeChanged="OnSelectedRegionChoiceChangedAsync"
+                                                   ConfirmRequested="OnConfirmRegionChoiceAsync" />
+                            }
+                            else if (ShouldShowPurchaseTaskbar)
                             {
                                 <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
                                                  SelectedOptionKey="@_selectedPurchaseOptionKey"
@@ -246,6 +253,7 @@
     private bool _awaitingAuthoritativeUpdate;
     private bool _autoZoomEnabled;
     private int _auctionBidAmount;
+    private string? _selectedRegionChoiceCode;
     private readonly string _pagePresenceRegistrationId = Guid.NewGuid().ToString("N");
     private bool _pagePresenceRegistered;
     private bool _presenceNotificationsEnabled;
@@ -338,7 +346,9 @@
 
     private string ObserverTurnMessage => string.IsNullOrWhiteSpace(_turnViewState.ActivePlayerName)
         ? "Waiting for the active player to complete their turn."
-        : $"Waiting for {_turnViewState.ActivePlayerName} to complete their turn.";
+        : string.Equals(_turnViewState.TurnPhase, TurnPhase.RegionChoice.ToString(), StringComparison.OrdinalIgnoreCase)
+            ? $"Waiting for {_turnViewState.ActivePlayerName} to choose a replacement destination region."
+            : $"Waiting for {_turnViewState.ActivePlayerName} to complete their turn.";
 
     private async Task OnCommitMoveActionAsync()
     {
@@ -392,6 +402,12 @@
         }
 
         await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectedRegionChoiceChangedAsync(string? regionCode)
+    {
+        _selectedRegionChoiceCode = regionCode;
+        return InvokeAsync(StateHasChanged);
     }
 
     private Task OnPurchaseTabSelected(PurchaseExperienceTab tab)
@@ -763,6 +779,38 @@
         }
     }
 
+    private async Task OnConfirmRegionChoiceAsync()
+    {
+        if (_gameState is null
+            || string.IsNullOrWhiteSpace(GameId)
+            || string.IsNullOrWhiteSpace(_selectedRegionChoiceCode)
+            || !ShouldShowRegionChoicePanel)
+        {
+            return;
+        }
+
+        MarkAuthoritativeUpdatePending();
+
+        try
+        {
+            await SharedGameEngine.EnqueueActionAsync(
+                GameId,
+                new ChooseDestinationRegionAction
+                {
+                    PlayerId = CurrentTurnPlayerName,
+                    ActorUserId = _currentUserId ?? string.Empty,
+                    PlayerIndex = _gameState.ActivePlayerIndex,
+                    SelectedRegionCode = _selectedRegionChoiceCode
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            _awaitingAuthoritativeUpdate = false;
+            throw;
+        }
+    }
+
     private Task OnRoutePreviewChangedAsync(TurnMovementPreview preview)
     {
         if (_gameState is null)
@@ -954,6 +1002,7 @@
         _auctionBidAmount = CurrentAuctionState?.MinimumBid ?? 0;
         _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_game, state, _currentUserId).ToList();
         _currentPlayerColor = ResolveActionPlayerColor(state);
+        SyncRegionChoiceSelection();
         SyncPurchaseSelection();
         TrackPurchasePhaseTransition();
         _pendingRestoredRouteSelection = true;
@@ -1419,6 +1468,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private PurchasePhaseModel? CurrentPurchasePhase => _turnViewState.PurchasePhase;
 
+    private RegionChoicePhaseModel? CurrentRegionChoicePhase => _turnViewState.RegionChoicePhase;
+
     private ForcedSalePhaseModel? CurrentForcedSalePhase => _turnViewState.ForcedSalePhase;
 
     private ForcedSaleAuctionStateModel? CurrentAuctionState => CurrentForcedSalePhase?.AuctionState;
@@ -1527,6 +1578,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool ShouldShowPurchaseTaskbar => CurrentPurchasePhase is { HasActivePurchaseControls: true }
         && IsCurrentUserActivePlayer
         && string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
+
+    private bool ShouldShowRegionChoicePanel => CurrentRegionChoicePhase is { Options.Count: > 0 }
+        && IsCurrentUserActivePlayer
+        && string.Equals(_turnViewState.TurnPhase, TurnPhase.RegionChoice.ToString(), StringComparison.OrdinalIgnoreCase);
 
     private bool ShouldShowAuctionPanel => CurrentAuctionState is not null
         && string.Equals(_turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase)
@@ -2126,6 +2181,24 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         _dismissedRailroadOverlayOptionKey = null;
         _selectedRailroadOverlayClientX = null;
         _selectedRailroadOverlayClientY = null;
+    }
+
+    private void SyncRegionChoiceSelection()
+    {
+        if (CurrentRegionChoicePhase is null || CurrentRegionChoicePhase.Options.Count == 0)
+        {
+            _selectedRegionChoiceCode = null;
+            return;
+        }
+
+        var availableRegionCodes = CurrentRegionChoicePhase.Options
+            .Select(option => option.RegionCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(_selectedRegionChoiceCode) || !availableRegionCodes.Contains(_selectedRegionChoiceCode))
+        {
+            _selectedRegionChoiceCode = CurrentRegionChoicePhase.Options[0].RegionCode;
+        }
     }
 
     private async Task AutoSuggestRouteIfNeededAsync()

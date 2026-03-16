@@ -175,6 +175,19 @@ public class GameService
         switch (NormalizeEventKind(gameEvent.EventKind))
         {
             case "PickDestination":
+                if (string.Equals(snapshot.Turn.Phase, "RegionChoice", StringComparison.OrdinalIgnoreCase)
+                    && snapshot.Turn.PendingRegionChoice is not null)
+                {
+                    timelineItems.Add(CreateTimelineItem(
+                        gameEvent,
+                        $"{gameEvent.RowKey}:destination-region-choice",
+                        EventTimelineKind.NewDestination,
+                        string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                            ? $"{actingPlayerName} must choose a replacement destination region."
+                            : gameEvent.ChangeSummary));
+                    break;
+                }
+
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:destination",
@@ -182,6 +195,18 @@ public class GameService
                     string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
                         ? $"{actingPlayerName} has a new destination."
                         : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"));
+                break;
+
+            case "ChooseDestinationRegion":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:destination",
+                    EventTimelineKind.NewDestination,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
+                            ? $"{actingPlayerName} chose a replacement destination region."
+                            : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"
+                        : gameEvent.ChangeSummary));
                 break;
 
             case "RollDice":
@@ -365,6 +390,7 @@ public class GameService
         return NormalizeEventKind(eventKind) switch
         {
             "PickDestination" => EventTimelineKind.NewDestination,
+            "ChooseDestinationRegion" => EventTimelineKind.NewDestination,
             "RollDice" => EventTimelineKind.DiceRoll,
             "Move" => EventTimelineKind.Move,
             "EndTurn" => EventTimelineKind.PayFees,

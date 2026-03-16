@@ -1,0 +1,81 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<MudPaper Class="region-choice-panel" Outlined="true">
+    <MudStack Spacing="2">
+        <MudStack Spacing="0">
+            <MudText Typo="Typo.h6">Choose Destination Region</MudText>
+            <MudText Typo="Typo.body2">
+                @Phase.PlayerName is in @Phase.CurrentCityName, @Phase.CurrentRegionName. Pick a different destination region before the city is drawn.
+            </MudText>
+        </MudStack>
+
+        <MudTable Items="Phase.Options" Dense="true" Hover="true" Bordered="true" Breakpoint="Breakpoint.Sm">
+            <HeaderContent>
+                <MudTh>Region</MudTh>
+                <MudTh>Region %</MudTh>
+                <MudTh>Access %</MudTh>
+                <MudTh>Monopoly %</MudTh>
+                <MudTh>Cities</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Region">@context.RegionName</MudTd>
+                <MudTd DataLabel="Region %">@FormatPercent(context.RegionProbabilityPercent)</MudTd>
+                <MudTd DataLabel="Access %">@FormatPercent(context.AccessibleDestinationPercent)</MudTd>
+                <MudTd DataLabel="Monopoly %">@FormatPercent(context.MonopolyDestinationPercent)</MudTd>
+                <MudTd DataLabel="Cities">@context.EligibleCityCount</MudTd>
+                <MudTd DataLabel="Select">
+                    <MudButton Variant="@(IsSelected(context.RegionCode) ? Variant.Filled : Variant.Outlined)"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick="() => OnRegionSelectedAsync(context.RegionCode)">
+                        @(IsSelected(context.RegionCode) ? "Selected" : "Select")
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="region-choice-panel-footer">
+            <MudText Typo="Typo.caption">
+                Final destination city will be drawn using the selected region's existing weighted city probabilities.
+            </MudText>
+            <MudButton Variant="Variant.Filled"
+                       Color="MudBlazor.Color.Primary"
+                       Disabled="@(!CanConfirm)"
+                       OnClick="ConfirmRequested">
+                Confirm Region
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public RegionChoicePhaseModel Phase { get; set; } = new();
+
+    [Parameter]
+    public string? SelectedRegionCode { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> SelectedRegionCodeChanged { get; set; }
+
+    [Parameter]
+    public EventCallback ConfirmRequested { get; set; }
+
+    private bool CanConfirm => Phase.CanConfirm && !string.IsNullOrWhiteSpace(SelectedRegionCode);
+
+    private bool IsSelected(string regionCode)
+    {
+        return string.Equals(regionCode, SelectedRegionCode, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private Task OnRegionSelectedAsync(string regionCode)
+    {
+        return SelectedRegionCodeChanged.InvokeAsync(regionCode);
+    }
+
+    private static string FormatPercent(decimal value)
+    {
+        return string.Concat(value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture), "%");
+    }
+}

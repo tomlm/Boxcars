@@ -20,6 +20,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-26
 - Azure Table Storage for persisted game snapshots/events; app configuration via `appsettings.json` / `appsettings.Development.json` (001-purchase-railroads)
 - C# / .NET 10.0 + ASP.NET Core Blazor Server, MudBlazor, ASP.NET Core SignalR, Azure.Data.Tables (001-sell-railroads)
 - Azure Table storage for persisted game/event snapshots (001-sell-railroads)
+- C# / .NET 10 + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure Data Tables, Boxcars.Engine domain services (001-pick-region-destination)
+- Azure Table storage with serialized authoritative `GameState` snapshots and event timeline records (001-pick-region-destination)
 
 ## Project Structure
 
@@ -38,8 +40,8 @@ tests/
 C# on .NET 10 (SDK installed: 10.0.102): Follow standard conventions
 
 ## Recent Changes
+- 001-pick-region-destination: Added C# / .NET 10 + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure Data Tables, Boxcars.Engine domain services
 - 001-sell-railroads: Added C# / .NET 10.0 + ASP.NET Core Blazor Server, MudBlazor, ASP.NET Core SignalR, Azure.Data.Tables
-- 001-purchase-railroads: Added C# 12 / .NET 8 (LTS) + Blazor Server, MudBlazor, ASP.NET Core SignalR, Azure.Data.Tables, existing `Boxcars.Engine` domain model
 - 001-purchase-railroads: Added C# 12 / .NET 8 (LTS) + Blazor Server, MudBlazor, ASP.NET Core SignalR, Azure.Data.Tables, existing `Boxcars.Engine` domain model
 
 

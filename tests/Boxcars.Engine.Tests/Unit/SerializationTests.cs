@@ -192,20 +192,20 @@ public class SerializationTests
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();
 
-        random.QueueWeightedDraw(0);
         random.QueueWeightedDraw(1);
+        random.QueueWeightedDraw(0);
         var destination = engine.DrawDestination();
 
         var route = engine.SuggestRoute();
         engine.SaveRoute(route);
 
-        random.QueueDiceRoll(1, 1);
+        random.QueueDiceRoll(6, 6);
         engine.RollDice();
 
         var player = engine.CurrentTurn.ActivePlayer;
         var cashBeforeArrival = player.Cash;
 
-        engine.MoveAlongRoute(1);
+        engine.MoveAlongRoute(route.Segments.Count);
 
         Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
         Assert.NotNull(engine.CurrentTurn.ArrivalResolution);
@@ -279,5 +279,24 @@ public class SerializationTests
         Assert.Equal("Test Railroad", restored.CurrentTurn.AuctionState!.RailroadName);
         var restoredParticipant = Assert.Single(restored.CurrentTurn.AuctionState.Participants);
         Assert.Equal(AuctionParticipantAction.Bid, restoredParticipant.LastAction);
+    }
+
+    [Fact]
+    public void Snapshot_RoundTrip_PreservesPendingRegionChoiceState()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        var snapshot = engine.ToSnapshot();
+        var restored = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal(TurnPhase.RegionChoice, restored.CurrentTurn.Phase);
+        Assert.NotNull(restored.CurrentTurn.PendingRegionChoice);
+        Assert.Equal("New York", restored.CurrentTurn.PendingRegionChoice!.CurrentCityName);
+        Assert.Equal("NE", restored.CurrentTurn.PendingRegionChoice.CurrentRegionCode);
+        Assert.Contains("SE", restored.CurrentTurn.PendingRegionChoice.EligibleRegionCodes, StringComparer.OrdinalIgnoreCase);
     }
 }

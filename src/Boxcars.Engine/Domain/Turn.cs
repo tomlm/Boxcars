@@ -17,6 +17,7 @@ public sealed class Turn : ObservableBase
     private int? _selectedRailroadForSaleIndex;
     private ForcedSaleState? _forcedSaleState;
     private AuctionState? _auctionState;
+    private PendingRegionChoice? _pendingRegionChoice;
 
     /// <summary>Whose turn it is.</summary>
     public Player ActivePlayer
@@ -100,6 +101,13 @@ public sealed class Turn : ObservableBase
     {
         get => _auctionState;
         internal set => SetField(ref _auctionState, value);
+    }
+
+    /// <summary>Current pending replacement-region choice while resolving a same-region destination draw.</summary>
+    public PendingRegionChoice? PendingRegionChoice
+    {
+        get => _pendingRegionChoice;
+        internal set => SetField(ref _pendingRegionChoice, value);
     }
 
     /// <summary>Railroad indices used this turn (for use fee calculation).</summary>
