@@ -1,0 +1,19 @@
+.region-choice-panel {
+    width: min(100%, 62rem);
+    margin: 0 auto;
+    padding: 1rem 1.25rem;
+}
+
+.region-choice-panel-footer {
+    gap: 1rem;
+}
+
+@media (max-width: 960px) {
+    .region-choice-panel {
+        padding: 0.875rem;
+    }
+
+    .region-choice-panel-footer {
+        align-items: stretch;
+    }
+}

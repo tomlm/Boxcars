@@ -256,6 +256,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 gameEngine.DrawDestination();
                 break;
 
+            case ChooseDestinationRegionAction chooseDestinationRegionAction:
+                gameEngine.ChooseDestinationRegion(chooseDestinationRegionAction.SelectedRegionCode);
+                break;
+
             case RollDiceAction rollDiceAction:
                 var diceResult = gameEngine.RollDice();
                 ValidateDiceRoll(rollDiceAction, diceResult);
@@ -591,6 +595,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return action switch
         {
             PickDestinationAction => DescribeDestinationPick(actorName, action, snapshotAfterAction),
+            ChooseDestinationRegionAction chooseDestinationRegionAction => DescribeDestinationRegionChoice(actorName, chooseDestinationRegionAction, snapshotAfterAction),
             RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshotAfterAction.Turn.DiceResult, snapshotAfterAction.Turn.BonusRollAvailable, action as RollDiceAction)}",
             ChooseRouteAction => string.Empty,
             MoveAction moveAction => DescribeMove(actorName, moveAction, snapshotBeforeAction),
@@ -641,10 +646,27 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static string DescribeDestinationPick(string actorName, PlayerAction action, RailBaronGameState snapshot)
     {
+        if (string.Equals(snapshot.Turn.Phase, nameof(TurnPhase.RegionChoice), StringComparison.OrdinalIgnoreCase)
+            && snapshot.Turn.PendingRegionChoice is not null)
+        {
+            return $"{actorName} must choose a replacement destination region.";
+        }
+
         var destinationName = TryGetPlayerState(action, snapshot)?.DestinationCityName;
         return string.IsNullOrWhiteSpace(destinationName)
             ? $"{actorName} drew a new destination"
             : $"{actorName} has a new destination: {destinationName}";
+    }
+
+    private static string DescribeDestinationRegionChoice(string actorName, ChooseDestinationRegionAction action, RailBaronGameState snapshot)
+    {
+        var destinationName = TryGetPlayerState(action, snapshot)?.DestinationCityName;
+        if (string.IsNullOrWhiteSpace(destinationName))
+        {
+            return $"{actorName} chose {action.SelectedRegionCode} as the replacement destination region.";
+        }
+
+        return $"{actorName} chose {action.SelectedRegionCode} as the replacement destination region and received {destinationName}.";
     }
 
     private static string DescribeMove(string actorName, MoveAction action, RailBaronGameState snapshot)

@@ -10,6 +10,7 @@ public enum GameStatus
 public enum TurnPhase
 {
     DrawDestination,
+    RegionChoice,
     Roll,
     Move,
     Arrival,

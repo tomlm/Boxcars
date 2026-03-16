@@ -5,6 +5,7 @@ namespace Boxcars.GameEngine;
 public enum PlayerActionKind
 {
     PickDestination,
+    ChooseDestinationRegion,
     RollDice,
     ChooseRoute,
     Move,
@@ -31,6 +32,13 @@ public abstract record PlayerAction
 public sealed record PickDestinationAction : PlayerAction
 {
     public override PlayerActionKind Kind => PlayerActionKind.PickDestination;
+}
+
+public sealed record ChooseDestinationRegionAction : PlayerAction
+{
+    public required string SelectedRegionCode { get; init; }
+
+    public override PlayerActionKind Kind => PlayerActionKind.ChooseDestinationRegion;
 }
 
 public sealed record RollDiceAction : PlayerAction

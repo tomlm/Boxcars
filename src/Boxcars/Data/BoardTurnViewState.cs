@@ -23,4 +23,5 @@ public sealed class BoardTurnViewState
     public ArrivalResolutionModel? ArrivalResolution { get; init; }
     public PurchasePhaseModel? PurchasePhase { get; init; }
     public ForcedSalePhaseModel? ForcedSalePhase { get; init; }
+    public RegionChoicePhaseModel? RegionChoicePhase { get; init; }
 }

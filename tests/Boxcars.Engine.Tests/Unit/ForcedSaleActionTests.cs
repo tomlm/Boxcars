@@ -1,8 +1,14 @@
 using System.Reflection;
+using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Engine.Domain;
 using Boxcars.Engine.Tests.Fixtures;
 using Boxcars.GameEngine;
+using Boxcars.Services;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Boxcars.Engine.Tests.Unit;
 
@@ -90,7 +96,7 @@ public class ForcedSaleActionTests
     }
 
     [Fact]
-    public void ValidateActionAuthorization_AllowsAuctionDropOut_ForBeatlesControlledSlot()
+    public void ValidateActionAuthorization_RejectsAuctionDropOut_ForUncontrolledBeatlesSlot()
     {
         var (gameEntity, engine) = CreateAuctionAuthorizationContext(slotTwoUserId: "george@beatles.com");
         var currentBidderIndex = engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex!.Value;
@@ -104,7 +110,10 @@ public class ForcedSaleActionTests
             RailroadIndex = engine.CurrentTurn.AuctionState.RailroadIndex
         };
 
-        InvokeValidateActionAuthorization(gameEntity, engine, action);
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("Only the controlling participant for the acting player may perform this auction action.", exception.InnerException!.Message);
     }
 
     [Fact]
@@ -131,12 +140,74 @@ public class ForcedSaleActionTests
         Assert.Contains("Eliminated players may only spectate", exception.InnerException!.Message);
     }
 
+    [Fact]
+    public void DescribeAction_ChooseDestinationRegion_ReportsSelectedRegionAndDestination()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        var snapshotBeforeAction = engine.ToSnapshot();
+        var action = new ChooseDestinationRegionAction
+        {
+            PlayerId = engine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            ActorUserId = "alice@example.com",
+            SelectedRegionCode = "SE"
+        };
+
+        random.QueueWeightedDraw(1);
+        engine.ChooseDestinationRegion("SE");
+        var snapshotAfterAction = engine.ToSnapshot();
+
+        var summary = InvokeDescribeAction(action, snapshotBeforeAction, snapshotAfterAction, engine);
+
+        Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta.", summary);
+    }
+
+    [Fact]
+    public void ValidateActionAuthorization_RejectsRegionChoice_WhenActorDoesNotControlActivePlayerSlot()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+            [
+                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
+            ])
+        };
+
+        var action = new ChooseDestinationRegionAction
+        {
+            PlayerId = engine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            ActorUserId = "intruder@example.com",
+            SelectedRegionCode = "SE"
+        };
+
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("Only the controlling participant for the active player may perform this action.", exception.InnerException!.Message);
+    }
+
     private static void InvokeValidateActionAuthorization(GameEntity gameEntity, Boxcars.Engine.Domain.GameEngine engine, PlayerAction action)
     {
-        var method = typeof(GameEngineService).GetMethod("ValidateActionAuthorization", BindingFlags.NonPublic | BindingFlags.Static)
+        var service = CreateGameEngineServiceForTests();
+        var method = typeof(GameEngineService).GetMethod("ValidateActionAuthorization", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("ValidateActionAuthorization was not found.");
 
-        method.Invoke(null, [gameEntity, engine, action]);
+        method.Invoke(service, [gameEntity, engine, action]);
     }
 
     private static string InvokeDescribeAction(PlayerAction action, Boxcars.Engine.Persistence.GameState snapshotBeforeAction, Boxcars.Engine.Persistence.GameState snapshotAfterAction, Boxcars.Engine.Domain.GameEngine engine)
@@ -150,8 +221,8 @@ public class ForcedSaleActionTests
 
     private static (GameEntity GameEntity, Boxcars.Engine.Domain.GameEngine Engine) CreateAuctionAuthorizationContext(string slotTwoUserId = "bidder@example.com")
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
 
         var seller = engine.CurrentTurn.ActivePlayer;
         var railroad = engine.Railroads[0];
@@ -172,5 +243,25 @@ public class ForcedSaleActionTests
         };
 
         return (gameEntity, engine);
+    }
+
+    private static GameEngineService CreateGameEngineServiceForTests()
+    {
+        return new GameEngineService(
+            new TestWebHostEnvironment(),
+            new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
+            new GamePresenceService(),
+            Options.Create(new PurchaseRulesOptions()),
+            NullLogger<GameEngineService>.Instance);
+    }
+
+    private sealed class TestWebHostEnvironment : IWebHostEnvironment
+    {
+        public string ApplicationName { get; set; } = "Boxcars.Tests";
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+        public string WebRootPath { get; set; } = string.Empty;
+        public string EnvironmentName { get; set; } = "Development";
+        public string ContentRootPath { get; set; } = string.Empty;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

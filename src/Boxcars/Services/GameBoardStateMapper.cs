@@ -73,6 +73,7 @@ public sealed class GameBoardStateMapper(
 
         var resolvedArrival = arrivalResolution ?? BuildArrivalResolution(state, mapDefinition, activePlayerIndex, activePlayer);
         var forcedSalePhase = BuildForcedSalePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer, bindings, currentUserId);
+        var regionChoicePhase = BuildRegionChoicePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer);
 
         return new BoardTurnViewState
         {
@@ -97,7 +98,8 @@ public sealed class GameBoardStateMapper(
             CanEndTurn = CanEndTurn(state, selectedRoutePreview),
             ArrivalResolution = resolvedArrival,
             PurchasePhase = resolvedArrival?.PurchasePhase,
-            ForcedSalePhase = forcedSalePhase
+            ForcedSalePhase = forcedSalePhase,
+            RegionChoicePhase = regionChoicePhase
         };
     }
 
@@ -518,6 +520,71 @@ public sealed class GameBoardStateMapper(
     private static string BuildRailroadOptionKey(int railroadIndex)
     {
         return $"railroad:{railroadIndex}";
+    }
+
+    private RegionChoicePhaseModel? BuildRegionChoicePhaseModel(
+        RailBaronGameState state,
+        MapDefinition? mapDefinition,
+        int activePlayerIndex,
+        PlayerStateSnapshot activePlayer)
+    {
+        if (!string.Equals(state.Turn.Phase, TurnPhase.RegionChoice.ToString(), StringComparison.OrdinalIgnoreCase)
+            || state.Turn.PendingRegionChoice is null)
+        {
+            return null;
+        }
+
+        var pendingRegionChoice = state.Turn.PendingRegionChoice;
+        var coverageByRegionCode = mapDefinition is null
+            ? new Dictionary<string, RegionCoverageSnapshot>(StringComparer.OrdinalIgnoreCase)
+            : networkCoverageService.BuildSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices)
+                .RegionAccess
+                .ToDictionary(region => region.RegionCode, region => region, StringComparer.OrdinalIgnoreCase);
+        var regionByCode = mapDefinition?.Regions.ToDictionary(region => region.Code, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, RegionDefinition>(StringComparer.OrdinalIgnoreCase);
+
+        var options = pendingRegionChoice.EligibleRegionCodes
+            .Select(regionCode =>
+            {
+                coverageByRegionCode.TryGetValue(regionCode, out var coverage);
+                var regionName = regionByCode.TryGetValue(regionCode, out var region)
+                    ? region.Name
+                    : regionCode;
+                var regionProbability = regionByCode.TryGetValue(regionCode, out region)
+                    ? Convert.ToDecimal(region.Probability ?? 0d, System.Globalization.CultureInfo.InvariantCulture)
+                    : 0m;
+                var eligibleCityCount = pendingRegionChoice.EligibleCityCountsByRegion.TryGetValue(regionCode, out var count)
+                    ? count
+                    : 0;
+
+                return new DestinationRegionOption
+                {
+                    RegionCode = regionCode,
+                    RegionName = regionName,
+                    RegionProbabilityPercent = regionProbability,
+                    AccessibleDestinationPercent = coverage?.AccessibleDestinationPercent ?? 0m,
+                    MonopolyDestinationPercent = coverage?.MonopolyDestinationPercent ?? 0m,
+                    EligibleCityCount = eligibleCityCount
+                };
+            })
+            .OrderByDescending(option => option.RegionProbabilityPercent)
+            .ThenBy(option => option.RegionName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var currentRegionName = regionByCode.TryGetValue(pendingRegionChoice.CurrentRegionCode, out var currentRegion)
+            ? currentRegion.Name
+            : pendingRegionChoice.CurrentRegionCode;
+
+        return new RegionChoicePhaseModel
+        {
+            PlayerIndex = pendingRegionChoice.PlayerIndex,
+            PlayerName = activePlayer.Name,
+            CurrentCityName = pendingRegionChoice.CurrentCityName,
+            CurrentRegionCode = pendingRegionChoice.CurrentRegionCode,
+            CurrentRegionName = currentRegionName,
+            Options = options,
+            CanConfirm = options.Count > 0
+        };
     }
 
     private ForcedSalePhaseModel? BuildForcedSalePhaseModel(
