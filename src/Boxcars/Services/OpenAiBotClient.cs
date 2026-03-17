@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Boxcars.Data;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Boxcars.Services;
@@ -12,11 +13,13 @@ public sealed class OpenAiBotClient
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly BotOptions _botOptions;
+    private readonly ILogger<OpenAiBotClient> _logger;
 
-    public OpenAiBotClient(IHttpClientFactory httpClientFactory, IOptions<BotOptions> botOptions)
+    public OpenAiBotClient(IHttpClientFactory httpClientFactory, IOptions<BotOptions> botOptions, ILogger<OpenAiBotClient> logger)
     {
         _httpClientFactory = httpClientFactory;
         _botOptions = botOptions.Value;
+        _logger = logger;
     }
 
     public async Task<OpenAiBotDecisionResult> SelectOptionAsync(
@@ -26,6 +29,9 @@ public sealed class OpenAiBotClient
     {
         if (string.IsNullOrWhiteSpace(_botOptions.OpenAIKey))
         {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+            _logger.LogWarning("OpenAI bot decision skipped because no API key is configured.");
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
             return OpenAiBotDecisionResult.Failed("Missing OpenAI API key.");
         }
 
@@ -57,20 +63,39 @@ public sealed class OpenAiBotClient
 
             if (!response.IsSuccessStatusCode)
             {
-                return OpenAiBotDecisionResult.Failed($"OpenAI request failed with status {(int)response.StatusCode}.", responseContent);
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+                _logger.LogWarning(
+                    "OpenAI request failed with status {StatusCode}. Response: {ResponseContent}",
+                    (int)response.StatusCode,
+                    responseContent);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+                return OpenAiBotDecisionResult.Failed(BuildFailureReason(response.StatusCode, responseContent), responseContent);
             }
 
             var optionId = ParseSelectedOptionId(responseContent);
+            if (string.IsNullOrWhiteSpace(optionId))
+            {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+                _logger.LogWarning("OpenAI response did not contain a selectedOptionId. Response: {ResponseContent}", responseContent);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+            }
+
             return string.IsNullOrWhiteSpace(optionId)
                 ? OpenAiBotDecisionResult.Failed("OpenAI response did not contain a selectedOptionId.", responseContent)
                 : OpenAiBotDecisionResult.Success(optionId, responseContent);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+            _logger.LogWarning("OpenAI decision request timed out after {TimeoutSeconds} seconds.", _botOptions.DecisionTimeoutSeconds);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
             return OpenAiBotDecisionResult.Timeout();
         }
         catch (HttpRequestException ex)
         {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+            _logger.LogError(ex, "OpenAI decision request failed before a response was returned.");
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
             return OpenAiBotDecisionResult.Failed(ex.Message);
         }
     }
@@ -92,16 +117,84 @@ public sealed class OpenAiBotClient
             return null;
         }
 
-        var content = contentElement.GetString();
+        var content = ExtractMessageContent(contentElement);
         if (string.IsNullOrWhiteSpace(content))
         {
             return null;
         }
 
-        using var contentDocument = JsonDocument.Parse(content);
+        var normalizedContent = NormalizeJsonContent(content);
+        using var contentDocument = JsonDocument.Parse(normalizedContent);
         return contentDocument.RootElement.TryGetProperty("selectedOptionId", out var selectedOptionId)
             ? selectedOptionId.GetString()
             : null;
+    }
+
+    private static string BuildFailureReason(System.Net.HttpStatusCode statusCode, string responseContent)
+    {
+        var apiErrorMessage = TryExtractApiErrorMessage(responseContent);
+        return string.IsNullOrWhiteSpace(apiErrorMessage)
+            ? $"OpenAI request failed with status {(int)statusCode}."
+            : $"OpenAI request failed with status {(int)statusCode}: {apiErrorMessage}";
+    }
+
+    private static string? TryExtractApiErrorMessage(string responseContent)
+    {
+        if (string.IsNullOrWhiteSpace(responseContent))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseContent);
+            if (!document.RootElement.TryGetProperty("error", out var errorElement))
+            {
+                return null;
+            }
+
+            return errorElement.TryGetProperty("message", out var messageElement)
+                ? messageElement.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractMessageContent(JsonElement contentElement)
+    {
+        return contentElement.ValueKind switch
+        {
+            JsonValueKind.String => contentElement.GetString(),
+            JsonValueKind.Array => string.Concat(contentElement
+                .EnumerateArray()
+                .Select(item => item.TryGetProperty("text", out var textElement) ? textElement.GetString() : null)
+                .Where(text => !string.IsNullOrWhiteSpace(text))),
+            _ => null
+        };
+    }
+
+    private static string NormalizeJsonContent(string content)
+    {
+        var trimmed = content.Trim();
+        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            return trimmed;
+        }
+
+        var lines = trimmed
+            .Split('\n')
+            .Select(line => line.TrimEnd('\r'))
+            .ToList();
+
+        if (lines.Count >= 2 && lines[0].StartsWith("```", StringComparison.Ordinal) && lines[^1] == "```")
+        {
+            return string.Join('\n', lines.Skip(1).Take(lines.Count - 2)).Trim();
+        }
+
+        return trimmed;
     }
 }
 

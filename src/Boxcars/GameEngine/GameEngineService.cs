@@ -1075,7 +1075,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && sellerOwnedRailroadBeforeAction
             && railroad.Owner is null)
         {
-            return $"{GetRailroadDisplayName(railroad)} was sold to the bank for {FormatCurrency(railroad.PurchasePrice / 2)}";
+            return string.Concat(
+                defaultDescription,
+                "; no bids remained, so ",
+                GetRailroadDisplayName(railroad),
+                " was sold to the bank for ",
+                FormatCurrency(railroad.PurchasePrice / 2));
         }
 
         var auctionBeforeAction = snapshotBeforeAction.Turn.Auction;
@@ -1300,11 +1305,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return new BotTurnService(
             new BotDefinitionService(tableServiceClient),
             new BotDecisionPromptBuilder(),
-            new OpenAiBotClient(new NoOpHttpClientFactory(), botOptions),
+                new OpenAiBotClient(new NoOpHttpClientFactory(), botOptions, NullLogger<OpenAiBotClient>.Instance),
             gamePresenceService,
             new NetworkCoverageService(),
             botOptions,
-            purchaseRulesOptions);
+                purchaseRulesOptions,
+                NullLogger<BotTurnService>.Instance);
     }
 
     private sealed class NoOpHttpClientFactory : IHttpClientFactory

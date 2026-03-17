@@ -5,6 +5,7 @@ using Azure.Core;
 using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Boxcars.Engine.Tests.Unit;
@@ -38,11 +39,12 @@ internal static class BotTurnServiceTestHarness
         return new BotTurnService(
             botDefinitionService,
             new BotDecisionPromptBuilder(),
-            new OpenAiBotClient(new FakeHttpClientFactory(), botOptions),
+            new OpenAiBotClient(new FakeHttpClientFactory(), botOptions, NullLogger<OpenAiBotClient>.Instance),
             presenceService,
             new NetworkCoverageService(),
             botOptions,
-            Options.Create(new PurchaseRulesOptions()));
+            Options.Create(new PurchaseRulesOptions()),
+            NullLogger<BotTurnService>.Instance);
     }
 
     public static GameEntity CreateAssignedGame(

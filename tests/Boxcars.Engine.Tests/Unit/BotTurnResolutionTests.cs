@@ -311,9 +311,11 @@ public class BotTurnResolutionTests
             "bob@example.com",
             BotTurnServiceTestHarness.ControllerUserId);
 
-        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition();
+        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
+            botDefinitionId: "bob@example.com",
+            name: "Ghost Strategy");
         var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
-        var game = BotTurnServiceTestHarness.CreateAssignedGame(
+        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
             BotTurnServiceTestHarness.CreateSelections(
                 "seller@example.com",
                 "bob@example.com",
@@ -329,5 +331,52 @@ public class BotTurnResolutionTests
         Assert.Equal(railroad.Index, passAction.RailroadIndex);
         Assert.NotNull(passAction.BotMetadata);
         Assert.Equal("OnlyLegalChoice", passAction.BotMetadata!.DecisionSource);
+    }
+
+    [Fact]
+    public async Task CreateBotActionAsync_AuctionWithAffordableBid_FallbackPrefersMinimumBid()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var railroad = engine.Railroads[0];
+        railroad.Owner = seller;
+        seller.OwnedRailroads.Add(railroad);
+        engine.AuctionRailroad(railroad);
+
+        var bidderIndex = engine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex;
+        Assert.True(bidderIndex.HasValue);
+
+        var bidder = engine.Players[bidderIndex!.Value];
+        bidder.Cash = railroad.PurchasePrice;
+
+        var presenceService = new GamePresenceService();
+        BotTurnServiceTestHarness.ConfigureDelegatedControl(
+            presenceService,
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId);
+
+        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
+            botDefinitionId: "bob@example.com",
+            name: "Ghost Strategy");
+        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
+        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+            BotTurnServiceTestHarness.CreateSelections(
+                "seller@example.com",
+                "bob@example.com",
+                "charlie@example.com"),
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId,
+            botDefinition.BotDefinitionId);
+
+        var action = await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+
+        var bidAction = Assert.IsType<BidAction>(action);
+        Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, bidAction.ActorUserId);
+        Assert.Equal(railroad.Index, bidAction.RailroadIndex);
+        Assert.Equal(engine.CurrentTurn.AuctionState!.StartingPrice, bidAction.AmountBid);
+        Assert.NotNull(bidAction.BotMetadata);
+        Assert.Equal("Fallback", bidAction.BotMetadata!.DecisionSource);
     }
 }

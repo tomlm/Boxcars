@@ -51,4 +51,35 @@ public class BotDecisionPromptBuilderTests
         Assert.Contains("\"TargetPlayer\"", prompt, StringComparison.Ordinal);
         Assert.Contains("auction-pass", prompt, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void FindOption_AuctionBidWithReturnedAmountSuffix_ResolvesBidOption()
+    {
+        var builder = new BotDecisionPromptBuilder();
+        var context = new BotDecisionContext
+        {
+            Phase = "Auction",
+            LegalOptions =
+            [
+                new BotLegalOption
+                {
+                    OptionId = "auction-bid:min",
+                    OptionType = "Bid",
+                    DisplayText = "Bid 4250",
+                    Payload = "4250"
+                },
+                new BotLegalOption
+                {
+                    OptionId = "auction-pass",
+                    OptionType = "AuctionPass",
+                    DisplayText = "Pass"
+                }
+            ]
+        };
+
+        var option = builder.FindOption(context, "auction-bid:min:4250");
+
+        Assert.NotNull(option);
+        Assert.Equal("auction-bid:min", option!.OptionId);
+    }
 }

@@ -96,12 +96,69 @@ public sealed class BotDecisionPromptBuilder
             return null;
         }
 
-        return context.LegalOptions.FirstOrDefault(option =>
-            string.Equals(option.OptionId, optionId.Trim(), StringComparison.Ordinal));
+        var normalizedOptionId = optionId.Trim();
+
+        var exactMatch = context.LegalOptions.FirstOrDefault(option =>
+            string.Equals(option.OptionId, normalizedOptionId, StringComparison.Ordinal));
+        if (exactMatch is not null)
+        {
+            return exactMatch;
+        }
+
+        if (string.Equals(context.Phase, "Auction", StringComparison.OrdinalIgnoreCase))
+        {
+            return context.LegalOptions.FirstOrDefault(option =>
+                string.Equals(option.OptionType, "Bid", StringComparison.OrdinalIgnoreCase)
+                && IsAuctionBidOptionMatch(option, normalizedOptionId));
+        }
+
+        return null;
+    }
+
+    private static bool IsAuctionBidOptionMatch(BotLegalOption option, string returnedOptionId)
+    {
+        if (string.IsNullOrWhiteSpace(option.OptionId)
+            || !returnedOptionId.StartsWith(option.OptionId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (returnedOptionId.Length == option.OptionId.Length)
+        {
+            return true;
+        }
+
+        if (returnedOptionId[option.OptionId.Length] != ':')
+        {
+            return false;
+        }
+
+        var returnedPayload = returnedOptionId[(option.OptionId.Length + 1)..].Trim();
+        return string.IsNullOrWhiteSpace(returnedPayload)
+            || string.Equals(returnedPayload, option.Payload, StringComparison.Ordinal)
+            || int.TryParse(returnedPayload, out _);
     }
 
     private static BotLegalOption SelectFallbackOption(BotDecisionContext context)
     {
+        if (string.Equals(context.Phase, "Auction", StringComparison.OrdinalIgnoreCase))
+        {
+            var bidOption = context.LegalOptions.FirstOrDefault(option =>
+                string.Equals(option.OptionType, "Bid", StringComparison.OrdinalIgnoreCase));
+            if (bidOption is not null)
+            {
+                return bidOption;
+            }
+
+            var auctionPassOption = context.LegalOptions.FirstOrDefault(option =>
+                string.Equals(option.OptionType, "AuctionPass", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(option.OptionType, "Pass", StringComparison.OrdinalIgnoreCase));
+            if (auctionPassOption is not null)
+            {
+                return auctionPassOption;
+            }
+        }
+
         var noActionTypes = new[] { "NoPurchase", "Pass", "AuctionPass" };
         var noAction = context.LegalOptions.FirstOrDefault(option =>
             noActionTypes.Contains(option.OptionType, StringComparer.OrdinalIgnoreCase));

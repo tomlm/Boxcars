@@ -4,6 +4,7 @@ using Boxcars.Data;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
 using Boxcars.GameEngine;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RailBaronGameEngine = global::Boxcars.Engine.Domain.GameEngine;
 
@@ -18,6 +19,7 @@ public sealed class BotTurnService
     private readonly NetworkCoverageService _networkCoverageService;
     private readonly BotOptions _botOptions;
     private readonly PurchaseRulesOptions _purchaseRulesOptions;
+    private readonly ILogger<BotTurnService> _logger;
 
     public BotTurnService(
         BotDefinitionService botDefinitionService,
@@ -26,7 +28,8 @@ public sealed class BotTurnService
         GamePresenceService gamePresenceService,
         NetworkCoverageService networkCoverageService,
         IOptions<BotOptions> botOptions,
-        IOptions<PurchaseRulesOptions> purchaseRulesOptions)
+        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+        ILogger<BotTurnService> logger)
     {
         _botDefinitionService = botDefinitionService;
         _promptBuilder = promptBuilder;
@@ -35,6 +38,7 @@ public sealed class BotTurnService
         _networkCoverageService = networkCoverageService;
         _botOptions = botOptions.Value;
         _purchaseRulesOptions = purchaseRulesOptions.Value;
+        _logger = logger;
     }
 
     public IReadOnlyList<BotAssignment> GetAssignments(GameEntity game)
@@ -217,6 +221,15 @@ public sealed class BotTurnService
 
         if (!openAiResult.Succeeded)
         {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+            _logger.LogWarning(
+                "OpenAI decision failed for phase {Phase} in game {GameId} for player {PlayerUserId}. Reason: {FailureReason}. Raw response: {RawResponse}",
+                context.Phase,
+                context.GameId,
+                context.PlayerUserId,
+                openAiResult.FailureReason,
+                openAiResult.RawResponse);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
             return _promptBuilder.ResolveWithoutOpenAi(
                 context,
                 openAiResult.TimedOut ? "OpenAI request timed out." : openAiResult.FailureReason ?? "OpenAI request failed.");
@@ -225,6 +238,16 @@ public sealed class BotTurnService
         var selectedOption = _promptBuilder.FindOption(context, openAiResult.SelectedOptionId);
         if (selectedOption is null)
         {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+            _logger.LogWarning(
+                "OpenAI returned an invalid or stale option for phase {Phase} in game {GameId} for player {PlayerUserId}. Selected option: {SelectedOptionId}. Legal options: {LegalOptions}. Raw response: {RawResponse}",
+                context.Phase,
+                context.GameId,
+                context.PlayerUserId,
+                openAiResult.SelectedOptionId,
+                string.Join(", ", context.LegalOptions.Select(option => option.OptionId)),
+                openAiResult.RawResponse);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
             return _promptBuilder.ResolveWithoutOpenAi(context, "OpenAI returned an invalid or stale option.");
         }
 
@@ -585,7 +608,7 @@ public sealed class BotTurnService
         legalOptions.Add(new BotLegalOption
         {
             OptionId = passOptionId,
-            OptionType = "Pass",
+            OptionType = "AuctionPass",
             DisplayText = "Pass",
             Payload = string.Empty
         });

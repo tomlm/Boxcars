@@ -9,10 +9,11 @@ namespace Boxcars.Services;
 public sealed class GamePresenceService : IDisposable
 {
     private readonly object _sync = new();
-    private readonly TableClient? _gamesTable;
-    private readonly TimeProvider _timeProvider;
-    private readonly TimeSpan _connectionExpirationWindow;
-    private readonly Timer? _staleConnectionTimer;
+    private TableClient? _gamesTable;
+    private TableClient? _usersTable;
+    private TimeProvider _timeProvider = TimeProvider.System;
+    private TimeSpan _connectionExpirationWindow = TimeSpan.FromSeconds(15);
+    private Timer? _staleConnectionTimer;
     private readonly Dictionary<string, Dictionary<string, Dictionary<string, DateTimeOffset>>> _connectionsByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, bool>> _mockPresenceByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _delegatedControllersByGameAndUser = new(StringComparer.Ordinal);
@@ -20,27 +21,44 @@ public sealed class GamePresenceService : IDisposable
 
     [ActivatorUtilitiesConstructor]
     public GamePresenceService(TableServiceClient tableServiceClient)
-        : this(tableServiceClient, TimeProvider.System)
     {
+        Initialize(
+            tableServiceClient?.GetTableClient(TableNames.GamesTable),
+            tableServiceClient?.GetTableClient(TableNames.UsersTable),
+            TimeProvider.System,
+            connectionExpirationWindow: null,
+            cleanupInterval: null);
     }
 
     public GamePresenceService()
-        : this(null, TimeProvider.System)
     {
+        Initialize(null, null, TimeProvider.System, connectionExpirationWindow: null, cleanupInterval: null);
     }
 
     public GamePresenceService(TimeProvider timeProvider, TimeSpan? connectionExpirationWindow = null, TimeSpan? cleanupInterval = null)
-        : this(null, timeProvider, connectionExpirationWindow, cleanupInterval)
     {
+        Initialize(null, null, timeProvider, connectionExpirationWindow, cleanupInterval);
     }
 
-    private GamePresenceService(
-        TableServiceClient? tableServiceClient,
+    public GamePresenceService(
+        TableClient gamesTable,
+        TableClient usersTable,
+        TimeProvider? timeProvider = null,
+        TimeSpan? connectionExpirationWindow = null,
+        TimeSpan? cleanupInterval = null)
+    {
+        Initialize(gamesTable, usersTable, timeProvider ?? TimeProvider.System, connectionExpirationWindow, cleanupInterval);
+    }
+
+    private void Initialize(
+        TableClient? gamesTable,
+        TableClient? usersTable,
         TimeProvider timeProvider,
         TimeSpan? connectionExpirationWindow = null,
         TimeSpan? cleanupInterval = null)
     {
-        _gamesTable = tableServiceClient?.GetTableClient(TableNames.GamesTable);
+        _gamesTable = gamesTable;
+        _usersTable = usersTable;
         _timeProvider = timeProvider;
         _connectionExpirationWindow = connectionExpirationWindow ?? TimeSpan.FromSeconds(15);
 
@@ -557,6 +575,11 @@ public sealed class GamePresenceService : IDisposable
             return;
         }
 
+        if (!await ShouldClearAiControlForConnectedSeatAsync(playerUserId))
+        {
+            return;
+        }
+
         for (var attempt = 0; attempt < 2; attempt++)
         {
             try
@@ -572,8 +595,7 @@ public sealed class GamePresenceService : IDisposable
                     var assignment = assignments[index];
                     if (!string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
                         || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                        || assignment.ClearedUtc is not null
-                        || !string.Equals(PlayerControlRules.ResolveBotControllerMode(assignment), SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase))
+                        || assignment.ClearedUtc is not null)
                     {
                         continue;
                     }
@@ -610,6 +632,38 @@ public sealed class GamePresenceService : IDisposable
                 continue;
             }
         }
+    }
+
+    private async Task<bool> ShouldClearAiControlForConnectedSeatAsync(string playerUserId)
+    {
+        if (_usersTable is null || string.IsNullOrWhiteSpace(playerUserId))
+        {
+            return true;
+        }
+
+        var profile = await TryGetUserProfileAsync(playerUserId);
+        return profile?.IsBot != true;
+    }
+
+    private async Task<ApplicationUser?> TryGetUserProfileAsync(string userId)
+    {
+        var candidateIds = string.Equals(userId, userId.ToLowerInvariant(), StringComparison.Ordinal)
+            ? new[] { userId }
+            : new[] { userId, userId.ToLowerInvariant() };
+
+        foreach (var candidateId in candidateIds)
+        {
+            try
+            {
+                var response = await _usersTable!.GetEntityAsync<ApplicationUser>("USER", candidateId);
+                return response.Value;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+            }
+        }
+
+        return null;
     }
 
     private void NotifyPresenceChanged(string gameId)
