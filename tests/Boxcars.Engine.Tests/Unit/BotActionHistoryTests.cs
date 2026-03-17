@@ -40,6 +40,38 @@ public class BotActionHistoryTests
     }
 
     [Fact]
+    public void DeserializePlayerAction_PlayerActionWithBotMetadata_RestoresServerActorAndBotAttribution()
+    {
+        var action = new ChooseDestinationRegionAction
+        {
+            PlayerId = "Alice",
+            PlayerIndex = 0,
+            ActorUserId = BotOptions.DefaultServerActorUserId,
+            SelectedRegionCode = "SE",
+            BotMetadata = new BotRecordedActionMetadata
+            {
+                BotDefinitionId = "bot-1",
+                BotName = "El Cheapo",
+                DecisionSource = "Fallback",
+                FallbackReason = "Timeout"
+            }
+        };
+
+        var payload = GameEventSerialization.SerializeEventData(action);
+
+        var restored = Assert.IsType<ChooseDestinationRegionAction>(
+            GameEventSerialization.DeserializePlayerAction(nameof(ChooseDestinationRegionAction), payload));
+
+        Assert.Equal(BotOptions.DefaultServerActorUserId, restored.ActorUserId);
+        Assert.NotNull(restored.BotMetadata);
+        Assert.Equal("bot-1", restored.BotMetadata!.BotDefinitionId);
+        Assert.Equal("El Cheapo", restored.BotMetadata.BotName);
+        Assert.Equal("Fallback", restored.BotMetadata.DecisionSource);
+        Assert.Equal("Timeout", restored.BotMetadata.FallbackReason);
+        Assert.True(restored.IsServerAuthoredAiAction);
+    }
+
+    [Fact]
     public void DescribeAction_BotDrivenRegionChoice_AppendsBotAttributionSuffix()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();
@@ -155,6 +187,44 @@ public class BotActionHistoryTests
         Assert.Equal(BotAssignmentStatuses.MissingDefinition, assignments["alice@example.com"].Status);
         Assert.Equal("Bot removed from library", GameBoardStateMapper.GetBotAssignmentStatusLabel(assignments["alice@example.com"]));
         Assert.Equal("El Cheapo", GameBoardStateMapper.GetBotAssignmentStatusLabel(assignments["charlie@example.com"], "El Cheapo"));
+    }
+
+    [Fact]
+    public void BuildPlayerControlBindings_ActiveBotAssignment_ProjectsControllerMode()
+    {
+        var mapper = new GameBoardStateMapper(
+            new NetworkCoverageService(),
+            new MapAnalysisService(new MapRouteService()),
+            new PurchaseRecommendationService(),
+            Options.Create(new PurchaseRulesOptions()));
+
+        var game = new GameEntity
+        {
+            PartitionKey = "game-1",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+            [
+                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
+            ]),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                new BotAssignment
+                {
+                    GameId = "game-1",
+                    PlayerUserId = "alice@example.com",
+                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    BotDefinitionId = "bot-1",
+                    Status = BotAssignmentStatuses.Active
+                }
+            ])
+        };
+
+        var bindings = mapper.BuildPlayerControlBindings(game, "bob@example.com");
+
+        Assert.Equal(SeatControllerModes.AiBotSeat, bindings[0].ControllerMode);
+        Assert.True(bindings[0].HasBotAssignment);
+        Assert.Equal("bot-1", bindings[0].BotDefinitionId);
     }
 
     private static string InvokeDescribeAction(

@@ -20,4 +20,50 @@ public static class GameEventSerialization
     {
         return JsonSerializer.Serialize(data);
     }
+
+    public static PlayerAction? DeserializePlayerAction(string? eventKind, string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            return NormalizeEventKind(eventKind) switch
+            {
+                "PickDestination" => JsonSerializer.Deserialize<PickDestinationAction>(payload),
+                "ChooseDestinationRegion" => JsonSerializer.Deserialize<ChooseDestinationRegionAction>(payload),
+                "RollDice" => JsonSerializer.Deserialize<RollDiceAction>(payload),
+                "ChooseRoute" => JsonSerializer.Deserialize<ChooseRouteAction>(payload),
+                "Move" => JsonSerializer.Deserialize<MoveAction>(payload),
+                "PurchaseRailroad" => JsonSerializer.Deserialize<PurchaseRailroadAction>(payload),
+                "StartAuction" => JsonSerializer.Deserialize<StartAuctionAction>(payload),
+                "Bid" => JsonSerializer.Deserialize<BidAction>(payload),
+                "AuctionPass" => JsonSerializer.Deserialize<AuctionPassAction>(payload),
+                "AuctionDropOut" => JsonSerializer.Deserialize<AuctionDropOutAction>(payload),
+                "SellRailroad" => JsonSerializer.Deserialize<SellRailroadAction>(payload),
+                "BuyEngine" => JsonSerializer.Deserialize<BuyEngineAction>(payload),
+                "DeclinePurchase" => JsonSerializer.Deserialize<DeclinePurchaseAction>(payload),
+                "EndTurn" => JsonSerializer.Deserialize<EndTurnAction>(payload),
+                _ => null
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string NormalizeEventKind(string? eventKind)
+    {
+        if (string.IsNullOrWhiteSpace(eventKind))
+        {
+            return string.Empty;
+        }
+
+        return eventKind.EndsWith("Action", StringComparison.Ordinal)
+            ? eventKind[..^"Action".Length]
+            : eventKind;
+    }
 }

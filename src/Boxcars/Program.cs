@@ -52,9 +52,21 @@ public class Program
                 {
                     options.OpenAIKey = builder.Configuration[BotOptions.LegacyApiKeySettingName] ?? string.Empty;
                 }
+
+                if (string.IsNullOrWhiteSpace(options.ServerActorUserId))
+                {
+                    options.ServerActorUserId = BotOptions.DefaultServerActorUserId;
+                }
+
+                if (string.IsNullOrWhiteSpace(options.ServerActorDisplayName))
+                {
+                    options.ServerActorDisplayName = BotOptions.DefaultServerActorDisplayName;
+                }
             })
             .Validate(static options => options.DecisionTimeoutSeconds > 0, "Bots:DecisionTimeoutSeconds must be greater than zero.")
             .Validate(static options => string.IsNullOrWhiteSpace(options.OpenAIModel) is false, "Bots:OpenAIModel is required.")
+            .Validate(static options => string.IsNullOrWhiteSpace(options.ServerActorUserId) is false, "Bots:ServerActorUserId is required.")
+            .Validate(static options => string.IsNullOrWhiteSpace(options.ServerActorDisplayName) is false, "Bots:ServerActorDisplayName is required.")
             .ValidateOnStart();
 
         // UI component libraries

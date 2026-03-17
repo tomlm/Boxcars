@@ -15,6 +15,8 @@ internal static class BotTurnServiceTestHarness
     public const string ActivePlayerUserId = "alice@example.com";
     public const string ControllerUserId = "controller@example.com";
     public const string OtherPlayerUserId = "bob@example.com";
+    public const string ServerActorUserId = BotOptions.DefaultServerActorUserId;
+    public const string ServerActorDisplayName = BotOptions.DefaultServerActorDisplayName;
 
     public static BotTurnService CreateService(GamePresenceService presenceService, params BotStrategyDefinitionEntity[] botDefinitions)
     {
@@ -26,8 +28,11 @@ internal static class BotTurnServiceTestHarness
 
         var botOptions = Options.Create(new BotOptions
         {
+            OpenAIKey = "test-key",
             OpenAIModel = "test-model",
-            DecisionTimeoutSeconds = 1
+            DecisionTimeoutSeconds = 1,
+            ServerActorUserId = ServerActorUserId,
+            ServerActorDisplayName = ServerActorDisplayName
         });
 
         return new BotTurnService(
@@ -63,6 +68,68 @@ internal static class BotTurnServiceTestHarness
                     Status = BotAssignmentStatuses.Active
                 }
             ])
+        };
+    }
+
+    public static GameEntity CreateDedicatedBotSeatGame(
+        IReadOnlyList<GamePlayerSelection> selections,
+        string playerUserId,
+        string botDefinitionId)
+    {
+        return new GameEntity
+        {
+            PartitionKey = GameId,
+            RowKey = "GAME",
+            GameId = GameId,
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(selections),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                CreateDedicatedBotAssignment(playerUserId, botDefinitionId)
+            ])
+        };
+    }
+
+    public static GameEntity CreateGhostControlledGame(
+        IReadOnlyList<GamePlayerSelection> selections,
+        string playerUserId,
+        string controllerUserId,
+        string botDefinitionId)
+    {
+        return new GameEntity
+        {
+            PartitionKey = GameId,
+            RowKey = "GAME",
+            GameId = GameId,
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(selections),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                CreateGhostAssignment(playerUserId, controllerUserId, botDefinitionId)
+            ])
+        };
+    }
+
+    public static BotAssignment CreateDedicatedBotAssignment(string playerUserId, string botDefinitionId)
+    {
+        return new BotAssignment
+        {
+            GameId = GameId,
+            PlayerUserId = playerUserId,
+            ControllerMode = SeatControllerModes.AiBotSeat,
+            BotDefinitionId = botDefinitionId,
+            Status = BotAssignmentStatuses.Active
+        };
+    }
+
+    public static BotAssignment CreateGhostAssignment(string playerUserId, string controllerUserId, string botDefinitionId)
+    {
+        return new BotAssignment
+        {
+            GameId = GameId,
+            PlayerUserId = playerUserId,
+            ControllerUserId = controllerUserId,
+            ControllerMode = SeatControllerModes.AiGhost,
+            BotDefinitionId = botDefinitionId,
+            Status = BotAssignmentStatuses.Active
         };
     }
 

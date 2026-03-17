@@ -12,7 +12,8 @@ public sealed class GameBoardStateMapper(
     NetworkCoverageService networkCoverageService,
     MapAnalysisService mapAnalysisService,
     PurchaseRecommendationService purchaseRecommendationService,
-    IOptions<PurchaseRulesOptions> purchaseRulesOptions)
+    IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+    GamePresenceService? gamePresenceService = null)
 {
     public IReadOnlyList<GamePlayerSelection> GetPlayerSelections(GameEntity? game)
     {
@@ -60,10 +61,16 @@ public sealed class GameBoardStateMapper(
     public IReadOnlyList<PlayerControlBinding> BuildPlayerControlBindings(GameEntity? game, string? currentUserId)
     {
         var selections = GetPlayerSelections(game);
+        var latestBotAssignments = BuildLatestBotAssignments(game);
 
         return selections
             .Select((selection, index) => new PlayerControlBinding
             {
+                ControllerMode = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode,
+                DelegatedControllerUserId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).DelegatedControllerUserId ?? string.Empty,
+                IsConnected = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).IsConnected,
+                BotDefinitionId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).BotDefinitionId ?? string.Empty,
+                HasBotAssignment = PlayerControlRules.IsAiControllerMode(ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode),
                 UserId = selection.UserId,
                 PlayerIndex = index,
                 DisplayName = string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName,
@@ -97,8 +104,8 @@ public sealed class GameBoardStateMapper(
         var activePlayer = activePlayerIndex >= 0 && activePlayerIndex < state.Players.Count
             ? state.Players[activePlayerIndex]
             : state.Players[0];
-        var activePlayerSlotUserId = activePlayerIndex >= 0 && activePlayerIndex < bindings.Count
-            ? bindings[activePlayerIndex].UserId
+        var activeBinding = activePlayerIndex >= 0 && activePlayerIndex < bindings.Count
+            ? bindings[activePlayerIndex]
             : null;
 
         var selectedRoutePreview = NormalizePreview(activePlayerIndex, state, preview ?? BuildSelectedRoutePreview(activePlayer, state));
@@ -127,16 +134,48 @@ public sealed class GameBoardStateMapper(
             CurrentRollTotal = CalculateRollTotal(state),
             IsActivePlayerAtDestination = IsPlayerAtDestination(activePlayer),
             ActivePlayerDestinationCity = activePlayer.DestinationCityName ?? string.Empty,
+            ActivePlayerControllerMode = activeBinding?.ControllerMode ?? SeatControllerModes.HumanDirect,
             SelectedRoutePreview = selectedRoutePreview,
             TraveledSegmentKeys = activePlayer.UsedSegments,
-            IsCurrentUserActivePlayer = PlayerControlRules.IsDirectlyBoundToUser(activePlayerSlotUserId, currentUserId)
-                || (activePlayer.IsActive && currentUserPlayerIndex >= 0 && currentUserPlayerIndex == activePlayerIndex),
+            IsCurrentUserActivePlayer = activeBinding is not null
+                && PlayerControlRules.CanUserControlSlot(
+                    activeBinding.UserId,
+                    currentUserId,
+                    activeBinding.DelegatedControllerUserId,
+                    activePlayer.IsActive),
             CanEndTurn = CanEndTurn(state, selectedRoutePreview),
             ArrivalResolution = resolvedArrival,
             PurchasePhase = resolvedArrival?.PurchasePhase,
             ForcedSalePhase = forcedSalePhase,
             RegionChoicePhase = regionChoicePhase
         };
+    }
+
+    private SeatControllerState ResolveSeatControllerState(
+        GameEntity? game,
+        string? slotUserId,
+        IReadOnlyDictionary<string, BotAssignment>? latestBotAssignments = null)
+    {
+        latestBotAssignments ??= BuildLatestBotAssignments(game);
+
+        var activeBotAssignment = !string.IsNullOrWhiteSpace(slotUserId)
+            && latestBotAssignments.TryGetValue(slotUserId, out var assignment)
+            && string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
+            && assignment.ClearedUtc is null
+                ? assignment
+                : null;
+
+        if (gamePresenceService is null)
+        {
+            return PlayerControlRules.ResolveSeatControllerState(
+                game?.GameId ?? string.Empty,
+                slotUserId,
+                isConnected: true,
+                delegatedControllerUserId: null,
+                activeBotAssignment);
+        }
+
+        return gamePresenceService.ResolveSeatControllerState(game?.GameId ?? string.Empty, slotUserId, activeBotAssignment);
     }
 
     public IReadOnlyList<PlayerMapState> BuildPlayerMapStates(GameEntity? game, RailBaronGameState? state, string? currentUserId)

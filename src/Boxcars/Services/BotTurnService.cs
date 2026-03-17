@@ -51,9 +51,18 @@ public sealed class BotTurnService
             && assignment.ClearedUtc is null);
     }
 
-    public bool UpsertAssignment(GameEntity game, string playerUserId, string controllerUserId, string botDefinitionId)
+    public bool UpsertAssignment(
+        GameEntity game,
+        string playerUserId,
+        string controllerUserId,
+        string botDefinitionId,
+        string? controllerMode = null)
     {
         ArgumentNullException.ThrowIfNull(game);
+
+        controllerMode ??= string.IsNullOrWhiteSpace(controllerUserId)
+            ? SeatControllerModes.AiBotSeat
+            : SeatControllerModes.AiGhost;
 
         var assignments = GetAssignments(game).ToList();
         var now = DateTimeOffset.UtcNow;
@@ -81,6 +90,7 @@ public sealed class BotTurnService
             GameId = game.GameId,
             PlayerUserId = playerUserId,
             ControllerUserId = controllerUserId,
+            ControllerMode = controllerMode,
             BotDefinitionId = botDefinitionId,
             AssignedUtc = now,
             Status = BotAssignmentStatuses.Active
@@ -131,11 +141,6 @@ public sealed class BotTurnService
         string controllerUserId,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(controllerUserId))
-        {
-            return;
-        }
-
         foreach (var selection in playerSelections)
         {
             if (string.IsNullOrWhiteSpace(selection.UserId))
@@ -149,8 +154,15 @@ public sealed class BotTurnService
                 continue;
             }
 
-            _gamePresenceService.TryTakeDelegatedControl(game.GameId, selection.UserId, controllerUserId);
-            UpsertAssignment(game, selection.UserId, controllerUserId, selection.UserId);
+            var existingAssignment = GetActiveAssignment(game, selection.UserId);
+            if (existingAssignment is not null
+                && string.Equals(PlayerControlRules.ResolveBotControllerMode(existingAssignment), SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(existingAssignment.BotDefinitionId, selection.UserId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            UpsertAssignment(game, selection.UserId, string.Empty, selection.UserId, SeatControllerModes.AiBotSeat);
         }
     }
 
@@ -313,7 +325,7 @@ public sealed class BotTurnService
         {
             PlayerId = gameEngine.CurrentTurn.ActivePlayer.Name,
             PlayerIndex = playerIndex,
-            ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+            ActorUserId = ResolveBotActorUserId(),
             SelectedRegionCode = resolution.SelectedOptionId["region:".Length..],
             BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, resolution.Source, resolution.FallbackReason)
         };
@@ -372,7 +384,7 @@ public sealed class BotTurnService
         {
             PlayerId = player.Name,
             PlayerIndex = player.Index,
-            ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+            ActorUserId = ResolveBotActorUserId(),
             PointsTaken = pointsTaken,
             SelectedSegmentKeys = selectedSegmentKeys,
             BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "SuggestedRoute")
@@ -430,7 +442,7 @@ public sealed class BotTurnService
             {
                 PlayerId = player.Name,
                 PlayerIndex = player.Index,
-                ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+                ActorUserId = ResolveBotActorUserId(),
                 RailroadIndex = railroad.Index,
                 AmountPaid = railroad.PurchasePrice
             };
@@ -465,7 +477,7 @@ public sealed class BotTurnService
             {
                 PlayerId = player.Name,
                 PlayerIndex = player.Index,
-                ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+                ActorUserId = ResolveBotActorUserId(),
                 EngineType = engineType,
                 AmountPaid = amountPaid
             };
@@ -483,7 +495,7 @@ public sealed class BotTurnService
         {
             PlayerId = player.Name,
             PlayerIndex = player.Index,
-            ActorUserId = assignmentContext.Value.Assignment.ControllerUserId
+            ActorUserId = ResolveBotActorUserId()
         };
 
         var resolution = await ResolveDecisionAsync(
@@ -563,7 +575,7 @@ public sealed class BotTurnService
             {
                 PlayerId = bidder.Name,
                 PlayerIndex = bidderPlayerIndex,
-                ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+                ActorUserId = ResolveBotActorUserId(),
                 RailroadIndex = auctionState.RailroadIndex,
                 AmountBid = minimumBid
             };
@@ -581,7 +593,7 @@ public sealed class BotTurnService
         {
             PlayerId = bidder.Name,
             PlayerIndex = bidderPlayerIndex,
-            ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+            ActorUserId = ResolveBotActorUserId(),
             RailroadIndex = auctionState.RailroadIndex
         };
 
@@ -678,7 +690,7 @@ public sealed class BotTurnService
             {
                 PlayerId = player.Name,
                 PlayerIndex = player.Index,
-                ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+                ActorUserId = ResolveBotActorUserId(),
                 RailroadIndex = bestCandidate.Railroad.Index,
                 BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "DeterministicAuction")
             };
@@ -688,7 +700,7 @@ public sealed class BotTurnService
         {
             PlayerId = player.Name,
             PlayerIndex = player.Index,
-            ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+            ActorUserId = ResolveBotActorUserId(),
             RailroadIndex = bestCandidate.Railroad.Index,
             AmountReceived = bestCandidate.Railroad.PurchasePrice / 2,
             BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "DeterministicSell")
@@ -716,12 +728,6 @@ public sealed class BotTurnService
             return null;
         }
 
-        if (!string.Equals(_gamePresenceService.GetDelegatedControllerUserId(game.GameId, playerUserId), assignment.ControllerUserId, StringComparison.OrdinalIgnoreCase))
-        {
-            ClearAssignment(game, playerUserId, "Delegated control is no longer active.", BotAssignmentStatuses.DisconnectedController);
-            return null;
-        }
-
         var botDefinition = await _botDefinitionService.GetAsync(assignment.BotDefinitionId, cancellationToken);
         if (botDefinition is null)
         {
@@ -729,7 +735,44 @@ public sealed class BotTurnService
             return null;
         }
 
-        return (assignment, botDefinition);
+        var resolvedControllerMode = ResolveAssignmentControllerMode(assignment, botDefinition);
+        if (string.Equals(resolvedControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(_gamePresenceService.GetDelegatedControllerUserId(game.GameId, playerUserId), assignment.ControllerUserId, StringComparison.OrdinalIgnoreCase))
+        {
+            ClearAssignment(game, playerUserId, "Delegated control is no longer active.", BotAssignmentStatuses.DisconnectedController);
+            return null;
+        }
+
+        return (assignment with
+        {
+            ControllerMode = resolvedControllerMode,
+            ControllerUserId = string.Equals(resolvedControllerMode, SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
+                ? string.Empty
+                : assignment.ControllerUserId
+        }, botDefinition);
+    }
+
+    private string ResolveBotActorUserId()
+    {
+        return _botOptions.ServerActorUserId;
+    }
+
+    private static string ResolveAssignmentControllerMode(BotAssignment assignment, BotStrategyDefinitionEntity definition)
+    {
+        if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
+        {
+            return assignment.ControllerMode;
+        }
+
+        if (definition.IsBotUser
+            && string.Equals(assignment.PlayerUserId, assignment.BotDefinitionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return SeatControllerModes.AiBotSeat;
+        }
+
+        return string.IsNullOrWhiteSpace(assignment.ControllerUserId)
+            ? SeatControllerModes.AiBotSeat
+            : SeatControllerModes.AiGhost;
     }
 
     private static string? ResolveSlotUserId(IReadOnlyList<GamePlayerSelection> selections, int playerIndex)

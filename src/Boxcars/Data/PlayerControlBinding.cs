@@ -7,4 +7,9 @@ public sealed class PlayerControlBinding
     public string DisplayName { get; init; } = string.Empty;
     public string Color { get; init; } = string.Empty;
     public bool IsCurrentUser { get; init; }
+    public bool IsConnected { get; init; } = true;
+    public string DelegatedControllerUserId { get; init; } = string.Empty;
+    public string ControllerMode { get; init; } = SeatControllerModes.HumanDirect;
+    public string BotDefinitionId { get; init; } = string.Empty;
+    public bool HasBotAssignment { get; init; }
 }

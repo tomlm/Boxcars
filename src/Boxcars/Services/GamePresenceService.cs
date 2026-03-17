@@ -214,6 +214,16 @@ public sealed class GamePresenceService
         }
     }
 
+    public SeatControllerState ResolveSeatControllerState(string gameId, string? slotUserId, BotAssignment? activeBotAssignment)
+    {
+        return PlayerControlRules.ResolveSeatControllerState(
+            gameId,
+            slotUserId,
+            IsUserConnected(gameId, slotUserId),
+            GetDelegatedControllerUserId(gameId, slotUserId),
+            activeBotAssignment);
+    }
+
     public bool TryTakeDelegatedControl(string gameId, string slotUserId, string controllerUserId)
     {
         if (string.IsNullOrWhiteSpace(gameId)
@@ -380,7 +390,8 @@ public sealed class GamePresenceService
                     var assignment = assignments[index];
                     if (!string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
                         || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                        || assignment.ClearedUtc is not null)
+                        || assignment.ClearedUtc is not null
+                        || !string.Equals(PlayerControlRules.ResolveBotControllerMode(assignment), SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }

@@ -24,6 +24,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-26
 - Azure Table storage with serialized authoritative `GameState` snapshots and event timeline records (001-pick-region-destination)
 - C# / .NET 10 for the web app, .NET 8 xUnit test projects + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure.Data.Tables, ASP.NET Core Identity, `HttpClient` for OpenAI API access (001-ai-player)
 - Azure Table storage with a new `BotsTable` for global bot definitions plus persisted bot-assignment metadata inside game records in `GamesTable`; transient connection ownership remains in `GamePresenceService` (001-ai-player)
+- C# / .NET 10.0 + ASP.NET Core Blazor Server, SignalR, MudBlazor, Azure.Data.Tables, built-in `HttpClient`-based OpenAI client (001-ai-player)
+- Azure Table storage (`GamesTable`, `BotsTable`, existing event/game entities) (001-ai-player)
 
 ## Project Structure
 
@@ -42,9 +44,9 @@ tests/
 C# on .NET 10 (SDK installed: 10.0.102): Follow standard conventions
 
 ## Recent Changes
+- 001-ai-player: Added C# / .NET 10.0 + ASP.NET Core Blazor Server, SignalR, MudBlazor, Azure.Data.Tables, built-in `HttpClient`-based OpenAI client
 - 001-ai-player: Added C# / .NET 10 for the web app, .NET 8 xUnit test projects + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure.Data.Tables, ASP.NET Core Identity, `HttpClient` for OpenAI API access
 - 001-pick-region-destination: Added C# / .NET 10 + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure Data Tables, Boxcars.Engine domain services
-- 001-sell-railroads: Added C# / .NET 10.0 + ASP.NET Core Blazor Server, MudBlazor, ASP.NET Core SignalR, Azure.Data.Tables
 
 
 <!-- MANUAL ADDITIONS START -->

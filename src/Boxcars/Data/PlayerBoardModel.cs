@@ -80,6 +80,9 @@ public sealed class PlayerBoardModel
     /// <summary>True when the player's moves are currently being made by AI.</summary>
     public bool IsAiControlled { get; init; }
 
+    /// <summary>The resolved controller mode for the seat.</summary>
+    public string ControllerMode { get; init; } = SeatControllerModes.HumanDirect;
+
     /// <summary>True when this seat is a dedicated bot player rather than a human seat in ghost mode.</summary>
     public bool IsBotPlayer { get; init; }
 

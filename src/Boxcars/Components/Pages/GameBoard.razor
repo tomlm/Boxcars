@@ -8,11 +8,13 @@
 @using Boxcars.Engine.Data.Maps
 @using Boxcars.Engine.Domain
 @using Boxcars.GameEngine
+@using Boxcars.Hubs
 @using Boxcars.Services
 @using Boxcars.Services.Maps
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.JSInterop
 @using MudBlazor
 @using System.Globalization
@@ -160,6 +162,10 @@
                                                      Class="map-board-history-icon" />
                                             <MudStack Spacing="0" Class="map-board-history-copy">
                                                 <MudText Typo="Typo.body2">@item.Message</MudText>
+                                                @if (!string.IsNullOrWhiteSpace(item.Detail))
+                                                {
+                                                    <MudText Typo="Typo.caption">@item.Detail</MudText>
+                                                }
                                                 <MudText Typo="Typo.caption">@FormatNotificationHistoryTime(item.OccurredUtc)</MudText>
                                             </MudStack>
                                         </MudStack>
@@ -299,10 +305,10 @@
     private bool _autoZoomEnabled;
     private int _auctionBidAmount;
     private string? _selectedRegionChoiceCode;
-    private readonly string _pagePresenceRegistrationId = Guid.NewGuid().ToString("N");
     private readonly HashSet<string> _notificationHistoryKeys = new(StringComparer.Ordinal);
     private bool _pagePresenceRegistered;
     private bool _presenceNotificationsEnabled;
+    private HubConnection? _gameHubConnection;
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -354,7 +360,7 @@
 
         if (firstRender)
         {
-            RegisterPagePresence();
+            await RegisterPagePresenceAsync();
         }
 
         TryRestoreRouteSelection();
@@ -1021,6 +1027,7 @@
                     && _botDisplayNamesByDefinitionId.TryGetValue(latestBotAssignment.BotDefinitionId, out var botDisplayName)
                         ? botDisplayName
                         : null;
+                var controllerState = GamePresenceService.ResolveSeatControllerState(GameId, resolvedUserId, activeBotAssignment);
 
                 var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
                     && !string.IsNullOrWhiteSpace(resolvedUserId)
@@ -1065,6 +1072,7 @@
                     CanManageBotAssignment = isDelegatedToCurrentUser && !isConnected && !isBotUser,
                     HasBotAssignment = activeBotAssignment is not null,
                     IsAiControlled = isBotUser || activeBotAssignment is not null,
+                    ControllerMode = controllerState.ControllerMode,
                     IsBotPlayer = isBotUser,
                     AssignedBotDefinitionId = activeBotAssignment?.BotDefinitionId ?? string.Empty,
                     BotAssignmentStatusLabel = GameBoardStateMapper.GetBotAssignmentStatusLabel(latestBotAssignment, latestBotName),
@@ -1473,13 +1481,6 @@ StringComparison.OrdinalIgnoreCase));
         return !string.IsNullOrWhiteSpace(userId)
             && _playerProfilesByUserId.TryGetValue(userId, out var profile)
             && profile.IsBot;
-    }
-
-    private string ResolvePlayerStrategyText(string userId)
-    {
-        return _playerProfilesByUserId.TryGetValue(userId, out var profile)
-            ? PlayerProfileService.NormalizeStrategyText(profile.StrategyText)
-            : PlayerProfileService.DefaultStrategyText;
     }
 
     private void SyncRouteSelectionToActivePlayer()
@@ -2553,6 +2554,18 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             {
                 var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(player.Index);
                 var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId) ?? string.Empty;
+                var activeBotAssignment = player.HasBotAssignment
+                    ? new BotAssignment
+                    {
+                        GameId = GameId,
+                        PlayerUserId = slotUserId ?? string.Empty,
+                        ControllerMode = player.ControllerMode,
+                        ControllerUserId = player.DelegatedControllerUserId,
+                        BotDefinitionId = player.AssignedBotDefinitionId,
+                        Status = BotAssignmentStatuses.Active
+                    }
+                    : null;
+                var controllerState = GamePresenceService.ResolveSeatControllerState(GameId, slotUserId, activeBotAssignment);
                 return new PlayerBoardModel
                 {
                     Index = player.Index,
@@ -2578,6 +2591,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     CanManageBotAssignment = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId) && !IsPlayerConnected(slotUserId),
                     HasBotAssignment = player.HasBotAssignment,
                     IsAiControlled = player.IsAiControlled,
+                    ControllerMode = controllerState.ControllerMode,
                     IsBotPlayer = player.IsBotPlayer,
                     AssignedBotDefinitionId = player.AssignedBotDefinitionId,
                     BotAssignmentStatusLabel = player.BotAssignmentStatusLabel,
@@ -2597,30 +2611,91 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
     }
 
-    private void RegisterPagePresence()
+    private async Task RegisterPagePresenceAsync()
     {
         if (_pagePresenceRegistered || string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
         {
             return;
         }
 
-        _pagePresenceRegistered = true;
-        GamePresenceService.AddConnection(GameId, _currentUserId, _pagePresenceRegistrationId);
-        ReevaluatePlayerPresenceState();
-        _presenceNotificationsEnabled = true;
-        StateHasChanged();
+        _gameHubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/game"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _gameHubConnection.On(GameHubEvents.PresenceUpdated, async () =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshGameEntityAsync();
+                await RefreshBotDisplayNamesAsync();
+                ReevaluatePlayerPresenceState();
+                StateHasChanged();
+            });
+        });
+
+        _gameHubConnection.On<RailBaronGameState>(GameHubEvents.StateUpdated, async state =>
+        {
+            await InvokeAsync(async () =>
+            {
+                _gameState = state;
+                await RefreshGameEntityAsync();
+                await RefreshBotDisplayNamesAsync();
+                ApplyGameState(state, queueRestoredRouteSelection: false);
+                await RefreshTimelineAsync(notifyNewItems: true);
+                StateHasChanged();
+            });
+        });
+
+        _gameHubConnection.Reconnected += async _ =>
+        {
+            if (_gameHubConnection is not null)
+            {
+                await _gameHubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
+            }
+        };
+
+        try
+        {
+            await _gameHubConnection.StartAsync();
+            await _gameHubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
+            _pagePresenceRegistered = true;
+            _presenceNotificationsEnabled = true;
+            ReevaluatePlayerPresenceState();
+            StateHasChanged();
+        }
+        catch
+        {
+            _gameHubConnection = null;
+        }
     }
 
-    private void UnregisterPagePresence()
+    private async Task UnregisterPagePresenceAsync()
     {
-        if (!_pagePresenceRegistered || string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
+        if (!_pagePresenceRegistered)
         {
             return;
         }
 
         _presenceNotificationsEnabled = false;
         _pagePresenceRegistered = false;
-        GamePresenceService.RemoveConnection(GameId, _currentUserId, _pagePresenceRegistrationId);
+
+        if (_gameHubConnection is not null)
+        {
+            try
+            {
+                if (_gameHubConnection.State == HubConnectionState.Connected && !string.IsNullOrWhiteSpace(GameId))
+                {
+                    await _gameHubConnection.InvokeAsync(GameHubEvents.LeaveGame, GameId);
+                }
+            }
+            catch
+            {
+            }
+
+            await _gameHubConnection.DisposeAsync();
+            _gameHubConnection = null;
+        }
     }
 
     private void OnPresenceChanged(string gameId)
@@ -2764,6 +2839,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 historyKey: BuildTimelineNotificationKey(item),
                 icon: ResolveTimelineSnackbarIcon(item),
                 snackbarClass: ResolveTimelineSnackbarClass(item),
+                detail: BuildTimelineNotificationDetail(item),
                 occurredUtc: item.OccurredUtc,
                 visibleStateDuration: visibleStateDuration);
         }
@@ -2779,6 +2855,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 ResolveTimelineSeverity(item),
                 ResolveTimelineSnackbarIcon(item),
                 ResolveTimelineSnackbarClass(item),
+                BuildTimelineNotificationDetail(item),
                 item.OccurredUtc);
         }
     }
@@ -2799,6 +2876,30 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         return message;
+    }
+
+    private static string? BuildTimelineNotificationDetail(EventTimelineItem item)
+    {
+        if (!item.IsAiAction)
+        {
+            return null;
+        }
+
+        var detail = string.IsNullOrWhiteSpace(item.BotName)
+            ? "AI action"
+            : $"AI action by {item.BotName}";
+
+        if (!string.IsNullOrWhiteSpace(item.BotDecisionSource))
+        {
+            detail = $"{detail} via {item.BotDecisionSource}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.BotFallbackReason))
+        {
+            detail = $"{detail}. {item.BotFallbackReason}";
+        }
+
+        return detail;
     }
 
     private static string BuildTimelineNotificationKey(EventTimelineItem item)
@@ -2891,6 +2992,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         string? historyKey = null,
         string? icon = null,
         string? snackbarClass = null,
+        string? detail = null,
         DateTimeOffset? occurredUtc = null,
         int? visibleStateDuration = null)
     {
@@ -2900,6 +3002,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             severity,
             icon,
             snackbarClass,
+            detail,
             occurredUtc ?? DateTimeOffset.UtcNow);
 
         Snackbar.Add(message, severity, options =>
@@ -2927,6 +3030,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         Severity severity,
         string? icon,
         string? snackbarClass,
+        string? detail,
         DateTimeOffset occurredUtc)
     {
         if (!_notificationHistoryKeys.Add(historyKey))
@@ -2938,6 +3042,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         {
             HistoryKey = historyKey,
             Message = message,
+            Detail = detail,
             Severity = severity,
             Icon = string.IsNullOrWhiteSpace(icon) ? ResolveSeverityIcon(severity) : icon,
             AccentClass = snackbarClass,
@@ -3017,22 +3122,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             ShowNotification("Unable to update delegated control for that player.", Severity.Warning);
             return;
         }
-
-        var game = _game;
-        if (!isReleasingDelegatedControl && game is not null && IsBotUser(slotUserId))
-        {
-            BotTurnService.UpsertAssignment(game, slotUserId, _currentUserId, slotUserId);
-
-            var activated = await PersistBotAssignmentsAndRefreshAsync(
-                game,
-                "Unable to activate bot automation.",
-                notifyNewItems: true);
-
-            if (!activated)
-            {
-                return;
-            }
-        }
     }
 
     private async Task OnManageBotAssignmentAsync(int playerIndex)
@@ -3054,8 +3143,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         {
             { dialog => dialog.PlayerName, selectedPlayer.Name },
             { dialog => dialog.PlayerUserId, slotUserId },
+            { dialog => dialog.AssignedBotDefinitionId, selectedPlayer.AssignedBotDefinitionId },
             { dialog => dialog.CurrentStatusLabel, selectedPlayer.BotAssignmentStatusLabel },
-            { dialog => dialog.StrategyText, ResolvePlayerStrategyText(slotUserId) }
         };
 
         var dialog = await DialogService.ShowAsync<BotAssignmentDialog>(
@@ -3076,11 +3165,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         if (dialogResult.ClearRequested)
         {
-            BotTurnService.ClearAssignment(game, slotUserId, "Cleared by delegated controller.");
+            BotTurnService.ClearAssignment(game, slotUserId, "Ghost mode disabled by controller.");
         }
         else if (!string.IsNullOrWhiteSpace(dialogResult.BotDefinitionId))
         {
-            BotTurnService.UpsertAssignment(game, slotUserId, _currentUserId!, slotUserId);
+            BotTurnService.UpsertAssignment(game, slotUserId, _currentUserId!, dialogResult.BotDefinitionId, SeatControllerModes.AiGhost);
         }
         else
         {
@@ -3129,6 +3218,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             || playerIndex >= _gameState.Players.Count
             || !_gameState.Players[playerIndex].IsActive
             || PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)
+            || IsBotUser(slotUserId)
             || IsPlayerConnected(slotUserId)
             || !IsCurrentUserInGameRoster())
         {
@@ -3287,7 +3377,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     public async ValueTask DisposeAsync()
     {
         GamePresenceService.PresenceChanged -= OnPresenceChanged;
-        UnregisterPagePresence();
+        await UnregisterPagePresenceAsync();
 
         if (_gameStateSubscriptionInitialized)
         {
@@ -3303,6 +3393,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         public string HistoryKey { get; init; } = string.Empty;
         public string Message { get; init; } = string.Empty;
+        public string? Detail { get; init; }
         public Severity Severity { get; init; }
         public string Icon { get; init; } = Icons.Material.Filled.Notifications;
         public string? AccentClass { get; init; }

@@ -7,11 +7,31 @@ public sealed record BotAssignment
     public string GameId { get; init; } = string.Empty;
     public string PlayerUserId { get; init; } = string.Empty;
     public string ControllerUserId { get; init; } = string.Empty;
+    public string ControllerMode { get; init; } = string.Empty;
     public string BotDefinitionId { get; init; } = string.Empty;
     public DateTimeOffset AssignedUtc { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ClearedUtc { get; init; }
     public string Status { get; init; } = BotAssignmentStatuses.Active;
     public string? ClearReason { get; init; }
+}
+
+public sealed record SeatControllerState
+{
+    public string GameId { get; init; } = string.Empty;
+    public string PlayerUserId { get; init; } = string.Empty;
+    public string ControllerMode { get; init; } = SeatControllerModes.HumanDirect;
+    public string? DelegatedControllerUserId { get; init; }
+    public string? OwningHumanUserId { get; init; }
+    public bool IsConnected { get; init; }
+    public string? BotDefinitionId { get; init; }
+}
+
+public static class SeatControllerModes
+{
+    public const string HumanDirect = "HumanDirect";
+    public const string HumanDelegated = "HumanDelegated";
+    public const string AiBotSeat = "AiBotSeat";
+    public const string AiGhost = "AiGhost";
 }
 
 public static class BotAssignmentStatuses
@@ -79,8 +99,28 @@ public sealed record BotAssignmentDialogResult
     public bool ClearRequested { get; init; }
 }
 
+public static class SeatControllerStateSerialization
+{
+    public static string Serialize(IReadOnlyList<SeatControllerState> controllerStates)
+    {
+        return JsonSerializer.Serialize(controllerStates);
+    }
+
+    public static IReadOnlyList<SeatControllerState> Deserialize(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<SeatControllerState>>(payload) ?? [];
+    }
+}
+
 public static class BotAssignmentSerialization
 {
+    public const string EmptyPayload = "[]";
+
     public static string Serialize(IReadOnlyList<BotAssignment> assignments)
     {
         return JsonSerializer.Serialize(assignments);

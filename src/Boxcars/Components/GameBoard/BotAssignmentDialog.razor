@@ -1,6 +1,7 @@
 @using Boxcars.Data
 @using Boxcars.Services
 @using MudBlazor
+@inject BotDefinitionService BotDefinitionService
 
 <MudDialog>
     <DialogContent>
@@ -14,10 +15,37 @@
                 </MudAlert>
             }
 
-            <MudPaper Outlined="true" Class="pa-3">
-                <MudText Typo="Typo.subtitle2">Strategy</MudText>
-                <MudText Typo="Typo.body2">@StrategyText</MudText>
-            </MudPaper>
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" Color="MudBlazor.Color.Primary" />
+            }
+            else if (!string.IsNullOrWhiteSpace(_loadError))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_loadError</MudAlert>
+            }
+            else if (_availableBots.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    No bot definitions are available yet. Create one from the dashboard bot library first.
+                </MudAlert>
+            }
+            else
+            {
+                <MudSelect T="string"
+                           @bind-Value="_selectedBotDefinitionId"
+                           Label="Bot"
+                           Variant="Variant.Outlined">
+                    @foreach (var bot in _availableBots)
+                    {
+                        <MudSelectItem T="string" Value="@bot.BotDefinitionId">@bot.Name</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.subtitle2">Strategy</MudText>
+                    <MudText Typo="Typo.body2">@SelectedStrategyText</MudText>
+                </MudPaper>
+            }
         </MudStack>
     </DialogContent>
     <DialogActions>
@@ -30,7 +58,7 @@
         </MudButton>
         <MudButton Variant="Variant.Filled"
                    Color="MudBlazor.Color.Primary"
-                   Disabled="false"
+                   Disabled="@(!_canAssign)"
                    OnClick="AssignBot">
             Activate GHOST
         </MudButton>
@@ -48,12 +76,44 @@
     public string PlayerUserId { get; set; } = string.Empty;
 
     [Parameter]
-    public string CurrentStatusLabel { get; set; } = string.Empty;
+    public string AssignedBotDefinitionId { get; set; } = string.Empty;
 
     [Parameter]
-    public string StrategyText { get; set; } = PlayerProfileService.DefaultStrategyText;
+    public string CurrentStatusLabel { get; set; } = string.Empty;
 
     private bool CanClear => !string.IsNullOrWhiteSpace(CurrentStatusLabel);
+    private readonly List<BotStrategyDefinitionEntity> _availableBots = [];
+    private bool _loading;
+    private bool _canAssign;
+    private string _selectedBotDefinitionId = string.Empty;
+    private string? _loadError;
+
+    private string SelectedStrategyText => _availableBots
+        .FirstOrDefault(bot => string.Equals(bot.BotDefinitionId, _selectedBotDefinitionId, StringComparison.OrdinalIgnoreCase))
+        ?.StrategyText ?? PlayerProfileService.DefaultStrategyText;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+
+        try
+        {
+            _availableBots.Clear();
+            _availableBots.AddRange(await BotDefinitionService.ListAsync(CancellationToken.None));
+            _selectedBotDefinitionId = _availableBots.Any(bot => string.Equals(bot.BotDefinitionId, AssignedBotDefinitionId, StringComparison.OrdinalIgnoreCase))
+                ? AssignedBotDefinitionId
+                : _availableBots.FirstOrDefault()?.BotDefinitionId ?? string.Empty;
+            _canAssign = _availableBots.Count > 0 && !string.IsNullOrWhiteSpace(_selectedBotDefinitionId);
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
 
     private void Cancel()
     {
@@ -72,7 +132,7 @@
     {
         MudDialog.Close(DialogResult.Ok(new BotAssignmentDialogResult
         {
-            BotDefinitionId = PlayerUserId
+            BotDefinitionId = _selectedBotDefinitionId
         }));
     }
 }

@@ -93,7 +93,7 @@ Define the dashboard-facing contract for creating, listing, editing, and deletin
 ```json
 {
   "code": "BotDefinitionConflict",
-  "message": "This bot was updated by another user. Reload the latest definition before saving again."
+  "message": "The bot definition was modified by another user. Refresh and try again."
 }
 ```
 
@@ -112,6 +112,7 @@ Define the dashboard-facing contract for creating, listing, editing, and deletin
 
 - Delete removes the definition from future assignment choices.
 - Any active gameplay assignment referencing the deleted definition becomes invalid on the next resolution attempt.
+- The gameplay assignment dialog must surface deleted-definition state until the seat is assigned a valid bot again.
 
 ## Behavioral Guarantees
 

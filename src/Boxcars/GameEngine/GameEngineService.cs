@@ -454,8 +454,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var slotUserId = selections[authorizedPlayerIndex].UserId;
-        var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameEntity.GameId, slotUserId);
-        if (!PlayerControlRules.CanUserControlSlot(slotUserId, action.ActorUserId, delegatedControllerUserId, isPlayerActive: true))
+        var activeBotAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeBotAssignment);
+        var authorized = PlayerControlRules.CanUserControlSlot(controllerState, action.ActorUserId, isPlayerActive: true)
+            || PlayerControlRules.CanServerControlSlot(controllerState, action.ActorUserId, _botOptions.ServerActorUserId, isPlayerActive: true);
+        if (!authorized)
         {
             throw new InvalidOperationException(allowsNonActiveParticipant
                 ? "Only the controlling participant for the acting player may perform this auction action."
@@ -582,6 +585,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
+        var playerSelections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
+        await _botTurnService.EnsureBotSeatAssignmentsAsync(gameEntity, playerSelections, gameEntity.CreatorId, cancellationToken);
+
         var snapshot = gameEngine.ToSnapshot();
         var originalBotAssignmentsJson = gameEntity.BotAssignmentsJson;
 
@@ -643,7 +649,27 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
+        if (!IsAiControlledSeatTurn(gameEntity, gameEngine))
+        {
+            return null;
+        }
+
         return await _botTurnService.CreateBotActionAsync(gameEntity, gameEngine, _mapDefinition, cancellationToken);
+    }
+
+    private bool IsAiControlledSeatTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine)
+    {
+        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
+        var actingPlayerIndex = gameEngine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex ?? gameEngine.CurrentTurn.ActivePlayer.Index;
+        if (actingPlayerIndex < 0 || actingPlayerIndex >= selections.Count)
+        {
+            return false;
+        }
+
+        var slotUserId = selections[actingPlayerIndex].UserId;
+        var activeAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeAssignment);
+        return PlayerControlRules.IsAiControllerMode(controllerState.ControllerMode);
     }
 
     private async Task PersistBotAssignmentsIfChangedAsync(
@@ -661,7 +687,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             [nameof(GameEntity.BotAssignmentsJson)] = gameEntity.BotAssignmentsJson
         };
 
-        await _gamesTable.UpdateEntityAsync(updateEntity, gameEntity.ETag, TableUpdateMode.Merge, cancellationToken);
+        await _gamesTable.UpdateEntityAsync(updateEntity, ResolveIfMatchETag(gameEntity), TableUpdateMode.Merge, cancellationToken);
 
         var refreshedGameEntity = await GetGameEntityAsync(gameEntity.GameId, cancellationToken);
         if (refreshedGameEntity is null)
@@ -672,6 +698,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         gameEntity.ETag = refreshedGameEntity.ETag;
         gameEntity.Timestamp = refreshedGameEntity.Timestamp;
         gameEntity.BotAssignmentsJson = refreshedGameEntity.BotAssignmentsJson;
+    }
+
+    private static Azure.ETag ResolveIfMatchETag(GameEntity gameEntity)
+    {
+        return string.IsNullOrWhiteSpace(gameEntity.ETag.ToString())
+            ? Azure.ETag.All
+            : gameEntity.ETag;
     }
 
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)

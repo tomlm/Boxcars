@@ -38,6 +38,12 @@ public sealed record EventTimelineItem
     public string Description { get; init; } = string.Empty;
     public DateTimeOffset OccurredUtc { get; init; }
     public int? ActingPlayerIndex { get; init; }
+    public string ActingUserId { get; init; } = string.Empty;
+    public bool IsAiAction { get; init; }
+    public string BotDefinitionId { get; init; } = string.Empty;
+    public string BotName { get; init; } = string.Empty;
+    public string BotDecisionSource { get; init; } = string.Empty;
+    public string BotFallbackReason { get; init; } = string.Empty;
 }
 
 public static class GamePlayerSelectionSerialization
