@@ -10,6 +10,7 @@ using Boxcars.Engine.Domain;
 using Boxcars.Identity;
 using Boxcars.Services;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -20,6 +21,8 @@ namespace Boxcars.GameEngine;
 
 public sealed class GameEngineService : BackgroundService, IGameEngine
 {
+    private const int AutomaticTurnFlowStepLimit = 32;
+
     private readonly Channel<QueuedAction> _actions = Channel.CreateUnbounded<QueuedAction>(new UnboundedChannelOptions
     {
         SingleReader = true,
@@ -34,7 +37,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly PurchaseRulesOptions _purchaseRulesOptions;
+    private readonly BotOptions _botOptions;
     private readonly GamePresenceService _gamePresenceService;
+    private readonly BotTurnService _botTurnService;
     private readonly ILogger<GameEngineService> _logger;
     private long _eventSequence;
     private MapDefinition? _mapDefinition;
@@ -43,14 +48,36 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         IWebHostEnvironment webHostEnvironment,
         TableServiceClient tableServiceClient,
         GamePresenceService gamePresenceService,
+        BotTurnService botTurnService,
+        IOptions<BotOptions> botOptions,
         IOptions<PurchaseRulesOptions> purchaseRulesOptions,
         ILogger<GameEngineService> logger)
     {
         _webHostEnvironment = webHostEnvironment;
         _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
         _gamePresenceService = gamePresenceService;
+        _botTurnService = botTurnService;
+        _botOptions = botOptions.Value;
         _purchaseRulesOptions = purchaseRulesOptions.Value;
         _logger = logger;
+    }
+
+    public GameEngineService(
+        IWebHostEnvironment webHostEnvironment,
+        TableServiceClient tableServiceClient,
+        GamePresenceService gamePresenceService,
+        IOptions<BotOptions> botOptions,
+        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+        ILogger<GameEngineService> logger)
+        : this(
+            webHostEnvironment,
+            tableServiceClient,
+            gamePresenceService,
+            CreateFallbackBotTurnService(tableServiceClient, gamePresenceService, purchaseRulesOptions),
+            botOptions,
+            purchaseRulesOptions,
+            logger)
+    {
     }
 
     public event Action<string, RailBaronGameState>? OnStateChanged;
@@ -110,7 +137,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             request.Players
         }, cancellationToken);
 
-        snapshot = await AdvanceAutomaticTurnFlowAsync(gameId, createdGameEngine, cancellationToken);
+        snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, createdGameEngine, cancellationToken);
 
         OnStateChanged?.Invoke(gameId, snapshot);
         return gameId;
@@ -121,7 +148,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         ValidateGameId(gameId);
         await _mapReady.Task.WaitAsync(cancellationToken);
         var gameEngine = await GetOrCreateGameEngineAsync(gameId, cancellationToken);
-        return await AdvanceAutomaticTurnFlowAsync(gameId, gameEngine, cancellationToken);
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+        return await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, cancellationToken);
     }
 
     public ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default)
@@ -170,9 +199,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         {
             while (_actions.Reader.TryRead(out var queuedAction))
             {
+                RailBaronGameEngine? gameEngine = null;
+
                 try
                 {
-                    var gameEngine = await GetOrCreateGameEngineAsync(queuedAction.GameId, stoppingToken);
+                    gameEngine = await GetOrCreateGameEngineAsync(queuedAction.GameId, stoppingToken);
                     var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
                         ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
 
@@ -189,12 +220,35 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.Action,
                         stoppingToken);
 
-                    snapshot = await AdvanceAutomaticTurnFlowAsync(queuedAction.GameId, gameEngine, stoppingToken);
+                    snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, queuedAction.GameId, gameEngine, stoppingToken);
 
                     OnStateChanged?.Invoke(queuedAction.GameId, snapshot);
                 }
                 catch (Exception exception)
                 {
+                    if (gameEngine is not null && IsStaleQueuedAction(gameEngine, queuedAction.Action, exception))
+                    {
+                        if (_logger.IsEnabled(LogLevel.Information))
+                        {
+                            var actionKind = queuedAction.Action.Kind;
+                            var actionPlayerId = queuedAction.Action.PlayerId;
+                            var gameId = queuedAction.GameId;
+                            var activePlayerName = gameEngine.CurrentTurn.ActivePlayer.Name;
+
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+                            _logger.LogInformation(
+                                "Discarded stale queued action {ActionKind} for player {ActionPlayerId} in game {GameId}; active player is now {ActivePlayerName}.",
+                                actionKind,
+                                actionPlayerId,
+                                gameId,
+                                activePlayerName);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+                        }
+
+                        OnStateChanged?.Invoke(queuedAction.GameId, gameEngine.ToSnapshot());
+                        continue;
+                    }
+
 #pragma warning disable CA1848 // Use the LoggerMessage delegates
                     _logger.LogError(
                         exception,
@@ -519,22 +573,32 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     }
 
     private async Task<RailBaronGameState> AdvanceAutomaticTurnFlowAsync(
+        GameEntity gameEntity,
         string gameId,
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
         var snapshot = gameEngine.ToSnapshot();
+        var originalBotAssignmentsJson = gameEntity.BotAssignmentsJson;
 
-        for (var step = 0; step < 8; step++)
+        for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
-            var automaticAction = CreateAutomaticTurnAction(gameEngine);
+            var automaticAction = await CreateAutomaticTurnActionAsync(gameEntity, gameEngine, cancellationToken);
             if (automaticAction is null)
             {
+                await PersistBotAssignmentsIfChangedAsync(gameEntity, originalBotAssignmentsJson, cancellationToken);
                 return snapshot;
             }
 
             var snapshotBeforeAction = snapshot;
-            ProcessAutomaticTurnAction(gameEngine, automaticAction);
+            if (automaticAction.BotMetadata is null && string.IsNullOrWhiteSpace(automaticAction.ActorUserId))
+            {
+                ProcessAutomaticTurnAction(gameEngine, automaticAction);
+            }
+            else
+            {
+                ProcessTurn(gameEntity, gameEngine, automaticAction);
+            }
             snapshot = gameEngine.ToSnapshot();
 
             await PersistEventAsync(
@@ -545,9 +609,65 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 automaticAction.PlayerId,
                 automaticAction,
                 cancellationToken);
+
+            OnStateChanged?.Invoke(gameId, snapshot);
+
+            if (automaticAction.BotMetadata is not null && _botOptions.AutomaticActionDelayMilliseconds > 0)
+            {
+                await Task.Delay(_botOptions.AutomaticActionDelayMilliseconds, cancellationToken);
+            }
         }
 
-        throw new InvalidOperationException("Automatic turn flow did not stabilize within the expected number of steps.");
+        await PersistBotAssignmentsIfChangedAsync(gameEntity, originalBotAssignmentsJson, cancellationToken);
+
+        throw new InvalidOperationException($"Automatic turn flow did not stabilize within {AutomaticTurnFlowStepLimit} steps.");
+    }
+
+    private async Task<PlayerAction?> CreateAutomaticTurnActionAsync(
+        GameEntity gameEntity,
+        RailBaronGameEngine gameEngine,
+        CancellationToken cancellationToken)
+    {
+        var builtInAction = CreateAutomaticTurnAction(gameEngine);
+        if (builtInAction is not null)
+        {
+            return builtInAction;
+        }
+
+        if (_mapDefinition is null)
+        {
+            throw new InvalidOperationException("The game map definition has not been initialized yet.");
+        }
+
+        return await _botTurnService.CreateBotActionAsync(gameEntity, gameEngine, _mapDefinition, cancellationToken);
+    }
+
+    private async Task PersistBotAssignmentsIfChangedAsync(
+        GameEntity gameEntity,
+        string originalBotAssignmentsJson,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(originalBotAssignmentsJson, gameEntity.BotAssignmentsJson, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var updateEntity = new TableEntity(gameEntity.PartitionKey, gameEntity.RowKey)
+        {
+            [nameof(GameEntity.BotAssignmentsJson)] = gameEntity.BotAssignmentsJson
+        };
+
+        await _gamesTable.UpdateEntityAsync(updateEntity, gameEntity.ETag, TableUpdateMode.Merge, cancellationToken);
+
+        var refreshedGameEntity = await GetGameEntityAsync(gameEntity.GameId, cancellationToken);
+        if (refreshedGameEntity is null)
+        {
+            return;
+        }
+
+        gameEntity.ETag = refreshedGameEntity.ETag;
+        gameEntity.Timestamp = refreshedGameEntity.Timestamp;
+        gameEntity.BotAssignmentsJson = refreshedGameEntity.BotAssignmentsJson;
     }
 
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
@@ -592,7 +712,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     {
         var actorName = ResolveActorName(action, snapshotBeforeAction);
 
-        return action switch
+        var description = action switch
         {
             PickDestinationAction => DescribeDestinationPick(actorName, action, snapshotAfterAction),
             ChooseDestinationRegionAction chooseDestinationRegionAction => DescribeDestinationRegionChoice(actorName, chooseDestinationRegionAction, snapshotAfterAction),
@@ -630,6 +750,24 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             EndTurnAction => $"{actorName} ended their turn",
             _ => $"{actorName} performed {action.Kind}"
         };
+
+        return action.BotMetadata is null
+            ? description
+            : string.Concat(description, BuildBotActionSuffix(action.BotMetadata));
+    }
+
+    private static string BuildBotActionSuffix(BotRecordedActionMetadata metadata)
+    {
+        var suffixLabel = !string.IsNullOrWhiteSpace(metadata.BotName)
+            ? metadata.BotName
+            : metadata.DecisionSource;
+        var suffix = string.Concat(" (bot", string.IsNullOrWhiteSpace(suffixLabel) ? string.Empty : string.Concat(": ", suffixLabel));
+        if (!string.IsNullOrWhiteSpace(metadata.FallbackReason))
+        {
+            suffix = string.Concat(suffix, "; ", metadata.FallbackReason);
+        }
+
+        return string.Concat(suffix, ")");
     }
 
     private static string BuildActionFailureMessage(PlayerAction action, Exception exception)
@@ -642,6 +780,28 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return string.IsNullOrWhiteSpace(exception.Message)
             ? $"Unable to process {action.Kind}."
             : exception.Message;
+    }
+
+    private static bool IsStaleQueuedAction(RailBaronGameEngine gameEngine, PlayerAction action, Exception exception)
+    {
+        if (action.BotMetadata is not null || string.IsNullOrWhiteSpace(action.ActorUserId))
+        {
+            return false;
+        }
+
+        if (exception is not InvalidOperationException)
+        {
+            return false;
+        }
+
+        if (action is BidAction or AuctionPassAction or AuctionDropOutAction)
+        {
+            return false;
+        }
+
+        var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
+        return !string.Equals(activePlayer.Name, action.PlayerId, StringComparison.Ordinal)
+            || (action.PlayerIndex.HasValue && action.PlayerIndex.Value != activePlayer.Index);
     }
 
     private static string DescribeDestinationPick(string actorName, PlayerAction action, RailBaronGameState snapshot)
@@ -976,6 +1136,30 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             || action.RedDie != result.RedDie)
         {
             throw new InvalidOperationException("Submitted dice values do not match rolled dice result.");
+        }
+    }
+
+    private static BotTurnService CreateFallbackBotTurnService(
+        TableServiceClient tableServiceClient,
+        GamePresenceService gamePresenceService,
+        IOptions<PurchaseRulesOptions> purchaseRulesOptions)
+    {
+        var botOptions = Options.Create(new BotOptions());
+        return new BotTurnService(
+            new BotDefinitionService(tableServiceClient),
+            new BotDecisionPromptBuilder(),
+            new OpenAiBotClient(new NoOpHttpClientFactory(), botOptions),
+            gamePresenceService,
+            new NetworkCoverageService(),
+            botOptions,
+            purchaseRulesOptions);
+    }
+
+    private sealed class NoOpHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name)
+        {
+            return new HttpClient();
         }
     }
 

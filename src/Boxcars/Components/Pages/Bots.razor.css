@@ -1,0 +1,70 @@
+.bots-page-shell {
+    gap: 1.5rem;
+}
+
+.bots-page-header {
+    gap: 1rem;
+}
+
+.bots-page-helper {
+    max-width: 42rem;
+    opacity: 0.78;
+}
+
+.bots-page-panel-shell {
+    position: relative;
+    overflow: hidden;
+    background:
+        linear-gradient(135deg, rgb(15 23 42 / 0.04), rgb(14 116 144 / 0.06)),
+        linear-gradient(180deg, rgb(255 255 255 / 0.92), rgb(248 250 252 / 0.98));
+    border: 1px solid color-mix(in srgb, var(--mud-palette-primary) 14%, var(--mud-palette-lines-default));
+}
+
+.bots-page-panel-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 12rem;
+    height: 12rem;
+    background: radial-gradient(circle, rgb(14 165 233 / 0.16), transparent 70%);
+    pointer-events: none;
+}
+
+.bots-page-panel-shell ::deep .dashboard-bot-library {
+    position: relative;
+    z-index: 1;
+}
+
+.bots-page-panel-shell ::deep .dashboard-bot-editor {
+    border-color: color-mix(in srgb, var(--mud-palette-primary) 24%, var(--mud-palette-lines-default));
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.92), rgb(241 245 249 / 0.96));
+}
+
+.bots-page-panel-shell ::deep .dashboard-bot-library-refresh,
+.bots-page-panel-shell ::deep .dashboard-bot-actions .mud-button-root,
+.bots-page-panel-shell ::deep .dashboard-bot-actions .mud-icon-button {
+    backdrop-filter: blur(6px);
+}
+
+.bots-page-panel-shell ::deep .dashboard-bot-table .mud-table-container {
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--mud-palette-primary) 12%, var(--mud-palette-lines-default));
+    background: rgb(255 255 255 / 0.8);
+}
+
+.bots-page-panel-shell ::deep .dashboard-bot-table table thead th {
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    background: rgb(248 250 252 / 0.92);
+}
+
+.bots-page-panel-shell ::deep .dashboard-bot-table table tbody tr:hover td {
+    background: rgb(226 232 240 / 0.34);
+}
+
+@media (max-width: 768px) {
+    .bots-page-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

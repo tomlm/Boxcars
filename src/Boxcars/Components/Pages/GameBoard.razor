@@ -24,6 +24,8 @@
 @inject GameService GameService
 @inject GamePresenceService GamePresenceService
 @inject GameBoardStateMapper GameBoardStateMapper
+@inject BotDefinitionService BotDefinitionService
+@inject BotTurnService BotTurnService
 @inject NetworkCoverageService NetworkCoverageService
 @inject MapAnalysisService MapAnalysisService
 @inject PlayerProfileService ProfileService
@@ -39,7 +41,8 @@
     <div class="map-board-sidebar">
         <PlayerBoard Players="_players"
                  OnToggleConnection="OnTogglePlayerConnectionAsync"
-                 OnToggleDelegatedControl="OnToggleDelegatedControlAsync" />
+                 OnToggleDelegatedControl="OnToggleDelegatedControlAsync"
+                 OnManageBotAssignment="OnManageBotAssignmentAsync" />
     </div>
 
     <div class="map-board-main">
@@ -236,6 +239,7 @@
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
     private List<PlayerBoardModel> _players = new();
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
+    private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
     private List<PlayerMapState> _mapPlayerStates = new();
     private int _currentUserPlayerIndex = -1;
@@ -846,6 +850,8 @@
     private async Task LoadGameStateAsync()
     {
         _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+        await RefreshGameEntityAsync();
+        await RefreshBotDisplayNamesAsync();
         ApplyGameState(_gameState);
         SyncRouteSelectionToActivePlayer();
         await RefreshTimelineAsync();
@@ -864,6 +870,8 @@
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
+            await RefreshGameEntityAsync();
+            await RefreshBotDisplayNamesAsync();
             ApplyGameState(state);
 
             if (_autoZoomEnabled
@@ -872,6 +880,12 @@
                 && (wasAuthenticatedUserActivePlayer || IsAuthenticatedUserActivePlayer))
             {
                 await _gameMap.ResetZoom();
+            }
+
+            if (!wasAuthenticatedUserActivePlayer && IsAuthenticatedUserActivePlayer)
+            {
+                _lastAutoSuggestKey = null;
+                SyncRouteSelectionToActivePlayer();
             }
 
             await RefreshTimelineAsync(notifyNewItems: true);
@@ -910,6 +924,7 @@
         _currentUserPlayerIndex = _turnViewState.CurrentUserPlayerIndex;
 
         var playerSelections = GameBoardStateMapper.GetPlayerSelections(_game);
+        var botAssignmentsByUserId = GameBoardStateMapper.BuildLatestBotAssignments(_game);
         var suggestedRouteDistances = BuildSuggestedRouteDistances(state);
 
         var playerUserIdsByDisplayName = playerSelections
@@ -946,6 +961,15 @@
                 var isConnected = IsPlayerConnected(resolvedUserId);
                 var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, resolvedUserId) ?? string.Empty;
                 var isDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+                var latestBotAssignment = !string.IsNullOrWhiteSpace(resolvedUserId)
+                    && botAssignmentsByUserId.TryGetValue(resolvedUserId, out var assignment)
+                        ? assignment
+                        : null;
+                var latestBotName = latestBotAssignment is not null
+                    && !string.IsNullOrWhiteSpace(latestBotAssignment.BotDefinitionId)
+                    && _botDisplayNamesByDefinitionId.TryGetValue(latestBotAssignment.BotDefinitionId, out var botDisplayName)
+                        ? botDisplayName
+                        : null;
 
                 var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
                     && !string.IsNullOrWhiteSpace(resolvedUserId)
@@ -986,6 +1010,11 @@
                     CanReleaseDelegatedControl = CanCurrentUserReleaseDelegatedControl(delegatedControllerUserId),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, playerDisplayNamesByUserId),
+                    CanManageBotAssignment = isDelegatedToCurrentUser && !isConnected,
+                    HasBotAssignment = latestBotAssignment is not null,
+                    AssignedBotDefinitionId = latestBotAssignment?.BotDefinitionId ?? string.Empty,
+                    BotAssignmentStatusLabel = GameBoardStateMapper.GetBotAssignmentStatusLabel(latestBotAssignment, latestBotName),
+                    HasMissingBotDefinition = string.Equals(latestBotAssignment?.Status, BotAssignmentStatuses.MissingDefinition, StringComparison.OrdinalIgnoreCase),
                     LocomotiveLabel = player.LocomotiveType,
                     BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
                     FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index) : 0,
@@ -1710,7 +1739,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private string SpectatorStatusMessage => CurrentControlledPlayerState is { IsActive: false }
         ? "You have been eliminated and can only spectate for the rest of this game."
-        : ObserverTurnMessage;
+        : IsCurrentUserWatchingBotControlledTurn
+            ? CurrentBotControlledTurnStatusMessage
+            : ObserverTurnMessage;
 
     private RailroadOverlayInfo? CurrentForcedSaleImpact => CurrentForcedSalePhase?.NetworkTab.SelectedRailroadImpact;
 
@@ -1785,6 +1816,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId);
         var isDelegatedController = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
 
+        if (isDelegatedController && PlayerHasActiveBotAssignment(slotUserId))
+        {
+            return false;
+        }
+
         return isDirectlyBound || isDelegatedController;
     }
 
@@ -1802,6 +1838,55 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
         return PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)
             || PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+    }
+
+    private bool PlayerHasActiveBotAssignment(string? slotUserId)
+    {
+        if (_game is null || string.IsNullOrWhiteSpace(slotUserId))
+        {
+            return false;
+        }
+
+        var latestAssignments = GameBoardStateMapper.BuildLatestBotAssignments(_game);
+        return latestAssignments.TryGetValue(slotUserId, out var assignment)
+            && string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
+            && assignment.ClearedUtc is null;
+    }
+
+    private bool IsCurrentUserWatchingBotControlledTurn
+    {
+        get
+        {
+            if (_gameState is null
+                || _gameState.ActivePlayerIndex < 0
+                || _gameState.ActivePlayerIndex >= _gameState.Players.Count)
+            {
+                return false;
+            }
+
+            var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(_gameState.ActivePlayerIndex);
+            var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
+            return PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId)
+                && PlayerHasActiveBotAssignment(slotUserId);
+        }
+    }
+
+    private string CurrentBotControlledTurnStatusMessage
+    {
+        get
+        {
+            if (_gameState is null
+                || _gameState.ActivePlayerIndex < 0
+                || _gameState.ActivePlayerIndex >= _players.Count)
+            {
+                return "The assigned bot is taking this player's turn.";
+            }
+
+            var activePlayer = _players[_gameState.ActivePlayerIndex];
+            return !string.IsNullOrWhiteSpace(activePlayer.BotAssignmentStatusLabel)
+                ? $"{activePlayer.BotAssignmentStatusLabel} is taking this player's turn."
+                : "The assigned bot is taking this player's turn.";
+        }
     }
 
     private Boxcars.Engine.Persistence.PlayerState? CurrentControlledPlayerState
@@ -2349,6 +2434,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     CanReleaseDelegatedControl = CanCurrentUserReleaseDelegatedControl(delegatedControllerUserId),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, null),
+                    CanManageBotAssignment = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId) && !IsPlayerConnected(slotUserId),
+                    HasBotAssignment = player.HasBotAssignment,
+                    AssignedBotDefinitionId = player.AssignedBotDefinitionId,
+                    BotAssignmentStatusLabel = player.BotAssignmentStatusLabel,
+                    HasMissingBotDefinition = player.HasMissingBotDefinition,
                     LocomotiveLabel = player.LocomotiveLabel,
                     FeesOwed = player.FeesOwed,
                     BonusPendingLabel = player.BonusPendingLabel,
@@ -2397,11 +2487,53 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
-        _ = InvokeAsync(() =>
+        _ = InvokeAsync(async () =>
         {
-            ReevaluatePlayerPresenceState();
+            await RefreshGameEntityAsync();
+            await RefreshBotDisplayNamesAsync();
+
+            if (_gameState is not null && _game is not null)
+            {
+                ApplyGameState(_gameState);
+            }
+            else
+            {
+                ReevaluatePlayerPresenceState();
+            }
+
             StateHasChanged();
         });
+    }
+
+    private async Task RefreshGameEntityAsync()
+    {
+        _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+    }
+
+    private async Task RefreshBotDisplayNamesAsync()
+    {
+        if (_game is null)
+        {
+            _botDisplayNamesByDefinitionId.Clear();
+            return;
+        }
+
+        var assignedBotIds = GameBoardStateMapper.GetBotAssignments(_game)
+            .Select(assignment => assignment.BotDefinitionId)
+            .Where(botDefinitionId => !string.IsNullOrWhiteSpace(botDefinitionId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (assignedBotIds.Count == 0)
+        {
+            _botDisplayNamesByDefinitionId.Clear();
+            return;
+        }
+
+        var definitions = await BotDefinitionService.ListAsync(CancellationToken.None);
+        _botDisplayNamesByDefinitionId = definitions
+            .Where(definition => assignedBotIds.Contains(definition.BotDefinitionId, StringComparer.OrdinalIgnoreCase))
+            .ToDictionary(definition => definition.BotDefinitionId, definition => definition.Name, StringComparer.OrdinalIgnoreCase);
     }
 
     private void NotifyPresenceChanges(IReadOnlyDictionary<int, bool> previousConnectionStates)
@@ -2617,6 +2749,84 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         return Task.CompletedTask;
+    }
+
+    private async Task OnManageBotAssignmentAsync(int playerIndex)
+    {
+        var game = _game;
+        if (game is null || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        var selectedPlayer = _players.FirstOrDefault(player => player.Index == playerIndex);
+        var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
+        if (selectedPlayer is null || !selectedPlayer.CanManageBotAssignment || string.IsNullOrWhiteSpace(slotUserId))
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<BotAssignmentDialog>
+        {
+            { dialog => dialog.PlayerName, selectedPlayer.Name },
+            { dialog => dialog.CurrentBotDefinitionId, selectedPlayer.AssignedBotDefinitionId },
+            { dialog => dialog.CurrentStatusLabel, selectedPlayer.BotAssignmentStatusLabel },
+            { dialog => dialog.HasMissingDefinition, selectedPlayer.HasMissingBotDefinition }
+        };
+
+        var dialog = await DialogService.ShowAsync<BotAssignmentDialog>(
+            "Manage Bot Assignment",
+            parameters,
+            new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                FullWidth = true,
+                MaxWidth = MaxWidth.Small
+            });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not BotAssignmentDialogResult dialogResult)
+        {
+            return;
+        }
+
+        if (dialogResult.ClearRequested)
+        {
+            BotTurnService.ClearAssignment(game, slotUserId, "Cleared by delegated controller.");
+        }
+        else if (!string.IsNullOrWhiteSpace(dialogResult.BotDefinitionId))
+        {
+            BotTurnService.UpsertAssignment(game, slotUserId, _currentUserId!, dialogResult.BotDefinitionId);
+        }
+        else
+        {
+            return;
+        }
+
+        var updateResult = await GameService.UpdateBotAssignmentsAsync(game, game.BotAssignmentsJson, CancellationToken.None);
+        if (!updateResult.Succeeded || updateResult.Game is null)
+        {
+            Snackbar.Add(updateResult.ErrorMessage ?? "Unable to save bot assignment.", updateResult.IsConflict ? Severity.Warning : Severity.Error);
+            _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+            await RefreshBotDisplayNamesAsync();
+            if (_gameState is not null && _game is not null)
+            {
+                ApplyGameState(_gameState);
+            }
+
+            return;
+        }
+
+        _game = updateResult.Game;
+        await RefreshBotDisplayNamesAsync();
+        _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+        await RefreshGameEntityAsync();
+        await RefreshBotDisplayNamesAsync();
+        if (_gameState is not null)
+        {
+            ApplyGameState(_gameState);
+            await RefreshTimelineAsync(notifyNewItems: true);
+        }
     }
 
     private bool CanCurrentUserTakeDelegatedControl(int playerIndex, string? slotUserId, string? delegatedControllerUserId)

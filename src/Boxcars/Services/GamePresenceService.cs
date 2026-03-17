@@ -1,12 +1,27 @@
+using Azure;
+using Azure.Data.Tables;
+using Boxcars.Data;
+using Boxcars.Identity;
+
 namespace Boxcars.Services;
 
 public sealed class GamePresenceService
 {
     private readonly object _sync = new();
+    private readonly TableClient? _gamesTable;
     private readonly Dictionary<string, Dictionary<string, HashSet<string>>> _connectionsByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, bool>> _mockPresenceByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _delegatedControllersByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (string GameId, string UserId)> _connectionLookup = new(StringComparer.Ordinal);
+
+    public GamePresenceService(TableServiceClient tableServiceClient)
+    {
+        _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
+    }
+
+    public GamePresenceService()
+    {
+    }
 
     public event Action<string>? PresenceChanged;
 
@@ -48,6 +63,7 @@ public sealed class GamePresenceService
 
         if (changed)
         {
+            QueueBotAssignmentClear(gameId, userId, "Reconnect");
             NotifyPresenceChanged(gameId);
         }
 
@@ -166,15 +182,16 @@ public sealed class GamePresenceService
                 {
                     changed = ClearIncomingDelegatedControlCore(gameId, userId) || changed;
                 }
-                else
-                {
-                    changed = ClearOutgoingDelegatedControlCore(gameId, userId) || changed;
-                }
             }
         }
 
         if (changed)
         {
+            if (isConnected)
+            {
+                QueueBotAssignmentClear(gameId, userId, "Reconnect");
+            }
+
             NotifyPresenceChanged(gameId);
         }
 
@@ -267,6 +284,7 @@ public sealed class GamePresenceService
 
         if (changed)
         {
+            QueueBotAssignmentClear(gameId, slotUserId, "Delegated control released.");
             NotifyPresenceChanged(gameId);
         }
 
@@ -294,8 +312,6 @@ public sealed class GamePresenceService
         {
             _connectionsByGameAndUser.Remove(gameId);
         }
-
-        ClearOutgoingDelegatedControlCore(gameId, userId);
 
         return true;
     }
@@ -332,30 +348,74 @@ public sealed class GamePresenceService
         return true;
     }
 
-    private bool ClearOutgoingDelegatedControlCore(string gameId, string controllerUserId)
+    private void QueueBotAssignmentClear(string gameId, string playerUserId, string clearReason)
     {
-        if (!_delegatedControllersByGameAndUser.TryGetValue(gameId, out var controllers))
+        if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(playerUserId))
         {
-            return false;
+            return;
         }
 
-        var removedAny = false;
-        var delegatedSlots = controllers
-            .Where(entry => string.Equals(entry.Value, controllerUserId, StringComparison.OrdinalIgnoreCase))
-            .Select(entry => entry.Key)
-            .ToList();
+        _ = ClearBotAssignmentsForPlayerAsync(gameId, playerUserId, clearReason);
+    }
 
-        foreach (var delegatedSlotUserId in delegatedSlots)
+    private async Task ClearBotAssignmentsForPlayerAsync(string gameId, string playerUserId, string clearReason)
+    {
+        if (_gamesTable is null)
         {
-            removedAny = controllers.Remove(delegatedSlotUserId) || removedAny;
+            return;
         }
 
-        if (controllers.Count == 0)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            _delegatedControllersByGameAndUser.Remove(gameId);
-        }
+            try
+            {
+                var response = await _gamesTable.GetEntityAsync<GameEntity>(gameId, "GAME");
+                var gameEntity = response.Value;
+                var assignments = BotAssignmentSerialization.Deserialize(gameEntity.BotAssignmentsJson).ToList();
+                var changed = false;
+                var now = DateTimeOffset.UtcNow;
 
-        return removedAny;
+                for (var index = 0; index < assignments.Count; index++)
+                {
+                    var assignment = assignments[index];
+                    if (!string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                        || assignment.ClearedUtc is not null)
+                    {
+                        continue;
+                    }
+
+                    assignments[index] = assignment with
+                    {
+                        Status = BotAssignmentStatuses.Cleared,
+                        ClearReason = clearReason,
+                        ClearedUtc = now
+                    };
+                    changed = true;
+                }
+
+                if (!changed)
+                {
+                    return;
+                }
+
+                var updateEntity = new TableEntity(gameEntity.PartitionKey, gameEntity.RowKey)
+                {
+                    [nameof(GameEntity.BotAssignmentsJson)] = BotAssignmentSerialization.Serialize(assignments)
+                };
+
+                await _gamesTable.UpdateEntityAsync(updateEntity, gameEntity.ETag, TableUpdateMode.Merge);
+                return;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412 && attempt == 0)
+            {
+                continue;
+            }
+        }
     }
 
     private void NotifyPresenceChanged(string gameId)

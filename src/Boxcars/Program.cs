@@ -43,6 +43,20 @@ public class Program
             ?? throw new InvalidOperationException("AzureTableStorage:ConnectionString not found.");
         builder.Services.AddSingleton(new TableServiceClient(tableStorageConnectionString));
 
+        builder.Services.AddOptions<BotOptions>()
+            .Configure(options =>
+            {
+                builder.Configuration.GetSection(BotOptions.SectionName).Bind(options);
+
+                if (string.IsNullOrWhiteSpace(options.OpenAIKey))
+                {
+                    options.OpenAIKey = builder.Configuration[BotOptions.LegacyApiKeySettingName] ?? string.Empty;
+                }
+            })
+            .Validate(static options => options.DecisionTimeoutSeconds > 0, "Bots:DecisionTimeoutSeconds must be greater than zero.")
+            .Validate(static options => string.IsNullOrWhiteSpace(options.OpenAIModel) is false, "Bots:OpenAIModel is required.")
+            .ValidateOnStart();
+
         // UI component libraries
         builder.Services.AddHttpClient();
         builder.Services.AddMudServices(config =>
@@ -80,8 +94,12 @@ public class Program
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
         builder.Services.AddSingleton<GamePresenceService>();
+        builder.Services.AddSingleton<BotDefinitionService>();
+        builder.Services.AddSingleton<BotDecisionPromptBuilder>();
+        builder.Services.AddSingleton<OpenAiBotClient>();
+        builder.Services.AddSingleton<BotTurnService>();
         builder.Services.AddScoped<GameBoardStateMapper>();
-        builder.Services.AddScoped<NetworkCoverageService>();
+        builder.Services.AddSingleton<NetworkCoverageService>();
         builder.Services.AddScoped<MapAnalysisService>();
         builder.Services.AddScoped<PurchaseRecommendationService>();
         builder.Services.AddScoped<MapBackgroundResolver>();
@@ -95,6 +113,7 @@ public class Program
         var tableService = app.Services.GetRequiredService<TableServiceClient>();
         var tableNames = new[]
         {
+            TableNames.BotsTable,
             TableNames.UsersTable,
             TableNames.GamesTable
         };

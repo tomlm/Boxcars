@@ -50,3 +50,27 @@
     flex-direction: column;
     gap: 0.75rem;
 }
+
+.dashboard-feature-link-shell {
+    position: relative;
+    overflow: hidden;
+    background:
+        linear-gradient(135deg, rgb(15 23 42 / 0.04), rgb(14 116 144 / 0.06)),
+        linear-gradient(180deg, rgb(255 255 255 / 0.92), rgb(248 250 252 / 0.98));
+    border: 1px solid color-mix(in srgb, var(--mud-palette-primary) 14%, var(--mud-palette-lines-default));
+}
+
+.dashboard-feature-link-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 12rem;
+    height: 12rem;
+    background: radial-gradient(circle, rgb(14 165 233 / 0.16), transparent 70%);
+    pointer-events: none;
+}
+
+.dashboard-feature-link-shell > * {
+    position: relative;
+    z-index: 1;
+}

@@ -81,6 +81,13 @@
                                     <span class="player-card-controlled-by-value">@player.DelegatedControllerDisplayName</span>
                                 </MudText>
                             }
+                            @if (!string.IsNullOrWhiteSpace(player.BotAssignmentStatusLabel))
+                            {
+                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-bot">
+                                    <span class="player-card-label">Bot:</span>
+                                    <span class="@GetBotStatusValueClass(player)">@player.BotAssignmentStatusLabel</span>
+                                </MudText>
+                            }
                             @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
                             {
                                 <MudText Typo="Typo.caption" Class="player-card-line">
@@ -96,9 +103,20 @@
 
                         </MudStack>
 
-                        @if (player.CanToggleConnection || player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
+                        @if (player.CanToggleConnection || player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl || player.CanManageBotAssignment)
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
+                                @if (player.CanManageBotAssignment)
+                                {
+                                    <div class="player-card-bot-action">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                                                       Color="MudBlazor.Color.Primary"
+                                                       Size="Size.Small"
+                                                       OnClick="() => OnManageBotAssignment.InvokeAsync(player.Index)"
+                                                       aria-label="Manage bot assignment" />
+                                    </div>
+                                }
+
                                 @if (player.CanToggleConnection)
                                 {
                                     <MudButton Variant="Variant.Outlined"
@@ -136,6 +154,9 @@
 
     [Parameter]
     public EventCallback<int> OnToggleDelegatedControl { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnManageBotAssignment { get; set; }
 
     private static string GetInitial(string name)
     {
@@ -185,6 +206,13 @@
         return player.Cash >= Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(0)
             ? "player-card-cash-value player-card-cash-value-affordable"
             : "player-card-cash-value player-card-cash-value-too-expensive";
+    }
+
+    private static string GetBotStatusValueClass(PlayerBoardModel player)
+    {
+        return player.HasMissingBotDefinition
+            ? "player-card-status-value player-card-status-value-bot-missing"
+            : "player-card-status-value player-card-status-value-bot-active";
     }
 
     private static string FormatPercent(decimal value)

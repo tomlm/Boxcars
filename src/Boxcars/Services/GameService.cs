@@ -125,6 +125,30 @@ public class GameService
         }
     }
 
+    public async Task<GameUpdateResult> UpdateBotAssignmentsAsync(GameEntity game, string botAssignmentsJson, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+
+        try
+        {
+            var updateEntity = new TableEntity(game.PartitionKey, game.RowKey)
+            {
+                [nameof(GameEntity.BotAssignmentsJson)] = botAssignmentsJson
+            };
+
+            await _gamesTable.UpdateEntityAsync(updateEntity, game.ETag, TableUpdateMode.Merge, cancellationToken);
+
+            var updatedGame = await GetGameAsync(game.GameId, cancellationToken);
+            return updatedGame is null
+                ? GameUpdateResult.Failed("Game is no longer active.")
+                : GameUpdateResult.Success(updatedGame);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 412)
+        {
+            return GameUpdateResult.Conflict("The game changed before the bot assignment could be saved. Refresh and try again.");
+        }
+    }
+
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
     {
         var orderedEvents = new List<GameEventEntity>();
@@ -635,4 +659,29 @@ public class GameActionResult
     public bool Success { get; set; }
     public string? GameId { get; set; }
     public string? Reason { get; set; }
+}
+
+public sealed record GameUpdateResult
+{
+    public bool Succeeded { get; init; }
+    public bool IsConflict { get; init; }
+    public string? ErrorMessage { get; init; }
+    public GameEntity? Game { get; init; }
+
+    public static GameUpdateResult Success(GameEntity game) => new()
+    {
+        Succeeded = true,
+        Game = game
+    };
+
+    public static GameUpdateResult Conflict(string message) => new()
+    {
+        IsConflict = true,
+        ErrorMessage = message
+    };
+
+    public static GameUpdateResult Failed(string message) => new()
+    {
+        ErrorMessage = message
+    };
 }

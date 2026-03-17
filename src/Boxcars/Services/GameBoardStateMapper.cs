@@ -21,6 +21,42 @@ public sealed class GameBoardStateMapper(
             : GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
     }
 
+    public IReadOnlyList<BotAssignment> GetBotAssignments(GameEntity? game)
+    {
+        return string.IsNullOrWhiteSpace(game?.BotAssignmentsJson)
+            ? []
+            : BotAssignmentSerialization.Deserialize(game.BotAssignmentsJson);
+    }
+
+    public IReadOnlyDictionary<string, BotAssignment> BuildLatestBotAssignments(GameEntity? game)
+    {
+        return GetBotAssignments(game)
+            .GroupBy(assignment => assignment.PlayerUserId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(assignment => assignment.ClearedUtc ?? assignment.AssignedUtc)
+                    .ThenByDescending(assignment => assignment.AssignedUtc)
+                    .First(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    public static string GetBotAssignmentStatusLabel(BotAssignment? assignment, string? botName = null)
+    {
+        if (assignment is null)
+        {
+            return string.Empty;
+        }
+
+        return assignment.Status switch
+        {
+            BotAssignmentStatuses.Active => string.IsNullOrWhiteSpace(botName) ? "Bot assigned" : botName,
+            BotAssignmentStatuses.MissingDefinition => "Bot removed from library",
+            BotAssignmentStatuses.DisconnectedController => "Bot cleared",
+            _ => "Bot cleared"
+        };
+    }
+
     public IReadOnlyList<PlayerControlBinding> BuildPlayerControlBindings(GameEntity? game, string? currentUserId)
     {
         var selections = GetPlayerSelections(game);

@@ -74,6 +74,21 @@ public sealed class PlayerBoardModel
     /// <summary>Display name of the participant currently controlling this player via delegation.</summary>
     public string DelegatedControllerDisplayName { get; init; } = string.Empty;
 
+    /// <summary>True when the current user may assign or clear a bot for this delegated seat.</summary>
+    public bool CanManageBotAssignment { get; init; }
+
+    /// <summary>True when the player currently has a bot assignment record.</summary>
+    public bool HasBotAssignment { get; init; }
+
+    /// <summary>Assigned bot definition id when available.</summary>
+    public string AssignedBotDefinitionId { get; init; } = string.Empty;
+
+    /// <summary>Status label displayed for the current bot assignment state.</summary>
+    public string BotAssignmentStatusLabel { get; init; } = string.Empty;
+
+    /// <summary>True when the last bot assignment became invalid because the definition disappeared.</summary>
+    public bool HasMissingBotDefinition { get; init; }
+
     /// <summary>Locomotive type label (e.g. "Freight", "Express", "Superchief").</summary>
     public string LocomotiveLabel { get; init; } = "Freight";
 
