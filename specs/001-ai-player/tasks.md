@@ -43,8 +43,8 @@
 
 ### Tests for User Story 1
 
-- [ ] T011 [P] [US1] Add bot turn resolution regression tests in `tests/Boxcars.GameEngine.Tests/BotTurnResolutionTests.cs`
-- [ ] T012 [P] [US1] Add deterministic sell evaluation tests in `tests/Boxcars.Engine.Tests/BotSellImpactEvaluatorTests.cs`
+- [X] T011 [P] [US1] Add bot turn resolution regression tests in `tests/Boxcars.Engine.Tests/Unit/BotTurnResolutionTests.cs`
+- [X] T012 [P] [US1] Add deterministic sell evaluation tests in `tests/Boxcars.Engine.Tests/Unit/BotSellImpactEvaluatorTests.cs`
 
 ### Implementation for User Story 1
 

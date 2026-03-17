@@ -278,6 +278,7 @@ public class ForcedSaleActionTests
             new TestWebHostEnvironment(),
             new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
             new GamePresenceService(),
+            Options.Create(new BotOptions()),
             Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
     }

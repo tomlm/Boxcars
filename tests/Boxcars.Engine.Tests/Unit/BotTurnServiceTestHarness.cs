@@ -1,0 +1,201 @@
+using System.Net;
+using System.Reflection;
+using Azure;
+using Azure.Core;
+using Azure.Data.Tables;
+using Boxcars.Data;
+using Boxcars.Services;
+using Microsoft.Extensions.Options;
+
+namespace Boxcars.Engine.Tests.Unit;
+
+internal static class BotTurnServiceTestHarness
+{
+    public const string GameId = "game-1";
+    public const string ActivePlayerUserId = "alice@example.com";
+    public const string ControllerUserId = "controller@example.com";
+    public const string OtherPlayerUserId = "bob@example.com";
+
+    public static BotTurnService CreateService(GamePresenceService presenceService, params BotStrategyDefinitionEntity[] botDefinitions)
+    {
+        var botDefinitionService = new BotDefinitionService(CreateTableServiceClient());
+        var botsTableField = typeof(BotDefinitionService).GetField("_botsTable", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("BotDefinitionService._botsTable was not found.");
+
+        botsTableField.SetValue(botDefinitionService, new FakeBotTableClient(botDefinitions));
+
+        var botOptions = Options.Create(new BotOptions
+        {
+            OpenAIModel = "test-model",
+            DecisionTimeoutSeconds = 1
+        });
+
+        return new BotTurnService(
+            botDefinitionService,
+            new BotDecisionPromptBuilder(),
+            new OpenAiBotClient(new FakeHttpClientFactory(), botOptions),
+            presenceService,
+            new NetworkCoverageService(),
+            botOptions,
+            Options.Create(new PurchaseRulesOptions()));
+    }
+
+    public static GameEntity CreateAssignedGame(
+        IReadOnlyList<GamePlayerSelection> selections,
+        string playerUserId,
+        string controllerUserId,
+        string botDefinitionId)
+    {
+        return new GameEntity
+        {
+            PartitionKey = GameId,
+            RowKey = "GAME",
+            GameId = GameId,
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(selections),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                new BotAssignment
+                {
+                    GameId = GameId,
+                    PlayerUserId = playerUserId,
+                    ControllerUserId = controllerUserId,
+                    BotDefinitionId = botDefinitionId,
+                    Status = BotAssignmentStatuses.Active
+                }
+            ])
+        };
+    }
+
+    public static void ConfigureDelegatedControl(GamePresenceService presenceService, string playerUserId, string controllerUserId)
+    {
+        presenceService.SetMockConnectionState(GameId, controllerUserId, isConnected: true);
+        presenceService.SetMockConnectionState(GameId, playerUserId, isConnected: false);
+
+        if (!presenceService.TryTakeDelegatedControl(GameId, playerUserId, controllerUserId))
+        {
+            throw new InvalidOperationException("Expected delegated control to be granted for test setup.");
+        }
+    }
+
+    public static IReadOnlyList<GamePlayerSelection> CreateSelections(params string[] userIds)
+    {
+        return userIds
+            .Select((userId, index) => new GamePlayerSelection
+            {
+                UserId = userId,
+                DisplayName = index switch
+                {
+                    0 => "Alice",
+                    1 => "Bob",
+                    2 => "Charlie",
+                    _ => $"Player {index + 1}"
+                },
+                Color = $"#{index + 1}{index + 1}{index + 1}{index + 1}{index + 1}{index + 1}"
+            })
+            .ToList();
+    }
+
+    public static BotStrategyDefinitionEntity CreateBotDefinition(string botDefinitionId = "bot-1", string name = "El Cheapo")
+    {
+        return new BotStrategyDefinitionEntity
+        {
+            BotDefinitionId = botDefinitionId,
+            Name = name,
+            StrategyText = "Always choose a legal option.",
+            CreatedByUserId = ControllerUserId,
+            ModifiedByUserId = ControllerUserId,
+            CreatedUtc = new DateTimeOffset(2026, 3, 16, 0, 0, 0, TimeSpan.Zero),
+            ModifiedUtc = new DateTimeOffset(2026, 3, 16, 0, 0, 0, TimeSpan.Zero)
+        };
+    }
+
+    private static TableServiceClient CreateTableServiceClient()
+    {
+        return new TableServiceClient(
+            new Uri("https://example.com"),
+            new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32])));
+    }
+
+    private sealed class FakeBotTableClient : TableClient
+    {
+        private readonly Dictionary<(string PartitionKey, string RowKey), ITableEntity> _entities;
+
+        public FakeBotTableClient(IEnumerable<BotStrategyDefinitionEntity> botDefinitions)
+        {
+            _entities = botDefinitions.ToDictionary<BotStrategyDefinitionEntity, (string PartitionKey, string RowKey), ITableEntity>(
+                definition => (definition.PartitionKey, definition.RowKey),
+                definition => definition,
+                EqualityComparer<(string PartitionKey, string RowKey)>.Default);
+        }
+
+        public override Task<Response<T>> GetEntityAsync<T>(
+            string partitionKey,
+            string rowKey,
+            IEnumerable<string>? select = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_entities.TryGetValue((partitionKey, rowKey), out var entity))
+            {
+                throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
+            }
+
+            return Task.FromResult(Response.FromValue((T)entity, new FakeResponse((int)HttpStatusCode.OK)));
+        }
+    }
+
+    private sealed class FakeHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name)
+        {
+            return new HttpClient(new FakeHttpMessageHandler(), disposeHandler: true);
+        }
+    }
+
+    private sealed class FakeHttpMessageHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("{}")
+            });
+        }
+    }
+
+    private sealed class FakeResponse(int status) : Response
+    {
+        public override int Status { get; } = status;
+
+        public override string ReasonPhrase => string.Empty;
+
+        public override Stream? ContentStream { get; set; }
+
+        public override string ClientRequestId { get; set; } = string.Empty;
+
+        public override void Dispose()
+        {
+        }
+
+        protected override bool ContainsHeader(string name)
+        {
+            return false;
+        }
+
+        protected override IEnumerable<HttpHeader> EnumerateHeaders()
+        {
+            yield break;
+        }
+
+        protected override bool TryGetHeader(string name, out string value)
+        {
+            value = string.Empty;
+            return false;
+        }
+
+        protected override bool TryGetHeaderValues(string name, out IEnumerable<string> values)
+        {
+            values = [];
+            return false;
+        }
+    }
+}
