@@ -7,6 +7,7 @@ using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -105,7 +106,10 @@ public class Program
             .ValidateOnStart();
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
-        builder.Services.AddSingleton<GamePresenceService>();
+        builder.Services.AddScoped<GameCircuitPresenceTracker>();
+        builder.Services.AddScoped<CircuitHandler, GamePresenceCircuitHandler>();
+        builder.Services.AddSingleton<GamePresenceService>(serviceProvider =>
+            new GamePresenceService(serviceProvider.GetRequiredService<TableServiceClient>()));
         builder.Services.AddSingleton<BotDefinitionService>();
         builder.Services.AddSingleton<BotDecisionPromptBuilder>();
         builder.Services.AddSingleton<OpenAiBotClient>();

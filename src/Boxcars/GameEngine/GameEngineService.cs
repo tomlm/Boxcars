@@ -35,6 +35,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly IWebHostEnvironment _webHostEnvironment;
     private readonly TableClient _gamesTable;
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _busyGames = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly PurchaseRulesOptions _purchaseRulesOptions;
     private readonly BotOptions _botOptions;
@@ -157,11 +158,30 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, cancellationToken);
     }
 
+    public bool IsGameBusy(string gameId)
+    {
+        return !string.IsNullOrWhiteSpace(gameId) && _busyGames.ContainsKey(gameId);
+    }
+
     public ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default)
     {
         ValidateGameId(gameId);
         ArgumentNullException.ThrowIfNull(action);
-        return _actions.Writer.WriteAsync(new QueuedAction(gameId, action), cancellationToken);
+
+        if (!_busyGames.TryAdd(gameId, 0))
+        {
+            throw new InvalidOperationException("Another action is still being processed for this game. Wait for the board to finish updating and try again.");
+        }
+
+        try
+        {
+            return _actions.Writer.WriteAsync(new QueuedAction(gameId, action), cancellationToken);
+        }
+        catch
+        {
+            _busyGames.TryRemove(gameId, out _);
+            throw;
+        }
     }
 
     public async Task<bool> UndoLastOperationAsync(string gameId, CancellationToken cancellationToken = default)
@@ -273,6 +293,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     {
                         OnStateChanged?.Invoke(queuedAction.GameId, failedGameEngine.ToSnapshot());
                     }
+                }
+                finally
+                {
+                    _busyGames.TryRemove(queuedAction.GameId, out _);
                 }
             }
         }

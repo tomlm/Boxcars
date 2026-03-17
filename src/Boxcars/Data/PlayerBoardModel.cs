@@ -59,20 +59,26 @@ public sealed class PlayerBoardModel
     /// <summary>True when the player is currently connected to the game session.</summary>
     public bool IsConnected { get; init; } = true;
 
-    /// <summary>True when the current user can take delegated control of this player.</summary>
-    public bool CanTakeDelegatedControl { get; init; }
+    /// <summary>True when the disconnected-seat Bot/Manual toggle should be shown.</summary>
+    public bool ShowDisconnectedControlToggle { get; init; }
 
-    /// <summary>True when the current user can release delegated control of this player.</summary>
-    public bool CanReleaseDelegatedControl { get; init; }
+    /// <summary>True when the current user can switch the seat to bot control.</summary>
+    public bool CanSelectBotControl { get; init; }
+
+    /// <summary>True when the current user can switch the seat to manual control.</summary>
+    public bool CanSelectManualControl { get; init; }
+
+    /// <summary>True when bot control is currently selected for the disconnected seat.</summary>
+    public bool IsBotControlSelected { get; init; }
+
+    /// <summary>True when manual control is currently selected for the disconnected seat.</summary>
+    public bool IsManualControlSelected { get; init; }
 
     /// <summary>User id of the participant currently controlling this player via delegation.</summary>
     public string DelegatedControllerUserId { get; init; } = string.Empty;
 
     /// <summary>Display name of the participant currently controlling this player via delegation.</summary>
     public string DelegatedControllerDisplayName { get; init; } = string.Empty;
-
-    /// <summary>True when the current user may assign or clear a bot for this delegated seat.</summary>
-    public bool CanManageBotAssignment { get; init; }
 
     /// <summary>True when the player currently has a bot assignment record.</summary>
     public bool HasBotAssignment { get; init; }

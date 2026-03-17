@@ -1,5 +1,6 @@
 (() => {
     const states = new WeakMap();
+    const heartbeats = new Map();
 
     function getRelativePoint(element, clientX, clientY) {
         if (!element) {
@@ -307,9 +308,51 @@
         states.delete(element);
     }
 
+    function stopHeartbeat(key) {
+        const existing = heartbeats.get(key);
+        if (!existing) {
+            return;
+        }
+
+        clearInterval(existing.intervalHandle);
+        document.removeEventListener("visibilitychange", existing.onVisibilityChange);
+        heartbeats.delete(key);
+    }
+
+    function startHeartbeat(key, dotNetReference, intervalMilliseconds) {
+        if (!key || !dotNetReference) {
+            return;
+        }
+
+        stopHeartbeat(key);
+
+        const sendHeartbeat = () => {
+            dotNetReference.invokeMethodAsync("SendPresenceHeartbeat")
+                .catch(() => {
+                    stopHeartbeat(key);
+                });
+        };
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                sendHeartbeat();
+            }
+        };
+
+        const intervalHandle = window.setInterval(sendHeartbeat, Math.max(1000, intervalMilliseconds || 5000));
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        heartbeats.set(key, { intervalHandle, onVisibilityChange });
+        sendHeartbeat();
+    }
+
     window.mapBoard = {
         getRelativePoint,
         initializeCamera,
         disposeCamera
+    };
+
+    window.mapBoardPresence = {
+        startHeartbeat,
+        stopHeartbeat
     };
 })();

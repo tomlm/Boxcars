@@ -1,16 +1,50 @@
 using System.Reflection;
 using System.Text.Json;
 using Azure;
+using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Engine.Domain;
 using Boxcars.Engine.Tests.Fixtures;
 using Boxcars.GameEngine;
 using Boxcars.Services;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Boxcars.Engine.Tests.Unit;
 
 public class GameEngineServiceAiHistoryTests
 {
+    [Fact]
+    public async Task EnqueueActionAsync_GameAlreadyBusy_RejectsSecondPlayerAction()
+    {
+        var service = CreateGameEngineServiceForTests();
+
+        await service.EnqueueActionAsync(
+            "game-1",
+            new EndTurnAction
+            {
+                PlayerId = "Player 1",
+                PlayerIndex = 0,
+                ActorUserId = "player-1"
+            });
+
+        Assert.True(service.IsGameBusy("game-1"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await service.EnqueueActionAsync(
+                "game-1",
+                new EndTurnAction
+                {
+                    PlayerId = "Player 1",
+                    PlayerIndex = 0,
+                    ActorUserId = "player-1"
+                }));
+
+        Assert.Equal("Another action is still being processed for this game. Wait for the board to finish updating and try again.", exception.Message);
+    }
+
     [Fact]
     public void ResolveIfMatchETag_EmptyGameEntityEtag_UsesWildcard()
     {
@@ -135,5 +169,26 @@ public class GameEngineServiceAiHistoryTests
 
         return (ETag)(method.Invoke(null, [gameEntity])
             ?? throw new InvalidOperationException("ResolveIfMatchETag returned null."));
+    }
+
+    private static GameEngineService CreateGameEngineServiceForTests()
+    {
+        return new GameEngineService(
+            new TestWebHostEnvironment(),
+            new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
+            new GamePresenceService(),
+            Options.Create(new BotOptions()),
+            Options.Create(new PurchaseRulesOptions()),
+            NullLogger<GameEngineService>.Instance);
+    }
+
+    private sealed class TestWebHostEnvironment : IWebHostEnvironment
+    {
+        public string ApplicationName { get; set; } = "Boxcars.Tests";
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+        public string WebRootPath { get; set; } = string.Empty;
+        public string EnvironmentName { get; set; } = "Development";
+        public string ContentRootPath { get; set; } = string.Empty;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

@@ -6,6 +6,38 @@ namespace Boxcars.Engine.Tests.Unit;
 public class GamePresenceServiceTests
 {
     [Fact]
+    public void PruneStaleConnections_ExpiredHeartbeat_MarksUserDisconnected()
+    {
+        var clock = new AdjustableTimeProvider(DateTimeOffset.UtcNow);
+        var service = new GamePresenceService(clock, TimeSpan.FromSeconds(15), Timeout.InfiniteTimeSpan);
+
+        service.AddConnection("game-1", "target", "connection-1");
+
+        clock.Advance(TimeSpan.FromSeconds(16));
+        var changedGames = service.PruneStaleConnections();
+
+        Assert.Contains("game-1", changedGames);
+        Assert.False(service.IsUserConnected("game-1", "target"));
+    }
+
+    [Fact]
+    public void RefreshConnection_BeforeTimeout_KeepsUserConnected()
+    {
+        var clock = new AdjustableTimeProvider(DateTimeOffset.UtcNow);
+        var service = new GamePresenceService(clock, TimeSpan.FromSeconds(15), Timeout.InfiniteTimeSpan);
+
+        service.AddConnection("game-1", "target", "connection-1");
+        clock.Advance(TimeSpan.FromSeconds(10));
+
+        service.RefreshConnection("game-1", "target", "connection-1");
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        service.PruneStaleConnections();
+
+        Assert.True(service.IsUserConnected("game-1", "target"));
+    }
+
+    [Fact]
     public void RemoveConnection_ControllerDisconnect_PreservesDelegatedControl()
     {
         var service = new GamePresenceService();
@@ -67,6 +99,20 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
+    public void ResolveSeatControllerState_DisconnectedHumanWithoutManualController_DefaultsToAiGhost()
+    {
+        var service = new GamePresenceService();
+
+        service.SetMockConnectionState("game-1", "target", isConnected: false);
+
+        var controllerState = service.ResolveSeatControllerState("game-1", "target", activeBotAssignment: null);
+
+        Assert.Equal(SeatControllerModes.AiGhost, controllerState.ControllerMode);
+        Assert.Equal("target", controllerState.BotDefinitionId);
+        Assert.False(controllerState.IsConnected);
+    }
+
+    [Fact]
     public void ResolveSeatControllerState_GhostAssignment_ReturnsAiGhost()
     {
         var service = new GamePresenceService();
@@ -115,7 +161,7 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public void ReleaseDelegatedControl_GhostAssignmentFallsBackToHumanDirect()
+    public void ReleaseDelegatedControl_DisconnectedSeatFallsBackToAiGhost()
     {
         var service = new GamePresenceService();
 
@@ -137,7 +183,7 @@ public class GamePresenceServiceTests
                 Status = BotAssignmentStatuses.Active
             });
 
-        Assert.Equal(SeatControllerModes.HumanDirect, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.AiGhost, controllerState.ControllerMode);
         Assert.Null(controllerState.DelegatedControllerUserId);
     }
 
@@ -166,5 +212,20 @@ public class GamePresenceServiceTests
 
         Assert.Equal(SeatControllerModes.HumanDirect, controllerState.ControllerMode);
         Assert.True(controllerState.IsConnected);
+    }
+
+    private sealed class AdjustableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            return _utcNow;
+        }
+
+        public void Advance(TimeSpan amount)
+        {
+            _utcNow = _utcNow.Add(amount);
+        }
     }
 }

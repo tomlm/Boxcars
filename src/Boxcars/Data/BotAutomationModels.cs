@@ -99,6 +99,18 @@ public sealed record BotAssignmentDialogResult
     public bool ClearRequested { get; init; }
 }
 
+public sealed record DisconnectedSeatControlRequest
+{
+    public int PlayerIndex { get; init; }
+    public string ControlMode { get; init; } = DisconnectedSeatControlModes.Bot;
+}
+
+public static class DisconnectedSeatControlModes
+{
+    public const string Bot = "Bot";
+    public const string Manual = "Manual";
+}
+
 public static class SeatControllerStateSerialization
 {
     public static string Serialize(IReadOnlyList<SeatControllerState> controllerStates)

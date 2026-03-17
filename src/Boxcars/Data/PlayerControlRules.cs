@@ -13,8 +13,9 @@ public static class PlayerControlRules
         var controllerMode = resolvedBotControllerMode switch
         {
             SeatControllerModes.AiBotSeat => SeatControllerModes.AiBotSeat,
-            SeatControllerModes.AiGhost when !isConnected && !string.IsNullOrWhiteSpace(delegatedControllerUserId) => SeatControllerModes.AiGhost,
+            SeatControllerModes.AiGhost when !isConnected => SeatControllerModes.AiGhost,
             _ when !isConnected && !string.IsNullOrWhiteSpace(delegatedControllerUserId) => SeatControllerModes.HumanDelegated,
+            _ when !isConnected => SeatControllerModes.AiGhost,
             _ => SeatControllerModes.HumanDirect
         };
 
@@ -27,6 +28,9 @@ public static class PlayerControlRules
             OwningHumanUserId = slotUserId,
             IsConnected = isConnected,
             BotDefinitionId = activeBotAssignment?.BotDefinitionId
+                ?? (string.Equals(controllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+                    ? slotUserId
+                    : null)
         };
     }
 
