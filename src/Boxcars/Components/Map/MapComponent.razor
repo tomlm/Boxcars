@@ -413,6 +413,9 @@
     [Parameter]
     public EventCallback<TurnMovementPreview> RoutePreviewChanged { get; set; }
 
+    [Parameter]
+    public EventCallback MapReady { get; set; }
+
     public MapDefinition? MapDefinition => _mapDefinition;
     public IReadOnlyList<string> Errors => _errors;
     public IReadOnlyList<string> Warnings => _warnings;
@@ -652,6 +655,11 @@
         _loadedMapFileName = configuredMapFile;
 
         await NotifyViewportChanged();
+
+        if (MapReady.HasDelegate)
+        {
+            await MapReady.InvokeAsync();
+        }
     }
 
     private string? ResolveMapPath(string configuredMapFile)

@@ -52,8 +52,8 @@ public sealed class GameBoardStateMapper(
         {
             BotAssignmentStatuses.Active => string.IsNullOrWhiteSpace(botName) ? "Bot assigned" : botName,
             BotAssignmentStatuses.MissingDefinition => "Bot removed from library",
-            BotAssignmentStatuses.DisconnectedController => "Bot cleared",
-            _ => "Bot cleared"
+            BotAssignmentStatuses.DisconnectedController => string.Empty,
+            _ => string.Empty
         };
     }
 

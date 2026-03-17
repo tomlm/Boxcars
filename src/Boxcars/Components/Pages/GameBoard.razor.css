@@ -60,6 +60,44 @@
     display: none;
 }
 
+.map-board-history-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding: 0.85rem;
+    background: color-mix(in srgb, var(--mud-palette-surface) 90%, black 10%);
+}
+
+.map-board-history-header {
+    margin-bottom: 0.75rem;
+}
+
+.map-board-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+}
+
+.map-board-history-row {
+    border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent);
+    border-radius: 0.85rem;
+    padding: 0.7rem 0.85rem;
+    background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%);
+}
+
+.map-board-history-row-content {
+    width: 100%;
+}
+
+.map-board-history-copy {
+    min-width: 0;
+}
+
+.map-board-history-icon {
+    margin-top: 0.1rem;
+}
+
 .map-board-purchase-overlay {
     position: fixed;
     z-index: 30;

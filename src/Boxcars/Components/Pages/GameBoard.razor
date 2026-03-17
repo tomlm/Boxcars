@@ -85,6 +85,11 @@
                            OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Network)">
                     Network
                 </MudButton>
+                <MudButton Variant="@(IsHistoryPurchaseTabActive ? Variant.Filled : Variant.Text)"
+                           Color="@(IsHistoryPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.History)">
+                    History
+                </MudButton>
             </div>
         }
 
@@ -102,6 +107,7 @@
                               RailroadSelected="OnRailroadSelectedAsync"
                               AutoZoomEnabled="@_autoZoomEnabled"
                               AutoZoomEnabledChanged="OnAutoZoomEnabledChangedAsync"
+                              MapReady="OnGameMapReadyAsync"
                               RouteSuggestionChanged="OnRouteSuggestionChangedAsync"
                               RoutePreviewChanged="OnRoutePreviewChangedAsync" />
 
@@ -128,6 +134,40 @@
                                              FeeShortfall="@(CurrentForcedSalePhase?.FeeShortfall ?? 0)" />
                         }
                     </MudStack>
+                }
+                else if (IsHistoryPurchaseTabActive)
+                {
+                    <MudPaper Class="map-board-history-panel" Outlined="true">
+                        <MudStack Spacing="0" Class="map-board-history-header">
+                            <MudText Typo="Typo.h6">History</MudText>
+                            <MudText Typo="Typo.caption">@NotificationHistorySummary</MudText>
+                        </MudStack>
+
+                        @if (_notificationHistory.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true">No notifications yet.</MudAlert>
+                        }
+                        else
+                        {
+                            <div class="map-board-history-list" role="listbox" aria-label="Notification history">
+                                @foreach (var item in NotificationHistoryItems)
+                                {
+                                    <div class="@ResolveNotificationHistoryItemClass(item)" role="option" aria-selected="false">
+                                        <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1" Class="map-board-history-row-content">
+                                            <MudIcon Icon="@item.Icon"
+                                                     Color="@ResolveNotificationHistoryIconColor(item)"
+                                                     Size="Size.Medium"
+                                                     Class="map-board-history-icon" />
+                                            <MudStack Spacing="0" Class="map-board-history-copy">
+                                                <MudText Typo="Typo.body2">@item.Message</MudText>
+                                                <MudText Typo="Typo.caption">@FormatNotificationHistoryTime(item.OccurredUtc)</MudText>
+                                            </MudStack>
+                                        </MudStack>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </MudPaper>
                 }
                 else if (ShouldShowPurchaseAnalysisPanel)
                 {
@@ -241,6 +281,7 @@
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
     private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
+    private List<NotificationHistoryEntry> _notificationHistory = new();
     private List<PlayerMapState> _mapPlayerStates = new();
     private int _currentUserPlayerIndex = -1;
     private bool _timelineInitialized;
@@ -259,6 +300,7 @@
     private int _auctionBidAmount;
     private string? _selectedRegionChoiceCode;
     private readonly string _pagePresenceRegistrationId = Guid.NewGuid().ToString("N");
+    private readonly HashSet<string> _notificationHistoryKeys = new(StringComparer.Ordinal);
     private bool _pagePresenceRegistered;
     private bool _presenceNotificationsEnabled;
 
@@ -324,14 +366,14 @@
     {
         if (string.IsNullOrWhiteSpace(_currentUserId) || string.IsNullOrWhiteSpace(GameId))
         {
-            Snackbar.Add("Unable to end game: missing user or game context.", Severity.Error);
+            ShowNotification("Unable to end game: missing user or game context.", Severity.Error);
             return;
         }
 
         var result = await GameService.EndGameAsync(_currentUserId, GameId, CancellationToken.None);
         if (!result.Success)
         {
-            Snackbar.Add(result.Reason ?? "Unable to end game.", Severity.Error);
+            ShowNotification(result.Reason ?? "Unable to end game.", Severity.Error);
             return;
         }
 
@@ -847,6 +889,13 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    private async Task OnGameMapReadyAsync()
+    {
+        TryRestoreRouteSelection();
+        await AutoSuggestRouteIfNeededAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
     private async Task LoadGameStateAsync()
     {
         _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
@@ -905,7 +954,7 @@
         _ = InvokeAsync(() =>
         {
             _awaitingAuthoritativeUpdate = false;
-            Snackbar.Add(failure.Message, Severity.Error);
+            ShowNotification(failure.Message, Severity.Error);
             StateHasChanged();
             return Task.CompletedTask;
         });
@@ -965,6 +1014,11 @@
                     && botAssignmentsByUserId.TryGetValue(resolvedUserId, out var assignment)
                         ? assignment
                         : null;
+                var activeBotAssignment = latestBotAssignment is not null
+                    && string.Equals(latestBotAssignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                    && latestBotAssignment.ClearedUtc is null
+                        ? latestBotAssignment
+                        : null;
                 var latestBotName = latestBotAssignment is not null
                     && !string.IsNullOrWhiteSpace(latestBotAssignment.BotDefinitionId)
                     && _botDisplayNamesByDefinitionId.TryGetValue(latestBotAssignment.BotDefinitionId, out var botDisplayName)
@@ -1011,8 +1065,8 @@
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, playerDisplayNamesByUserId),
                     CanManageBotAssignment = isDelegatedToCurrentUser && !isConnected,
-                    HasBotAssignment = latestBotAssignment is not null,
-                    AssignedBotDefinitionId = latestBotAssignment?.BotDefinitionId ?? string.Empty,
+                    HasBotAssignment = activeBotAssignment is not null,
+                    AssignedBotDefinitionId = activeBotAssignment?.BotDefinitionId ?? string.Empty,
                     BotAssignmentStatusLabel = GameBoardStateMapper.GetBotAssignmentStatusLabel(latestBotAssignment, latestBotName),
                     HasMissingBotDefinition = string.Equals(latestBotAssignment?.Status, BotAssignmentStatuses.MissingDefinition, StringComparison.OrdinalIgnoreCase),
                     LocomotiveLabel = player.LocomotiveType,
@@ -1518,6 +1572,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             if (CanCurrentUserControlPlayer(_gameState.ActivePlayerIndex))
             {
+            MergeTimelineNotifications();
                 return _gameState.ActivePlayerIndex;
             }
 
@@ -1584,6 +1639,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool IsRailroadsPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Railroads;
 
     private bool IsNetworkPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Network;
+
+    private bool IsHistoryPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.History;
 
     private string MapAreaClass => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
         ? "map-board-map-area map-board-panel-hidden"
@@ -2547,14 +2604,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             }
 
             var message = $"{player.Name} {(player.IsConnected ? "connected" : "disconnected")}.";
-            Snackbar.Add(
+            ShowNotification(
                 message,
                 player.IsConnected ? Severity.Success : Severity.Warning,
-                options =>
-                {
-                    var playerColor = PlayerColorOptions.NormalizeOrDefault(player.Color);
-                    options.SnackbarTypeClass = $"player-snackbar player-snackbar-{playerColor}";
-                });
+                snackbarClass: BuildPlayerSnackbarClass(player.Color));
         }
     }
 
@@ -2597,49 +2650,67 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 continue;
             }
 
-            Snackbar.Add(message, severity, options =>
-            {
-                var playerColor = PlayerColorOptions.NormalizeOrDefault(player.Color);
-                options.SnackbarTypeClass = $"player-snackbar player-snackbar-{playerColor}";
-            });
+            ShowNotification(message, severity, snackbarClass: BuildPlayerSnackbarClass(player.Color));
         }
     }
 
     private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
     {
-        var notifyCandidates = _gameEngineEvents
+        var notificationItems = _gameEngineEvents
             .Where(item => !existingEventIds.Contains(item.EventId))
+            .Where(ShouldNotifyTimelineItem)
             .ToList();
 
-        foreach (var item in notifyCandidates.Where(ShouldNotifyTimelineItem))
+        var visibleStateDuration = ResolveTimelineNotificationDuration(notificationItems.Count);
+
+        foreach (var item in notificationItems)
         {
-            var message = item.Description;
-            if (item.EventKind == EventTimelineKind.NewDestination
-                && item.ActingPlayerIndex.HasValue
-                && item.ActingPlayerIndex.Value >= 0
-                && item.ActingPlayerIndex.Value < _players.Count)
-            {
-                var payoff = _players[item.ActingPlayerIndex.Value].Payoff;
-                if (payoff > 0)
-                {
-                    message = $"{message}, Payoff ${payoff:N0}";
-                }
-            }
-
-            Snackbar.Add(
-                message,
+            ShowNotification(
+                BuildTimelineNotificationMessage(item),
                 ResolveTimelineSeverity(item),
-                options =>
-                {
-                    options.Icon = ResolveTimelineSnackbarIcon(item);
-
-                    var snackbarClass = ResolveTimelineSnackbarClass(item);
-                    if (!string.IsNullOrWhiteSpace(snackbarClass))
-                    {
-                        options.SnackbarTypeClass = snackbarClass;
-                    }
-                });
+                historyKey: BuildTimelineNotificationKey(item),
+                icon: ResolveTimelineSnackbarIcon(item),
+                snackbarClass: ResolveTimelineSnackbarClass(item),
+                occurredUtc: item.OccurredUtc,
+                visibleStateDuration: visibleStateDuration);
         }
+    }
+
+    private void MergeTimelineNotifications()
+    {
+        foreach (var item in _gameEngineEvents)
+        {
+            AddNotificationHistory(
+                BuildTimelineNotificationKey(item),
+                BuildTimelineNotificationMessage(item),
+                ResolveTimelineSeverity(item),
+                ResolveTimelineSnackbarIcon(item),
+                ResolveTimelineSnackbarClass(item),
+                item.OccurredUtc);
+        }
+    }
+
+    private string BuildTimelineNotificationMessage(EventTimelineItem item)
+    {
+        var message = item.Description;
+        if (item.EventKind == EventTimelineKind.NewDestination
+            && item.ActingPlayerIndex.HasValue
+            && item.ActingPlayerIndex.Value >= 0
+            && item.ActingPlayerIndex.Value < _players.Count)
+        {
+            var payoff = _players[item.ActingPlayerIndex.Value].Payoff;
+            if (payoff > 0)
+            {
+                message = $"{message}, Payoff ${payoff:N0}";
+            }
+        }
+
+        return message;
+    }
+
+    private static string BuildTimelineNotificationKey(EventTimelineItem item)
+    {
+        return $"timeline:{item.EventId}";
     }
 
     private static bool ShouldNotifyTimelineItem(EventTimelineItem item)
@@ -2676,6 +2747,17 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         };
     }
 
+    private static int ResolveTimelineNotificationDuration(int notificationCount)
+    {
+        return notificationCount switch
+        {
+            >= 8 => 900,
+            >= 5 => 1300,
+            >= 3 => 1800,
+            _ => 3200
+        };
+    }
+
     private string? ResolveTimelineSnackbarClass(EventTimelineItem item)
     {
         if (!item.ActingPlayerIndex.HasValue
@@ -2686,6 +2768,12 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         var playerColor = PlayerColorOptions.NormalizeOrDefault(_players[item.ActingPlayerIndex.Value].Color);
+        return $"player-snackbar player-snackbar-{playerColor}";
+    }
+
+    private static string BuildPlayerSnackbarClass(string color)
+    {
+        var playerColor = PlayerColorOptions.NormalizeOrDefault(color);
         return $"player-snackbar player-snackbar-{playerColor}";
     }
 
@@ -2700,6 +2788,114 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             EventTimelineKind.Purchase => Icons.Material.Filled.ShoppingCart,
             EventTimelineKind.DeclinedPurchase => Icons.Material.Filled.RemoveShoppingCart,
             EventTimelineKind.PurchaseOpportunity => Icons.Material.Filled.LocalOffer,
+            _ => Icons.Material.Filled.Notifications
+        };
+    }
+
+    private void ShowNotification(
+        string message,
+        Severity severity,
+        string? historyKey = null,
+        string? icon = null,
+        string? snackbarClass = null,
+        DateTimeOffset? occurredUtc = null,
+        int? visibleStateDuration = null)
+    {
+        AddNotificationHistory(
+            historyKey ?? $"notification:{Guid.NewGuid():N}",
+            message,
+            severity,
+            icon,
+            snackbarClass,
+            occurredUtc ?? DateTimeOffset.UtcNow);
+
+        Snackbar.Add(message, severity, options =>
+        {
+            if (!string.IsNullOrWhiteSpace(icon))
+            {
+                options.Icon = icon;
+            }
+
+            if (!string.IsNullOrWhiteSpace(snackbarClass))
+            {
+                options.SnackbarTypeClass = snackbarClass;
+            }
+
+            if (visibleStateDuration.HasValue)
+            {
+                options.VisibleStateDuration = visibleStateDuration.Value;
+            }
+        });
+    }
+
+    private void AddNotificationHistory(
+        string historyKey,
+        string message,
+        Severity severity,
+        string? icon,
+        string? snackbarClass,
+        DateTimeOffset occurredUtc)
+    {
+        if (!_notificationHistoryKeys.Add(historyKey))
+        {
+            return;
+        }
+
+        _notificationHistory.Add(new NotificationHistoryEntry
+        {
+            HistoryKey = historyKey,
+            Message = message,
+            Severity = severity,
+            Icon = string.IsNullOrWhiteSpace(icon) ? ResolveSeverityIcon(severity) : icon,
+            AccentClass = snackbarClass,
+            OccurredUtc = occurredUtc
+        });
+
+        _notificationHistory = _notificationHistory
+            .OrderByDescending(item => item.OccurredUtc)
+            .ThenByDescending(item => item.HistoryKey, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private IEnumerable<NotificationHistoryEntry> NotificationHistoryItems => _notificationHistory;
+
+    private string NotificationHistorySummary => _notificationHistory.Count switch
+    {
+        0 => "Waiting for notifications.",
+        1 => "1 notification recorded.",
+        _ => string.Format(CultureInfo.InvariantCulture, "{0:N0} notifications recorded.", _notificationHistory.Count)
+    };
+
+    private string ResolveNotificationHistoryItemClass(NotificationHistoryEntry item)
+    {
+        return string.IsNullOrWhiteSpace(item.AccentClass)
+            ? "map-board-history-row"
+            : $"map-board-history-row {item.AccentClass}";
+    }
+
+    private static MudBlazor.Color ResolveNotificationHistoryIconColor(NotificationHistoryEntry item)
+    {
+        return item.Severity switch
+        {
+            Severity.Success => MudBlazor.Color.Success,
+            Severity.Warning => MudBlazor.Color.Warning,
+            Severity.Error => MudBlazor.Color.Error,
+            _ => MudBlazor.Color.Info
+        };
+    }
+
+    private static string FormatNotificationHistoryTime(DateTimeOffset occurredUtc)
+    {
+        return occurredUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+    }
+
+    private static string ResolveSeverityIcon(Severity severity)
+    {
+        return severity switch
+        {
+            Severity.Success => Icons.Material.Filled.CheckCircle,
+            Severity.Warning => Icons.Material.Filled.Warning,
+            Severity.Error => Icons.Material.Filled.Error,
             _ => Icons.Material.Filled.Notifications
         };
     }
@@ -2744,7 +2940,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         if (!changed)
         {
-            Snackbar.Add("Unable to update delegated control for that player.", Severity.Warning);
+            ShowNotification("Unable to update delegated control for that player.", Severity.Warning);
             return Task.CompletedTask;
         }
 
@@ -2806,7 +3002,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var updateResult = await GameService.UpdateBotAssignmentsAsync(game, game.BotAssignmentsJson, CancellationToken.None);
         if (!updateResult.Succeeded || updateResult.Game is null)
         {
-            Snackbar.Add(updateResult.ErrorMessage ?? "Unable to save bot assignment.", updateResult.IsConflict ? Severity.Warning : Severity.Error);
+            ShowNotification(updateResult.ErrorMessage ?? "Unable to save bot assignment.", updateResult.IsConflict ? Severity.Warning : Severity.Error);
             _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
             await RefreshBotDisplayNamesAsync();
             if (_gameState is not null && _game is not null)
@@ -2955,7 +3151,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         if (!string.IsNullOrWhiteSpace(CurrentPurchasePhase.NoPurchaseNotification))
         {
-            Snackbar.Add(CurrentPurchasePhase.NoPurchaseNotification, Severity.Warning);
+            ShowNotification(CurrentPurchasePhase.NoPurchaseNotification, Severity.Warning);
         }
 
         await DeclinePurchaseAsync();
@@ -3006,5 +3202,15 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         await Task.CompletedTask;
+    }
+
+    private sealed record NotificationHistoryEntry
+    {
+        public string HistoryKey { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
+        public Severity Severity { get; init; }
+        public string Icon { get; init; } = Icons.Material.Filled.Notifications;
+        public string? AccentClass { get; init; }
+        public DateTimeOffset OccurredUtc { get; init; }
     }
 }
