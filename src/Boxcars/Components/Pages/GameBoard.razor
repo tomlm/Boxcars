@@ -1141,7 +1141,9 @@
 
     private void TrackPurchasePhaseTransition()
     {
-        var isPurchaseNow = CurrentPurchasePhase is { HasActivePurchaseControls: true };
+        var isPurchaseNow = CurrentPurchasePhase is { HasActivePurchaseControls: true }
+            && IsCurrentUserActivePlayer
+            && string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
 
         if (isPurchaseNow && !_wasPurchasePhaseActive)
         {
@@ -1745,8 +1747,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         && CurrentMapAnalysisReport is not null;
 
     private bool CanInspectRailroadsWhileWaiting => !IsCurrentUserActivePlayer
-        && CurrentPurchasePhase is null
-        && CurrentForcedSalePhase is null
         && _gameState is not null
         && _playerBoardMapDefinition is not null;
 

@@ -46,6 +46,56 @@ public class GameEngineServiceAiHistoryTests
     }
 
     [Fact]
+    public async Task CreateAutomaticTurnActionAsync_AllPlayersDisconnected_ReturnsNull()
+    {
+        var presenceService = new GamePresenceService();
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.Roll;
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+                BotTurnServiceTestHarness.CreateSelections(
+                    BotTurnServiceTestHarness.ActivePlayerUserId,
+                    BotTurnServiceTestHarness.OtherPlayerUserId))
+        };
+
+        var action = await InvokeCreateAutomaticTurnActionAsync(service, gameEntity, engine);
+
+        Assert.Null(action);
+    }
+
+    [Fact]
+    public async Task CreateAutomaticTurnActionAsync_ConnectedPlayerPresent_ReturnsBuiltInAutomaticAction()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: true);
+
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.Roll;
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+                BotTurnServiceTestHarness.CreateSelections(
+                    BotTurnServiceTestHarness.ActivePlayerUserId,
+                    BotTurnServiceTestHarness.OtherPlayerUserId))
+        };
+
+        var action = await InvokeCreateAutomaticTurnActionAsync(service, gameEntity, engine);
+
+        Assert.IsType<RollDiceAction>(action);
+    }
+
+    [Fact]
     public void ResolveIfMatchETag_EmptyGameEntityEtag_UsesWildcard()
     {
         var gameEntity = new GameEntity
@@ -171,12 +221,31 @@ public class GameEngineServiceAiHistoryTests
             ?? throw new InvalidOperationException("ResolveIfMatchETag returned null."));
     }
 
+    private static async Task<PlayerAction?> InvokeCreateAutomaticTurnActionAsync(
+        GameEngineService service,
+        GameEntity gameEntity,
+        Boxcars.Engine.Domain.GameEngine engine)
+    {
+        var method = typeof(GameEngineService).GetMethod("CreateAutomaticTurnActionAsync", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("CreateAutomaticTurnActionAsync was not found.");
+
+        var task = (Task<PlayerAction?>)(method.Invoke(service, [gameEntity, engine, CancellationToken.None])
+            ?? throw new InvalidOperationException("CreateAutomaticTurnActionAsync returned null."));
+
+        return await task;
+    }
+
     private static GameEngineService CreateGameEngineServiceForTests()
+    {
+        return CreateGameEngineServiceForTests(new GamePresenceService());
+    }
+
+    private static GameEngineService CreateGameEngineServiceForTests(GamePresenceService presenceService)
     {
         return new GameEngineService(
             new TestWebHostEnvironment(),
             new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
-            new GamePresenceService(),
+            presenceService,
             Options.Create(new BotOptions()),
             Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);

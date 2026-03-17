@@ -162,6 +162,45 @@ public sealed class GamePresenceService : IDisposable
         return isConnected;
     }
 
+    public bool HasAnyConnectedUsers(string gameId, IEnumerable<string?> userIds)
+    {
+        ArgumentNullException.ThrowIfNull(userIds);
+
+        if (string.IsNullOrWhiteSpace(gameId))
+        {
+            return false;
+        }
+
+        List<string>? changedGameIds;
+        var hasConnectedUser = false;
+
+        lock (_sync)
+        {
+            changedGameIds = PruneStaleConnectionsCore(_timeProvider.GetUtcNow());
+
+            foreach (var userId in userIds)
+            {
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    continue;
+                }
+
+                if (IsUserConnectedCore(gameId, userId))
+                {
+                    hasConnectedUser = true;
+                    break;
+                }
+            }
+        }
+
+        foreach (var changedGameId in changedGameIds)
+        {
+            NotifyPresenceChanged(changedGameId);
+        }
+
+        return hasConnectedUser;
+    }
+
     public bool EnsureMockConnectionState(string gameId, string userId, bool defaultConnected)
     {
         var changed = false;

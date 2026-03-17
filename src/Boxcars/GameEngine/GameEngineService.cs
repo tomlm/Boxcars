@@ -36,6 +36,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly TableClient _gamesTable;
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _busyGames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _pendingAutomaticFlowResumes = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly PurchaseRulesOptions _purchaseRulesOptions;
     private readonly BotOptions _botOptions;
@@ -61,6 +62,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         _botOptions = botOptions.Value;
         _purchaseRulesOptions = purchaseRulesOptions.Value;
         _logger = logger;
+        _gamePresenceService.PresenceChanged += OnPresenceChanged;
     }
 
     public GameEngineService(
@@ -83,6 +85,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     public event Action<string, RailBaronGameState>? OnStateChanged;
     public event Action<string, GameActionFailure>? OnActionFailed;
+
+    public override void Dispose()
+    {
+        _gamePresenceService.PresenceChanged -= OnPresenceChanged;
+        base.Dispose();
+    }
 
     public async Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -662,6 +670,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
+        if (!HasConnectedTableUser(gameEntity))
+        {
+            return null;
+        }
+
         var builtInAction = CreateAutomaticTurnAction(gameEngine);
         if (builtInAction is not null)
         {
@@ -694,6 +707,84 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         var activeAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
         var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeAssignment);
         return PlayerControlRules.IsAiControllerMode(controllerState.ControllerMode);
+    }
+
+    private bool HasConnectedTableUser(GameEntity gameEntity)
+    {
+        var candidateUserIds = new List<string?>();
+        foreach (var selection in GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson))
+        {
+            candidateUserIds.Add(selection.UserId);
+
+            var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameEntity.GameId, selection.UserId);
+            if (!string.IsNullOrWhiteSpace(delegatedControllerUserId))
+            {
+                candidateUserIds.Add(delegatedControllerUserId);
+            }
+        }
+
+        return _gamePresenceService.HasAnyConnectedUsers(gameEntity.GameId, candidateUserIds);
+    }
+
+    private void OnPresenceChanged(string gameId)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)
+            || !_pendingAutomaticFlowResumes.TryAdd(gameId, 0))
+        {
+            return;
+        }
+
+        _ = ResumeAutomaticTurnFlowAsync(gameId);
+    }
+
+    private async Task ResumeAutomaticTurnFlowAsync(string gameId)
+    {
+        try
+        {
+            await _mapReady.Task.WaitAsync(CancellationToken.None);
+
+            var processingAcquired = false;
+            for (var attempt = 0; attempt < 20 && !processingAcquired; attempt++)
+            {
+                processingAcquired = _busyGames.TryAdd(gameId, 0);
+                if (!processingAcquired)
+                {
+                    await Task.Delay(100, CancellationToken.None);
+                }
+            }
+
+            if (!processingAcquired)
+            {
+                return;
+            }
+
+            try
+            {
+                var gameEntity = await GetGameEntityAsync(gameId, CancellationToken.None);
+                if (gameEntity is null || !HasConnectedTableUser(gameEntity))
+                {
+                    return;
+                }
+
+                var gameEngine = await GetOrCreateGameEngineAsync(gameId, CancellationToken.None);
+                var snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, CancellationToken.None);
+                OnStateChanged?.Invoke(gameId, snapshot);
+            }
+            finally
+            {
+                _busyGames.TryRemove(gameId, out _);
+            }
+        }
+        catch (Exception exception)
+        {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+            _logger.LogError(exception, "Failed to resume automatic turn flow for game {GameId} after a presence change.", gameId);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+        }
+        finally
+        {
+            _pendingAutomaticFlowResumes.TryRemove(gameId, out _);
+        }
     }
 
     private async Task PersistBotAssignmentsIfChangedAsync(
