@@ -12,6 +12,8 @@ public sealed class BotDecisionPromptBuilder
             "The player you are controlling is identified as TargetPlayer in the provided game-state JSON.",
             "Return JSON only with the shape {\"selectedOptionId\":\"...\"}.",
             "Never invent rules, options, or state.",
+            "In Purchase, account for fees already incurred this turn before spending cash.",
+            "A buy that forces an immediate sale can be correct, but only when the resulting network position is meaningfully better than declining or choosing a cheaper option.",
             $"Current phase: {context.Phase}.");
     }
 

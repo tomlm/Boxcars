@@ -130,6 +130,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         await _gamesTable.AddEntityAsync(gameEntity, cancellationToken);
 
+        var originalBotAssignmentsJson = gameEntity.BotAssignmentsJson;
+        await _botTurnService.EnsureBotSeatAssignmentsAsync(gameEntity, request.Players, request.CreatorUserId, cancellationToken);
+        await PersistBotAssignmentsIfChangedAsync(gameEntity, originalBotAssignmentsJson, cancellationToken);
+
         var snapshot = createdGameEngine.ToSnapshot();
         await PersistEventAsync(gameId, snapshot, "CreateGame", "Game created.", request.CreatorUserId, new
         {
@@ -760,14 +764,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     {
         var suffixLabel = !string.IsNullOrWhiteSpace(metadata.BotName)
             ? metadata.BotName
-            : metadata.DecisionSource;
-        var suffix = string.Concat(" (bot", string.IsNullOrWhiteSpace(suffixLabel) ? string.Empty : string.Concat(": ", suffixLabel));
+            : "GHOST";
+        var suffix = string.Concat(" [", suffixLabel);
         if (!string.IsNullOrWhiteSpace(metadata.FallbackReason))
         {
             suffix = string.Concat(suffix, "; ", metadata.FallbackReason);
         }
 
-        return string.Concat(suffix, ")");
+        return string.Concat(suffix, "]");
     }
 
     private static string BuildActionFailureMessage(PlayerAction action, Exception exception)

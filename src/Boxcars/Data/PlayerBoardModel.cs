@@ -47,9 +47,6 @@ public sealed class PlayerBoardModel
     /// <summary>True if the current user can act for this player via delegated control.</summary>
     public bool IsDelegatedToCurrentUser { get; init; }
 
-    /// <summary>True when this player supports the local mock connect/disconnect toggle.</summary>
-    public bool CanToggleConnection { get; init; }
-
     /// <summary>Home city name.</summary>
     public string HomeCity { get; init; } = string.Empty;
 
@@ -79,6 +76,12 @@ public sealed class PlayerBoardModel
 
     /// <summary>True when the player currently has a bot assignment record.</summary>
     public bool HasBotAssignment { get; init; }
+
+    /// <summary>True when the player's moves are currently being made by AI.</summary>
+    public bool IsAiControlled { get; init; }
+
+    /// <summary>True when this seat is a dedicated bot player rather than a human seat in ghost mode.</summary>
+    public bool IsBotPlayer { get; init; }
 
     /// <summary>True when the current viewer should see the exact cash amount instead of the coarse public indicator.</summary>
     public bool CanViewExactCash => IsCurrentUser || (IsDelegatedToCurrentUser && !HasBotAssignment);

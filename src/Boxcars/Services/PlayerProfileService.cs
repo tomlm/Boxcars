@@ -7,6 +7,8 @@ namespace Boxcars.Services;
 
 public class PlayerProfileService
 {
+    public const string DefaultStrategyText = "Select the best balance of access, monopoly and network building";
+
     private readonly TableClient _usersTable;
 
     public PlayerProfileService(TableServiceClient tableServiceClient)
@@ -121,10 +123,36 @@ public class PlayerProfileService
         }
     }
 
+    public async Task<bool> UpdateStrategyTextAsync(string userId, string strategyText, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", userId, cancellationToken: cancellationToken);
+            var user = response.Value;
+            user.StrategyText = NormalizeStrategyText(strategyText);
+            user.ModifiedUtc = DateTimeOffset.UtcNow;
+            await _usersTable.UpdateEntityAsync(user, user.ETag, TableUpdateMode.Replace, cancellationToken);
+            return true;
+        }
+        catch (RequestFailedException)
+        {
+            return false;
+        }
+    }
+
     private static ApplicationUser MapProfile(ApplicationUser user)
     {
         user.ThumbnailUrl = ResolveThumbnailUrl(user.Email, user.ThumbnailUrl);
+        user.StrategyText = NormalizeStrategyText(user.StrategyText);
         return user;
+    }
+
+    public static string NormalizeStrategyText(string? strategyText)
+    {
+        var normalized = strategyText?.Trim();
+        return string.IsNullOrWhiteSpace(normalized)
+            ? DefaultStrategyText
+            : normalized;
     }
 
     private static string ResolveThumbnailUrl(string email, string? thumbnailUrl)

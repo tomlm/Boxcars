@@ -40,7 +40,6 @@
 <div class="map-board-shell">
     <div class="map-board-sidebar">
         <PlayerBoard Players="_players"
-                 OnToggleConnection="OnTogglePlayerConnectionAsync"
                  OnToggleDelegatedControl="OnToggleDelegatedControlAsync"
                  OnFocusPlayer="OnFocusPlayerAsync"
                  OnManageBotAssignment="OnManageBotAssignmentAsync" />
@@ -392,10 +391,10 @@
         && CanCommitMoveSelection();
 
     private string ObserverTurnMessage => string.IsNullOrWhiteSpace(_turnViewState.ActivePlayerName)
-        ? "Waiting for the active player to complete their turn."
+            ? "Waiting for the active player to take their turn."
         : string.Equals(_turnViewState.TurnPhase, TurnPhase.RegionChoice.ToString(), StringComparison.OrdinalIgnoreCase)
             ? $"Waiting for {_turnViewState.ActivePlayerName} to choose a replacement destination region."
-            : $"Waiting for {_turnViewState.ActivePlayerName} to complete their turn.";
+                : $"Waiting for {_turnViewState.ActivePlayerName} to take their turn.";
 
     private async Task OnCommitMoveActionAsync()
     {
@@ -892,6 +891,7 @@
 
     private async Task OnGameMapReadyAsync()
     {
+        _lastAutoSuggestKey = null;
         TryRestoreRouteSelection();
         await AutoSuggestRouteIfNeededAsync();
         await InvokeAsync(StateHasChanged);
@@ -1003,14 +1003,10 @@
                 var selection = index < playerSelections.Count ? playerSelections[index] : null;
                 var resolvedUserId = resolvedUserIdsByIndex[index];
 
-                if (PlayerControlRules.IsBeatlesSlot(resolvedUserId) && !string.IsNullOrWhiteSpace(resolvedUserId))
-                {
-                    GamePresenceService.EnsureMockConnectionState(GameId, resolvedUserId, defaultConnected: false);
-                }
-
                 var isConnected = IsPlayerConnected(resolvedUserId);
                 var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, resolvedUserId) ?? string.Empty;
                 var isDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+                var isBotUser = IsBotUser(resolvedUserId);
                 var latestBotAssignment = !string.IsNullOrWhiteSpace(resolvedUserId)
                     && botAssignmentsByUserId.TryGetValue(resolvedUserId, out var assignment)
                         ? assignment
@@ -1039,7 +1035,9 @@
                 {
                     Index = index,
                     Name = selection?.DisplayName ?? player.Name,
-                    ThumbnailUrl = ResolveThumbnailUrl(resolvedUserId),
+                    ThumbnailUrl = (isBotUser || activeBotAssignment is not null)
+                        ? ResolveBotModeThumbnailUrl(selection?.DisplayName ?? player.Name)
+                        : ResolveThumbnailUrl(resolvedUserId),
                     Color = ResolvePlayerColor(selection, index),
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         || string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase),
@@ -1056,7 +1054,6 @@
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
                     IsDelegatedToCurrentUser = isDelegatedToCurrentUser,
-                    CanToggleConnection = PlayerControlRules.IsBeatlesSlot(resolvedUserId),
                     HomeCity = player.HomeCityName,
                     IsActiveTurn = index == state.ActivePlayerIndex,
                     IsEliminated = !player.IsActive,
@@ -1065,8 +1062,10 @@
                     CanReleaseDelegatedControl = CanCurrentUserReleaseDelegatedControl(delegatedControllerUserId),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, playerDisplayNamesByUserId),
-                    CanManageBotAssignment = isDelegatedToCurrentUser && !isConnected,
+                    CanManageBotAssignment = isDelegatedToCurrentUser && !isConnected && !isBotUser,
                     HasBotAssignment = activeBotAssignment is not null,
+                    IsAiControlled = isBotUser || activeBotAssignment is not null,
+                    IsBotPlayer = isBotUser,
                     AssignedBotDefinitionId = activeBotAssignment?.BotDefinitionId ?? string.Empty,
                     BotAssignmentStatusLabel = GameBoardStateMapper.GetBotAssignmentStatusLabel(latestBotAssignment, latestBotName),
                     HasMissingBotDefinition = string.Equals(latestBotAssignment?.Status, BotAssignmentStatuses.MissingDefinition, StringComparison.OrdinalIgnoreCase),
@@ -1458,6 +1457,29 @@ StringComparison.OrdinalIgnoreCase));
         return _playerProfilesByUserId.TryGetValue(userId, out var profile)
             ? profile.ThumbnailUrl
             : string.Empty;
+    }
+
+    private static string ResolveBotModeThumbnailUrl(string? playerName)
+    {
+        var thumbnailKey = string.IsNullOrWhiteSpace(playerName)
+            ? "boxcars-bot"
+            : playerName.Trim();
+
+        return $"https://robohash.org/{Uri.EscapeDataString(thumbnailKey)}";
+    }
+
+    private bool IsBotUser(string? userId)
+    {
+        return !string.IsNullOrWhiteSpace(userId)
+            && _playerProfilesByUserId.TryGetValue(userId, out var profile)
+            && profile.IsBot;
+    }
+
+    private string ResolvePlayerStrategyText(string userId)
+    {
+        return _playerProfilesByUserId.TryGetValue(userId, out var profile)
+            ? PlayerProfileService.NormalizeStrategyText(profile.StrategyText)
+            : PlayerProfileService.DefaultStrategyText;
     }
 
     private void SyncRouteSelectionToActivePlayer()
@@ -1972,17 +1994,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         get
         {
-            if (_gameState is null
-                || _gameState.ActivePlayerIndex < 0
-                || _gameState.ActivePlayerIndex >= _players.Count)
-            {
-                return "The assigned bot is taking this player's turn.";
-            }
-
-            var activePlayer = _players[_gameState.ActivePlayerIndex];
-            return !string.IsNullOrWhiteSpace(activePlayer.BotAssignmentStatusLabel)
-                ? $"{activePlayer.BotAssignmentStatusLabel} is taking this player's turn."
-                : "The assigned bot is taking this player's turn.";
+            return ObserverTurnMessage;
         }
     }
 
@@ -2397,10 +2409,43 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
-        if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName)
-            || _gameMap.CanSuggestRoute != true)
+        if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
         {
             return;
+        }
+
+        if (_gameMap.CanSuggestRoute != true)
+        {
+            // Map city options may not be populated yet — try to prime start/dest directly
+            // so the suggestion can fire as soon as the map is ready.
+            var startNodeId = activePlayer.CurrentNodeId;
+            if (string.IsNullOrWhiteSpace(startNodeId))
+            {
+                startNodeId = _gameMap.RouteCityOptions
+                    .FirstOrDefault(option =>
+                        string.Equals(option.CityName, activePlayer.CurrentCityName, StringComparison.OrdinalIgnoreCase))
+                    .NodeId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(startNodeId))
+            {
+                _gameMap.SetStartCity(startNodeId);
+            }
+
+            var destNodeId = _gameMap.RouteCityOptions
+                .FirstOrDefault(option =>
+                    string.Equals(option.CityName, activePlayer.DestinationCityName, StringComparison.OrdinalIgnoreCase))
+                .NodeId;
+
+            if (!string.IsNullOrWhiteSpace(destNodeId))
+            {
+                _gameMap.SetDestinationCity(destNodeId);
+            }
+
+            if (_gameMap.CanSuggestRoute != true)
+            {
+                return;
+            }
         }
 
         var autoSuggestKey = string.Join(
@@ -2522,7 +2567,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     Cash = player.Cash,
                     IsCurrentUser = player.IsCurrentUser,
                     IsDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId),
-                    CanToggleConnection = player.CanToggleConnection,
                     HomeCity = player.HomeCity,
                     IsActiveTurn = player.IsActiveTurn,
                     IsEliminated = player.IsEliminated,
@@ -2533,6 +2577,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, null),
                     CanManageBotAssignment = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId) && !IsPlayerConnected(slotUserId),
                     HasBotAssignment = player.HasBotAssignment,
+                    IsAiControlled = player.IsAiControlled,
+                    IsBotPlayer = player.IsBotPlayer,
                     AssignedBotDefinitionId = player.AssignedBotDefinitionId,
                     BotAssignmentStatusLabel = player.BotAssignmentStatusLabel,
                     HasMissingBotDefinition = player.HasMissingBotDefinition,
@@ -2627,10 +2673,17 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
-        var definitions = await BotDefinitionService.ListAsync(CancellationToken.None);
-        _botDisplayNamesByDefinitionId = definitions
-            .Where(definition => assignedBotIds.Contains(definition.BotDefinitionId, StringComparer.OrdinalIgnoreCase))
-            .ToDictionary(definition => definition.BotDefinitionId, definition => definition.Name, StringComparer.OrdinalIgnoreCase);
+        var resolvedNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var assignedBotId in assignedBotIds)
+        {
+            var definition = await BotDefinitionService.GetAsync(assignedBotId, CancellationToken.None);
+            if (definition is not null && !string.IsNullOrWhiteSpace(definition.Name))
+            {
+                resolvedNames[assignedBotId] = definition.Name;
+            }
+        }
+
+        _botDisplayNamesByDefinitionId = resolvedNames;
     }
 
     private void NotifyPresenceChanges(IReadOnlyDictionary<int, bool> previousConnectionStates)
@@ -2940,51 +2993,46 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         };
     }
 
-    private Task OnTogglePlayerConnectionAsync(int playerIndex)
-    {
-        var selectedPlayer = _players.FirstOrDefault(player => player.Index == playerIndex);
-        if (selectedPlayer is null || !selectedPlayer.CanToggleConnection)
-        {
-            return Task.CompletedTask;
-        }
-
-        var userId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Task.CompletedTask;
-        }
-
-        var nextConnectedState = !selectedPlayer.IsConnected;
-        GamePresenceService.SetMockConnectionState(GameId, userId, nextConnectedState);
-
-        return Task.CompletedTask;
-    }
-
-    private Task OnToggleDelegatedControlAsync(int playerIndex)
+    private async Task OnToggleDelegatedControlAsync(int playerIndex)
     {
         if (string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
         if (string.IsNullOrWhiteSpace(slotUserId))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
-        var changed = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId)
+        var isReleasingDelegatedControl = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+        var changed = isReleasingDelegatedControl
             ? GamePresenceService.ReleaseDelegatedControl(GameId, slotUserId, _currentUserId)
             : GamePresenceService.TryTakeDelegatedControl(GameId, slotUserId, _currentUserId);
 
         if (!changed)
         {
             ShowNotification("Unable to update delegated control for that player.", Severity.Warning);
-            return Task.CompletedTask;
+            return;
         }
 
-        return Task.CompletedTask;
+        var game = _game;
+        if (!isReleasingDelegatedControl && game is not null && IsBotUser(slotUserId))
+        {
+            BotTurnService.UpsertAssignment(game, slotUserId, _currentUserId, slotUserId);
+
+            var activated = await PersistBotAssignmentsAndRefreshAsync(
+                game,
+                "Unable to activate bot automation.",
+                notifyNewItems: true);
+
+            if (!activated)
+            {
+                return;
+            }
+        }
     }
 
     private async Task OnManageBotAssignmentAsync(int playerIndex)
@@ -3005,9 +3053,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var parameters = new DialogParameters<BotAssignmentDialog>
         {
             { dialog => dialog.PlayerName, selectedPlayer.Name },
-            { dialog => dialog.CurrentBotDefinitionId, selectedPlayer.AssignedBotDefinitionId },
+            { dialog => dialog.PlayerUserId, slotUserId },
             { dialog => dialog.CurrentStatusLabel, selectedPlayer.BotAssignmentStatusLabel },
-            { dialog => dialog.HasMissingDefinition, selectedPlayer.HasMissingBotDefinition }
+            { dialog => dialog.StrategyText, ResolvePlayerStrategyText(slotUserId) }
         };
 
         var dialog = await DialogService.ShowAsync<BotAssignmentDialog>(
@@ -3032,17 +3080,22 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
         else if (!string.IsNullOrWhiteSpace(dialogResult.BotDefinitionId))
         {
-            BotTurnService.UpsertAssignment(game, slotUserId, _currentUserId!, dialogResult.BotDefinitionId);
+            BotTurnService.UpsertAssignment(game, slotUserId, _currentUserId!, slotUserId);
         }
         else
         {
             return;
         }
 
+        await PersistBotAssignmentsAndRefreshAsync(game, "Unable to save bot assignment.", notifyNewItems: true);
+    }
+
+    private async Task<bool> PersistBotAssignmentsAndRefreshAsync(GameEntity game, string saveErrorMessage, bool notifyNewItems)
+    {
         var updateResult = await GameService.UpdateBotAssignmentsAsync(game, game.BotAssignmentsJson, CancellationToken.None);
         if (!updateResult.Succeeded || updateResult.Game is null)
         {
-            ShowNotification(updateResult.ErrorMessage ?? "Unable to save bot assignment.", updateResult.IsConflict ? Severity.Warning : Severity.Error);
+            ShowNotification(updateResult.ErrorMessage ?? saveErrorMessage, updateResult.IsConflict ? Severity.Warning : Severity.Error);
             _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
             await RefreshBotDisplayNamesAsync();
             if (_gameState is not null && _game is not null)
@@ -3050,7 +3103,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 ApplyGameState(_gameState, queueRestoredRouteSelection: false);
             }
 
-            return;
+            return false;
         }
 
         _game = updateResult.Game;
@@ -3061,8 +3114,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         if (_gameState is not null)
         {
             ApplyGameState(_gameState, queueRestoredRouteSelection: false);
-            await RefreshTimelineAsync(notifyNewItems: true);
+            await RefreshTimelineAsync(notifyNewItems: notifyNewItems);
         }
+
+        return true;
     }
 
     private bool CanCurrentUserTakeDelegatedControl(int playerIndex, string? slotUserId, string? delegatedControllerUserId)

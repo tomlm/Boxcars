@@ -43,14 +43,19 @@
                                         }
                                     </MudAvatar>
                                 </MudButton>
-                                <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
-                                    <MudIcon Class="@GetStatusIconClass(player)"
-                                             Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
-                                             Size="Size.Small" />
-                                </MudTooltip>
+                                    @if (!player.IsBotPlayer)
+                                    {
+                                        <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
+                                            <MudIcon Class="@GetStatusIconClass(player)"
+                                                     Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                                     Size="Size.Small" />
+                                        </MudTooltip>
+                                    }
                             </div>
-                            <MudStack>
-                                <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
+                            <MudStack Class="player-card-heading" Spacing="0">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="player-card-name-row">
+                                    <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
+                                </MudStack>
                                 <MudText Typo="Typo.caption" Class="player-card-subtitle">Home: @player.HomeCity</MudText>
                             </MudStack>
                         </MudStack>
@@ -87,13 +92,6 @@
                                     <span class="player-card-controlled-by-value">@player.DelegatedControllerDisplayName</span>
                                 </MudText>
                             }
-                            @if (!string.IsNullOrWhiteSpace(player.BotAssignmentStatusLabel))
-                            {
-                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-bot">
-                                    <span class="player-card-label">Bot:</span>
-                                    <span class="@GetBotStatusValueClass(player)">@player.BotAssignmentStatusLabel</span>
-                                </MudText>
-                            }
                             @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
                             {
                                 <MudText Typo="Typo.caption" Class="player-card-line">
@@ -109,7 +107,7 @@
 
                         </MudStack>
 
-                        @if (player.CanToggleConnection || player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl || player.CanManageBotAssignment)
+                        @if (player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl || player.CanManageBotAssignment)
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
                                 @if (player.CanManageBotAssignment)
@@ -121,16 +119,6 @@
                                                        OnClick="() => OnManageBotAssignment.InvokeAsync(player.Index)"
                                                        aria-label="Manage bot assignment" />
                                     </div>
-                                }
-
-                                @if (player.CanToggleConnection)
-                                {
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="@(player.IsConnected ? MudBlazor.Color.Warning : MudBlazor.Color.Success)"
-                                               Size="Size.Small"
-                                               OnClick="() => OnToggleConnection.InvokeAsync(player.Index)">
-                                        @(player.IsConnected ? "DISCONNECT" : "CONNECT")
-                                    </MudButton>
                                 }
 
                                 @if (player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
@@ -154,9 +142,6 @@
 @code {
     [Parameter]
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
-
-    [Parameter]
-    public EventCallback<int> OnToggleConnection { get; set; }
 
     [Parameter]
     public EventCallback<int> OnToggleDelegatedControl { get; set; }
@@ -215,13 +200,6 @@
         return player.Cash >= Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(0)
             ? "player-card-cash-value player-card-cash-value-affordable"
             : "player-card-cash-value player-card-cash-value-too-expensive";
-    }
-
-    private static string GetBotStatusValueClass(PlayerBoardModel player)
-    {
-        return player.HasMissingBotDefinition
-            ? "player-card-status-value player-card-status-value-bot-missing"
-            : "player-card-status-value player-card-status-value-bot-active";
     }
 
     private static string FormatPercent(decimal value)

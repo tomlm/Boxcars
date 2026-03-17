@@ -59,6 +59,14 @@ else
                     <MudTextField @bind-Value="CurrentInput.ThumbnailUrl" Label="Thumbnail URL"
                                   Placeholder="https://example.com/avatar.png" Variant="Variant.Outlined" Class="profile-field" />
 
+                    <MudTextField @bind-Value="CurrentInput.StrategyText"
+                                  Label="Strategy"
+                                  Variant="Variant.Outlined"
+                                  Lines="4"
+                                  AutoGrow="true"
+                                  Placeholder="@PlayerProfileService.DefaultStrategyText"
+                                  Class="profile-field" />
+
                     <MudText Typo="Typo.body2" Class="manage-page-helper">
                         Choose your preferred color:
                     </MudText>
@@ -102,6 +110,7 @@ else
     private string originalNickname = string.Empty;
     private string originalThumbnailUrl = string.Empty;
     private string originalPreferredColor = PlayerColorOptions.Colors[0];
+    private string originalStrategyText = PlayerProfileService.DefaultStrategyText;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -146,9 +155,11 @@ else
         CurrentInput.Nickname = _profile.Nickname;
         CurrentInput.ThumbnailUrl = _profile.ThumbnailUrl;
         CurrentInput.PreferredColor = PlayerColorOptions.NormalizeOrDefault(_profile.PreferredColor);
+        CurrentInput.StrategyText = PlayerProfileService.NormalizeStrategyText(_profile.StrategyText);
         originalNickname = CurrentInput.Nickname ?? string.Empty;
         originalThumbnailUrl = CurrentInput.ThumbnailUrl ?? string.Empty;
         originalPreferredColor = CurrentInput.PreferredColor ?? PlayerColorOptions.Colors[0];
+        originalStrategyText = CurrentInput.StrategyText ?? PlayerProfileService.DefaultStrategyText;
         _loading = false;
     }
 
@@ -166,13 +177,15 @@ else
         var nickname = CurrentInput.Nickname?.Trim() ?? string.Empty;
         var thumbnailUrl = CurrentInput.ThumbnailUrl?.Trim() ?? string.Empty;
         var preferredColor = PlayerColorOptions.NormalizeOrDefault(CurrentInput.PreferredColor);
+        var strategyText = PlayerProfileService.NormalizeStrategyText(CurrentInput.StrategyText);
         var nicknameChanged = !string.Equals(nickname, originalNickname, StringComparison.Ordinal);
         var thumbnailChanged = !string.Equals(thumbnailUrl, originalThumbnailUrl, StringComparison.Ordinal);
         var preferredColorChanged = !string.Equals(preferredColor, originalPreferredColor, StringComparison.Ordinal);
+        var strategyChanged = !string.Equals(strategyText, originalStrategyText, StringComparison.Ordinal);
 
         try
         {
-            if (!nicknameChanged && !thumbnailChanged && !preferredColorChanged)
+            if (!nicknameChanged && !thumbnailChanged && !preferredColorChanged && !strategyChanged)
             {
                 message = "No changes to save.";
                 messageSeverity = Severity.Info;
@@ -233,9 +246,23 @@ CancellationToken.None);
                 _profile.PreferredColor = preferredColor;
             }
 
+            if (strategyChanged)
+            {
+                var strategyUpdated = await ProfileService.UpdateStrategyTextAsync(currentUserId, strategyText, CancellationToken.None);
+                if (!strategyUpdated)
+                {
+                    message = "Error: Save failed, please try again.";
+                    messageSeverity = Severity.Error;
+                    return;
+                }
+
+                _profile.StrategyText = strategyText;
+            }
+
             originalNickname = nickname;
             originalThumbnailUrl = thumbnailUrl;
             originalPreferredColor = preferredColor;
+            originalStrategyText = strategyText;
             message = "Your preferences have been updated.";
             messageSeverity = Severity.Success;
         }
@@ -261,6 +288,9 @@ CancellationToken.None);
         [Required]
         [Display(Name = "Preferred rail color")]
         public string? PreferredColor { get; set; }
+
+        [Display(Name = "Strategy")]
+        public string? StrategyText { get; set; }
     }
 
     private static string GetColorOptionClass(string color) =>

@@ -19,8 +19,8 @@ internal static class BotTurnServiceTestHarness
     public static BotTurnService CreateService(GamePresenceService presenceService, params BotStrategyDefinitionEntity[] botDefinitions)
     {
         var botDefinitionService = new BotDefinitionService(CreateTableServiceClient());
-        var botsTableField = typeof(BotDefinitionService).GetField("_botsTable", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("BotDefinitionService._botsTable was not found.");
+        var botsTableField = typeof(BotDefinitionService).GetField("_usersTable", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("BotDefinitionService._usersTable was not found.");
 
         botsTableField.SetValue(botDefinitionService, new FakeBotTableClient(botDefinitions));
 
@@ -123,8 +123,25 @@ internal static class BotTurnServiceTestHarness
         public FakeBotTableClient(IEnumerable<BotStrategyDefinitionEntity> botDefinitions)
         {
             _entities = botDefinitions.ToDictionary<BotStrategyDefinitionEntity, (string PartitionKey, string RowKey), ITableEntity>(
-                definition => (definition.PartitionKey, definition.RowKey),
-                definition => definition,
+                definition => ("USER", definition.BotDefinitionId),
+                definition => new ApplicationUser
+                {
+                    PartitionKey = "USER",
+                    RowKey = definition.BotDefinitionId,
+                    Email = definition.BotDefinitionId,
+                    NormalizedEmail = definition.BotDefinitionId.ToUpperInvariant(),
+                    UserName = definition.BotDefinitionId,
+                    NormalizedUserName = definition.BotDefinitionId.ToUpperInvariant(),
+                    Name = definition.Name,
+                    Nickname = definition.Name,
+                    NormalizedNickname = definition.Name.ToUpperInvariant(),
+                    StrategyText = definition.StrategyText,
+                    IsBot = true,
+                    CreatedByUserId = definition.CreatedByUserId,
+                    CreatedUtc = definition.CreatedUtc,
+                    ModifiedByUserId = definition.ModifiedByUserId,
+                    ModifiedUtc = definition.ModifiedUtc
+                },
                 EqualityComparer<(string PartitionKey, string RowKey)>.Default);
         }
 

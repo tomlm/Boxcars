@@ -7,24 +7,22 @@ namespace Boxcars.Services;
 
 public sealed class BotDefinitionService
 {
-    private const string BotPartitionKey = "BOT";
-
-    private readonly TableClient _botsTable;
+    private readonly TableClient _usersTable;
 
     public BotDefinitionService(TableServiceClient tableServiceClient)
     {
-        _botsTable = tableServiceClient.GetTableClient(TableNames.BotsTable);
+        _usersTable = tableServiceClient.GetTableClient(TableNames.UsersTable);
     }
 
     public async Task<IReadOnlyList<BotStrategyDefinitionEntity>> ListAsync(CancellationToken cancellationToken)
     {
         var bots = new List<BotStrategyDefinitionEntity>();
 
-        await foreach (var entity in _botsTable.QueryAsync<BotStrategyDefinitionEntity>(
-                           bot => bot.PartitionKey == BotPartitionKey,
+        await foreach (var entity in _usersTable.QueryAsync<ApplicationUser>(
+                           user => user.PartitionKey == "USER" && user.IsBot,
                            cancellationToken: cancellationToken))
         {
-            bots.Add(entity);
+            bots.Add(MapBot(entity, useGhostLabel: false));
         }
 
         return bots
@@ -42,11 +40,11 @@ public sealed class BotDefinitionService
 
         try
         {
-            var response = await _botsTable.GetEntityAsync<BotStrategyDefinitionEntity>(
-                BotPartitionKey,
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>(
+                "USER",
                 botDefinitionId,
                 cancellationToken: cancellationToken);
-            return response.Value;
+            return MapBot(response.Value, useGhostLabel: !response.Value.IsBot);
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
@@ -68,19 +66,30 @@ public sealed class BotDefinitionService
         }
 
         var now = DateTimeOffset.UtcNow;
-        var entity = new BotStrategyDefinitionEntity
+        var botId = $"bot-{Guid.NewGuid():N}@boxcars.bot";
+        var entity = new ApplicationUser
         {
-            BotDefinitionId = Guid.NewGuid().ToString("N"),
+            PartitionKey = "USER",
+            RowKey = botId,
+            Email = botId,
+            NormalizedEmail = botId.ToUpperInvariant(),
+            UserName = botId,
+            NormalizedUserName = botId.ToUpperInvariant(),
             Name = trimmedName,
-            StrategyText = strategyText.Trim(),
+            Nickname = trimmedName,
+            NormalizedNickname = trimmedName.ToUpperInvariant(),
+            StrategyText = PlayerProfileService.NormalizeStrategyText(strategyText),
+            IsBot = true,
             CreatedByUserId = actingUserId,
             CreatedUtc = now,
             ModifiedByUserId = actingUserId,
-            ModifiedUtc = now
+            ModifiedUtc = now,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            EmailConfirmed = true
         };
 
-        await _botsTable.AddEntityAsync(entity, cancellationToken);
-        return BotDefinitionWriteResult.Success(entity);
+        await _usersTable.AddEntityAsync(entity, cancellationToken);
+        return BotDefinitionWriteResult.Success(MapBot(entity, useGhostLabel: false));
     }
 
     public async Task<BotDefinitionWriteResult> UpdateAsync(
@@ -107,31 +116,60 @@ public sealed class BotDefinitionService
             return BotDefinitionWriteResult.Invalid("Bot name is required.");
         }
 
-        var existing = await GetAsync(botDefinitionId, cancellationToken);
-        if (existing is null)
+        ApplicationUser existing;
+        try
+        {
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", botDefinitionId, cancellationToken: cancellationToken);
+            existing = response.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
         {
             return BotDefinitionWriteResult.NotFound();
         }
 
-        var updated = new BotStrategyDefinitionEntity
+        if (!existing.IsBot)
+        {
+            return BotDefinitionWriteResult.Invalid("Only bot users can be edited here.");
+        }
+
+        var updated = new ApplicationUser
         {
             PartitionKey = existing.PartitionKey,
             RowKey = existing.RowKey,
             Timestamp = existing.Timestamp,
             ETag = existing.ETag,
+            Email = existing.Email,
+            NormalizedEmail = existing.NormalizedEmail,
+            UserName = existing.UserName,
+            NormalizedUserName = existing.NormalizedUserName,
             Name = trimmedName,
-            StrategyText = strategyText.Trim(),
+            Nickname = trimmedName,
+            NormalizedNickname = trimmedName.ToUpperInvariant(),
+            StrategyText = PlayerProfileService.NormalizeStrategyText(strategyText),
+            IsBot = true,
+            PreferredColor = existing.PreferredColor,
+            ThumbnailUrl = existing.ThumbnailUrl,
             CreatedByUserId = existing.CreatedByUserId,
             CreatedUtc = existing.CreatedUtc,
             ModifiedByUserId = actingUserId,
-            ModifiedUtc = DateTimeOffset.UtcNow
+            ModifiedUtc = DateTimeOffset.UtcNow,
+            PasswordHash = existing.PasswordHash,
+            SecurityStamp = existing.SecurityStamp,
+            EmailConfirmed = existing.EmailConfirmed,
+            LockoutEnd = existing.LockoutEnd,
+            LockoutEnabled = existing.LockoutEnabled,
+            AccessFailedCount = existing.AccessFailedCount,
+            ConcurrencyStamp = existing.ConcurrencyStamp,
+            PhoneNumber = existing.PhoneNumber,
+            PhoneNumberConfirmed = existing.PhoneNumberConfirmed,
+            TwoFactorEnabled = existing.TwoFactorEnabled
         };
 
         try
         {
-            await _botsTable.UpdateEntityAsync(updated, eTag, TableUpdateMode.Replace, cancellationToken);
+            await _usersTable.UpdateEntityAsync(updated, eTag, TableUpdateMode.Replace, cancellationToken);
             updated.ETag = eTag;
-            return BotDefinitionWriteResult.Success(updated);
+            return BotDefinitionWriteResult.Success(MapBot(updated, useGhostLabel: false));
         }
         catch (RequestFailedException ex) when (ex.Status == 412)
         {
@@ -148,7 +186,13 @@ public sealed class BotDefinitionService
 
         try
         {
-            await _botsTable.DeleteEntityAsync(BotPartitionKey, botDefinitionId, eTag, cancellationToken);
+            var response = await _usersTable.GetEntityAsync<ApplicationUser>("USER", botDefinitionId, cancellationToken: cancellationToken);
+            if (!response.Value.IsBot)
+            {
+                return BotDefinitionDeleteResult.Invalid;
+            }
+
+            await _usersTable.DeleteEntityAsync("USER", botDefinitionId, eTag, cancellationToken);
             return BotDefinitionDeleteResult.Success;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -159,6 +203,31 @@ public sealed class BotDefinitionService
         {
             return BotDefinitionDeleteResult.Conflict;
         }
+    }
+
+    private static BotStrategyDefinitionEntity MapBot(ApplicationUser user, bool useGhostLabel)
+    {
+        var displayName = useGhostLabel
+            ? "GHOST"
+            : string.IsNullOrWhiteSpace(user.Nickname)
+                ? user.Name
+                : user.Nickname;
+
+        return new BotStrategyDefinitionEntity
+        {
+            PartitionKey = user.PartitionKey,
+            RowKey = user.RowKey,
+            Timestamp = user.Timestamp,
+            ETag = user.ETag,
+            BotDefinitionId = user.RowKey,
+            Name = displayName,
+            StrategyText = PlayerProfileService.NormalizeStrategyText(user.StrategyText),
+            IsBotUser = user.IsBot,
+            CreatedByUserId = user.CreatedByUserId,
+            CreatedUtc = user.CreatedUtc,
+            ModifiedByUserId = user.ModifiedByUserId,
+            ModifiedUtc = user.ModifiedUtc
+        };
     }
 }
 

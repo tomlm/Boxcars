@@ -405,6 +405,7 @@ public sealed class GamePresenceService
                 };
 
                 await _gamesTable.UpdateEntityAsync(updateEntity, gameEntity.ETag, TableUpdateMode.Merge);
+                NotifyPresenceChanged(gameId);
                 return;
             }
             catch (RequestFailedException ex) when (ex.Status == 404)

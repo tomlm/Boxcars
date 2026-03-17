@@ -369,6 +369,11 @@
 
     private static string GetPlayerLabel(ApplicationUser profile)
     {
+        if (profile.IsBot)
+        {
+            return $"{profile.Nickname} [BOT]";
+        }
+
         return string.IsNullOrWhiteSpace(profile.Email)
             ? profile.Nickname
             : $"{profile.Nickname} ({profile.Email})";

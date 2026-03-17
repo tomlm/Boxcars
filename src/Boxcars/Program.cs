@@ -138,14 +138,22 @@ public class Program
             if (existing.HasValue && existing.Value is { } existingUser)
             {
                 var normalizedPreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor);
-                if (!string.Equals(existingUser.PreferredColor, normalizedPreferredColor, StringComparison.OrdinalIgnoreCase))
+                var desiredStrategy = PlayerProfileService.DefaultStrategyText;
+                if (!string.Equals(existingUser.PreferredColor, normalizedPreferredColor, StringComparison.OrdinalIgnoreCase)
+                    || !existingUser.IsBot
+                    || !string.Equals(existingUser.StrategyText, desiredStrategy, StringComparison.Ordinal))
                 {
                     existingUser.PreferredColor = normalizedPreferredColor;
+                    existingUser.IsBot = true;
+                    existingUser.StrategyText = desiredStrategy;
+                    existingUser.ModifiedUtc = DateTimeOffset.UtcNow;
                     await usersTable.UpdateEntityAsync(existingUser, existingUser.ETag, TableUpdateMode.Replace);
                 }
 
                 continue;
             }
+
+            var now = DateTimeOffset.UtcNow;
 
             await usersTable.AddEntityAsync(new ApplicationUser
             {
@@ -159,6 +167,12 @@ public class Program
                 Nickname = beatle.Nickname,
                 NormalizedNickname = beatle.Nickname.ToUpperInvariant(),
                 PreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor),
+                StrategyText = PlayerProfileService.DefaultStrategyText,
+                IsBot = true,
+                CreatedByUserId = "system",
+                CreatedUtc = now,
+                ModifiedByUserId = "system",
+                ModifiedUtc = now,
                 SecurityStamp = Guid.NewGuid().ToString(),
                 EmailConfirmed = true
             });

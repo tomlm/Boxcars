@@ -125,6 +125,35 @@ public sealed class BotTurnService
         return changed;
     }
 
+    public async Task EnsureBotSeatAssignmentsAsync(
+        GameEntity game,
+        IReadOnlyList<GamePlayerSelection> playerSelections,
+        string controllerUserId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(controllerUserId))
+        {
+            return;
+        }
+
+        foreach (var selection in playerSelections)
+        {
+            if (string.IsNullOrWhiteSpace(selection.UserId))
+            {
+                continue;
+            }
+
+            var strategyProfile = await _botDefinitionService.GetAsync(selection.UserId, cancellationToken);
+            if (strategyProfile is null || !strategyProfile.IsBotUser)
+            {
+                continue;
+            }
+
+            _gamePresenceService.TryTakeDelegatedControl(game.GameId, selection.UserId, controllerUserId);
+            UpsertAssignment(game, selection.UserId, controllerUserId, selection.UserId);
+        }
+    }
+
     public async Task<BotDecisionResolution?> ResolveDecisionAsync(
         GameEntity game,
         string playerUserId,
@@ -373,18 +402,27 @@ public sealed class BotTurnService
 
         var actionsByOptionId = new Dictionary<string, PlayerAction>(StringComparer.Ordinal);
         var legalOptions = new List<BotLegalOption>();
+        var snapshotPlayer = snapshot.Players[player.Index];
+        var pendingFeeAmount = CalculatePendingFeeAmount(gameEngine, player.Index, snapshotPlayer, snapshot.Turn.RailroadsRiddenThisTurn);
 
         foreach (var railroad in gameEngine.Railroads
                      .Where(railroad => railroad.Owner is null && !railroad.IsPublic && railroad.PurchasePrice <= player.Cash)
                      .OrderByDescending(railroad => railroad.PurchasePrice)
                      .ThenBy(railroad => railroad.Name, StringComparer.OrdinalIgnoreCase))
         {
+            var projectedCashAfterPurchase = player.Cash - railroad.PurchasePrice;
+            var projectedFeeShortfall = Math.Max(0, pendingFeeAmount - projectedCashAfterPurchase);
             var optionId = $"buy-railroad:{railroad.Index}";
             legalOptions.Add(new BotLegalOption
             {
                 OptionId = optionId,
                 OptionType = "PurchaseRailroad",
-                DisplayText = $"Buy {railroad.Name} for {railroad.PurchasePrice.ToString("C0", CultureInfo.InvariantCulture)}",
+                DisplayText = BuildPurchaseDisplayText(
+                    $"Buy {railroad.Name}",
+                    railroad.PurchasePrice,
+                    projectedCashAfterPurchase,
+                    pendingFeeAmount,
+                    projectedFeeShortfall),
                 Payload = railroad.Index.ToString(CultureInfo.InvariantCulture)
             });
 
@@ -407,12 +445,19 @@ public sealed class BotTurnService
                 continue;
             }
 
+            var projectedCashAfterPurchase = player.Cash - amountPaid;
+            var projectedFeeShortfall = Math.Max(0, pendingFeeAmount - projectedCashAfterPurchase);
             var optionId = $"buy-engine:{engineType}";
             legalOptions.Add(new BotLegalOption
             {
                 OptionId = optionId,
                 OptionType = "BuyEngine",
-                DisplayText = $"Buy {engineType} for {amountPaid.ToString("C0", CultureInfo.InvariantCulture)}",
+                DisplayText = BuildPurchaseDisplayText(
+                    $"Buy {engineType}",
+                    amountPaid,
+                    projectedCashAfterPurchase,
+                    pendingFeeAmount,
+                    projectedFeeShortfall),
                 Payload = engineType.ToString()
             });
 
@@ -455,7 +500,7 @@ public sealed class BotTurnService
                 playerSelections,
                 player.Index,
                 slotUserId,
-                BuildPurchasePhaseContext(gameEngine, mapDefinition, player)),
+                BuildPurchasePhaseContext(gameEngine, snapshot, mapDefinition, player.Index, player)),
             legalOptions,
             cancellationToken);
 
@@ -627,6 +672,18 @@ public sealed class BotTurnService
             return null;
         }
 
+        if (HasEligibleForcedSaleBidder(gameEngine, player, bestCandidate.Railroad))
+        {
+            return new StartAuctionAction
+            {
+                PlayerId = player.Name,
+                PlayerIndex = player.Index,
+                ActorUserId = assignmentContext.Value.Assignment.ControllerUserId,
+                RailroadIndex = bestCandidate.Railroad.Index,
+                BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "DeterministicAuction")
+            };
+        }
+
         return new SellRailroadAction
         {
             PlayerId = player.Name,
@@ -636,6 +693,16 @@ public sealed class BotTurnService
             AmountReceived = bestCandidate.Railroad.PurchasePrice / 2,
             BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "DeterministicSell")
         };
+    }
+
+    private static bool HasEligibleForcedSaleBidder(RailBaronGameEngine gameEngine, Player seller, Railroad railroad)
+    {
+        var startingPrice = railroad.PurchasePrice / 2;
+        return gameEngine.Players.Any(player =>
+            player != seller
+            && player.IsActive
+            && !player.IsBankrupt
+            && player.Cash >= startingPrice);
     }
 
     private async Task<(BotAssignment Assignment, BotStrategyDefinitionEntity Definition)?> ResolveAssignmentContextAsync(
@@ -826,11 +893,15 @@ public sealed class BotTurnService
 
     private object BuildPurchasePhaseContext(
         RailBaronGameEngine gameEngine,
+        global::Boxcars.Engine.Persistence.GameState snapshot,
         MapDefinition mapDefinition,
+        int playerIndex,
         Player player)
     {
         var ownedRailroadIndices = player.OwnedRailroads.Select(railroad => railroad.Index).ToArray();
         var currentCoverage = _networkCoverageService.BuildSnapshot(mapDefinition, ownedRailroadIndices);
+        var snapshotPlayer = snapshot.Players[playerIndex];
+        var pendingFeeAmount = CalculatePendingFeeAmount(gameEngine, playerIndex, snapshotPlayer, snapshot.Turn.RailroadsRiddenThisTurn);
 
         return new
         {
@@ -838,6 +909,9 @@ public sealed class BotTurnService
             DestinationCity = BuildCityReference(mapDefinition, player.Destination?.Name),
             player.Cash,
             Engine = player.LocomotiveType.ToString(),
+            PendingFeeAmount = pendingFeeAmount,
+            CashAfterFeesWithoutPurchase = player.Cash - pendingFeeAmount,
+            ImmediateForcedSaleWithoutPurchase = player.Cash < pendingFeeAmount,
             AffordableRailroadOptions = gameEngine.Railroads
                 .Where(railroad => railroad.Owner is null && !railroad.IsPublic && railroad.PurchasePrice <= player.Cash)
                 .OrderByDescending(railroad => railroad.PurchasePrice)
@@ -845,12 +919,18 @@ public sealed class BotTurnService
                 .Select(railroad =>
                 {
                     var projectedCoverage = _networkCoverageService.BuildProjectedSnapshot(mapDefinition, ownedRailroadIndices, railroad.Index);
+                    var cashAfterPurchase = player.Cash - railroad.PurchasePrice;
+                    var feeShortfall = Math.Max(0, pendingFeeAmount - cashAfterPurchase);
                     return new
                     {
                         railroad.Index,
                         railroad.Name,
                         railroad.ShortName,
                         railroad.PurchasePrice,
+                        CashAfterPurchase = cashAfterPurchase,
+                        CashAfterFees = cashAfterPurchase - pendingFeeAmount,
+                        WouldTriggerForcedSale = feeShortfall > 0,
+                        FeeShortfall = feeShortfall,
                         CurrentAccessibleDestinationPercent = currentCoverage.AccessibleDestinationPercent,
                         ProjectedAccessibleDestinationPercent = projectedCoverage.AccessibleDestinationPercent,
                         AccessDeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
@@ -866,16 +946,103 @@ public sealed class BotTurnService
                 .Select(engineType =>
                 {
                     var upgradeCost = RailBaronGameEngine.GetUpgradeCost(player.LocomotiveType, engineType, _purchaseRulesOptions.SuperchiefPrice);
+                    var cashAfterPurchase = player.Cash - upgradeCost;
+                    var feeShortfall = Math.Max(0, pendingFeeAmount - cashAfterPurchase);
                     return new
                     {
                         EngineType = engineType.ToString(),
                         UpgradeCost = upgradeCost,
-                        IsAffordable = upgradeCost > 0 && upgradeCost <= player.Cash
+                        IsAffordable = upgradeCost > 0 && upgradeCost <= player.Cash,
+                        CashAfterPurchase = cashAfterPurchase,
+                        CashAfterFees = cashAfterPurchase - pendingFeeAmount,
+                        WouldTriggerForcedSale = feeShortfall > 0,
+                        FeeShortfall = feeShortfall
                     };
                 })
                 .Where(option => option.UpgradeCost > 0)
+                .ToList(),
+            OwnedRailroads = player.OwnedRailroads
+                .OrderBy(railroad => railroad.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(railroad =>
+                {
+                    var projectedCoverage = _networkCoverageService.BuildProjectedSnapshotAfterSale(mapDefinition, ownedRailroadIndices, railroad.Index);
+                    return new
+                    {
+                        railroad.Index,
+                        railroad.Name,
+                        SaleValue = railroad.PurchasePrice / 2,
+                        AccessDeltaPercentAfterSale = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
+                        MonopolyDeltaPercentAfterSale = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
+                    };
+                })
                 .ToList()
         };
+    }
+
+    private static string BuildPurchaseDisplayText(string label, int purchasePrice, int cashAfterPurchase, int pendingFeeAmount, int projectedFeeShortfall)
+    {
+        var currencyCulture = CultureInfo.InvariantCulture;
+
+        if (pendingFeeAmount <= 0)
+        {
+            return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)})";
+        }
+
+        if (projectedFeeShortfall > 0)
+        {
+            return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}, fees due {pendingFeeAmount.ToString("C0", currencyCulture)}, forced-sale shortfall {projectedFeeShortfall.ToString("C0", currencyCulture)})";
+        }
+
+        return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}, fees due {pendingFeeAmount.ToString("C0", currencyCulture)}, fees still covered)";
+    }
+
+    private static int CalculatePendingFeeAmount(
+        RailBaronGameEngine gameEngine,
+        int playerIndex,
+        global::Boxcars.Engine.Persistence.PlayerState snapshotPlayer,
+        IEnumerable<int> railroadsRiddenThisTurn)
+    {
+        var feeBuckets = new Dictionary<int, PendingFeeBucket>();
+
+        foreach (var railroadIndex in railroadsRiddenThisTurn)
+        {
+            var railroad = gameEngine.Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
+            if (railroad is null)
+            {
+                continue;
+            }
+
+            var usesBaseRate = railroad.Owner is null || railroad.Owner.Index == playerIndex;
+            var ownerKey = usesBaseRate ? -1 : railroad.Owner!.Index;
+
+            if (!feeBuckets.TryGetValue(ownerKey, out var bucket))
+            {
+                bucket = new PendingFeeBucket(usesBaseRate ? null : railroad.Owner);
+                feeBuckets[ownerKey] = bucket;
+            }
+
+            if (!usesBaseRate && !snapshotPlayer.GrandfatheredRailroadIndices.Contains(railroad.Index))
+            {
+                bucket.RequiresFullOwnerRate = true;
+            }
+        }
+
+        if (feeBuckets.Count == 0)
+        {
+            return 0;
+        }
+
+        var opponentRate = gameEngine.AllRailroadsSold ? 10000 : 5000;
+        return feeBuckets.Values.Sum(bucket => bucket.Owner is null
+            ? 1000
+            : bucket.RequiresFullOwnerRate ? opponentRate : 1000);
+    }
+
+    private sealed class PendingFeeBucket(Player? owner)
+    {
+        public Player? Owner { get; } = owner;
+
+        public bool RequiresFullOwnerRate { get; set; }
     }
 
     private static object BuildAuctionPhaseContext(

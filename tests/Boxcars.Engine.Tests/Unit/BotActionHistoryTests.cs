@@ -70,7 +70,7 @@ public class BotActionHistoryTests
 
         var summary = InvokeDescribeAction(action, snapshotBeforeAction, snapshotAfterAction, engine);
 
-        Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta. (bot: El Cheapo; Timeout)", summary);
+        Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta. [El Cheapo; Timeout]", summary);
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class BotActionHistoryTests
 
         engine.MoveAlongRoute(1);
         var snapshot = engine.ToSnapshot();
-        const string expectedSummary = "Alice moved to Boston. (bot: SuggestedRoute)";
+        const string expectedSummary = "Alice moved to Boston. [SuggestedRoute]";
 
         var gameEvent = new GameEventEntity
         {

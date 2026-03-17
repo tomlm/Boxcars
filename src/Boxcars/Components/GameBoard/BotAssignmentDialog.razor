@@ -1,55 +1,23 @@
 @using Boxcars.Data
 @using Boxcars.Services
 @using MudBlazor
-@inject BotDefinitionService BotDefinitionService
 
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Bot assignment for @PlayerName</MudText>
+            <MudText Typo="Typo.h6">Ghost activation for @PlayerName</MudText>
 
-            @if (_isLoading)
+            @if (!string.IsNullOrWhiteSpace(CurrentStatusLabel))
             {
-                <MudProgressCircular Indeterminate="true" Size="Size.Medium" />
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    @CurrentStatusLabel
+                </MudAlert>
             }
-            else if (!string.IsNullOrWhiteSpace(_errorMessage))
-            {
-                <MudAlert Severity="Severity.Error" Dense="true">@_errorMessage</MudAlert>
-            }
-            else
-            {
-                @if (!string.IsNullOrWhiteSpace(CurrentStatusLabel))
-                {
-                    <MudAlert Severity="@(HasMissingDefinition ? Severity.Warning : Severity.Info)" Dense="true">
-                        @CurrentStatusLabel
-                    </MudAlert>
-                }
 
-                @if (_bots.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Info" Dense="true">
-                        No bots are available in the shared library yet.
-                    </MudAlert>
-                }
-                else
-                {
-                    <MudSelect T="string" Label="Bot" Value="@_selectedBotDefinitionId" ValueChanged="OnSelectedBotChangedAsync">
-                        @foreach (var bot in _bots)
-                        {
-                            <MudSelectItem Value="@bot.BotDefinitionId">@bot.Name</MudSelectItem>
-                        }
-                    </MudSelect>
-
-                    var selectedBot = _bots.FirstOrDefault(bot => string.Equals(bot.BotDefinitionId, _selectedBotDefinitionId, StringComparison.Ordinal));
-                    if (selectedBot is not null)
-                    {
-                        <MudPaper Outlined="true" Class="pa-3">
-                            <MudText Typo="Typo.subtitle2">Strategy</MudText>
-                            <MudText Typo="Typo.body2">@(string.IsNullOrWhiteSpace(selectedBot.StrategyText) ? "No strategy text provided." : selectedBot.StrategyText)</MudText>
-                        </MudPaper>
-                    }
-                }
-            }
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.subtitle2">Strategy</MudText>
+                <MudText Typo="Typo.body2">@StrategyText</MudText>
+            </MudPaper>
         </MudStack>
     </DialogContent>
     <DialogActions>
@@ -62,19 +30,14 @@
         </MudButton>
         <MudButton Variant="Variant.Filled"
                    Color="MudBlazor.Color.Primary"
-                   Disabled="@(!CanAssign)"
+                   Disabled="false"
                    OnClick="AssignBot">
-            Assign
+            Activate GHOST
         </MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
-    private List<BotStrategyDefinitionEntity> _bots = [];
-    private bool _isLoading = true;
-    private string? _errorMessage;
-    private string? _selectedBotDefinitionId;
-
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
@@ -82,42 +45,15 @@
     public string PlayerName { get; set; } = string.Empty;
 
     [Parameter]
-    public string CurrentBotDefinitionId { get; set; } = string.Empty;
+    public string PlayerUserId { get; set; } = string.Empty;
 
     [Parameter]
     public string CurrentStatusLabel { get; set; } = string.Empty;
 
     [Parameter]
-    public bool HasMissingDefinition { get; set; }
+    public string StrategyText { get; set; } = PlayerProfileService.DefaultStrategyText;
 
-    private bool CanAssign => !_isLoading && _bots.Count > 0 && !string.IsNullOrWhiteSpace(_selectedBotDefinitionId);
-
-    private bool CanClear => !_isLoading && (!string.IsNullOrWhiteSpace(CurrentBotDefinitionId) || HasMissingDefinition);
-
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            _bots = (await BotDefinitionService.ListAsync(CancellationToken.None)).ToList();
-            _selectedBotDefinitionId = _bots.Any(bot => string.Equals(bot.BotDefinitionId, CurrentBotDefinitionId, StringComparison.Ordinal))
-                ? CurrentBotDefinitionId
-                : _bots.FirstOrDefault()?.BotDefinitionId;
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = ex.Message;
-        }
-        finally
-        {
-            _isLoading = false;
-        }
-    }
-
-    private Task OnSelectedBotChangedAsync(string? botDefinitionId)
-    {
-        _selectedBotDefinitionId = botDefinitionId;
-        return Task.CompletedTask;
-    }
+    private bool CanClear => !string.IsNullOrWhiteSpace(CurrentStatusLabel);
 
     private void Cancel()
     {
@@ -136,7 +72,7 @@
     {
         MudDialog.Close(DialogResult.Ok(new BotAssignmentDialogResult
         {
-            BotDefinitionId = _selectedBotDefinitionId
+            BotDefinitionId = PlayerUserId
         }));
     }
 }

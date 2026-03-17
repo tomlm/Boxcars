@@ -8,8 +8,8 @@
 <MudStack Spacing="3" Class="dashboard-bot-library">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <MudStack Spacing="0">
-            <MudText Typo="Typo.h5" Class="dashboard-section-title">Bot Library</MudText>
-            <MudText Typo="Typo.body2" Class="dashboard-muted">Shared bot definitions are available across all games.</MudText>
+            <MudText Typo="Typo.h5" Class="dashboard-section-title">Bots</MudText>
+            <MudText Typo="Typo.body2" Class="dashboard-muted">Bots are reusable player records with their own strategy text.</MudText>
         </MudStack>
         <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Primary" OnClick="RefreshAsync" Disabled="_loading" Class="dashboard-bot-library-refresh">
             Refresh
@@ -55,7 +55,7 @@
     }
     else if (_bots.Count == 0)
     {
-        <MudAlert Severity="Severity.Info">No bots have been defined yet.</MudAlert>
+        <MudAlert Severity="Severity.Info">No bots have been created yet.</MudAlert>
     }
     else
     {
