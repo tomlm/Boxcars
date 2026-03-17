@@ -38,7 +38,7 @@ public sealed class PlayerBoardModel
     /// <summary>Expected payoff for the current route, in dollars.</summary>
     public int Payoff { get; init; }
 
-    /// <summary>Exact cash in dollars (only visible for the logged-in player).</summary>
+    /// <summary>Exact cash in dollars (only visible for the logged-in player or manual delegated controller).</summary>
     public int Cash { get; init; }
 
     /// <summary>True if this player is the currently logged-in user.</summary>
@@ -80,6 +80,9 @@ public sealed class PlayerBoardModel
     /// <summary>True when the player currently has a bot assignment record.</summary>
     public bool HasBotAssignment { get; init; }
 
+    /// <summary>True when the current viewer should see the exact cash amount instead of the coarse public indicator.</summary>
+    public bool CanViewExactCash => IsCurrentUser || (IsDelegatedToCurrentUser && !HasBotAssignment);
+
     /// <summary>Assigned bot definition id when available.</summary>
     public string AssignedBotDefinitionId { get; init; } = string.Empty;
 
@@ -108,7 +111,7 @@ public sealed class PlayerBoardModel
     /// </summary>
     public string GetMoneyDisplay()
     {
-        if (IsCurrentUser || IsDelegatedToCurrentUser)
+        if (CanViewExactCash)
         {
             return $"${Cash:N0}";
         }

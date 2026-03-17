@@ -49,6 +49,17 @@
     flex-shrink: 0;
 }
 
+::deep .player-avatar-button {
+    min-width: 0;
+    padding: 0;
+    border-radius: 999px;
+    line-height: 0;
+}
+
+::deep .player-avatar-button:hover {
+    background-color: rgb(255 255 255 / 0.16);
+}
+
 ::deep .player-card-name {
     text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 8px rgb(0 0 0 / 0.28);
 }

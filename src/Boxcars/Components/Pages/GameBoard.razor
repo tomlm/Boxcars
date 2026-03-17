@@ -42,6 +42,7 @@
         <PlayerBoard Players="_players"
                  OnToggleConnection="OnTogglePlayerConnectionAsync"
                  OnToggleDelegatedControl="OnToggleDelegatedControlAsync"
+                 OnFocusPlayer="OnFocusPlayerAsync"
                  OnManageBotAssignment="OnManageBotAssignmentAsync" />
     </div>
 
@@ -966,7 +967,7 @@
         StateHasChanged();
     }
 
-    private void ApplyGameState(RailBaronGameState state)
+    private void ApplyGameState(RailBaronGameState state, bool queueRestoredRouteSelection = true)
     {
         _gameState = state;
         _turnViewState = GameBoardStateMapper.BuildTurnViewState(_game, state, _currentUserId, _playerBoardMapDefinition);
@@ -1088,7 +1089,10 @@
         SyncRegionChoiceSelection();
         SyncPurchaseSelection();
         TrackPurchasePhaseTransition();
-        _pendingRestoredRouteSelection = true;
+        if (queueRestoredRouteSelection)
+        {
+            _pendingRestoredRouteSelection = true;
+        }
     }
 
     private void ReevaluatePlayerPresenceState()
@@ -1316,6 +1320,31 @@ destinationPayoutIndex)
         _timelineInitialized = true;
     }
 
+    private async Task OnFocusPlayerAsync(int playerIndex)
+    {
+        if (_gameMap is null || playerIndex < 0 || playerIndex >= _mapPlayerStates.Count)
+        {
+            return;
+        }
+
+        var playerState = _mapPlayerStates[playerIndex];
+        var focusNodeId = playerState.CurrentNodeId;
+
+        if (string.IsNullOrWhiteSpace(focusNodeId) && !string.IsNullOrWhiteSpace(playerState.CurrentCityName))
+        {
+            focusNodeId = _gameMap.RouteCityOptions
+                .FirstOrDefault(option => string.Equals(option.CityName, playerState.CurrentCityName, StringComparison.OrdinalIgnoreCase))
+                .NodeId;
+        }
+
+        if (string.IsNullOrWhiteSpace(focusNodeId))
+        {
+            return;
+        }
+
+        await _gameMap.FocusRouteAsync([focusNodeId]);
+    }
+
     private async Task<IReadOnlyList<EventTimelineItem>> LoadTimelineEventsAsync(HashSet<string> existingEventIds, bool waitForNewItems)
     {
         IReadOnlyList<EventTimelineItem> latestEvents = [];
@@ -1475,8 +1504,19 @@ StringComparison.OrdinalIgnoreCase));
 
         var destinationRouteCityOptions = _gameMap.RouteCityOptions;
 
+        if (destinationRouteCityOptions.Count == 0)
+        {
+            return;
+        }
+
         var destinationCity = destinationRouteCityOptions.FirstOrDefault(option =>
             string.Equals(option.CityName, activePlayer.DestinationCityName, StringComparison.OrdinalIgnoreCase));
+
+        if (string.IsNullOrWhiteSpace(destinationCity.NodeId))
+        {
+            _pendingRestoredRouteSelection = false;
+            return;
+        }
 
         if (!string.IsNullOrWhiteSpace(destinationCity.NodeId))
         {
@@ -2551,7 +2591,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             if (_gameState is not null && _game is not null)
             {
-                ApplyGameState(_gameState);
+                ApplyGameState(_gameState, queueRestoredRouteSelection: false);
             }
             else
             {
@@ -3007,7 +3047,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             await RefreshBotDisplayNamesAsync();
             if (_gameState is not null && _game is not null)
             {
-                ApplyGameState(_gameState);
+                ApplyGameState(_gameState, queueRestoredRouteSelection: false);
             }
 
             return;
@@ -3020,7 +3060,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         await RefreshBotDisplayNamesAsync();
         if (_gameState is not null)
         {
-            ApplyGameState(_gameState);
+            ApplyGameState(_gameState, queueRestoredRouteSelection: false);
             await RefreshTimelineAsync(notifyNewItems: true);
         }
     }

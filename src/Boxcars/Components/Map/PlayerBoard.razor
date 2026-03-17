@@ -27,16 +27,22 @@
                     <MudPaper Class="@GetCardClass(player)">
                         <MudStack Row="true" Class="player-card-portrait">
                             <div class="player-avatar-shell">
-                                <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
-                                    @if (HasThumbnail(player))
-                                    {
-                                        <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
-                                    }
-                                    else
-                                    {
-                                        @GetInitial(player.Name)
-                                    }
-                                </MudAvatar>
+                                <MudButton Variant="Variant.Text"
+                                           Color="MudBlazor.Color.Inherit"
+                                           Class="player-avatar-button"
+                                           OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
+                                           aria-label="@($"Focus map on {player.Name}")">
+                                    <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
+                                        @if (HasThumbnail(player))
+                                        {
+                                            <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
+                                        }
+                                        else
+                                        {
+                                            @GetInitial(player.Name)
+                                        }
+                                    </MudAvatar>
+                                </MudButton>
                                 <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
                                     <MudIcon Class="@GetStatusIconClass(player)"
                                              Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
@@ -158,6 +164,9 @@
     [Parameter]
     public EventCallback<int> OnManageBotAssignment { get; set; }
 
+    [Parameter]
+    public EventCallback<int> OnFocusPlayer { get; set; }
+
     private static string GetInitial(string name)
     {
         return string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
@@ -198,7 +207,7 @@
 
     private static string GetCashValueClass(PlayerBoardModel player)
     {
-        if (player.IsCurrentUser || player.IsDelegatedToCurrentUser)
+        if (player.CanViewExactCash)
         {
             return string.Empty;
         }
