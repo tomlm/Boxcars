@@ -89,6 +89,7 @@ public sealed record BotRecordedActionMetadata
 {
     public string BotDefinitionId { get; init; } = string.Empty;
     public string BotName { get; init; } = string.Empty;
+    public string ControllerMode { get; init; } = string.Empty;
     public string DecisionSource { get; init; } = string.Empty;
     public string? FallbackReason { get; init; }
 }

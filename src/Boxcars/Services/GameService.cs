@@ -465,6 +465,7 @@ public class GameService
             IsAiAction = playerAction?.IsServerAuthoredAiAction == true,
             BotDefinitionId = playerAction?.BotMetadata?.BotDefinitionId ?? string.Empty,
             BotName = playerAction?.BotMetadata?.BotName ?? string.Empty,
+            BotControllerMode = playerAction?.BotMetadata?.ControllerMode ?? string.Empty,
             BotDecisionSource = playerAction?.BotMetadata?.DecisionSource ?? string.Empty,
             BotFallbackReason = playerAction?.BotMetadata?.FallbackReason ?? string.Empty
         };

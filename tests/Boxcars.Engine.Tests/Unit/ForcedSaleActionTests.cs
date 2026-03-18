@@ -303,10 +303,10 @@ public class ForcedSaleActionTests
 
     private static string InvokeDescribeAction(PlayerAction action, Boxcars.Engine.Persistence.GameState snapshotBeforeAction, Boxcars.Engine.Persistence.GameState snapshotAfterAction, Boxcars.Engine.Domain.GameEngine engine)
     {
-        var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Static)
+        var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("DescribeAction was not found.");
 
-        return (string)(method.Invoke(null, [action, snapshotBeforeAction, snapshotAfterAction, engine])
+        return (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, action, snapshotBeforeAction, snapshotAfterAction, engine])
             ?? throw new InvalidOperationException("DescribeAction returned null."));
     }
 

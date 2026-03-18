@@ -247,7 +247,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.GameId,
                         snapshot,
                         queuedAction.Action.Kind.ToString(),
-                        DescribeAction(queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
+                        DescribeAction(gameEntity, queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
                         queuedAction.Action.PlayerId,
                         queuedAction.Action,
                         stoppingToken);
@@ -647,7 +647,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 gameId,
                 snapshot,
                 automaticAction.Kind.ToString(),
-                DescribeAction(automaticAction, snapshotBeforeAction, snapshot, gameEngine),
+                DescribeAction(gameEntity, automaticAction, snapshotBeforeAction, snapshot, gameEngine),
                 automaticAction.PlayerId,
                 automaticAction,
                 cancellationToken);
@@ -860,7 +860,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return events;
     }
 
-    private static string DescribeAction(PlayerAction action, RailBaronGameState snapshotBeforeAction, RailBaronGameState snapshotAfterAction, RailBaronGameEngine gameEngine)
+    private string DescribeAction(GameEntity gameEntity, PlayerAction action, RailBaronGameState snapshotBeforeAction, RailBaronGameState snapshotAfterAction, RailBaronGameEngine gameEngine)
     {
         var actorName = ResolveActorName(action, snapshotBeforeAction);
 
@@ -903,16 +903,54 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             _ => $"{actorName} performed {action.Kind}"
         };
 
-        return action.BotMetadata is null
-            ? description
-            : string.Concat(description, BuildBotActionSuffix(action.BotMetadata));
+        return string.Concat(description, BuildActionAttributionSuffix(gameEntity, action, snapshotBeforeAction));
+    }
+
+    private string BuildActionAttributionSuffix(GameEntity gameEntity, PlayerAction action, RailBaronGameState snapshotBeforeAction)
+    {
+        if (action.BotMetadata is not null)
+        {
+            return BuildBotActionSuffix(action.BotMetadata);
+        }
+
+        if (string.IsNullOrWhiteSpace(action.ActorUserId))
+        {
+            return string.Empty;
+        }
+
+        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
+        var slotUserId = ResolveActingSlotUserId(selections, action, snapshotBeforeAction);
+        if (string.IsNullOrWhiteSpace(slotUserId)
+            || string.Equals(slotUserId, action.ActorUserId, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var activeAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeAssignment);
+        if (!string.Equals(controllerState.ControllerMode, SeatControllerModes.HumanDelegated, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var controllerDisplayName = ResolveParticipantDisplayName(selections, action.ActorUserId);
+        return string.IsNullOrWhiteSpace(controllerDisplayName)
+            ? string.Empty
+            : string.Concat(" [", controllerDisplayName, "]");
     }
 
     private static string BuildBotActionSuffix(BotRecordedActionMetadata metadata)
     {
-        var suffixLabel = !string.IsNullOrWhiteSpace(metadata.BotName)
-            ? metadata.BotName
-            : "GHOST";
+        if (string.Equals(metadata.ControllerMode, SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var suffixLabel = string.Equals(metadata.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+            ? "AUTO"
+            : !string.IsNullOrWhiteSpace(metadata.BotName)
+                ? metadata.BotName
+                : "AUTO";
         var suffix = string.Concat(" [", suffixLabel);
         if (!string.IsNullOrWhiteSpace(metadata.FallbackReason))
         {
@@ -920,6 +958,41 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         return string.Concat(suffix, "]");
+    }
+
+    private static string? ResolveActingSlotUserId(IReadOnlyList<GamePlayerSelection> selections, PlayerAction action, RailBaronGameState snapshot)
+    {
+        if (action.PlayerIndex.HasValue
+            && action.PlayerIndex.Value >= 0
+            && action.PlayerIndex.Value < selections.Count)
+        {
+            return selections[action.PlayerIndex.Value].UserId;
+        }
+
+        var slotIndex = snapshot.Players.FindIndex(player => string.Equals(player.Name, action.PlayerId, StringComparison.Ordinal));
+        if (slotIndex >= 0 && slotIndex < selections.Count)
+        {
+            return selections[slotIndex].UserId;
+        }
+
+        var selection = selections.FirstOrDefault(player => string.Equals(player.DisplayName, action.PlayerId, StringComparison.OrdinalIgnoreCase));
+        return selection?.UserId;
+    }
+
+    private static string ResolveParticipantDisplayName(IReadOnlyList<GamePlayerSelection> selections, string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return string.Empty;
+        }
+
+        var participant = selections.FirstOrDefault(selection => string.Equals(selection.UserId, userId, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(participant?.DisplayName))
+        {
+            return participant.DisplayName;
+        }
+
+        return userId;
     }
 
     private static string BuildActionFailureMessage(PlayerAction action, Exception exception)

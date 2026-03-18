@@ -1352,6 +1352,7 @@ public sealed class BotTurnService
         {
             BotDefinitionId = assignment.BotDefinitionId,
             BotName = botName,
+            ControllerMode = assignment.ControllerMode,
             DecisionSource = source,
             FallbackReason = fallbackReason
         };

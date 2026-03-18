@@ -42,6 +42,7 @@ public sealed record EventTimelineItem
     public bool IsAiAction { get; init; }
     public string BotDefinitionId { get; init; } = string.Empty;
     public string BotName { get; init; } = string.Empty;
+    public string BotControllerMode { get; init; } = string.Empty;
     public string BotDecisionSource { get; init; } = string.Empty;
     public string BotFallbackReason { get; init; } = string.Empty;
 }

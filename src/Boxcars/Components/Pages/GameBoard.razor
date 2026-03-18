@@ -1100,7 +1100,7 @@
                     IsBotPlayer = isBotUser,
                     AssignedBotDefinitionId = activeBotAssignment?.BotDefinitionId ?? string.Empty,
                     BotAssignmentStatusLabel = string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
-                        ? "Bot"
+                        ? "AUTO"
                         : GameBoardStateMapper.GetBotAssignmentStatusLabel(latestBotAssignment, latestBotName),
                     HasMissingBotDefinition = string.Equals(latestBotAssignment?.Status, BotAssignmentStatuses.MissingDefinition, StringComparison.OrdinalIgnoreCase),
                     LocomotiveLabel = player.LocomotiveType,
@@ -2626,7 +2626,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     IsBotPlayer = player.IsBotPlayer,
                     AssignedBotDefinitionId = player.AssignedBotDefinitionId,
                     BotAssignmentStatusLabel = string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
-                        ? "Bot"
+                        ? "AUTO"
                         : player.BotAssignmentStatusLabel,
                     HasMissingBotDefinition = player.HasMissingBotDefinition,
                     LocomotiveLabel = player.LocomotiveLabel,
@@ -2897,9 +2897,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return null;
         }
 
-        var detail = string.IsNullOrWhiteSpace(item.BotName)
-            ? "AI action"
-            : $"AI action by {item.BotName}";
+        var detail = string.Equals(item.BotControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+            ? "AUTO action"
+            : "AI action";
 
         if (!string.IsNullOrWhiteSpace(item.BotDecisionSource))
         {

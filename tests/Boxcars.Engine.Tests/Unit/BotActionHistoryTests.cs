@@ -1,11 +1,15 @@
 using System.Reflection;
 using System.Text.Json;
+using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Engine.Domain;
 using Boxcars.GameEngine;
 using Boxcars.Engine.Tests.Fixtures;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Boxcars.Engine.Tests.Unit;
@@ -25,6 +29,7 @@ public class BotActionHistoryTests
             {
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
+                ControllerMode = SeatControllerModes.AiGhost,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -35,6 +40,7 @@ public class BotActionHistoryTests
         Assert.Contains("\"BotMetadata\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"BotDefinitionId\":\"bot-1\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"BotName\":\"El Cheapo\"", payload, StringComparison.Ordinal);
+        Assert.Contains("\"ControllerMode\":\"AiGhost\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"DecisionSource\":\"Fallback\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"FallbackReason\":\"Timeout\"", payload, StringComparison.Ordinal);
     }
@@ -52,6 +58,7 @@ public class BotActionHistoryTests
             {
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
+                ControllerMode = SeatControllerModes.AiGhost,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -66,14 +73,16 @@ public class BotActionHistoryTests
         Assert.NotNull(restored.BotMetadata);
         Assert.Equal("bot-1", restored.BotMetadata!.BotDefinitionId);
         Assert.Equal("El Cheapo", restored.BotMetadata.BotName);
+        Assert.Equal(SeatControllerModes.AiGhost, restored.BotMetadata.ControllerMode);
         Assert.Equal("Fallback", restored.BotMetadata.DecisionSource);
         Assert.Equal("Timeout", restored.BotMetadata.FallbackReason);
         Assert.True(restored.IsServerAuthoredAiAction);
     }
 
     [Fact]
-    public void DescribeAction_BotDrivenRegionChoice_AppendsBotAttributionSuffix()
+    public void DescribeAction_GhostDrivenRegionChoice_AppendsAutoAttributionSuffix()
     {
+        var service = CreateGameEngineServiceForTests();
         var (engine, random) = GameEngineFixture.CreateTestEngine();
 
         random.QueueWeightedDraw(0);
@@ -91,6 +100,7 @@ public class BotActionHistoryTests
             {
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
+                ControllerMode = SeatControllerModes.AiGhost,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -100,9 +110,73 @@ public class BotActionHistoryTests
         engine.ChooseDestinationRegion("SE");
         var snapshotAfterAction = engine.ToSnapshot();
 
-        var summary = InvokeDescribeAction(action, snapshotBeforeAction, snapshotAfterAction, engine);
+        var summary = InvokeDescribeAction(service, CreateGameEntity(), action, snapshotBeforeAction, snapshotAfterAction, engine);
 
-        Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta. [El Cheapo; Timeout]", summary);
+        Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta. [AUTO; Timeout]", summary);
+    }
+
+    [Fact]
+    public void DescribeAction_DedicatedBotDrivenRegionChoice_DropsAttributionSuffix()
+    {
+        var service = CreateGameEngineServiceForTests();
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        engine.DrawDestination();
+
+        var snapshotBeforeAction = engine.ToSnapshot();
+        var action = new ChooseDestinationRegionAction
+        {
+            PlayerId = engine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            ActorUserId = BotOptions.DefaultServerActorUserId,
+            SelectedRegionCode = "SE",
+            BotMetadata = new BotRecordedActionMetadata
+            {
+                BotDefinitionId = "bot-1",
+                BotName = "El Cheapo",
+                ControllerMode = SeatControllerModes.AiBotSeat,
+                DecisionSource = "Fallback",
+                FallbackReason = "Timeout"
+            }
+        };
+
+        random.QueueWeightedDraw(1);
+        engine.ChooseDestinationRegion("SE");
+        var snapshotAfterAction = engine.ToSnapshot();
+
+        var summary = InvokeDescribeAction(service, CreateGameEntity(), action, snapshotBeforeAction, snapshotAfterAction, engine);
+
+        Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta.", summary);
+    }
+
+    [Fact]
+    public void DescribeAction_DelegatedManualMove_AppendsControllerDisplayName()
+    {
+        var presenceService = new GamePresenceService();
+        Assert.True(presenceService.TryTakeDelegatedControl("game-1", "alice@example.com", "tom@example.com"));
+
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Move);
+
+        var snapshotBeforeAction = engine.ToSnapshot();
+        var action = new MoveAction
+        {
+            PlayerId = engine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            ActorUserId = "tom@example.com",
+            PointsTaken = ["albany", "boston"],
+            SelectedSegmentKeys = ["albany|boston|0"]
+        };
+
+        engine.MoveAlongRoute(1);
+        var snapshotAfterAction = engine.ToSnapshot();
+
+        var summary = InvokeDescribeAction(service, CreateGameEntity(), action, snapshotBeforeAction, snapshotAfterAction, engine);
+
+        Assert.Equal("Alice moved 1 space [TOM]", summary);
     }
 
     [Fact]
@@ -228,16 +302,59 @@ public class BotActionHistoryTests
     }
 
     private static string InvokeDescribeAction(
+        GameEngineService service,
+        GameEntity gameEntity,
         PlayerAction action,
         Boxcars.Engine.Persistence.GameState snapshotBeforeAction,
         Boxcars.Engine.Persistence.GameState snapshotAfterAction,
         Boxcars.Engine.Domain.GameEngine engine)
     {
-        var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Static)
+        var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("DescribeAction was not found.");
 
-        return (string)(method.Invoke(null, [action, snapshotBeforeAction, snapshotAfterAction, engine])
+        return (string)(method.Invoke(service, [gameEntity, action, snapshotBeforeAction, snapshotAfterAction, engine])
             ?? throw new InvalidOperationException("DescribeAction returned null."));
+    }
+
+    private static GameEntity CreateGameEntity()
+    {
+        return new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+            [
+                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
+                new GamePlayerSelection { UserId = "tom@example.com", DisplayName = "TOM", Color = "#222222" }
+            ])
+        };
+    }
+
+    private static GameEngineService CreateGameEngineServiceForTests()
+    {
+        return CreateGameEngineServiceForTests(new GamePresenceService());
+    }
+
+    private static GameEngineService CreateGameEngineServiceForTests(GamePresenceService presenceService)
+    {
+        return new GameEngineService(
+            new TestWebHostEnvironment(),
+            new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
+            presenceService,
+            Options.Create(new BotOptions()),
+            Options.Create(new PurchaseRulesOptions()),
+            NullLogger<GameEngineService>.Instance);
+    }
+
+    private sealed class TestWebHostEnvironment : IWebHostEnvironment
+    {
+        public string ApplicationName { get; set; } = "Boxcars.Tests";
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+        public string WebRootPath { get; set; } = string.Empty;
+        public string EnvironmentName { get; set; } = "Development";
+        public string ContentRootPath { get; set; } = string.Empty;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
     private static IReadOnlyList<EventTimelineItem> InvokeBuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
