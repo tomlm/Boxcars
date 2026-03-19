@@ -36,6 +36,27 @@ public class TableStorageUserStore :
         user.SecurityStamp = string.IsNullOrWhiteSpace(user.SecurityStamp) ? Guid.NewGuid().ToString() : user.SecurityStamp;
         user.Name = string.IsNullOrWhiteSpace(user.Name) ? user.UserName : user.Name;
 
+        var now = DateTimeOffset.UtcNow;
+        if (user.CreatedUtc == default)
+        {
+            user.CreatedUtc = now;
+        }
+
+        if (user.ModifiedUtc == default)
+        {
+            user.ModifiedUtc = user.CreatedUtc;
+        }
+
+        if (string.IsNullOrWhiteSpace(user.CreatedByUserId))
+        {
+            user.CreatedByUserId = user.RowKey;
+        }
+
+        if (string.IsNullOrWhiteSpace(user.ModifiedByUserId))
+        {
+            user.ModifiedByUserId = user.CreatedByUserId;
+        }
+
         if (string.IsNullOrWhiteSpace(user.Nickname))
         {
             user.Nickname = user.Email.Split('@')[0];
