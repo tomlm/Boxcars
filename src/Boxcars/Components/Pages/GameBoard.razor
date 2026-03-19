@@ -1260,7 +1260,7 @@
         }
 
         var player = state.Players[playerIndex];
-        var grandfatheredRailroads = player.GrandfatheredRailroadIndices.ToHashSet();
+        var fullRateRailroads = state.Turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
         var ownerBuckets = new Dictionary<int, bool>();
         var usesBaseRateRailroad = false;
 
@@ -1278,7 +1278,7 @@
                 continue;
             }
 
-            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
+            var requiresFullOwnerRate = fullRateRailroads.Contains(railroadIndex);
             if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
             {
                 ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;

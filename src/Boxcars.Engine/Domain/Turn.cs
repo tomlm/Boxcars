@@ -113,6 +113,9 @@ public sealed class Turn : ObservableBase
     /// <summary>Railroad indices used this turn (for use fee calculation).</summary>
     internal HashSet<int> RailroadsRiddenThisTurn { get; } = new();
 
+    /// <summary>Railroad indices that must be charged at the full owner rate this turn.</summary>
+    internal HashSet<int> RailroadsRequiringFullOwnerRateThisTurn { get; } = new();
+
     public Turn()
     {
         _turnNumber = 1;

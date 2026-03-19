@@ -273,7 +273,12 @@ public sealed class GameBoardStateMapper(
         }
 
         var activePlayer = state.Players[activePlayerIndex];
-        var grandfatheredRailroadIndices = SimulateGrandfatheredRailroads(activePlayer.GrandfatheredRailroadIndices, segmentKeys);
+        var fullRateRailroadIndices = SimulateFullRateRailroads(
+            activePlayerIndex,
+            activePlayer.GrandfatheredRailroadIndices,
+            state.Turn.RailroadsRequiringFullOwnerRateThisTurn,
+            state.RailroadOwnership,
+            segmentKeys);
         var usesBaseRateRailroad = false;
         var ownerBuckets = new Dictionary<int, bool>();
 
@@ -293,7 +298,7 @@ public sealed class GameBoardStateMapper(
 
             if (ownerIndex.Value != activePlayerIndex)
             {
-                var requiresFullOwnerRate = !grandfatheredRailroadIndices.Contains(railroadIndex);
+                var requiresFullOwnerRate = fullRateRailroadIndices.Contains(railroadIndex);
                 if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
                 {
                     ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
@@ -314,13 +319,32 @@ public sealed class GameBoardStateMapper(
 
     private readonly record struct PreviewFeeSummary(int FeeEstimate, bool HasUnfriendlyFee);
 
-    private static HashSet<int> SimulateGrandfatheredRailroads(IReadOnlyList<int> currentGrandfatheredRailroads, IReadOnlyList<string> segmentKeys)
+    private static HashSet<int> SimulateFullRateRailroads(
+        int activePlayerIndex,
+        IReadOnlyList<int> currentGrandfatheredRailroads,
+        IReadOnlyList<int> currentFullRateRailroads,
+        Dictionary<int, int?> railroadOwnership,
+        IReadOnlyList<string> segmentKeys)
     {
         var grandfatheredRailroads = currentGrandfatheredRailroads.ToHashSet();
+        var fullRateRailroads = currentFullRateRailroads.ToHashSet();
 
         foreach (var segmentKey in segmentKeys)
         {
-            if (!TryParseRailroadIndex(segmentKey, out var railroadIndex) || grandfatheredRailroads.Count == 0)
+            if (!TryParseRailroadIndex(segmentKey, out var railroadIndex))
+            {
+                continue;
+            }
+
+            if (railroadOwnership.TryGetValue(railroadIndex, out var ownerIndex)
+                && ownerIndex is not null
+                && ownerIndex.Value != activePlayerIndex
+                && !grandfatheredRailroads.Contains(railroadIndex))
+            {
+                fullRateRailroads.Add(railroadIndex);
+            }
+
+            if (grandfatheredRailroads.Count == 0)
             {
                 continue;
             }
@@ -335,7 +359,7 @@ public sealed class GameBoardStateMapper(
             }
         }
 
-        return grandfatheredRailroads;
+        return fullRateRailroads;
     }
 
     private static bool TryParseRailroadIndex(string segmentKey, out int railroadIndex)

@@ -157,6 +157,80 @@ public class UseFeesTests
     }
 
     [Fact]
+    public void MoveAlongRoute_LeavingGrandfatheredRailroad_StillChargesBaseRateForThatRailroad()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var grandfatheredRailroad = engine.Railroads.First(rr => rr.Index == 0);
+
+        grandfatheredRailroad.Owner = owner;
+        owner.OwnedRailroads.Add(grandfatheredRailroad);
+        rider.GrandfatheredRailroadIndices.Add(grandfatheredRailroad.Index);
+        rider.Cash = 100_000;
+        owner.Cash = 0;
+        rider.CurrentNodeId = "0:0";
+        rider.ActiveRoute = new Route(
+            ["0:0", "0:1", "0:2"],
+            [
+                new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = grandfatheredRailroad.Index },
+                new RouteSegment { FromNodeId = "0:1", ToNodeId = "0:2", RailroadIndex = 1 }
+            ],
+            0);
+        rider.RouteProgressIndex = 0;
+
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = 2;
+        engine.CurrentTurn.MovementRemaining = 2;
+
+        var riderCashBefore = rider.Cash;
+        engine.MoveAlongRoute(2);
+
+        Assert.Equal(riderCashBefore - 2_000, rider.Cash);
+        Assert.Equal(1_000, owner.Cash);
+        Assert.Empty(rider.GrandfatheredRailroadIndices);
+        Assert.DoesNotContain(grandfatheredRailroad.Index, engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn);
+    }
+
+    [Fact]
+    public void MoveAlongRoute_ReenteringGrandfatheredRailroad_ChargesFullOwnerRate()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var grandfatheredRailroad = engine.Railroads.First(rr => rr.Index == 0);
+
+        grandfatheredRailroad.Owner = owner;
+        owner.OwnedRailroads.Add(grandfatheredRailroad);
+        rider.GrandfatheredRailroadIndices.Add(grandfatheredRailroad.Index);
+        rider.Cash = 100_000;
+        owner.Cash = 0;
+        rider.CurrentNodeId = "0:0";
+        rider.ActiveRoute = new Route(
+            ["0:0", "0:1", "0:2", "0:3"],
+            [
+                new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = grandfatheredRailroad.Index },
+                new RouteSegment { FromNodeId = "0:1", ToNodeId = "0:2", RailroadIndex = 1 },
+                new RouteSegment { FromNodeId = "0:2", ToNodeId = "0:3", RailroadIndex = grandfatheredRailroad.Index }
+            ],
+            0);
+        rider.RouteProgressIndex = 0;
+
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = 3;
+        engine.CurrentTurn.MovementRemaining = 3;
+
+        var riderCashBefore = rider.Cash;
+        engine.MoveAlongRoute(3);
+
+        Assert.Equal(riderCashBefore - 6_000, rider.Cash);
+        Assert.Equal(5_000, owner.Cash);
+        Assert.Contains(grandfatheredRailroad.Index, engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn);
+    }
+
+    [Fact]
     public void BuyRailroad_AfterRidingThatRailroad_StillChargesBaseRateUseFee()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();
@@ -189,8 +263,10 @@ public class UseFeesTests
     [Fact]
     public void DeclinePurchase_WhenFeesExceedCashAndPlayerOwnsRailroads_EntersForcedSale()
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine();
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
 
         var player = engine.CurrentTurn.ActivePlayer;
         var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
@@ -213,8 +289,10 @@ public class UseFeesTests
     [Fact]
     public void SellRailroadToBank_WhenStillShort_RemainsInForcedSale()
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine();
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
 
         var player = engine.CurrentTurn.ActivePlayer;
         var firstRailroad = engine.Railroads.First(rr => rr.Index == 0);
@@ -234,6 +312,7 @@ public class UseFeesTests
         feeOwner.OwnedRailroads.Add(feeRailroad);
         engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
 
         engine.DeclinePurchase();
         engine.SellRailroadToBank(firstRailroad);
@@ -249,8 +328,10 @@ public class UseFeesTests
     [Fact]
     public void SellRailroadToBank_WhenSaleCoversFees_PaysFeesAndEndsTurn()
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine();
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
 
         var player = engine.CurrentTurn.ActivePlayer;
         var owner = engine.Players[1];
@@ -264,6 +345,7 @@ public class UseFeesTests
         owner.Cash = 0;
         engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
 
         engine.DeclinePurchase();
         engine.SellRailroadToBank(ownedRailroad);

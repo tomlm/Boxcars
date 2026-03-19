@@ -374,6 +374,7 @@ public sealed class GameEngine : ObservableBase
 
             player.UsedSegments.Add(segKey);
             CurrentTurn.RailroadsRiddenThisTurn.Add(segment.RailroadIndex);
+            TrackRailroadFeeRate(player, segment.RailroadIndex);
             UpdateGrandfatheredRailroadAccess(player, segment.RailroadIndex);
         }
 
@@ -887,6 +888,7 @@ public sealed class GameEngine : ObservableBase
 
         // Clear turn-specific tracking
         CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Clear();
         CurrentTurn.DiceResult = null;
         CurrentTurn.MovementAllowance = 0;
         CurrentTurn.MovementRemaining = 0;
@@ -946,6 +948,7 @@ public sealed class GameEngine : ObservableBase
                 PendingFeeAmount = CurrentTurn.PendingFeeAmount,
                 SelectedRailroadForSaleIndex = CurrentTurn.SelectedRailroadForSaleIndex,
                 RailroadsRiddenThisTurn = CurrentTurn.RailroadsRiddenThisTurn.ToList(),
+                RailroadsRequiringFullOwnerRateThisTurn = CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.ToList(),
                 ArrivalResolution = CurrentTurn.ArrivalResolution is null
                     ? null
                     : new ArrivalResolutionState
@@ -1267,6 +1270,9 @@ public sealed class GameEngine : ObservableBase
 
         foreach (var rrIdx in snapshot.Turn.RailroadsRiddenThisTurn)
             engine._currentTurn.RailroadsRiddenThisTurn.Add(rrIdx);
+
+        foreach (var rrIdx in snapshot.Turn.RailroadsRequiringFullOwnerRateThisTurn)
+            engine._currentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(rrIdx);
 
         // Restore game status
         engine._gameStatus = Enum.Parse<GameStatus>(snapshot.GameStatus);
@@ -1857,7 +1863,7 @@ public sealed class GameEngine : ObservableBase
                 continue;
             }
 
-            AddRailroadToFeeBucket(feeBuckets, rider, railroad);
+            AddRailroadToFeeBucket(feeBuckets, rider, railroad, CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn);
         }
 
         return feeBuckets;
@@ -1877,6 +1883,20 @@ public sealed class GameEngine : ObservableBase
         }
 
         player.GrandfatheredRailroadIndices.Clear();
+    }
+
+    private void TrackRailroadFeeRate(Player rider, int railroadIndex)
+    {
+        var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
+        if (railroad is null || railroad.Owner is null || railroad.Owner == rider)
+        {
+            return;
+        }
+
+        if (!rider.GrandfatheredRailroadIndices.Contains(railroadIndex))
+        {
+            CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(railroadIndex);
+        }
     }
 
     private void UpdateGrandfatheringForOwnershipChange(int railroadIndex, Player? newOwner)
@@ -1910,7 +1930,11 @@ public sealed class GameEngine : ObservableBase
                 || string.Equals(NodeKey(segment.EndRegionIndex, segment.EndDotIndex), player.CurrentNodeId, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private static void AddRailroadToFeeBucket(Dictionary<int, FeeBucket> feeBuckets, Player rider, Railroad railroad)
+    private static void AddRailroadToFeeBucket(
+        Dictionary<int, FeeBucket> feeBuckets,
+        Player rider,
+        Railroad railroad,
+        HashSet<int> railroadsRequiringFullOwnerRate)
     {
         var usesBaseRate = railroad.Owner is null || railroad.Owner == rider;
         int ownerKey = usesBaseRate ? -1 : railroad.Owner!.Index;
@@ -1921,7 +1945,7 @@ public sealed class GameEngine : ObservableBase
         }
 
         bucket.Railroads.Add(railroad.Index);
-        if (!usesBaseRate && !rider.GrandfatheredRailroadIndices.Contains(railroad.Index))
+        if (!usesBaseRate && railroadsRequiringFullOwnerRate.Contains(railroad.Index))
         {
             bucket.RequiresFullOwnerRate = true;
         }

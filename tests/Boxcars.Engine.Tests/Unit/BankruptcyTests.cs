@@ -13,8 +13,10 @@ public class BankruptcyTests
     [Fact]
     public void DeclinePurchase_WhenPlayerCannotPayAndOwnsNoRailroads_EliminatesPlayer()
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine();
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
 
         var player = engine.CurrentTurn.ActivePlayer;
         var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
@@ -24,6 +26,7 @@ public class BankruptcyTests
         player.Cash = 0;
         engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
 
         engine.DeclinePurchase();
 
@@ -37,8 +40,10 @@ public class BankruptcyTests
     [Fact]
     public void SellRailroadToBank_WhenFinalSaleStillCannotCoverFees_EliminatesPlayer()
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine();
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
 
         var player = engine.CurrentTurn.ActivePlayer;
         var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
@@ -51,6 +56,7 @@ public class BankruptcyTests
         player.Cash = 0;
         engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
 
         engine.DeclinePurchase();
         engine.SellRailroadToBank(ownedRailroad);

@@ -584,7 +584,7 @@ public class GameService
             return string.Empty;
         }
 
-        var grandfatheredRailroads = activePlayerState.GrandfatheredRailroadIndices.ToHashSet();
+        var fullRateRailroads = snapshot.Turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
         var usedBaseRateRailroad = false;
         var opposingOwnerRates = new Dictionary<int, bool>();
 
@@ -602,7 +602,7 @@ public class GameService
                 continue;
             }
 
-            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
+            var requiresFullOwnerRate = fullRateRailroads.Contains(railroadIndex);
             if (!opposingOwnerRates.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
             {
                 opposingOwnerRates[ownerIndex.Value] = requiresFullOwnerRate;

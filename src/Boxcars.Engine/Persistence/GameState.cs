@@ -64,6 +64,7 @@ public sealed class TurnState
     public int PendingFeeAmount { get; set; }
     public int? SelectedRailroadForSaleIndex { get; set; }
     public List<int> RailroadsRiddenThisTurn { get; set; } = new();
+    public List<int> RailroadsRequiringFullOwnerRateThisTurn { get; set; } = new();
     public ArrivalResolutionState? ArrivalResolution { get; set; }
     public ForcedSaleTurnState? ForcedSale { get; set; }
     public AuctionTurnState? Auction { get; set; }
