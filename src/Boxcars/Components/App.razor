@@ -26,10 +26,12 @@
 </html>
 
 @code {
+    private static readonly IComponentRenderMode InteractiveServerWithoutPrerender = new InteractiveServerRenderMode(prerender: false);
+
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
 
     private IComponentRenderMode? PageRenderMode => HttpContext.Request.Path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase)
         ? null
-        : InteractiveServer;
+        : InteractiveServerWithoutPrerender;
 }

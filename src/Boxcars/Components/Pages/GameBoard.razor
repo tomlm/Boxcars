@@ -25,7 +25,7 @@
 @inject GamePresenceService GamePresenceService
 @inject GameCircuitPresenceTracker GameCircuitPresenceTracker
 @inject GameBoardStateMapper GameBoardStateMapper
-@inject BotDefinitionService BotDefinitionService
+@inject UserDirectoryService UserDirectoryService
 @inject BotTurnService BotTurnService
 @inject NetworkCoverageService NetworkCoverageService
 @inject MapAnalysisService MapAnalysisService
@@ -154,18 +154,13 @@
                                 @foreach (var item in NotificationHistoryItems)
                                 {
                                     <div class="@ResolveNotificationHistoryItemClass(item)" role="option" aria-selected="false">
-                                        <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1" Class="map-board-history-row-content">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="map-board-history-row-content">
                                             <MudIcon Icon="@item.Icon"
                                                      Color="@ResolveNotificationHistoryIconColor(item)"
                                                      Size="Size.Medium"
                                                      Class="map-board-history-icon" />
                                             <MudStack Spacing="0" Class="map-board-history-copy">
                                                 <MudText Typo="Typo.body2">@item.Message</MudText>
-                                                @if (!string.IsNullOrWhiteSpace(item.Detail))
-                                                {
-                                                    <MudText Typo="Typo.caption">@item.Detail</MudText>
-                                                }
-                                                <MudText Typo="Typo.caption">@FormatNotificationHistoryTime(item.OccurredUtc)</MudText>
                                             </MudStack>
                                         </MudStack>
                                     </div>
@@ -354,7 +349,7 @@
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
         await LoadPlayerProfilesAsync(CancellationToken.None);
         await EnsurePlayerBoardMapDefinitionAsync(CancellationToken.None);
-        await LoadGameStateAsync();
+        await LoadGameStateAsync(refreshGameEntity: false);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -405,7 +400,7 @@
         && CanCommitMoveSelection();
 
     private string ObserverTurnMessage => string.IsNullOrWhiteSpace(_turnViewState.ActivePlayerName)
-            ? "Waiting for the active player to take their turn."
+            ? "Loading..."
         : string.Equals(_turnViewState.TurnPhase, TurnPhase.RegionChoice.ToString(), StringComparison.OrdinalIgnoreCase)
             ? $"Waiting for {_turnViewState.ActivePlayerName} to choose a replacement destination region."
                 : $"Waiting for {_turnViewState.ActivePlayerName} to take their turn.";
@@ -911,10 +906,15 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task LoadGameStateAsync()
+    private async Task LoadGameStateAsync(bool refreshGameEntity = true)
     {
         _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
-        await RefreshGameEntityAsync();
+
+        if (refreshGameEntity)
+        {
+            await RefreshGameEntityAsync();
+        }
+
         await RefreshBotDisplayNamesAsync();
         ApplyGameState(_gameState);
         SyncRouteSelectionToActivePlayer();
@@ -1347,7 +1347,7 @@ destinationPayoutIndex)
         var events = await LoadTimelineEventsAsync(existingEventIds, notifyNewItems && _timelineInitialized);
         _gameEngineEvents = events.ToList();
 
-        if (notifyNewItems && _timelineInitialized)
+        if (notifyNewItems && _timelineInitialized && existingEventIds.Count > 0)
         {
             NotifyNewTimelineItems(existingEventIds);
         }
@@ -1759,15 +1759,14 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         && string.Equals(_turnViewState.TurnPhase, TurnPhase.RegionChoice.ToString(), StringComparison.OrdinalIgnoreCase);
 
     private bool ShouldShowAuctionPanel => CurrentAuctionState is not null
-        && string.Equals(_turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase)
-        && (IsCurrentUserActivePlayer || CanCurrentUserActInAuction);
+        && string.Equals(_turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase);
 
     private bool ShouldShowForcedSalePanel => CurrentForcedSalePhase is { SaleCandidates.Count: > 0 }
         && IsCurrentUserActivePlayer
         && CurrentAuctionState is null
         && string.Equals(_turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase);
 
-    private bool ShouldShowStatusControls => IsCurrentUserActivePlayer || CanCurrentUserActInAuction;
+    private bool ShouldShowStatusControls => ShouldShowAuctionPanel || IsCurrentUserActivePlayer || CanCurrentUserActInAuction;
 
     private bool ShouldShowCommitMoveAction => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase);
 
@@ -2763,7 +2762,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var resolvedNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var assignedBotId in assignedBotIds)
         {
-            var definition = await BotDefinitionService.GetAsync(assignedBotId, CancellationToken.None);
+            var definition = await UserDirectoryService.GetBotDefinitionAsync(assignedBotId, CancellationToken.None);
             if (definition is not null && !string.IsNullOrWhiteSpace(definition.Name))
             {
                 resolvedNames[assignedBotId] = definition.Name;

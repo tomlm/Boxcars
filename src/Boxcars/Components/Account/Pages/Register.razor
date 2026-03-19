@@ -107,7 +107,11 @@
         Logger.LogInformation("User created a new account with password.");
 
         await SignInManager.SignInAsync(user, isPersistent: false);
-        RedirectManager.RedirectTo(ReturnUrl);
+        RedirectManager.RedirectTo("/Account/Manage/Preferences", new Dictionary<string, object?>
+        {
+            ["requiredStrategy"] = true,
+            ["returnUrl"] = ReturnUrl
+        });
     }
 
     private ApplicationUser CreateUser()

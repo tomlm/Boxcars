@@ -9,6 +9,10 @@ public sealed record BotAssignment
     public string ControllerUserId { get; init; } = string.Empty;
     public string ControllerMode { get; init; } = string.Empty;
     public string BotDefinitionId { get; init; } = string.Empty;
+    public int? AuctionPlanTurnNumber { get; init; }
+    public int? AuctionPlanRailroadIndex { get; init; }
+    public int? AuctionPlanStartingPrice { get; init; }
+    public int? AuctionPlanMaximumBid { get; init; }
     public DateTimeOffset AssignedUtc { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ClearedUtc { get; init; }
     public string Status { get; init; } = BotAssignmentStatuses.Active;

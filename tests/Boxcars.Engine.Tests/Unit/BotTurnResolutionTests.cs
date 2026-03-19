@@ -290,7 +290,7 @@ public class BotTurnResolutionTests
     }
 
     [Fact]
-    public async Task CreateBotActionAsync_AuctionWithOnlyPassChoice_ReturnsAuctionPassAction()
+    public async Task CreateBotActionAsync_AuctionWithoutAffordableBid_ReturnsAuctionDropOutAction()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
         engine.CurrentTurn.Phase = TurnPhase.Purchase;
@@ -326,11 +326,11 @@ public class BotTurnResolutionTests
 
         var action = await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
-        var passAction = Assert.IsType<AuctionPassAction>(action);
-        Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, passAction.ActorUserId);
-        Assert.Equal(railroad.Index, passAction.RailroadIndex);
-        Assert.NotNull(passAction.BotMetadata);
-        Assert.Equal("OnlyLegalChoice", passAction.BotMetadata!.DecisionSource);
+        var dropOutAction = Assert.IsType<AuctionDropOutAction>(action);
+        Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, dropOutAction.ActorUserId);
+        Assert.Equal(railroad.Index, dropOutAction.RailroadIndex);
+        Assert.NotNull(dropOutAction.BotMetadata);
+        Assert.Equal("OnlyLegalChoice", dropOutAction.BotMetadata!.DecisionSource);
     }
 
     [Fact]
@@ -378,5 +378,153 @@ public class BotTurnResolutionTests
         Assert.Equal(engine.CurrentTurn.AuctionState!.StartingPrice, bidAction.AmountBid);
         Assert.NotNull(bidAction.BotMetadata);
         Assert.Equal("Fallback", bidAction.BotMetadata!.DecisionSource);
+    }
+
+    [Fact]
+    public async Task CreateBotActionAsync_AuctionCachesCeilingAndReusesItWithoutSecondOpenAiCall()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var railroad = engine.Railroads[0];
+        railroad.Owner = seller;
+        seller.OwnedRailroads.Add(railroad);
+        engine.AuctionRailroad(railroad);
+
+        var bidderIndex = engine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex;
+        Assert.True(bidderIndex.HasValue);
+
+        var bidder = engine.Players[bidderIndex!.Value];
+        bidder.Cash = railroad.PurchasePrice;
+        var startingPrice = engine.CurrentTurn.AuctionState!.StartingPrice;
+        var ceiling = startingPrice + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement;
+
+        var presenceService = new GamePresenceService();
+        BotTurnServiceTestHarness.ConfigureDelegatedControl(
+            presenceService,
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId);
+
+        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
+            botDefinitionId: "bob@example.com",
+            name: "Ghost Strategy");
+        var (service, handler) = BotTurnServiceTestHarness.CreateServiceWithOpenAiSelection(
+            presenceService,
+            $"auction-cap:{ceiling}",
+            botDefinition);
+        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+            BotTurnServiceTestHarness.CreateSelections(
+                "seller@example.com",
+                "bob@example.com",
+                "charlie@example.com"),
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId,
+            botDefinition.BotDefinitionId);
+
+        var firstAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+
+        Assert.Equal(startingPrice, firstAction.AmountBid);
+        Assert.Equal(1, handler.RequestCount);
+
+        var cachedAssignment = Assert.Single(BotAssignmentSerialization.Deserialize(game.BotAssignmentsJson));
+        Assert.Equal(engine.ToSnapshot().TurnNumber, cachedAssignment.AuctionPlanTurnNumber);
+        Assert.Equal(railroad.Index, cachedAssignment.AuctionPlanRailroadIndex);
+        Assert.Equal(startingPrice, cachedAssignment.AuctionPlanStartingPrice);
+        Assert.Equal(ceiling, cachedAssignment.AuctionPlanMaximumBid);
+
+        var auctionState = engine.CurrentTurn.AuctionState!;
+        engine.CurrentTurn.AuctionState = new AuctionState
+        {
+            RailroadIndex = auctionState.RailroadIndex,
+            RailroadName = auctionState.RailroadName,
+            SellerPlayerIndex = auctionState.SellerPlayerIndex,
+            SellerPlayerName = auctionState.SellerPlayerName,
+            StartingPrice = auctionState.StartingPrice,
+            CurrentBid = startingPrice,
+            LastBidderPlayerIndex = 2,
+            CurrentBidderPlayerIndex = bidderIndex.Value,
+            RoundNumber = auctionState.RoundNumber,
+            ConsecutiveNoBidTurnCount = auctionState.ConsecutiveNoBidTurnCount,
+            Status = auctionState.Status,
+            Participants = auctionState.Participants
+        };
+
+        var secondAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+
+        Assert.Equal(ceiling, secondAction.AmountBid);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.NotNull(secondAction.BotMetadata);
+        Assert.Equal("AuctionPlan", secondAction.BotMetadata!.DecisionSource);
+    }
+
+    [Fact]
+    public async Task CreateBotActionAsync_AuctionDropsOutWhenMinimumExceedsCachedCeilingWithoutSecondOpenAiCall()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var railroad = engine.Railroads[0];
+        railroad.Owner = seller;
+        seller.OwnedRailroads.Add(railroad);
+        engine.AuctionRailroad(railroad);
+
+        var bidderIndex = engine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex;
+        Assert.True(bidderIndex.HasValue);
+
+        var bidder = engine.Players[bidderIndex!.Value];
+        bidder.Cash = railroad.PurchasePrice;
+        var startingPrice = engine.CurrentTurn.AuctionState!.StartingPrice;
+
+        var presenceService = new GamePresenceService();
+        BotTurnServiceTestHarness.ConfigureDelegatedControl(
+            presenceService,
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId);
+
+        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
+            botDefinitionId: "bob@example.com",
+            name: "Ghost Strategy");
+        var (service, handler) = BotTurnServiceTestHarness.CreateServiceWithOpenAiSelection(
+            presenceService,
+            $"auction-cap:{startingPrice}",
+            botDefinition);
+        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+            BotTurnServiceTestHarness.CreateSelections(
+                "seller@example.com",
+                "bob@example.com",
+                "charlie@example.com"),
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId,
+            botDefinition.BotDefinitionId);
+
+        var firstAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+        Assert.Equal(startingPrice, firstAction.AmountBid);
+        Assert.Equal(1, handler.RequestCount);
+
+        var auctionState = engine.CurrentTurn.AuctionState!;
+        engine.CurrentTurn.AuctionState = new AuctionState
+        {
+            RailroadIndex = auctionState.RailroadIndex,
+            RailroadName = auctionState.RailroadName,
+            SellerPlayerIndex = auctionState.SellerPlayerIndex,
+            SellerPlayerName = auctionState.SellerPlayerName,
+            StartingPrice = auctionState.StartingPrice,
+            CurrentBid = startingPrice + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement,
+            LastBidderPlayerIndex = 2,
+            CurrentBidderPlayerIndex = bidderIndex.Value,
+            RoundNumber = auctionState.RoundNumber,
+            ConsecutiveNoBidTurnCount = auctionState.ConsecutiveNoBidTurnCount,
+            Status = auctionState.Status,
+            Participants = auctionState.Participants
+        };
+
+        var secondAction = Assert.IsType<AuctionDropOutAction>(await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+
+        Assert.Equal(railroad.Index, secondAction.RailroadIndex);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.NotNull(secondAction.BotMetadata);
+        Assert.Equal("AuctionPlan", secondAction.BotMetadata!.DecisionSource);
     }
 }

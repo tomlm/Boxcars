@@ -8,23 +8,20 @@ using Boxcars.Services;
 
 namespace Boxcars.Engine.Tests.Unit;
 
-public class BotDefinitionServiceTests
+public class UserDirectoryServiceTests
 {
     [Fact]
-    public async Task ListAsync_ReturnsBotsTableEntriesSortedByName()
+    public async Task ListAsync_ReturnsBotUsersSortedByName()
     {
-        var botsTable = new FakeBotDefinitionTableClient(
-        [
-            CreateBot("bot-b", "Zulu Bot"),
-            CreateBot("bot-a", "Alpha Bot")
-        ]);
         var usersTable = new FakeUsersTableClient(
         [
-            CreateLegacyBot("legacy-bot", "Legacy Bot")
+            CreateBotUser("bot-b", "Zulu Bot"),
+            CreateBotUser("bot-a", "Alpha Bot"),
+            CreateHumanUser("person@example.com", "Regular User")
         ]);
-        var service = new BotDefinitionService(botsTable, usersTable);
+        var service = new UserDirectoryService(usersTable);
 
-        var results = await service.ListAsync(CancellationToken.None);
+        var results = await service.ListBotDefinitionsAsync(CancellationToken.None);
 
         Assert.Collection(
             results,
@@ -33,32 +30,59 @@ public class BotDefinitionServiceTests
     }
 
     [Fact]
-    public async Task GetAsync_FallsBackToLegacyUsersTableWhenBotsTableMisses()
+    public async Task GetAsync_ReturnsNullForNonBotUser()
     {
-        var service = new BotDefinitionService(
-            new FakeBotDefinitionTableClient(),
-            new FakeUsersTableClient(
-            [
-                CreateLegacyBot("legacy-bot", "Legacy Ghost", strategyText: "Always buy the cheapest railroad.")
-            ]));
+        var service = new UserDirectoryService(new FakeUsersTableClient([CreateHumanUser("person@example.com", "Regular User")]));
 
-        var result = await service.GetAsync("legacy-bot", CancellationToken.None);
+        var result = await service.GetBotDefinitionAsync("person@example.com", CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetAsync_ReturnsBotUserFromUsersTable()
+    {
+        var usersTable = new FakeUsersTableClient(
+        [
+            CreateBotUser("legacy-bot", "Legacy Ghost", strategyText: "Always buy the cheapest railroad.")
+        ]);
+        var service = new UserDirectoryService(usersTable);
+
+        var result = await service.GetBotDefinitionAsync("legacy-bot", CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("legacy-bot", result.BotDefinitionId);
         Assert.Equal("Legacy Ghost", result.Name);
         Assert.Equal("Always buy the cheapest railroad.", result.StrategyText);
         Assert.True(result.IsBotUser);
+        Assert.Equal(1, usersTable.GetEntityCallCount);
     }
 
     [Fact]
-    public async Task CreateUpdateDeleteAsync_UsesBotsTableAndRespectsEtags()
+    public async Task GetAsync_ReusesCachedBotDefinition()
     {
-        var botsTable = new FakeBotDefinitionTableClient();
-        var usersTable = new FakeUsersTableClient();
-        var service = new BotDefinitionService(botsTable, usersTable);
+        var usersTable = new FakeUsersTableClient(
+        [
+            CreateBotUser("legacy-bot", "Legacy Ghost", strategyText: "Always buy the cheapest railroad.")
+        ]);
+        var service = new UserDirectoryService(usersTable);
 
-        var createResult = await service.CreateAsync(
+        var firstResult = await service.GetBotDefinitionAsync("legacy-bot", CancellationToken.None);
+        var secondResult = await service.GetBotDefinitionAsync("legacy-bot", CancellationToken.None);
+
+        Assert.NotNull(firstResult);
+        Assert.NotNull(secondResult);
+        Assert.Equal(1, usersTable.GetEntityCallCount);
+        Assert.NotSame(firstResult, secondResult);
+    }
+
+    [Fact]
+    public async Task CreateUpdateDeleteAsync_UsesUsersTableAndRespectsEtags()
+    {
+        var usersTable = new FakeUsersTableClient();
+        var service = new UserDirectoryService(usersTable);
+
+        var createResult = await service.CreateBotDefinitionAsync(
             "controller@example.com",
             "Route Shark",
             "Prefer high-value trips.",
@@ -66,12 +90,12 @@ public class BotDefinitionServiceTests
 
         Assert.True(createResult.Succeeded);
         var createdBot = Assert.IsType<BotStrategyDefinitionEntity>(createResult.Bot);
-        Assert.Single(botsTable.Entities);
-        Assert.Empty(usersTable.Entities);
-        Assert.Equal("BOT", createdBot.PartitionKey);
+        var createdUser = Assert.Single(usersTable.Entities);
+        Assert.True(createdUser.IsBot);
+        Assert.Equal("USER", createdBot.PartitionKey);
         Assert.Equal("Route Shark", createdBot.Name);
 
-        var updateResult = await service.UpdateAsync(
+        var updateResult = await service.UpdateBotDefinitionAsync(
             "editor@example.com",
             createdBot.BotDefinitionId,
             createdBot.ETag,
@@ -83,7 +107,7 @@ public class BotDefinitionServiceTests
         Assert.Equal("Route Shark Prime", updateResult.Bot!.Name);
         Assert.Equal("editor@example.com", updateResult.Bot.ModifiedByUserId);
 
-        var conflictResult = await service.UpdateAsync(
+        var conflictResult = await service.UpdateBotDefinitionAsync(
             "editor@example.com",
             createdBot.BotDefinitionId,
             new ETag("\"stale\""),
@@ -93,39 +117,22 @@ public class BotDefinitionServiceTests
 
         Assert.True(conflictResult.IsConflict);
 
-        var deleteResult = await service.DeleteAsync(
+        var deleteResult = await service.DeleteBotDefinitionAsync(
             createdBot.BotDefinitionId,
             updateResult.Bot.ETag,
             CancellationToken.None);
 
         Assert.Equal(BotDefinitionDeleteResult.Success, deleteResult);
-        Assert.Empty(botsTable.Entities);
+        Assert.Empty(usersTable.Entities);
     }
 
-    private static BotStrategyDefinitionEntity CreateBot(string id, string name, string strategyText = "Always choose a legal option.")
-    {
-        return new BotStrategyDefinitionEntity
-        {
-            PartitionKey = "BOT",
-            RowKey = id,
-            ETag = new ETag("\"seed\""),
-            Name = name,
-            StrategyText = strategyText,
-            IsBotUser = true,
-            CreatedByUserId = "creator@example.com",
-            CreatedUtc = new DateTimeOffset(2026, 3, 17, 0, 0, 0, TimeSpan.Zero),
-            ModifiedByUserId = "creator@example.com",
-            ModifiedUtc = new DateTimeOffset(2026, 3, 17, 0, 0, 0, TimeSpan.Zero)
-        };
-    }
-
-    private static ApplicationUser CreateLegacyBot(string id, string name, string strategyText = "Always choose a legal option.")
+    private static ApplicationUser CreateBotUser(string id, string name, string strategyText = "Always choose a legal option.")
     {
         return new ApplicationUser
         {
             PartitionKey = "USER",
             RowKey = id,
-            ETag = new ETag("\"legacy\""),
+            ETag = new ETag("\"seed\""),
             Email = id,
             NormalizedEmail = id.ToUpperInvariant(),
             UserName = id,
@@ -142,15 +149,40 @@ public class BotDefinitionServiceTests
         };
     }
 
-    private sealed class FakeBotDefinitionTableClient(params BotStrategyDefinitionEntity[] entities) : TableClient
+    private static ApplicationUser CreateHumanUser(string id, string name)
     {
-        private readonly Dictionary<(string PartitionKey, string RowKey), BotStrategyDefinitionEntity> _entities = entities.ToDictionary(
+        return new ApplicationUser
+        {
+            PartitionKey = "USER",
+            RowKey = id,
+            ETag = new ETag("\"legacy\""),
+            Email = id,
+            NormalizedEmail = id.ToUpperInvariant(),
+            UserName = id,
+            NormalizedUserName = id.ToUpperInvariant(),
+            Name = name,
+            Nickname = name,
+            NormalizedNickname = name.ToUpperInvariant(),
+            StrategyText = string.Empty,
+            IsBot = false,
+            CreatedByUserId = "creator@example.com",
+            CreatedUtc = new DateTimeOffset(2026, 3, 17, 0, 0, 0, TimeSpan.Zero),
+            ModifiedByUserId = "creator@example.com",
+            ModifiedUtc = new DateTimeOffset(2026, 3, 17, 0, 0, 0, TimeSpan.Zero)
+        };
+    }
+
+    private sealed class FakeUsersTableClient(params ApplicationUser[] entities) : TableClient
+    {
+        private readonly Dictionary<(string PartitionKey, string RowKey), ApplicationUser> _entities = entities.ToDictionary(
             entity => (entity.PartitionKey, entity.RowKey),
             Clone);
 
         private int _etagVersion = entities.Length;
 
-        public IReadOnlyCollection<BotStrategyDefinitionEntity> Entities => _entities.Values.Select(Clone).ToList();
+        public IReadOnlyCollection<ApplicationUser> Entities => _entities.Values.Select(Clone).ToList();
+
+        public int GetEntityCallCount { get; private set; }
 
         public override AsyncPageable<T> QueryAsync<T>(
             Expression<Func<T, bool>> filter,
@@ -158,13 +190,13 @@ public class BotDefinitionServiceTests
             IEnumerable<string>? select = null,
             CancellationToken cancellationToken = default)
         {
-            if (typeof(T) != typeof(BotStrategyDefinitionEntity))
+            if (typeof(T) != typeof(ApplicationUser))
             {
                 return AsyncPageable<T>.FromPages([]);
             }
 
             var values = _entities.Values
-                .Where(entity => string.Equals(entity.PartitionKey, "BOT", StringComparison.OrdinalIgnoreCase))
+                .Where(entity => entity.IsBot)
                 .Select(entity => (T)(ITableEntity)Clone(entity))
                 .ToList();
 
@@ -180,6 +212,8 @@ public class BotDefinitionServiceTests
             IEnumerable<string>? select = null,
             CancellationToken cancellationToken = default)
         {
+            GetEntityCallCount++;
+
             if (!_entities.TryGetValue((partitionKey, rowKey), out var entity))
             {
                 throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
@@ -190,13 +224,13 @@ public class BotDefinitionServiceTests
 
         public override Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
         {
-            var bot = Clone((entity as BotStrategyDefinitionEntity) ?? throw new InvalidOperationException("Expected bot entity."));
-            bot.ETag = NextEtag();
-            _entities[(bot.PartitionKey, bot.RowKey)] = bot;
+            var user = Clone((entity as ApplicationUser) ?? throw new InvalidOperationException("Expected user entity."));
+            user.ETag = NextEtag();
+            _entities[(user.PartitionKey, user.RowKey)] = user;
 
-            if (entity is BotStrategyDefinitionEntity source)
+            if (entity is ApplicationUser source)
             {
-                source.ETag = bot.ETag;
+                source.ETag = user.ETag;
             }
 
             return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
@@ -208,8 +242,8 @@ public class BotDefinitionServiceTests
             TableUpdateMode mode = TableUpdateMode.Merge,
             CancellationToken cancellationToken = default)
         {
-            var bot = Clone((entity as BotStrategyDefinitionEntity) ?? throw new InvalidOperationException("Expected bot entity."));
-            if (!_entities.TryGetValue((bot.PartitionKey, bot.RowKey), out var existing))
+            var user = Clone((entity as ApplicationUser) ?? throw new InvalidOperationException("Expected user entity."));
+            if (!_entities.TryGetValue((user.PartitionKey, user.RowKey), out var existing))
             {
                 throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
             }
@@ -219,12 +253,12 @@ public class BotDefinitionServiceTests
                 throw new RequestFailedException((int)HttpStatusCode.PreconditionFailed, "ETag mismatch.");
             }
 
-            bot.ETag = NextEtag();
-            _entities[(bot.PartitionKey, bot.RowKey)] = bot;
+            user.ETag = NextEtag();
+            _entities[(user.PartitionKey, user.RowKey)] = user;
 
-            if (entity is BotStrategyDefinitionEntity source)
+            if (entity is ApplicationUser source)
             {
-                source.ETag = bot.ETag;
+                source.ETag = user.ETag;
             }
 
             return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
@@ -254,29 +288,6 @@ public class BotDefinitionServiceTests
         {
             _etagVersion++;
             return new ETag($"\"v{_etagVersion}\"");
-        }
-    }
-
-    private sealed class FakeUsersTableClient(params ApplicationUser[] entities) : TableClient
-    {
-        private readonly Dictionary<(string PartitionKey, string RowKey), ApplicationUser> _entities = entities.ToDictionary(
-            entity => (entity.PartitionKey, entity.RowKey),
-            Clone);
-
-        public IReadOnlyCollection<ApplicationUser> Entities => _entities.Values.Select(Clone).ToList();
-
-        public override Task<Response<T>> GetEntityAsync<T>(
-            string partitionKey,
-            string rowKey,
-            IEnumerable<string>? select = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (!_entities.TryGetValue((partitionKey, rowKey), out var entity))
-            {
-                throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
-            }
-
-            return Task.FromResult(Response.FromValue((T)(ITableEntity)Clone(entity), new FakeResponse((int)HttpStatusCode.OK)));
         }
     }
 

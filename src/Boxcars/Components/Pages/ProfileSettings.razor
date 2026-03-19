@@ -64,6 +64,8 @@ else
                                   Variant="Variant.Outlined"
                                   Lines="4"
                                   AutoGrow="true"
+                                  Required="true"
+                                  RequiredError="Strategy is required."
                                   Placeholder="@PlayerProfileService.DefaultStrategyText"
                                   Class="profile-field" />
 
@@ -89,10 +91,13 @@ else
                                    Color="MudBlazor.Color.Primary" Disabled="@_saving">
                             Save Changes
                         </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Primary"
-                                   OnClick="@(() => Navigation.NavigateTo("/dashboard"))">
-                            Back to Dashboard
-                        </MudButton>
+                        @if (!RequiredStrategy)
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Primary"
+                                       OnClick="NavigateBack">
+                                Back to Dashboard
+                            </MudButton>
+                        }
                     </MudStack>
                 </MudStack>
             </EditForm>
@@ -110,10 +115,16 @@ else
     private string originalNickname = string.Empty;
     private string originalThumbnailUrl = string.Empty;
     private string originalPreferredColor = PlayerColorOptions.Colors[0];
-    private string originalStrategyText = PlayerProfileService.DefaultStrategyText;
+    private string originalStrategyText = string.Empty;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    [SupplyParameterFromQuery(Name = "requiredStrategy")]
+    private bool RequiredStrategy { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
 
     private InputModel CurrentInput { get; } = new();
 
@@ -159,7 +170,14 @@ else
         originalNickname = CurrentInput.Nickname ?? string.Empty;
         originalThumbnailUrl = CurrentInput.ThumbnailUrl ?? string.Empty;
         originalPreferredColor = CurrentInput.PreferredColor ?? PlayerColorOptions.Colors[0];
-        originalStrategyText = CurrentInput.StrategyText ?? PlayerProfileService.DefaultStrategyText;
+        originalStrategyText = CurrentInput.StrategyText ?? string.Empty;
+
+        if (RequiredStrategy && !PlayerProfileService.HasRequiredStrategyText(_profile.StrategyText))
+        {
+            message = "Set your strategy before continuing into the app.";
+            messageSeverity = Severity.Warning;
+        }
+
         _loading = false;
     }
 
@@ -185,6 +203,13 @@ else
 
         try
         {
+            if (!PlayerProfileService.HasRequiredStrategyText(strategyText))
+            {
+                message = "Error: Strategy is required.";
+                messageSeverity = Severity.Error;
+                return;
+            }
+
             if (!nicknameChanged && !thumbnailChanged && !preferredColorChanged && !strategyChanged)
             {
                 message = "No changes to save.";
@@ -263,6 +288,13 @@ CancellationToken.None);
             originalThumbnailUrl = thumbnailUrl;
             originalPreferredColor = preferredColor;
             originalStrategyText = strategyText;
+
+            if (RequiredStrategy)
+            {
+                Navigation.NavigateTo(ResolvePostSaveTarget(), replace: true);
+                return;
+            }
+
             message = "Your preferences have been updated.";
             messageSeverity = Severity.Success;
         }
@@ -289,8 +321,24 @@ CancellationToken.None);
         [Display(Name = "Preferred rail color")]
         public string? PreferredColor { get; set; }
 
+        [Required(ErrorMessage = "Strategy is required.")]
         [Display(Name = "Strategy")]
         public string? StrategyText { get; set; }
+    }
+
+    private void NavigateBack()
+    {
+        Navigation.NavigateTo(ResolvePostSaveTarget());
+    }
+
+    private string ResolvePostSaveTarget()
+    {
+        if (!string.IsNullOrWhiteSpace(ReturnUrl) && Uri.IsWellFormedUriString(ReturnUrl, UriKind.Relative))
+        {
+            return ReturnUrl;
+        }
+
+        return "/dashboard";
     }
 
     private static string GetColorOptionClass(string color) =>

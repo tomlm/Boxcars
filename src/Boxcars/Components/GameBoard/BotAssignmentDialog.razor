@@ -1,7 +1,7 @@
 @using Boxcars.Data
 @using Boxcars.Services
 @using MudBlazor
-@inject BotDefinitionService BotDefinitionService
+@inject UserDirectoryService UserDirectoryService
 
 <MudDialog>
     <DialogContent>
@@ -99,7 +99,7 @@
         try
         {
             _availableBots.Clear();
-            _availableBots.AddRange(await BotDefinitionService.ListAsync(CancellationToken.None));
+            _availableBots.AddRange(await UserDirectoryService.ListBotDefinitionsAsync(CancellationToken.None));
             _selectedBotDefinitionId = _availableBots.Any(bot => string.Equals(bot.BotDefinitionId, AssignedBotDefinitionId, StringComparison.OrdinalIgnoreCase))
                 ? AssignedBotDefinitionId
                 : _availableBots.FirstOrDefault()?.BotDefinitionId ?? string.Empty;

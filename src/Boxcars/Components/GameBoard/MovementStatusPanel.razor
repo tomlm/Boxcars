@@ -29,7 +29,7 @@
                 }
                 @if (!IsPurchasePhase)
                 {
-                    <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+                    <MudText Typo="Typo.body2" Class="@FeeTextClass">Fees: @FormatCurrency(State.PreviewFee)</MudText>
                 }
             </MudStack>
         </MudPaper>
@@ -60,7 +60,7 @@
             }
             @if (!IsPurchasePhase)
             {
-                <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+                <MudText Typo="Typo.body2" Class="@FeeTextClass">Fees: @FormatCurrency(State.PreviewFee)</MudText>
             }
         </MudStack>
     }
@@ -81,6 +81,7 @@
         || State.CurrentRollTotal > 0
         || State.MovementAllowance > 0;
     private bool IsRollPending => string.Equals(State.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase) && !HasResolvedRoll;
+    private string FeeTextClass => State.PreviewHasUnfriendlyFee ? "movement-status-fee movement-status-fee-unfriendly" : "movement-status-fee";
 
     private static string FormatCurrency(int value)
     {

@@ -1376,7 +1376,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     {
         var botOptions = Options.Create(new BotOptions());
         return new BotTurnService(
-            new BotDefinitionService(tableServiceClient),
+            new UserDirectoryService(tableServiceClient),
             new BotDecisionPromptBuilder(),
                 new OpenAiBotClient(new NoOpHttpClientFactory(), botOptions, NullLogger<OpenAiBotClient>.Instance),
             gamePresenceService,

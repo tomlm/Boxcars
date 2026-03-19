@@ -14,6 +14,7 @@ public sealed class BotDecisionPromptBuilder
             "Never invent rules, options, or state.",
             "In Purchase, account for fees already incurred this turn before spending cash.",
             "A buy that forces an immediate sale can be correct, but only when the resulting network position is meaningfully better than declining or choosing a cheaper option.",
+            "In AuctionStrategy, choose the maximum bid ceiling the player should tolerate for this auction, not a one-turn action.",
             $"Current phase: {context.Phase}.");
     }
 
@@ -53,7 +54,9 @@ public sealed class BotDecisionPromptBuilder
         }
 
         builder.AppendLine();
-        builder.AppendLine("Choose one option id from the legal options and return JSON only.");
+        builder.AppendLine(string.Equals(context.Phase, "AuctionStrategy", StringComparison.OrdinalIgnoreCase)
+            ? "Choose one auction ceiling option id from the legal options and return JSON only."
+            : "Choose one option id from the legal options and return JSON only.");
         return builder.ToString();
     }
 
@@ -141,6 +144,23 @@ public sealed class BotDecisionPromptBuilder
 
     private static BotLegalOption SelectFallbackOption(BotDecisionContext context)
     {
+        if (string.Equals(context.Phase, "AuctionStrategy", StringComparison.OrdinalIgnoreCase))
+        {
+            var maximumBidOption = context.LegalOptions.FirstOrDefault(option =>
+                string.Equals(option.OptionType, "AuctionMaxBid", StringComparison.OrdinalIgnoreCase));
+            if (maximumBidOption is not null)
+            {
+                return maximumBidOption;
+            }
+
+            var dropOutOption = context.LegalOptions.FirstOrDefault(option =>
+                string.Equals(option.OptionType, "AuctionDropOut", StringComparison.OrdinalIgnoreCase));
+            if (dropOutOption is not null)
+            {
+                return dropOutOption;
+            }
+        }
+
         if (string.Equals(context.Phase, "Auction", StringComparison.OrdinalIgnoreCase))
         {
             var bidOption = context.LegalOptions.FirstOrDefault(option =>

@@ -13,6 +13,7 @@ public sealed class BoardTurnViewState
     public int MovementAllowance { get; init; }
     public int MovementRemaining { get; init; }
     public int PreviewFee { get; init; }
+    public bool PreviewHasUnfriendlyFee { get; init; }
     public int CurrentRollTotal { get; init; }
     public bool IsActivePlayerAtDestination { get; init; }
     public string ActivePlayerDestinationCity { get; init; } = string.Empty;

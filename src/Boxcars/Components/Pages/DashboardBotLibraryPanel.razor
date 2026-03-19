@@ -2,7 +2,7 @@
 @using Boxcars.Data
 @using Boxcars.Services
 @using MudBlazor
-@inject BotDefinitionService BotDefinitionService
+@inject UserDirectoryService UserDirectoryService
 @inject ISnackbar Snackbar
 
 <MudStack Spacing="3" Class="dashboard-bot-library">
@@ -114,7 +114,7 @@
 
         try
         {
-            _bots = (await BotDefinitionService.ListAsync(CancellationToken.None))
+            _bots = (await UserDirectoryService.ListBotDefinitionsAsync(CancellationToken.None))
                 .Select(bot => new BotLibraryRowModel
                 {
                     BotDefinitionId = bot.BotDefinitionId,
@@ -175,7 +175,7 @@
             BotDefinitionWriteResult result;
             if (_editor.IsEditingExisting)
             {
-                result = await BotDefinitionService.UpdateAsync(
+                result = await UserDirectoryService.UpdateBotDefinitionAsync(
                     CurrentUserId,
                     _editor.BotDefinitionId,
                     _editor.ETag,
@@ -185,7 +185,7 @@
             }
             else
             {
-                result = await BotDefinitionService.CreateAsync(CurrentUserId, _editorName, _editorStrategyText, CancellationToken.None);
+                result = await UserDirectoryService.CreateBotDefinitionAsync(CurrentUserId, _editorName, _editorStrategyText, CancellationToken.None);
             }
 
             if (!result.Succeeded)
@@ -212,7 +212,7 @@
 
     private async Task DeleteAsync(BotLibraryRowModel row)
     {
-        var result = await BotDefinitionService.DeleteAsync(row.BotDefinitionId, row.ETag, CancellationToken.None);
+        var result = await UserDirectoryService.DeleteBotDefinitionAsync(row.BotDefinitionId, row.ETag, CancellationToken.None);
         switch (result)
         {
             case BotDefinitionDeleteResult.Success:

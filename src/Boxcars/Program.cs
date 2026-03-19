@@ -110,7 +110,7 @@ public class Program
         builder.Services.AddScoped<CircuitHandler, GamePresenceCircuitHandler>();
         builder.Services.AddSingleton<GamePresenceService>(serviceProvider =>
             new GamePresenceService(serviceProvider.GetRequiredService<TableServiceClient>()));
-        builder.Services.AddSingleton<BotDefinitionService>();
+        builder.Services.AddSingleton<UserDirectoryService>();
         builder.Services.AddSingleton<BotDecisionPromptBuilder>();
         builder.Services.AddSingleton<OpenAiBotClient>();
         builder.Services.AddSingleton<BotTurnService>();
@@ -129,7 +129,6 @@ public class Program
         var tableService = app.Services.GetRequiredService<TableServiceClient>();
         var tableNames = new[]
         {
-            TableNames.BotsTable,
             TableNames.UsersTable,
             TableNames.GamesTable
         };
@@ -139,22 +138,22 @@ public class Program
         }
 
         var usersTable = tableService.GetTableClient(TableNames.UsersTable);
-        var beatlesUsers = new[]
+        var bots = new[]
         {
-            (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple"),
-            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "orange"),
-            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow"),
-            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "blue")
+            (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple", Strategy: "This bot values connectivity and access, and tries to build an optimal network to get to the most likely cities." ),
+            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "orange", Strategy: "This bot strategically hybrid balance of access, connectivity, regional access and opportunities to monopolize cities." ),
+            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow", Strategy: "Popper likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
+            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" )
         };
 
-        foreach (var beatle in beatlesUsers)
+        foreach (var bot in bots)
         {
-            var userId = beatle.Email.ToLowerInvariant();
+            var userId = bot.Email.ToLowerInvariant();
             var existing = await usersTable.GetEntityIfExistsAsync<ApplicationUser>("USER", userId);
             if (existing.HasValue && existing.Value is { } existingUser)
             {
-                var normalizedPreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor);
-                var desiredStrategy = PlayerProfileService.DefaultStrategyText;
+                var normalizedPreferredColor = PlayerColorOptions.NormalizeOrDefault(bot.PreferredColor);
+                var desiredStrategy = bot.Strategy;
                 if (!string.Equals(existingUser.PreferredColor, normalizedPreferredColor, StringComparison.OrdinalIgnoreCase)
                     || !existingUser.IsBot
                     || !string.Equals(existingUser.StrategyText, desiredStrategy, StringComparison.Ordinal))
@@ -175,14 +174,14 @@ public class Program
             {
                 PartitionKey = "USER",
                 RowKey = userId,
-                Email = beatle.Email,
-                NormalizedEmail = beatle.Email.ToUpperInvariant(),
-                UserName = beatle.Email,
-                NormalizedUserName = beatle.Email.ToUpperInvariant(),
-                Name = beatle.Name,
-                Nickname = beatle.Nickname,
-                NormalizedNickname = beatle.Nickname.ToUpperInvariant(),
-                PreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor),
+                Email = bot.Email,
+                NormalizedEmail = bot.Email.ToUpperInvariant(),
+                UserName = bot.Email,
+                NormalizedUserName = bot.Email.ToUpperInvariant(),
+                Name = bot.Name,
+                Nickname = bot.Nickname,
+                NormalizedNickname = bot.Nickname.ToUpperInvariant(),
+                PreferredColor = PlayerColorOptions.NormalizeOrDefault(bot.PreferredColor),
                 StrategyText = PlayerProfileService.DefaultStrategyText,
                 IsBot = true,
                 CreatedByUserId = "system",

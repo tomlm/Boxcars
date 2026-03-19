@@ -131,6 +131,7 @@ public sealed class GameBoardStateMapper(
             MovementAllowance = movementAllowance,
             MovementRemaining = movementRemaining,
             PreviewFee = selectedRoutePreview.FeeEstimate,
+            PreviewHasUnfriendlyFee = selectedRoutePreview.HasUnfriendlyFee,
             CurrentRollTotal = CalculateRollTotal(state),
             IsActivePlayerAtDestination = IsPlayerAtDestination(activePlayer),
             ActivePlayerDestinationCity = activePlayer.DestinationCityName ?? string.Empty,
@@ -227,13 +228,17 @@ public sealed class GameBoardStateMapper(
 
         var moveCount = Math.Max(0, segmentKeys.Count);
         var movementRemaining = Math.Max(0, state?.Turn.MovementRemaining ?? 0);
+        var feeSummary = state is null
+            ? new PreviewFeeSummary(0, false)
+            : CalculatePreviewFeeSummary(state, state.ActivePlayerIndex, segmentKeys);
 
         return new TurnMovementPreview
         {
             NodeIds = nodeIds,
             SegmentKeys = segmentKeys,
             MoveCount = moveCount,
-            FeeEstimate = state is null ? 0 : CalculatePreviewFee(state, state.ActivePlayerIndex, segmentKeys),
+            FeeEstimate = feeSummary.FeeEstimate,
+            HasUnfriendlyFee = feeSummary.HasUnfriendlyFee,
             ExhaustsMovement = movementRemaining > 0 && moveCount >= movementRemaining
         };
     }
@@ -242,18 +247,20 @@ public sealed class GameBoardStateMapper(
     {
         var moveCount = Math.Max(0, preview.SegmentKeys.Count);
         var movementRemaining = Math.Max(0, state.Turn.MovementRemaining);
+        var feeSummary = CalculatePreviewFeeSummary(state, activePlayerIndex, preview.SegmentKeys);
 
         return new TurnMovementPreview
         {
             NodeIds = preview.NodeIds,
             SegmentKeys = preview.SegmentKeys,
             MoveCount = moveCount,
-            FeeEstimate = CalculatePreviewFee(state, activePlayerIndex, preview.SegmentKeys),
+            FeeEstimate = feeSummary.FeeEstimate,
+            HasUnfriendlyFee = feeSummary.HasUnfriendlyFee,
             ExhaustsMovement = movementRemaining > 0 && moveCount >= movementRemaining
         };
     }
 
-    private static int CalculatePreviewFee(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> segmentKeys)
+    private static PreviewFeeSummary CalculatePreviewFeeSummary(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> segmentKeys)
     {
         var railroadIndices = new HashSet<int>(state.Turn.RailroadsRiddenThisTurn);
 
@@ -300,8 +307,12 @@ public sealed class GameBoardStateMapper(
 
         var bankFee = usesBaseRateRailroad ? 1000 : 0;
         var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
-        return bankFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000);
+        return new PreviewFeeSummary(
+            bankFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000),
+            ownerBuckets.Count > 0);
     }
+
+    private readonly record struct PreviewFeeSummary(int FeeEstimate, bool HasUnfriendlyFee);
 
     private static HashSet<int> SimulateGrandfatheredRailroads(IReadOnlyList<int> currentGrandfatheredRailroads, IReadOnlyList<string> segmentKeys)
     {

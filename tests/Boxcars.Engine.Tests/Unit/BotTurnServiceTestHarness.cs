@@ -1,5 +1,5 @@
 using System.Net;
-using System.Reflection;
+using System.Text;
 using Azure;
 using Azure.Core;
 using Azure.Data.Tables;
@@ -21,11 +21,24 @@ internal static class BotTurnServiceTestHarness
 
     public static BotTurnService CreateService(GamePresenceService presenceService, params BotStrategyDefinitionEntity[] botDefinitions)
     {
-        var botDefinitionService = new BotDefinitionService(CreateTableServiceClient());
-        var botsTableField = typeof(BotDefinitionService).GetField("_usersTable", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("BotDefinitionService._usersTable was not found.");
+        return CreateService(presenceService, new FakeHttpClientFactory(), botDefinitions);
+    }
 
-        botsTableField.SetValue(botDefinitionService, new FakeBotTableClient(botDefinitions));
+    public static (BotTurnService Service, RecordingHttpMessageHandler Handler) CreateServiceWithOpenAiSelection(
+        GamePresenceService presenceService,
+        string selectedOptionId,
+        params BotStrategyDefinitionEntity[] botDefinitions)
+    {
+        var handler = new RecordingHttpMessageHandler(BuildSelectedOptionResponse(selectedOptionId), HttpStatusCode.OK);
+        return (CreateService(presenceService, new FakeHttpClientFactory(handler), botDefinitions), handler);
+    }
+
+    private static BotTurnService CreateService(
+        GamePresenceService presenceService,
+        IHttpClientFactory httpClientFactory,
+        params BotStrategyDefinitionEntity[] botDefinitions)
+    {
+        var userDirectoryService = new UserDirectoryService(new FakeBotTableClient(botDefinitions));
 
         var botOptions = Options.Create(new BotOptions
         {
@@ -37,9 +50,9 @@ internal static class BotTurnServiceTestHarness
         });
 
         return new BotTurnService(
-            botDefinitionService,
+            userDirectoryService,
             new BotDecisionPromptBuilder(),
-            new OpenAiBotClient(new FakeHttpClientFactory(), botOptions, NullLogger<OpenAiBotClient>.Instance),
+            new OpenAiBotClient(httpClientFactory, botOptions, NullLogger<OpenAiBotClient>.Instance),
             presenceService,
             new NetworkCoverageService(),
             botOptions,
@@ -66,6 +79,7 @@ internal static class BotTurnServiceTestHarness
                     GameId = GameId,
                     PlayerUserId = playerUserId,
                     ControllerUserId = controllerUserId,
+                    ControllerMode = SeatControllerModes.AiBotSeat,
                     BotDefinitionId = botDefinitionId,
                     Status = BotAssignmentStatuses.Active
                 }
@@ -231,9 +245,30 @@ internal static class BotTurnServiceTestHarness
 
     private sealed class FakeHttpClientFactory : IHttpClientFactory
     {
+        private readonly HttpMessageHandler _handler;
+
+        public FakeHttpClientFactory(HttpMessageHandler? handler = null)
+        {
+            _handler = handler ?? new FakeHttpMessageHandler();
+        }
+
         public HttpClient CreateClient(string name)
         {
-            return new HttpClient(new FakeHttpMessageHandler(), disposeHandler: true);
+            return new HttpClient(_handler, disposeHandler: false);
+        }
+    }
+
+    internal sealed class RecordingHttpMessageHandler(string responseBody, HttpStatusCode statusCode) : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(statusCode)
+            {
+                Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+            });
         }
     }
 
@@ -246,6 +281,13 @@ internal static class BotTurnServiceTestHarness
                 Content = new StringContent("{}")
             });
         }
+    }
+
+    private static string BuildSelectedOptionResponse(string selectedOptionId)
+    {
+        return "{\"choices\":[{\"message\":{\"content\":\"{\\\"selectedOptionId\\\":\\\""
+            + selectedOptionId
+            + "\\\"}\"}}]}";
     }
 
     private sealed class FakeResponse(int status) : Response

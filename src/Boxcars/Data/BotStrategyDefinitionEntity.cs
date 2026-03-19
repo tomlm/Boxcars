@@ -5,7 +5,7 @@ namespace Boxcars.Data;
 
 public sealed class BotStrategyDefinitionEntity : ITableEntity
 {
-    public string PartitionKey { get; set; } = "BOT";
+    public string PartitionKey { get; set; } = "USER";
     public string RowKey { get; set; } = string.Empty;
     public DateTimeOffset? Timestamp { get; set; }
     public ETag ETag { get; set; }
