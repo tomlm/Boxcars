@@ -5,7 +5,7 @@ namespace Boxcars.GameEngine;
 
 public interface IGameEngine
 {
-    event Action<string, RailBaronGameState>? OnStateChanged;
+    event Action<string, GameStateUpdate>? OnStateChanged;
     event Action<string, GameActionFailure>? OnActionFailed;
 
     Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default);
@@ -20,6 +20,8 @@ public interface IGameEngine
 
     Task<bool> UndoLastOperationAsync(string gameId, CancellationToken cancellationToken = default);
 }
+
+public sealed record GameStateUpdate(RailBaronGameState State, IReadOnlyList<EventTimelineItem> TimelineItems);
 
 public sealed record GameCreationOptions
 {

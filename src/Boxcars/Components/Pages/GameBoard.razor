@@ -224,7 +224,7 @@
                             {
                                 <RailroadAuctionPanel AuctionState="CurrentAuctionPanelState"
                                                      CanCurrentUserAct="CanCurrentUserActInAuction"
-                                                     IsBusy="@IsGameBusy"
+                                                     IsBusy="@_awaitingAuthoritativeUpdate"
                                                      BidAmount="@AuctionBidAmount"
                                                      BidAmountChanged="OnAuctionBidAmountChangedAsync"
                                                      BidRequested="OnSubmitAuctionBidAsync"
@@ -553,26 +553,15 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new SellRailroadAction
-                {
-                    PlayerId = CurrentTurnPlayerName,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = _gameState.ActivePlayerIndex,
-                    RailroadIndex = SelectedForcedSaleCandidate.RailroadIndex,
-                    AmountReceived = SelectedForcedSaleCandidate.BankSalePrice
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new SellRailroadAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex,
+                RailroadIndex = SelectedForcedSaleCandidate.RailroadIndex,
+                AmountReceived = SelectedForcedSaleCandidate.BankSalePrice
+            });
     }
 
     private async Task OnStartAuctionAsync()
@@ -591,25 +580,14 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new StartAuctionAction
-                {
-                    PlayerId = CurrentTurnPlayerName,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = _gameState.ActivePlayerIndex,
-                    RailroadIndex = SelectedForcedSaleCandidate.RailroadIndex
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new StartAuctionAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex,
+                RailroadIndex = SelectedForcedSaleCandidate.RailroadIndex
+            });
     }
 
     private Task OnAuctionBidAmountChangedAsync(int bidAmount)
@@ -627,26 +605,15 @@
 
         var amountBid = Math.Max(AuctionBidAmount, CurrentAuctionState.MinimumBid);
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new BidAction
-                {
-                    PlayerId = _gameState.Players[bidderPlayerIndex].Name,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = bidderPlayerIndex,
-                    RailroadIndex = CurrentAuctionState.RailroadIndex,
-                    AmountBid = amountBid
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new BidAction
+            {
+                PlayerId = _gameState.Players[bidderPlayerIndex].Name,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = bidderPlayerIndex,
+                RailroadIndex = CurrentAuctionState.RailroadIndex,
+                AmountBid = amountBid
+            });
     }
 
     private async Task OnAuctionPassAsync()
@@ -657,25 +624,14 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new AuctionPassAction
-                {
-                    PlayerId = _gameState.Players[bidderPlayerIndex].Name,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = bidderPlayerIndex,
-                    RailroadIndex = CurrentAuctionState.RailroadIndex
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new AuctionPassAction
+            {
+                PlayerId = _gameState.Players[bidderPlayerIndex].Name,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = bidderPlayerIndex,
+                RailroadIndex = CurrentAuctionState.RailroadIndex
+            });
     }
 
     private async Task OnAuctionDropOutAsync()
@@ -686,40 +642,20 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new AuctionDropOutAction
-                {
-                    PlayerId = _gameState.Players[bidderPlayerIndex].Name,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = bidderPlayerIndex,
-                    RailroadIndex = CurrentAuctionState.RailroadIndex
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new AuctionDropOutAction
+            {
+                PlayerId = _gameState.Players[bidderPlayerIndex].Name,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = bidderPlayerIndex,
+                RailroadIndex = CurrentAuctionState.RailroadIndex
+            });
     }
 
     private async Task EnqueuePurchaseActionAsync(PlayerAction action)
     {
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(action, actionAlreadyMarkedPending: true);
     }
 
     private async Task CommitMovePhaseAsync()
@@ -737,26 +673,15 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new MoveAction
-                {
-                    PlayerId = CurrentTurnPlayerName,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = _gameState.ActivePlayerIndex,
-                    PointsTaken = selectedNodeIds,
-                    SelectedSegmentKeys = selectedSegmentKeys
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new MoveAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex,
+                PointsTaken = selectedNodeIds,
+                SelectedSegmentKeys = selectedSegmentKeys
+            });
     }
 
     private bool CanCommitMoveSelection()
@@ -787,24 +712,13 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new DeclinePurchaseAction
-                {
-                    PlayerId = CurrentTurnPlayerName,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = _gameState.ActivePlayerIndex
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new DeclinePurchaseAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex
+            });
     }
 
     private async Task AdvanceToNextPlayerAsync()
@@ -815,24 +729,13 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new EndTurnAction
-                {
-                    PlayerId = CurrentTurnPlayerName,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = _gameState.ActivePlayerIndex
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new EndTurnAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex
+            });
     }
 
     private async Task OnConfirmRegionChoiceAsync()
@@ -846,25 +749,14 @@
         }
 
         MarkAuthoritativeUpdatePending();
-
-        try
-        {
-            await SharedGameEngine.EnqueueActionAsync(
-                GameId,
-                new ChooseDestinationRegionAction
-                {
-                    PlayerId = CurrentTurnPlayerName,
-                    ActorUserId = _currentUserId ?? string.Empty,
-                    PlayerIndex = _gameState.ActivePlayerIndex,
-                    SelectedRegionCode = _selectedRegionChoiceCode
-                },
-                CancellationToken.None);
-        }
-        catch
-        {
-            _awaitingAuthoritativeUpdate = false;
-            throw;
-        }
+        await EnqueueBoardActionAsync(
+            new ChooseDestinationRegionAction
+            {
+                PlayerId = CurrentTurnPlayerName,
+                ActorUserId = _currentUserId ?? string.Empty,
+                PlayerIndex = _gameState.ActivePlayerIndex,
+                SelectedRegionCode = _selectedRegionChoiceCode
+            });
     }
 
     private Task OnRoutePreviewChangedAsync(TurnMovementPreview preview)
@@ -902,8 +794,6 @@
     private async Task OnGameMapReadyAsync()
     {
         _lastAutoSuggestKey = null;
-        TryRestoreRouteSelection();
-        await AutoSuggestRouteIfNeededAsync();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -934,20 +824,22 @@
             .WithAutomaticReconnect()
             .Build();
 
-        _gameHubConnection.On<RailBaronGameState>(GameHubEvents.StateUpdated, async state =>
+        _gameHubConnection.On<GameStateUpdate>(GameHubEvents.StateUpdated, async update =>
         {
-            await SharedGameEngine.SynchronizeStateAsync(GameId, state, CancellationToken.None);
-            OnSharedGameStateChanged(GameId, state);
+            await SharedGameEngine.SynchronizeStateAsync(GameId, update.State, CancellationToken.None);
+            OnSharedGameStateChanged(GameId, update);
         });
 
         _gameHubConnection.On(GameHubEvents.PresenceUpdated, () =>
         {
-            OnPresenceChanged(GameId);
+            OnPresenceChanged(new GamePresenceChange(GameId));
         });
 
         _gameHubConnection.Reconnected += async _ =>
         {
             await JoinGameHubGroupAsync();
+            await LoadGameStateAsync();
+            await InvokeAsync(StateHasChanged);
         };
 
         try
@@ -973,12 +865,14 @@
         await _gameHubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
     }
 
-    private void OnSharedGameStateChanged(string gameId, RailBaronGameState state)
+    private void OnSharedGameStateChanged(string gameId, GameStateUpdate update)
     {
         if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
         {
             return;
         }
+
+        var state = update.State;
 
         var stateChangeVersion = Interlocked.Increment(ref _latestSharedStateChangeVersion);
 
@@ -988,8 +882,6 @@
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
-            await RefreshGameEntityAsync();
-            await RefreshBotDisplayNamesAsync();
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
             {
@@ -1012,15 +904,13 @@
                 SyncRouteSelectionToActivePlayer();
             }
 
-            await RefreshTimelineAsync(notifyNewItems: true);
+            ApplyLiveTimelineItems(update.TimelineItems);
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
             {
                 return;
             }
 
-            TryRestoreRouteSelection();
-            await AutoSuggestRouteIfNeededAsync();
             StateHasChanged();
         });
     }
@@ -1045,6 +935,54 @@
     {
         _awaitingAuthoritativeUpdate = true;
         StateHasChanged();
+    }
+
+    private void HandleActionDispatchFailure(Exception exception)
+    {
+        _awaitingAuthoritativeUpdate = false;
+
+        var message = string.IsNullOrWhiteSpace(exception.Message)
+            ? "Unable to submit that action right now."
+            : exception.Message;
+
+        ShowNotification(message, Severity.Error);
+        StateHasChanged();
+    }
+
+    private async Task EnqueueBoardActionAsync(PlayerAction action, bool actionAlreadyMarkedPending = false)
+    {
+        const int maxAttempts = 20;
+        const int retryDelayMilliseconds = 75;
+
+        if (!actionAlreadyMarkedPending)
+        {
+            MarkAuthoritativeUpdatePending();
+        }
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            try
+            {
+                await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
+                return;
+            }
+            catch (InvalidOperationException exception) when (IsGameBusyDispatchFailure(exception) && attempt < maxAttempts - 1)
+            {
+                await Task.Delay(retryDelayMilliseconds);
+            }
+            catch (Exception exception)
+            {
+                HandleActionDispatchFailure(exception);
+                return;
+            }
+        }
+
+        HandleActionDispatchFailure(new InvalidOperationException("Another action is still being processed for this game. Wait for the board to finish updating and try again."));
+    }
+
+    private static bool IsGameBusyDispatchFailure(InvalidOperationException exception)
+    {
+        return exception.Message.Contains("Another action is still being processed", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ApplyGameState(RailBaronGameState state, bool queueRestoredRouteSelection = true)
@@ -1398,7 +1336,7 @@ destinationPayoutIndex)
             .ToHashSet(StringComparer.Ordinal);
         var shouldFetchIncrementally = notifyNewItems && _timelineInitialized;
 
-        var events = await LoadTimelineEventsAsync(existingEventIds, shouldFetchIncrementally);
+        var events = await LoadTimelineEventsAsync(shouldFetchIncrementally);
 
         if (shouldFetchIncrementally)
         {
@@ -1449,28 +1387,40 @@ destinationPayoutIndex)
         await _gameMap.FocusRouteAsync([focusNodeId]);
     }
 
-    private async Task<IReadOnlyList<EventTimelineItem>> LoadTimelineEventsAsync(HashSet<string> existingEventIds, bool waitForNewItems)
+    private async Task<IReadOnlyList<EventTimelineItem>> LoadTimelineEventsAsync(bool waitForNewItems)
     {
-        IReadOnlyList<EventTimelineItem> latestEvents = [];
         var lastKnownEventRowKey = _gameEngineEvents.Count > 0
             ? GetTimelineEventBaseId(_gameEngineEvents[^1])
             : null;
 
-        for (var attempt = 0; attempt < 5; attempt++)
+        return waitForNewItems && !string.IsNullOrWhiteSpace(lastKnownEventRowKey)
+            ? await GameService.GetGameEventsAsync(GameId, lastKnownEventRowKey, CancellationToken.None)
+            : await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
+    }
+
+    private void ApplyLiveTimelineItems(IReadOnlyList<EventTimelineItem> timelineItems)
+    {
+        if (timelineItems.Count == 0)
         {
-            latestEvents = waitForNewItems && !string.IsNullOrWhiteSpace(lastKnownEventRowKey)
-                ? await GameService.GetGameEventsAsync(GameId, lastKnownEventRowKey, CancellationToken.None)
-                : await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
-
-            if (!waitForNewItems || latestEvents.Any(item => !existingEventIds.Contains(item.EventId)))
-            {
-                return latestEvents;
-            }
-
-            await Task.Delay(100);
+            return;
         }
 
-        return latestEvents;
+        var previousEventIds = _gameEngineEvents
+            .Select(item => item.EventId)
+            .ToHashSet(StringComparer.Ordinal);
+        var existingEventIds = new HashSet<string>(previousEventIds, StringComparer.Ordinal);
+        var newItems = timelineItems
+            .Where(item => existingEventIds.Add(item.EventId))
+            .ToList();
+
+        if (newItems.Count == 0)
+        {
+            return;
+        }
+
+        _gameEngineEvents.AddRange(newItems);
+        _timelineInitialized = true;
+        NotifyNewTimelineItems(previousEventIds);
     }
 
     private string ResolvePlayerColor(GamePlayerSelection? selection, int index)
@@ -1976,7 +1926,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == CurrentForcedSalePhase.SelectedRailroadIndex)
         ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault();
 
-    private bool CanCurrentUserActInAuction => CurrentAuctionActorPlayerIndex.HasValue && !IsGameBusy;
+    private bool CanCurrentUserActInAuction => CurrentAuctionActorPlayerIndex.HasValue;
 
     private int AuctionBidAmount => Math.Max(_auctionBidAmount, CurrentAuctionState?.MinimumBid ?? 0);
 
@@ -2892,17 +2842,20 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return Task.CompletedTask;
     }
 
-    private void OnPresenceChanged(string gameId)
+    private void OnPresenceChanged(GamePresenceChange change)
     {
-        if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
+        if (!string.Equals(change.GameId, GameId, StringComparison.Ordinal))
         {
             return;
         }
 
         _ = InvokeAsync(async () =>
         {
-            await RefreshGameEntityAsync();
-            await RefreshBotDisplayNamesAsync();
+            if (change.MetadataChanged)
+            {
+                await RefreshGameEntityAsync();
+                await RefreshBotDisplayNamesAsync();
+            }
 
             if (_gameState is not null && _game is not null)
             {

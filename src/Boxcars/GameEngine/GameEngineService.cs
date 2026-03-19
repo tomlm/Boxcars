@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using System.Threading.Channels;
+using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Engine;
@@ -85,7 +86,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     {
     }
 
-    public event Action<string, RailBaronGameState>? OnStateChanged;
+    public event Action<string, GameStateUpdate>? OnStateChanged;
     public event Action<string, GameActionFailure>? OnActionFailed;
 
     public override void Dispose()
@@ -154,7 +155,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, createdGameEngine, cancellationToken);
 
-        OnStateChanged?.Invoke(gameId, snapshot);
+        PublishStateChanged(gameId, snapshot);
         return gameId;
     }
 
@@ -220,7 +221,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         _gameEngines[gameId] = restoredEngine;
 
-        await PersistEventAsync(
+        var persistedUndoEvent = await PersistEventAsync(
             gameId,
             restoredSnapshot,
             "Undo",
@@ -229,7 +230,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             new { RevertedEvent = events[^1].RowKey },
             cancellationToken);
 
-        OnStateChanged?.Invoke(gameId, restoredSnapshot);
+        PublishStateChanged(
+            gameId,
+            restoredSnapshot,
+            GameService.BuildTimelineItems(persistedUndoEvent, previousGameEvent: null));
         return true;
     }
 
@@ -254,7 +258,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     ProcessTurn(gameEntity, gameEngine, queuedAction.Action);
                     var snapshot = gameEngine.ToSnapshot();
 
-                    await PersistEventAsync(
+                    var persistedGameEvent = await PersistEventAsync(
                         queuedAction.GameId,
                         snapshot,
                         queuedAction.Action.Kind.ToString(),
@@ -263,9 +267,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.Action,
                         stoppingToken);
 
-                    snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, queuedAction.GameId, gameEngine, stoppingToken);
+                    PublishStateChanged(
+                        queuedAction.GameId,
+                        snapshot,
+                        BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeAction));
 
-                    OnStateChanged?.Invoke(queuedAction.GameId, snapshot);
+                    await AdvanceAutomaticTurnFlowAsync(gameEntity, queuedAction.GameId, gameEngine, stoppingToken);
                 }
                 catch (Exception exception)
                 {
@@ -288,7 +295,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 #pragma warning restore CA1848 // Use the LoggerMessage delegates
                         }
 
-                        OnStateChanged?.Invoke(queuedAction.GameId, gameEngine.ToSnapshot());
+                        PublishStateChanged(queuedAction.GameId, gameEngine.ToSnapshot());
                         continue;
                     }
 
@@ -310,7 +317,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
                     if (_gameEngines.TryGetValue(queuedAction.GameId, out var failedGameEngine))
                     {
-                        OnStateChanged?.Invoke(queuedAction.GameId, failedGameEngine.ToSnapshot());
+                        PublishStateChanged(queuedAction.GameId, failedGameEngine.ToSnapshot());
                     }
                 }
                 finally
@@ -516,16 +523,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
+        if (_gameEngines.TryGetValue(gameId, out var inMemoryGameEngine))
+        {
+            return inMemoryGameEngine;
+        }
+
         var gameEntity = await GetGameEntityAsync(gameId, cancellationToken);
         if (gameEntity is null)
         {
             _gameEngines.TryRemove(gameId, out _);
             throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
-        }
-
-        if (_gameEngines.TryGetValue(gameId, out var inMemoryGameEngine))
-        {
-            return inMemoryGameEngine;
         }
 
         var players = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson)
@@ -588,7 +595,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider(), _purchaseRulesOptions.SuperchiefPrice);
     }
 
-    private async Task PersistEventAsync(
+    private async Task<GameEventEntity> PersistEventAsync(
         string gameId,
         RailBaronGameState snapshot,
         string eventKind,
@@ -620,6 +627,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         await _gamesTable.AddEntityAsync(entity, cancellationToken);
 
+        return entity;
     }
 
     private async Task<RailBaronGameState> AdvanceAutomaticTurnFlowAsync(
@@ -642,7 +650,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 var snapshotBeforeResolution = snapshot;
                 snapshot = gameEngine.ToSnapshot();
 
-                await PersistEventAsync(
+                var persistedGameEvent = await PersistEventAsync(
                     gameId,
                     snapshot,
                     allAiAuctionAction.Kind.ToString(),
@@ -651,7 +659,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     allAiAuctionAction,
                     cancellationToken);
 
-                OnStateChanged?.Invoke(gameId, snapshot);
+                PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution));
                 continue;
             }
 
@@ -673,7 +681,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             }
             snapshot = gameEngine.ToSnapshot();
 
-            await PersistEventAsync(
+            var persistedAutomaticGameEvent = await PersistEventAsync(
                 gameId,
                 snapshot,
                 automaticAction.Kind.ToString(),
@@ -682,7 +690,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 automaticAction,
                 cancellationToken);
 
-            OnStateChanged?.Invoke(gameId, snapshot);
+            PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction));
 
             if (automaticAction.BotMetadata is not null && _botOptions.AutomaticActionDelayMilliseconds > 0)
             {
@@ -774,15 +782,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return _gamePresenceService.HasAnyConnectedUsers(gameEntity.GameId, candidateUserIds);
     }
 
-    private void OnPresenceChanged(string gameId)
+    private void OnPresenceChanged(GamePresenceChange change)
     {
-        if (string.IsNullOrWhiteSpace(gameId)
-            || !_pendingAutomaticFlowResumes.TryAdd(gameId, 0))
+        if (change.MetadataChanged
+            || string.IsNullOrWhiteSpace(change.GameId)
+            || !_pendingAutomaticFlowResumes.TryAdd(change.GameId, 0))
         {
             return;
         }
 
-        _ = ResumeAutomaticTurnFlowAsync(gameId);
+        _ = ResumeAutomaticTurnFlowAsync(change.GameId);
     }
 
     private async Task ResumeAutomaticTurnFlowAsync(string gameId)
@@ -816,7 +825,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
                 var gameEngine = await GetOrCreateGameEngineAsync(gameId, CancellationToken.None);
                 var snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, CancellationToken.None);
-                OnStateChanged?.Invoke(gameId, snapshot);
+                PublishStateChanged(gameId, snapshot);
             }
             finally
             {
@@ -850,17 +859,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             [nameof(GameEntity.BotAssignmentsJson)] = gameEntity.BotAssignmentsJson
         };
 
-        await _gamesTable.UpdateEntityAsync(updateEntity, ResolveIfMatchETag(gameEntity), TableUpdateMode.Merge, cancellationToken);
-
-        var refreshedGameEntity = await GetGameEntityAsync(gameEntity.GameId, cancellationToken);
-        if (refreshedGameEntity is null)
+        var response = await _gamesTable.UpdateEntityAsync(updateEntity, ResolveIfMatchETag(gameEntity), TableUpdateMode.Merge, cancellationToken);
+        if (!TryGetResponseETag(response, out var etag))
         {
             return;
         }
 
-        gameEntity.ETag = refreshedGameEntity.ETag;
-        gameEntity.Timestamp = refreshedGameEntity.Timestamp;
-        gameEntity.BotAssignmentsJson = refreshedGameEntity.BotAssignmentsJson;
+        gameEntity.ETag = etag;
     }
 
     private static Azure.ETag ResolveIfMatchETag(GameEntity gameEntity)
@@ -868,6 +873,36 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return string.IsNullOrWhiteSpace(gameEntity.ETag.ToString())
             ? Azure.ETag.All
             : gameEntity.ETag;
+    }
+
+    private static bool TryGetResponseETag(Response response, out Azure.ETag etag)
+    {
+        if (response.Headers.TryGetValue("ETag", out var etagValue)
+            && !string.IsNullOrWhiteSpace(etagValue))
+        {
+            etag = new Azure.ETag(etagValue);
+            return true;
+        }
+
+        etag = default;
+        return false;
+    }
+
+    private void PublishStateChanged(string gameId, RailBaronGameState state, IReadOnlyList<EventTimelineItem>? timelineItems = null)
+    {
+        OnStateChanged?.Invoke(gameId, new GameStateUpdate(state, timelineItems ?? []));
+    }
+
+    private static List<EventTimelineItem> BuildLiveTimelineItems(GameEventEntity gameEvent, RailBaronGameState? previousSnapshot)
+    {
+        var previousGameEvent = previousSnapshot is null
+            ? null
+            : new GameEventEntity
+            {
+                SerializedGameState = GameEventSerialization.SerializeSnapshot(previousSnapshot)
+            };
+
+        return GameService.BuildTimelineItems(gameEvent, previousGameEvent);
     }
 
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)

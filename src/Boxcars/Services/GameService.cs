@@ -237,7 +237,7 @@ public class GameService
             : item.EventId;
     }
 
-    private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
+    internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
     {
         if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute"))
         {

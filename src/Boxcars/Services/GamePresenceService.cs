@@ -73,7 +73,7 @@ public sealed class GamePresenceService : IDisposable
         }
     }
 
-    public event Action<string>? PresenceChanged;
+    public event Action<GamePresenceChange>? PresenceChanged;
 
     public bool AddConnection(string gameId, string userId, string connectionId)
     {
@@ -620,7 +620,7 @@ public sealed class GamePresenceService : IDisposable
                 };
 
                 await _gamesTable.UpdateEntityAsync(updateEntity, gameEntity.ETag, TableUpdateMode.Merge);
-                NotifyPresenceChanged(gameId);
+                NotifyPresenceChanged(gameId, metadataChanged: true);
                 return;
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
@@ -666,7 +666,7 @@ public sealed class GamePresenceService : IDisposable
         return null;
     }
 
-    private void NotifyPresenceChanged(string gameId)
+    private void NotifyPresenceChanged(string gameId, bool metadataChanged = false)
     {
         var handlers = PresenceChanged;
         if (handlers is null)
@@ -674,11 +674,13 @@ public sealed class GamePresenceService : IDisposable
             return;
         }
 
-        foreach (Action<string> handler in handlers.GetInvocationList())
+        var change = new GamePresenceChange(gameId, metadataChanged);
+
+        foreach (Action<GamePresenceChange> handler in handlers.GetInvocationList())
         {
             try
             {
-                handler(gameId);
+                handler(change);
             }
             catch (Exception exception)
             {
@@ -692,3 +694,5 @@ public sealed class GamePresenceService : IDisposable
         _staleConnectionTimer?.Dispose();
     }
 }
+
+public sealed record GamePresenceChange(string GameId, bool MetadataChanged = false);

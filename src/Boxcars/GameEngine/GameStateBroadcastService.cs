@@ -28,9 +28,9 @@ public sealed class GameStateBroadcastService : IHostedService
         return Task.CompletedTask;
     }
 
-    private void OnStateChanged(string gameId, RailBaronGameState state)
+    private void OnStateChanged(string gameId, GameStateUpdate update)
     {
         _ = _hubContext.Clients.Group(gameId)
-            .SendAsync(GameHubEvents.StateUpdated, state, CancellationToken.None);
+            .SendAsync(GameHubEvents.StateUpdated, update, CancellationToken.None);
     }
 }
