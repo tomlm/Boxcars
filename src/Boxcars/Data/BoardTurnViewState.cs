@@ -17,7 +17,7 @@ public sealed class BoardTurnViewState
     public int CurrentRollTotal { get; init; }
     public bool IsActivePlayerAtDestination { get; init; }
     public string ActivePlayerDestinationCity { get; init; } = string.Empty;
-    public string ActivePlayerControllerMode { get; init; } = SeatControllerModes.HumanDirect;
+    public string ActivePlayerControllerMode { get; init; } = SeatControllerModes.Self;
     public TurnMovementPreview SelectedRoutePreview { get; init; } = TurnMovementPreview.Empty;
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
     public bool IsCurrentUserActivePlayer { get; init; }

@@ -8,11 +8,13 @@
 @using Boxcars.Engine.Data.Maps
 @using Boxcars.Engine.Domain
 @using Boxcars.GameEngine
+@using Boxcars.Hubs
 @using Boxcars.Services
 @using Boxcars.Services.Maps
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.JSInterop
 @using MudBlazor
 @using System.Globalization
@@ -309,6 +311,7 @@
     private bool _pagePresenceRegistered;
     private bool _presenceNotificationsEnabled;
     private DotNetObjectReference<GameBoard>? _presenceHeartbeatReference;
+    private HubConnection? _gameHubConnection;
     private long _latestSharedStateChangeVersion;
 
     [Parameter]
@@ -361,6 +364,7 @@
 
         if (firstRender)
         {
+            await EnsureGameHubConnectionAsync();
             RegisterPagePresence();
             await StartPresenceHeartbeatAsync();
         }
@@ -921,6 +925,57 @@
         await RefreshTimelineAsync();
     }
 
+    private async Task EnsureGameHubConnectionAsync()
+    {
+        if (_gameHubConnection is not null || string.IsNullOrWhiteSpace(_currentUserId) || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        _gameHubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/game"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _gameHubConnection.On<RailBaronGameState>(GameHubEvents.StateUpdated, async state =>
+        {
+            await SharedGameEngine.SynchronizeStateAsync(GameId, state, CancellationToken.None);
+            OnSharedGameStateChanged(GameId, state);
+        });
+
+        _gameHubConnection.On(GameHubEvents.PresenceUpdated, () =>
+        {
+            OnPresenceChanged(GameId);
+        });
+
+        _gameHubConnection.Reconnected += async _ =>
+        {
+            await JoinGameHubGroupAsync();
+        };
+
+        try
+        {
+            await _gameHubConnection.StartAsync();
+            await JoinGameHubGroupAsync();
+        }
+        catch
+        {
+            // Without the game hub connection, same-instance updates still work; cross-instance sync will not.
+        }
+    }
+
+    private async Task JoinGameHubGroupAsync()
+    {
+        if (_gameHubConnection is null
+            || _gameHubConnection.State is not HubConnectionState.Connected
+            || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        await _gameHubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
+    }
+
     private void OnSharedGameStateChanged(string gameId, RailBaronGameState state)
     {
         if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
@@ -1065,7 +1120,7 @@
                     Index = index,
                     Name = selection?.DisplayName ?? player.Name,
                     ThumbnailUrl = (isBotUser || activeBotAssignment is not null)
-                        ? ResolveBotModeThumbnailUrl(selection?.DisplayName ?? player.Name)
+                        ? ResolveBotThumbnailUrl(selection?.DisplayName ?? player.Name)
                         : ResolveThumbnailUrl(resolvedUserId),
                     Color = ResolvePlayerColor(selection, index),
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName)
@@ -1088,18 +1143,18 @@
                     IsEliminated = !player.IsActive,
                     IsConnected = isConnected,
                     ShowDisconnectedControlToggle = ShouldShowDisconnectedControlToggle(index, resolvedUserId),
-                    CanSelectBotControl = CanCurrentUserSelectBotControl(index, resolvedUserId, delegatedControllerUserId),
+                    CanSelectAiControl = CanCurrentUserSelectAiControl(index, resolvedUserId, delegatedControllerUserId),
                     CanSelectManualControl = CanCurrentUserSelectManualControl(index, resolvedUserId, delegatedControllerUserId),
-                    IsBotControlSelected = string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase),
-                    IsManualControlSelected = string.Equals(controllerState.ControllerMode, SeatControllerModes.HumanDelegated, StringComparison.OrdinalIgnoreCase),
+                    IsAiControlSelected = SeatControllerModes.IsAiControlled(controllerState.ControllerMode),
+                    IsManualControlSelected = SeatControllerModes.IsDelegated(controllerState.ControllerMode),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, playerDisplayNamesByUserId),
                     HasBotAssignment = activeBotAssignment is not null,
-                    IsAiControlled = isBotUser || string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase) || activeBotAssignment is not null,
+                    IsAiControlled = isBotUser || SeatControllerModes.IsAiControlled(controllerState.ControllerMode) || activeBotAssignment is not null,
                     ControllerMode = controllerState.ControllerMode,
                     IsBotPlayer = isBotUser,
                     AssignedBotDefinitionId = activeBotAssignment?.BotDefinitionId ?? string.Empty,
-                    BotAssignmentStatusLabel = string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+                    BotAssignmentStatusLabel = SeatControllerModes.IsAiControlled(controllerState.ControllerMode)
                         ? "AUTO"
                         : GameBoardStateMapper.GetBotAssignmentStatusLabel(latestBotAssignment, latestBotName),
                     HasMissingBotDefinition = string.Equals(latestBotAssignment?.Status, BotAssignmentStatuses.MissingDefinition, StringComparison.OrdinalIgnoreCase),
@@ -1495,7 +1550,7 @@ StringComparison.OrdinalIgnoreCase));
             : string.Empty;
     }
 
-    private static string ResolveBotModeThumbnailUrl(string? playerName)
+    private static string ResolveBotThumbnailUrl(string? playerName)
     {
         var thumbnailKey = string.IsNullOrWhiteSpace(playerName)
             ? "boxcars-bot"
@@ -2613,18 +2668,18 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     IsEliminated = player.IsEliminated,
                     IsConnected = IsPlayerConnected(slotUserId),
                     ShowDisconnectedControlToggle = ShouldShowDisconnectedControlToggle(player.Index, slotUserId),
-                    CanSelectBotControl = CanCurrentUserSelectBotControl(player.Index, slotUserId, delegatedControllerUserId),
+                    CanSelectAiControl = CanCurrentUserSelectAiControl(player.Index, slotUserId, delegatedControllerUserId),
                     CanSelectManualControl = CanCurrentUserSelectManualControl(player.Index, slotUserId, delegatedControllerUserId),
-                    IsBotControlSelected = string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase),
-                    IsManualControlSelected = string.Equals(controllerState.ControllerMode, SeatControllerModes.HumanDelegated, StringComparison.OrdinalIgnoreCase),
+                    IsAiControlSelected = SeatControllerModes.IsAiControlled(controllerState.ControllerMode),
+                    IsManualControlSelected = SeatControllerModes.IsDelegated(controllerState.ControllerMode),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, null),
                     HasBotAssignment = player.HasBotAssignment,
-                    IsAiControlled = string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase) || player.IsAiControlled,
+                    IsAiControlled = SeatControllerModes.IsAiControlled(controllerState.ControllerMode) || player.IsAiControlled,
                     ControllerMode = controllerState.ControllerMode,
                     IsBotPlayer = player.IsBotPlayer,
                     AssignedBotDefinitionId = player.AssignedBotDefinitionId,
-                    BotAssignmentStatusLabel = string.Equals(controllerState.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+                    BotAssignmentStatusLabel = SeatControllerModes.IsAiControlled(controllerState.ControllerMode)
                         ? "AUTO"
                         : player.BotAssignmentStatusLabel,
                     HasMissingBotDefinition = player.HasMissingBotDefinition,
@@ -2896,7 +2951,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return null;
         }
 
-        var detail = string.Equals(item.BotControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+        var detail = !item.IsBotPlayer && SeatControllerModes.IsAiControlled(item.BotControllerMode)
             ? "AUTO action"
             : "AI action";
 
@@ -3209,7 +3264,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             || PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
     }
 
-    private bool CanCurrentUserSelectBotControl(int playerIndex, string? slotUserId, string? delegatedControllerUserId)
+    private bool CanCurrentUserSelectAiControl(int playerIndex, string? slotUserId, string? delegatedControllerUserId)
     {
         if (!ShouldShowDisconnectedControlToggle(playerIndex, slotUserId))
         {
@@ -3381,6 +3436,23 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             SharedGameEngine.OnStateChanged -= OnSharedGameStateChanged;
             SharedGameEngine.OnActionFailed -= OnSharedGameActionFailed;
             _gameStateSubscriptionInitialized = false;
+        }
+
+        if (_gameHubConnection is not null)
+        {
+            try
+            {
+                if (_gameHubConnection.State is HubConnectionState.Connected && !string.IsNullOrWhiteSpace(GameId))
+                {
+                    await _gameHubConnection.InvokeAsync(GameHubEvents.LeaveGame, GameId);
+                }
+            }
+            catch
+            {
+            }
+
+            await _gameHubConnection.DisposeAsync();
+            _gameHubConnection = null;
         }
 
         await Task.CompletedTask;

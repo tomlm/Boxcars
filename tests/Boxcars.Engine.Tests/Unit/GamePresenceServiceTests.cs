@@ -87,7 +87,7 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public void ResolveSeatControllerState_OfflineDelegatedSeat_ReturnsHumanDelegated()
+    public void ResolveSeatControllerState_OfflineDelegatedSeat_ReturnsDelegated()
     {
         var service = new GamePresenceService();
 
@@ -97,13 +97,13 @@ public class GamePresenceServiceTests
 
         var controllerState = service.ResolveSeatControllerState("game-1", "target", activeBotAssignment: null);
 
-        Assert.Equal(SeatControllerModes.HumanDelegated, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.Delegated, controllerState.ControllerMode);
         Assert.Equal("controller", controllerState.DelegatedControllerUserId);
         Assert.False(controllerState.IsConnected);
     }
 
     [Fact]
-    public void ResolveSeatControllerState_DisconnectedHumanWithoutManualController_DefaultsToAiGhost()
+    public void ResolveSeatControllerState_DisconnectedHumanWithoutManualController_DefaultsToBot()
     {
         var service = new GamePresenceService();
 
@@ -111,19 +111,17 @@ public class GamePresenceServiceTests
 
         var controllerState = service.ResolveSeatControllerState("game-1", "target", activeBotAssignment: null);
 
-        Assert.Equal(SeatControllerModes.AiGhost, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
         Assert.Equal("target", controllerState.BotDefinitionId);
         Assert.False(controllerState.IsConnected);
     }
 
     [Fact]
-    public void ResolveSeatControllerState_GhostAssignment_ReturnsAiGhost()
+    public void ResolveSeatControllerState_BotAssignment_ReturnsBot()
     {
         var service = new GamePresenceService();
 
-        service.SetMockConnectionState("game-1", "controller", isConnected: true);
         service.SetMockConnectionState("game-1", "target", isConnected: false);
-        service.TryTakeDelegatedControl("game-1", "target", "controller");
 
         var controllerState = service.ResolveSeatControllerState(
             "game-1",
@@ -132,19 +130,19 @@ public class GamePresenceServiceTests
             {
                 GameId = "game-1",
                 PlayerUserId = "target",
-                ControllerUserId = "controller",
-                ControllerMode = SeatControllerModes.AiGhost,
+                ControllerUserId = string.Empty,
+                ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
                 Status = BotAssignmentStatuses.Active
             });
 
-        Assert.Equal(SeatControllerModes.AiGhost, controllerState.ControllerMode);
-        Assert.Equal("controller", controllerState.DelegatedControllerUserId);
+        Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
+        Assert.Null(controllerState.DelegatedControllerUserId);
         Assert.Equal("bot-1", controllerState.BotDefinitionId);
     }
 
     [Fact]
-    public void ResolveSeatControllerState_DedicatedBotAssignment_ReturnsAiBotSeat()
+    public void ResolveSeatControllerState_DedicatedBotAssignment_ReturnsBot()
     {
         var service = new GamePresenceService();
 
@@ -155,17 +153,17 @@ public class GamePresenceServiceTests
             {
                 GameId = "game-1",
                 PlayerUserId = "beatle-bot",
-                ControllerMode = SeatControllerModes.AiBotSeat,
+                ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
                 Status = BotAssignmentStatuses.Active
             });
 
-        Assert.Equal(SeatControllerModes.AiBotSeat, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
         Assert.Equal("bot-1", controllerState.BotDefinitionId);
     }
 
     [Fact]
-    public void ReleaseDelegatedControl_DisconnectedSeatFallsBackToAiGhost()
+    public void ReleaseDelegatedControl_DisconnectedSeatFallsBackToBot()
     {
         var service = new GamePresenceService();
 
@@ -182,17 +180,17 @@ public class GamePresenceServiceTests
                 GameId = "game-1",
                 PlayerUserId = "target",
                 ControllerUserId = "controller",
-                ControllerMode = SeatControllerModes.AiGhost,
+                ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
                 Status = BotAssignmentStatuses.Active
             });
 
-        Assert.Equal(SeatControllerModes.AiGhost, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
         Assert.Null(controllerState.DelegatedControllerUserId);
     }
 
     [Fact]
-    public void Reconnect_GhostAssignmentFallsBackToHumanDirect()
+    public void Reconnect_BotAssignmentFallsBackToSelf()
     {
         var service = new GamePresenceService();
 
@@ -209,12 +207,12 @@ public class GamePresenceServiceTests
                 GameId = "game-1",
                 PlayerUserId = "target",
                 ControllerUserId = "controller",
-                ControllerMode = SeatControllerModes.AiGhost,
+                ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
                 Status = BotAssignmentStatuses.Active
             });
 
-        Assert.Equal(SeatControllerModes.HumanDirect, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.Self, controllerState.ControllerMode);
         Assert.True(controllerState.IsConnected);
     }
 
@@ -232,7 +230,7 @@ public class GamePresenceServiceTests
                 {
                     GameId = "game-1",
                     PlayerUserId = "target",
-                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    ControllerMode = SeatControllerModes.AI,
                     BotDefinitionId = "target",
                     Status = BotAssignmentStatuses.Active
                 }
@@ -278,7 +276,7 @@ public class GamePresenceServiceTests
                 {
                     GameId = "game-1",
                     PlayerUserId = "beatle-bot",
-                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    ControllerMode = SeatControllerModes.AI,
                     BotDefinitionId = "beatle-bot",
                     Status = BotAssignmentStatuses.Active
                 }

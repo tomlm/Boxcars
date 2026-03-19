@@ -53,8 +53,14 @@
                                     }
                             </div>
                             <MudStack Class="player-card-heading" Spacing="0">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="player-card-name-row">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="player-card-name-row">
                                     <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
+                                    @if (player.IsBotPlayer)
+                                    {
+                                        <MudTooltip Text="AI player">
+                                            <MudText Typo="Typo.caption" Class="player-card-banner-ai">AI</MudText>
+                                        </MudTooltip>
+                                    }
                                 </MudStack>
                                 <MudText Typo="Typo.caption" Class="player-card-subtitle">Home: @player.HomeCity</MudText>
                             </MudStack>
@@ -111,7 +117,7 @@
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.caption">Bot</MudText>
+                                    <MudText Typo="Typo.caption">AI</MudText>
                                     <MudSwitch T="bool"
                                                Value="@player.IsManualControlSelected"
                                                ValueChanged="@(isManual => OnDisconnectedSeatControlChangedAsync(player, isManual))"
@@ -191,7 +197,7 @@
 
     private static bool CanToggleDisconnectedSeatControl(PlayerBoardModel player)
     {
-        return player.CanSelectBotControl || player.CanSelectManualControl;
+        return player.CanSelectAiControl || player.CanSelectManualControl;
     }
 
     private Task OnDisconnectedSeatControlChangedAsync(PlayerBoardModel player, bool isManual)
@@ -199,7 +205,7 @@
         return OnSetDisconnectedSeatControl.InvokeAsync(new DisconnectedSeatControlRequest
         {
             PlayerIndex = player.Index,
-            ControlMode = isManual ? DisconnectedSeatControlModes.Manual : DisconnectedSeatControlModes.Bot
+            ControlMode = isManual ? DisconnectedSeatControlModes.Manual : DisconnectedSeatControlModes.AI
         });
     }
 

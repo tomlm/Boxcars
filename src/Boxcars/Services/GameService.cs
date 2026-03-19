@@ -165,7 +165,7 @@ public class GameService
             .Select(assignment => assignment with
             {
                 ControllerMode = NormalizeControllerMode(assignment),
-                ControllerUserId = string.Equals(NormalizeControllerMode(assignment), SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
+                ControllerUserId = string.Equals(NormalizeControllerMode(assignment), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase)
                     ? string.Empty
                     : assignment.ControllerUserId,
                 Status = string.IsNullOrWhiteSpace(assignment.Status) ? BotAssignmentStatuses.Active : assignment.Status
@@ -177,12 +177,10 @@ public class GameService
     {
         if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
         {
-            return assignment.ControllerMode;
+            return SeatControllerModes.Normalize(assignment.ControllerMode);
         }
 
-        return string.IsNullOrWhiteSpace(assignment.ControllerUserId)
-            ? SeatControllerModes.AiBotSeat
-            : SeatControllerModes.AiGhost;
+        return SeatControllerModes.AI;
     }
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
@@ -463,6 +461,7 @@ public class GameService
             ActingPlayerIndex = gameEvent.ActingPlayerIndex,
             ActingUserId = playerAction?.ActorUserId ?? gameEvent.ActingUserId,
             IsAiAction = playerAction?.IsServerAuthoredAiAction == true,
+            IsBotPlayer = playerAction?.BotMetadata?.IsBotPlayer == true,
             BotDefinitionId = playerAction?.BotMetadata?.BotDefinitionId ?? string.Empty,
             BotName = playerAction?.BotMetadata?.BotName ?? string.Empty,
             BotControllerMode = playerAction?.BotMetadata?.ControllerMode ?? string.Empty,

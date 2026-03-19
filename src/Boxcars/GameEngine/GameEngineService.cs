@@ -166,6 +166,15 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, cancellationToken);
     }
 
+    public async Task SynchronizeStateAsync(string gameId, RailBaronGameState state, CancellationToken cancellationToken = default)
+    {
+        ValidateGameId(gameId);
+        ArgumentNullException.ThrowIfNull(state);
+
+        await _mapReady.Task.WaitAsync(cancellationToken);
+        _gameEngines[gameId] = RestoreGameEngine(state);
+    }
+
     public bool IsGameBusy(string gameId)
     {
         return !string.IsNullOrWhiteSpace(gameId) && _busyGames.ContainsKey(gameId);
@@ -743,7 +752,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         var slotUserId = selections[actingPlayerIndex].UserId;
         var activeAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
         var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeAssignment);
-        return PlayerControlRules.IsAiControllerMode(controllerState.ControllerMode);
+        return PlayerControlRules.IsAiControlledMode(controllerState.ControllerMode);
     }
 
     private bool HasConnectedTableUser(GameEntity gameEntity)
@@ -965,7 +974,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         var activeAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
         var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeAssignment);
-        if (!string.Equals(controllerState.ControllerMode, SeatControllerModes.HumanDelegated, StringComparison.OrdinalIgnoreCase))
+        if (!SeatControllerModes.IsDelegated(controllerState.ControllerMode))
         {
             return string.Empty;
         }
@@ -978,12 +987,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static string BuildBotActionSuffix(BotRecordedActionMetadata metadata)
     {
-        if (string.Equals(metadata.ControllerMode, SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase))
+        if (metadata.IsBotPlayer)
         {
             return string.Empty;
         }
 
-        var suffixLabel = string.Equals(metadata.ControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+        var suffixLabel = SeatControllerModes.IsAiControlled(metadata.ControllerMode)
             ? "AUTO"
             : !string.IsNullOrWhiteSpace(metadata.BotName)
                 ? metadata.BotName

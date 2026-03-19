@@ -77,7 +77,7 @@ public class RegionChoiceStateMapperTests
                 {
                     GameId = "game-1",
                     PlayerUserId = "alice@example.com",
-                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    ControllerMode = SeatControllerModes.AI,
                     BotDefinitionId = "bot-1",
                     Status = BotAssignmentStatuses.Active
                 }
@@ -86,7 +86,7 @@ public class RegionChoiceStateMapperTests
 
         var state = mapper.BuildTurnViewState(game, engine.ToSnapshot(), "bob@example.com", engine.MapDefinition);
 
-        Assert.Equal(SeatControllerModes.AiBotSeat, state.ActivePlayerControllerMode);
+        Assert.Equal(SeatControllerModes.AI, state.ActivePlayerControllerMode);
         Assert.False(state.IsCurrentUserActivePlayer);
     }
 }

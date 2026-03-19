@@ -53,7 +53,6 @@ public sealed class GameBoardStateMapper(
         {
             BotAssignmentStatuses.Active => string.IsNullOrWhiteSpace(botName) ? "Bot assigned" : botName,
             BotAssignmentStatuses.MissingDefinition => "Bot removed from library",
-            BotAssignmentStatuses.DisconnectedController => string.Empty,
             _ => string.Empty
         };
     }
@@ -70,7 +69,7 @@ public sealed class GameBoardStateMapper(
                 DelegatedControllerUserId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).DelegatedControllerUserId ?? string.Empty,
                 IsConnected = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).IsConnected,
                 BotDefinitionId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).BotDefinitionId ?? string.Empty,
-                HasBotAssignment = PlayerControlRules.IsAiControllerMode(ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode),
+                HasBotAssignment = PlayerControlRules.IsAiControlledMode(ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode),
                 UserId = selection.UserId,
                 PlayerIndex = index,
                 DisplayName = string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName,
@@ -135,7 +134,7 @@ public sealed class GameBoardStateMapper(
             CurrentRollTotal = CalculateRollTotal(state),
             IsActivePlayerAtDestination = IsPlayerAtDestination(activePlayer),
             ActivePlayerDestinationCity = activePlayer.DestinationCityName ?? string.Empty,
-            ActivePlayerControllerMode = activeBinding?.ControllerMode ?? SeatControllerModes.HumanDirect,
+            ActivePlayerControllerMode = activeBinding?.ControllerMode ?? SeatControllerModes.Self,
             SelectedRoutePreview = selectedRoutePreview,
             TraveledSegmentKeys = activePlayer.UsedSegments,
             IsCurrentUserActivePlayer = activeBinding is not null

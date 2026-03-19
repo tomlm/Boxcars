@@ -29,7 +29,8 @@ public class BotActionHistoryTests
             {
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
-                ControllerMode = SeatControllerModes.AiGhost,
+                ControllerMode = SeatControllerModes.AI,
+                IsBotPlayer = true,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -40,7 +41,7 @@ public class BotActionHistoryTests
         Assert.Contains("\"BotMetadata\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"BotDefinitionId\":\"bot-1\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"BotName\":\"El Cheapo\"", payload, StringComparison.Ordinal);
-        Assert.Contains("\"ControllerMode\":\"AiGhost\"", payload, StringComparison.Ordinal);
+        Assert.Contains("\"ControllerMode\":\"AI\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"DecisionSource\":\"Fallback\"", payload, StringComparison.Ordinal);
         Assert.Contains("\"FallbackReason\":\"Timeout\"", payload, StringComparison.Ordinal);
     }
@@ -58,7 +59,8 @@ public class BotActionHistoryTests
             {
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
-                ControllerMode = SeatControllerModes.AiGhost,
+                ControllerMode = SeatControllerModes.AI,
+                IsBotPlayer = true,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -73,14 +75,14 @@ public class BotActionHistoryTests
         Assert.NotNull(restored.BotMetadata);
         Assert.Equal("bot-1", restored.BotMetadata!.BotDefinitionId);
         Assert.Equal("El Cheapo", restored.BotMetadata.BotName);
-        Assert.Equal(SeatControllerModes.AiGhost, restored.BotMetadata.ControllerMode);
+        Assert.Equal(SeatControllerModes.AI, restored.BotMetadata.ControllerMode);
         Assert.Equal("Fallback", restored.BotMetadata.DecisionSource);
         Assert.Equal("Timeout", restored.BotMetadata.FallbackReason);
         Assert.True(restored.IsServerAuthoredAiAction);
     }
 
     [Fact]
-    public void DescribeAction_GhostDrivenRegionChoice_AppendsAutoAttributionSuffix()
+    public void DescribeAction_BotDrivenRegionChoice_AppendsAutoAttributionSuffix()
     {
         var service = CreateGameEngineServiceForTests();
         var (engine, random) = GameEngineFixture.CreateTestEngine();
@@ -100,7 +102,8 @@ public class BotActionHistoryTests
             {
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
-                ControllerMode = SeatControllerModes.AiGhost,
+                ControllerMode = SeatControllerModes.AI,
+                IsBotPlayer = true,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -136,7 +139,7 @@ public class BotActionHistoryTests
             {
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
-                ControllerMode = SeatControllerModes.AiBotSeat,
+                ControllerMode = SeatControllerModes.AI,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -287,7 +290,7 @@ public class BotActionHistoryTests
                 {
                     GameId = "game-1",
                     PlayerUserId = "alice@example.com",
-                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    ControllerMode = SeatControllerModes.AI,
                     BotDefinitionId = "bot-1",
                     Status = BotAssignmentStatuses.Active
                 }
@@ -296,7 +299,7 @@ public class BotActionHistoryTests
 
         var bindings = mapper.BuildPlayerControlBindings(game, "bob@example.com");
 
-        Assert.Equal(SeatControllerModes.AiBotSeat, bindings[0].ControllerMode);
+        Assert.Equal(SeatControllerModes.AI, bindings[0].ControllerMode);
         Assert.True(bindings[0].HasBotAssignment);
         Assert.Equal("bot-1", bindings[0].BotDefinitionId);
     }

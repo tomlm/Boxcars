@@ -88,7 +88,7 @@ internal static class BotTurnServiceTestHarness
                     GameId = GameId,
                     PlayerUserId = playerUserId,
                     ControllerUserId = controllerUserId,
-                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    ControllerMode = SeatControllerModes.AI,
                     BotDefinitionId = botDefinitionId,
                     Status = BotAssignmentStatuses.Active
                 }
@@ -114,7 +114,7 @@ internal static class BotTurnServiceTestHarness
         };
     }
 
-    public static GameEntity CreateGhostControlledGame(
+    public static GameEntity CreateBotControlledGame(
         IReadOnlyList<GamePlayerSelection> selections,
         string playerUserId,
         string controllerUserId,
@@ -128,7 +128,7 @@ internal static class BotTurnServiceTestHarness
             PlayersJson = GamePlayerSelectionSerialization.Serialize(selections),
             BotAssignmentsJson = BotAssignmentSerialization.Serialize(
             [
-                CreateGhostAssignment(playerUserId, controllerUserId, botDefinitionId)
+                CreateBotAssignment(playerUserId, controllerUserId, botDefinitionId)
             ])
         };
     }
@@ -139,20 +139,20 @@ internal static class BotTurnServiceTestHarness
         {
             GameId = GameId,
             PlayerUserId = playerUserId,
-            ControllerMode = SeatControllerModes.AiBotSeat,
+            ControllerMode = SeatControllerModes.AI,
             BotDefinitionId = botDefinitionId,
             Status = BotAssignmentStatuses.Active
         };
     }
 
-    public static BotAssignment CreateGhostAssignment(string playerUserId, string controllerUserId, string botDefinitionId)
+    public static BotAssignment CreateBotAssignment(string playerUserId, string controllerUserId, string botDefinitionId)
     {
         return new BotAssignment
         {
             GameId = GameId,
             PlayerUserId = playerUserId,
             ControllerUserId = controllerUserId,
-            ControllerMode = SeatControllerModes.AiGhost,
+            ControllerMode = SeatControllerModes.AI,
             BotDefinitionId = botDefinitionId,
             Status = BotAssignmentStatuses.Active
         };

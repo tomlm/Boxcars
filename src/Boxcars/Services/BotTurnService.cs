@@ -70,8 +70,8 @@ public sealed class BotTurnService
         ArgumentNullException.ThrowIfNull(game);
 
         controllerMode ??= string.IsNullOrWhiteSpace(controllerUserId)
-            ? SeatControllerModes.AiBotSeat
-            : SeatControllerModes.AiGhost;
+            ? SeatControllerModes.AI
+            : SeatControllerModes.AI;
 
         var assignments = GetAssignments(game).ToList();
         var now = DateTimeOffset.UtcNow;
@@ -165,13 +165,13 @@ public sealed class BotTurnService
 
             var existingAssignment = GetActiveAssignment(game, selection.UserId);
             if (existingAssignment is not null
-                && string.Equals(PlayerControlRules.ResolveBotControllerMode(existingAssignment), SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(PlayerControlRules.ResolveBotControllerMode(existingAssignment), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(existingAssignment.BotDefinitionId, selection.UserId, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            UpsertAssignment(game, selection.UserId, string.Empty, selection.UserId, SeatControllerModes.AiBotSeat);
+            UpsertAssignment(game, selection.UserId, string.Empty, selection.UserId, SeatControllerModes.AI);
         }
     }
 
@@ -457,7 +457,7 @@ public sealed class BotTurnService
             PlayerIndex = playerIndex,
             ActorUserId = ResolveBotActorUserId(),
             SelectedRegionCode = resolution.SelectedOptionId["region:".Length..],
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, resolution.Source, resolution.FallbackReason)
+            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, resolution.Source, resolution.FallbackReason)
         };
     }
 
@@ -517,7 +517,7 @@ public sealed class BotTurnService
             ActorUserId = ResolveBotActorUserId(),
             PointsTaken = pointsTaken,
             SelectedSegmentKeys = selectedSegmentKeys,
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "SuggestedRoute")
+            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, "SuggestedRoute")
         };
     }
 
@@ -653,7 +653,7 @@ public sealed class BotTurnService
 
         return action with
         {
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, resolution.Source, resolution.FallbackReason)
+            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, resolution.Source, resolution.FallbackReason)
         };
     }
 
@@ -861,7 +861,7 @@ public sealed class BotTurnService
                 PlayerIndex = player.Index,
                 ActorUserId = ResolveBotActorUserId(),
                 RailroadIndex = bestCandidate.Railroad.Index,
-                BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "DeterministicAuction")
+                BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, "DeterministicAuction")
             };
         }
 
@@ -872,7 +872,7 @@ public sealed class BotTurnService
             ActorUserId = ResolveBotActorUserId(),
             RailroadIndex = bestCandidate.Railroad.Index,
             AmountReceived = bestCandidate.Railroad.PurchasePrice / 2,
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition.Name, "DeterministicSell")
+            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, "DeterministicSell")
         };
     }
 
@@ -912,7 +912,7 @@ public sealed class BotTurnService
             {
                 GameId = game.GameId,
                 PlayerUserId = playerUserId,
-                ControllerMode = SeatControllerModes.AiGhost,
+                ControllerMode = SeatControllerModes.AI,
                 ControllerUserId = string.Empty,
                 BotDefinitionId = playerUserId,
                 Status = BotAssignmentStatuses.Active
@@ -920,19 +920,21 @@ public sealed class BotTurnService
         }
 
         var resolvedControllerMode = ResolveAssignmentControllerMode(assignment, playerUserId);
-        var botDefinitionId = string.Equals(resolvedControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
-            ? playerUserId
-            : assignment.BotDefinitionId;
-        var botDefinition = string.Equals(resolvedControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
-            ? await _userDirectoryService.GetAutomationProfileAsync(playerUserId, cancellationToken)
-            : await _userDirectoryService.GetBotDefinitionAsync(botDefinitionId, cancellationToken);
+        var dedicatedBotSeatDefinition = await _userDirectoryService.GetBotDefinitionAsync(playerUserId, cancellationToken);
+        var isDedicatedBotPlayer = dedicatedBotSeatDefinition?.IsBotUser == true;
+        var botDefinitionId = isDedicatedBotPlayer
+            ? string.IsNullOrWhiteSpace(assignment.BotDefinitionId) ? playerUserId : assignment.BotDefinitionId
+            : playerUserId;
+        var botDefinition = isDedicatedBotPlayer
+            ? await _userDirectoryService.GetBotDefinitionAsync(botDefinitionId, cancellationToken)
+            : await _userDirectoryService.GetAutomationProfileAsync(playerUserId, cancellationToken);
         if (botDefinition is null)
         {
             ClearAssignment(game, playerUserId, "The assigned bot definition no longer exists.", BotAssignmentStatuses.MissingDefinition);
             return null;
         }
 
-        if (string.Equals(resolvedControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+        if (SeatControllerModes.IsAiControlled(resolvedControllerMode)
             && isConnected)
         {
             ClearAssignment(game, playerUserId, "Player reconnected.", BotAssignmentStatuses.Cleared);
@@ -942,9 +944,7 @@ public sealed class BotTurnService
         return (assignment with
         {
             ControllerMode = resolvedControllerMode,
-            ControllerUserId = string.Equals(resolvedControllerMode, SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
-                ? string.Empty
-                : string.Empty,
+            ControllerUserId = string.Empty,
             BotDefinitionId = botDefinitionId
         }, botDefinition);
     }
@@ -958,18 +958,10 @@ public sealed class BotTurnService
     {
         if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
         {
-            return assignment.ControllerMode;
+            return SeatControllerModes.Normalize(assignment.ControllerMode);
         }
 
-        if (string.Equals(assignment.PlayerUserId, assignment.BotDefinitionId, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase))
-        {
-            return SeatControllerModes.AiBotSeat;
-        }
-
-        return string.IsNullOrWhiteSpace(assignment.ControllerUserId)
-            ? SeatControllerModes.AiBotSeat
-            : SeatControllerModes.AiGhost;
+        return SeatControllerModes.AI;
     }
 
     private static string? ResolveSlotUserId(IReadOnlyList<GamePlayerSelection> selections, int playerIndex)
@@ -1613,13 +1605,19 @@ public sealed class BotTurnService
         return string.Concat(fromNodeId, "|", toNodeId, "|", railroadIndex.ToString(CultureInfo.InvariantCulture));
     }
 
-    private static BotRecordedActionMetadata CreateBotMetadata(BotAssignment assignment, string botName, string source, string? fallbackReason = null)
+    private static BotRecordedActionMetadata CreateBotMetadata(BotAssignment assignment, BotStrategyDefinitionEntity definition, string source, string? fallbackReason = null)
+    {
+        return CreateBotMetadata(assignment, definition.Name, source, fallbackReason, definition.IsBotUser);
+    }
+
+    private static BotRecordedActionMetadata CreateBotMetadata(BotAssignment assignment, string botName, string source, string? fallbackReason = null, bool isBotPlayer = false)
     {
         return new BotRecordedActionMetadata
         {
             BotDefinitionId = assignment.BotDefinitionId,
             BotName = botName,
             ControllerMode = assignment.ControllerMode,
+            IsBotPlayer = isBotPlayer,
             DecisionSource = source,
             FallbackReason = fallbackReason
         };
@@ -1631,7 +1629,8 @@ public sealed class BotTurnService
         {
             BotDefinitionId = string.Empty,
             BotName = "AI Auction",
-            ControllerMode = SeatControllerModes.AiBotSeat,
+            ControllerMode = SeatControllerModes.AI,
+            IsBotPlayer = true,
             DecisionSource = AllAiAuctionResolutionSource
         };
     }

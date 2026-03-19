@@ -23,7 +23,7 @@ public sealed record SeatControllerState
 {
     public string GameId { get; init; } = string.Empty;
     public string PlayerUserId { get; init; } = string.Empty;
-    public string ControllerMode { get; init; } = SeatControllerModes.HumanDirect;
+    public string ControllerMode { get; init; } = SeatControllerModes.Self;
     public string? DelegatedControllerUserId { get; init; }
     public string? OwningHumanUserId { get; init; }
     public bool IsConnected { get; init; }
@@ -32,10 +32,49 @@ public sealed record SeatControllerState
 
 public static class SeatControllerModes
 {
-    public const string HumanDirect = "HumanDirect";
-    public const string HumanDelegated = "HumanDelegated";
-    public const string AiBotSeat = "AiBotSeat";
-    public const string AiGhost = "AiGhost";
+    public const string Self = "Self";
+    public const string Delegated = "Delegated";
+    public const string AI = "AI";
+
+    public static bool IsAiControlled(string? controllerMode)
+    {
+        return string.Equals(controllerMode, AI, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsDelegated(string? controllerMode)
+    {
+        return string.Equals(controllerMode, Delegated, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsSelf(string? controllerMode)
+    {
+        return string.Equals(controllerMode, Self, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string Normalize(string? controllerMode)
+    {
+        if (string.IsNullOrWhiteSpace(controllerMode))
+        {
+            return string.Empty;
+        }
+
+        if (IsAiControlled(controllerMode))
+        {
+            return AI;
+        }
+
+        if (IsDelegated(controllerMode))
+        {
+            return Delegated;
+        }
+
+        if (IsSelf(controllerMode))
+        {
+            return Self;
+        }
+
+        return controllerMode;
+    }
 }
 
 public static class BotAssignmentStatuses
@@ -43,7 +82,6 @@ public static class BotAssignmentStatuses
     public const string Active = "Active";
     public const string Cleared = "Cleared";
     public const string MissingDefinition = "MissingDefinition";
-    public const string DisconnectedController = "DisconnectedController";
 }
 
 public sealed record BotLegalOption
@@ -94,25 +132,20 @@ public sealed record BotRecordedActionMetadata
     public string BotDefinitionId { get; init; } = string.Empty;
     public string BotName { get; init; } = string.Empty;
     public string ControllerMode { get; init; } = string.Empty;
+    public bool IsBotPlayer { get; init; }
     public string DecisionSource { get; init; } = string.Empty;
     public string? FallbackReason { get; init; }
-}
-
-public sealed record BotAssignmentDialogResult
-{
-    public string? BotDefinitionId { get; init; }
-    public bool ClearRequested { get; init; }
 }
 
 public sealed record DisconnectedSeatControlRequest
 {
     public int PlayerIndex { get; init; }
-    public string ControlMode { get; init; } = DisconnectedSeatControlModes.Bot;
+    public string ControlMode { get; init; } = DisconnectedSeatControlModes.AI;
 }
 
 public static class DisconnectedSeatControlModes
 {
-    public const string Bot = "Bot";
+    public const string AI = "AI";
     public const string Manual = "Manual";
 }
 

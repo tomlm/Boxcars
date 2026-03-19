@@ -33,7 +33,12 @@ public class BotTurnResolutionTests
         };
 
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition();
-        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
+        presenceService.SetMockConnectionState(BotTurnServiceTestHarness.GameId, BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        var playerProfile = BotTurnServiceTestHarness.CreateUser(
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Alice",
+            strategyText: "Prefer the only legal region.");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile], botDefinition);
         var game = BotTurnServiceTestHarness.CreateAssignedGame(
             BotTurnServiceTestHarness.CreateSelections(
                 BotTurnServiceTestHarness.ActivePlayerUserId,
@@ -49,7 +54,7 @@ public class BotTurnResolutionTests
         Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, regionAction.ActorUserId);
         Assert.NotNull(regionAction.BotMetadata);
         Assert.Equal("OnlyLegalChoice", regionAction.BotMetadata!.DecisionSource);
-        Assert.Equal(botDefinition.Name, regionAction.BotMetadata.BotName);
+        Assert.Equal("Alice", regionAction.BotMetadata.BotName);
     }
 
     [Fact]
@@ -124,7 +129,7 @@ public class BotTurnResolutionTests
             .ToList();
 
         var activeAssignment = Assert.Single(assignments.Where(assignment => string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)));
-        Assert.Equal(SeatControllerModes.AiBotSeat, activeAssignment.ControllerMode);
+        Assert.Equal(SeatControllerModes.AI, activeAssignment.ControllerMode);
         Assert.Equal(BotTurnServiceTestHarness.ActivePlayerUserId, activeAssignment.BotDefinitionId);
         Assert.Single(assignments);
     }
@@ -177,13 +182,13 @@ public class BotTurnResolutionTests
         engine.CurrentTurn.ActivePlayer.Cash = 0;
 
         var presenceService = new GamePresenceService();
-        BotTurnServiceTestHarness.ConfigureDelegatedControl(
-            presenceService,
-            BotTurnServiceTestHarness.ActivePlayerUserId,
-            BotTurnServiceTestHarness.ControllerUserId);
-
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition();
-        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
+        presenceService.SetMockConnectionState(BotTurnServiceTestHarness.GameId, BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        var playerProfile = BotTurnServiceTestHarness.CreateUser(
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Alice",
+            strategyText: "Decline purchases when there is no legal buy.");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile], botDefinition);
         var game = BotTurnServiceTestHarness.CreateAssignedGame(
             BotTurnServiceTestHarness.CreateSelections(
                 BotTurnServiceTestHarness.ActivePlayerUserId,
@@ -241,13 +246,13 @@ public class BotTurnResolutionTests
             .ToList();
 
         var presenceService = new GamePresenceService();
-        BotTurnServiceTestHarness.ConfigureDelegatedControl(
-            presenceService,
-            BotTurnServiceTestHarness.ActivePlayerUserId,
-            BotTurnServiceTestHarness.ControllerUserId);
-
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition();
-        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
+        presenceService.SetMockConnectionState(BotTurnServiceTestHarness.GameId, BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        var playerProfile = BotTurnServiceTestHarness.CreateUser(
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Alice",
+            strategyText: "Follow the saved route.");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile], botDefinition);
         var game = BotTurnServiceTestHarness.CreateAssignedGame(
             BotTurnServiceTestHarness.CreateSelections(
                 BotTurnServiceTestHarness.ActivePlayerUserId,
@@ -312,7 +317,7 @@ public class BotTurnResolutionTests
     }
 
     [Fact]
-    public async Task CreateBotActionAsync_GhostAssignmentWithoutDelegatedControl_UsesPlayerStrategyProfile()
+    public async Task CreateBotActionAsync_BotAssignmentWithoutDelegatedControl_UsesPlayerStrategyProfile()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
         engine.CurrentTurn.Phase = TurnPhase.RegionChoice;
@@ -336,13 +341,13 @@ public class BotTurnResolutionTests
             name: "Alice",
             strategyText: "Prefer the only legal region.");
         var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile]);
-        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+        var game = BotTurnServiceTestHarness.CreateBotControlledGame(
             BotTurnServiceTestHarness.CreateSelections(
                 BotTurnServiceTestHarness.ActivePlayerUserId,
                 BotTurnServiceTestHarness.OtherPlayerUserId),
             BotTurnServiceTestHarness.ActivePlayerUserId,
             BotTurnServiceTestHarness.ControllerUserId,
-            "legacy-ghost-definition");
+            "legacy-bot-mode-definition");
 
         var action = await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
@@ -378,9 +383,9 @@ public class BotTurnResolutionTests
 
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
             botDefinitionId: "bob@example.com",
-            name: "Ghost Strategy");
+            name: "Bot Mode Strategy");
         var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
-        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+        var game = BotTurnServiceTestHarness.CreateBotControlledGame(
             BotTurnServiceTestHarness.CreateSelections(
                 "seller@example.com",
                 "bob@example.com",
@@ -424,9 +429,9 @@ public class BotTurnResolutionTests
 
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
             botDefinitionId: "bob@example.com",
-            name: "Ghost Strategy");
+            name: "Bot Mode Strategy");
         var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
-        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+        var game = BotTurnServiceTestHarness.CreateBotControlledGame(
             BotTurnServiceTestHarness.CreateSelections(
                 "seller@example.com",
                 "bob@example.com",
@@ -473,12 +478,12 @@ public class BotTurnResolutionTests
 
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
             botDefinitionId: "bob@example.com",
-            name: "Ghost Strategy");
+            name: "Bot Mode Strategy");
         var (service, handler) = BotTurnServiceTestHarness.CreateServiceWithOpenAiSelection(
             presenceService,
             $"auction-cap:{ceiling}",
             botDefinition);
-        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+        var game = BotTurnServiceTestHarness.CreateBotControlledGame(
             BotTurnServiceTestHarness.CreateSelections(
                 "seller@example.com",
                 "bob@example.com",
@@ -550,12 +555,12 @@ public class BotTurnResolutionTests
 
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
             botDefinitionId: "bob@example.com",
-            name: "Ghost Strategy");
+            name: "Bot Mode Strategy");
         var (service, handler) = BotTurnServiceTestHarness.CreateServiceWithOpenAiSelection(
             presenceService,
             $"auction-cap:{startingPrice}",
             botDefinition);
-        var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
+        var game = BotTurnServiceTestHarness.CreateBotControlledGame(
             BotTurnServiceTestHarness.CreateSelections(
                 "seller@example.com",
                 "bob@example.com",

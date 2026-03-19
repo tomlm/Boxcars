@@ -12,11 +12,10 @@ public static class PlayerControlRules
         var resolvedBotControllerMode = ResolveBotControllerMode(activeBotAssignment);
         var controllerMode = resolvedBotControllerMode switch
         {
-            SeatControllerModes.AiBotSeat => SeatControllerModes.AiBotSeat,
-            SeatControllerModes.AiGhost when !isConnected => SeatControllerModes.AiGhost,
-            _ when !isConnected && !string.IsNullOrWhiteSpace(delegatedControllerUserId) => SeatControllerModes.HumanDelegated,
-            _ when !isConnected => SeatControllerModes.AiGhost,
-            _ => SeatControllerModes.HumanDirect
+            SeatControllerModes.AI when activeBotAssignment is not null && string.IsNullOrWhiteSpace(activeBotAssignment.ControllerUserId) => SeatControllerModes.AI,
+            _ when !isConnected && !string.IsNullOrWhiteSpace(delegatedControllerUserId) => SeatControllerModes.Delegated,
+            _ when !isConnected => SeatControllerModes.AI,
+            _ => SeatControllerModes.Self
         };
 
         return new SeatControllerState
@@ -28,7 +27,7 @@ public static class PlayerControlRules
             OwningHumanUserId = slotUserId,
             IsConnected = isConnected,
             BotDefinitionId = activeBotAssignment?.BotDefinitionId
-                ?? (string.Equals(controllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+                ?? (SeatControllerModes.IsAiControlled(controllerMode)
                     ? slotUserId
                     : null)
         };
@@ -87,16 +86,15 @@ public static class PlayerControlRules
             return false;
         }
 
-        return IsAiControllerMode(controllerState.ControllerMode)
+        return IsAiControlledMode(controllerState.ControllerMode)
             && !string.IsNullOrWhiteSpace(actorUserId)
             && !string.IsNullOrWhiteSpace(serverActorUserId)
             && string.Equals(actorUserId, serverActorUserId, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static bool IsAiControllerMode(string? controllerMode)
+    public static bool IsAiControlledMode(string? controllerMode)
     {
-        return string.Equals(controllerMode, SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(controllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase);
+        return SeatControllerModes.IsAiControlled(controllerMode);
     }
 
     public static string? ResolveBotControllerMode(BotAssignment? assignment)
@@ -110,12 +108,10 @@ public static class PlayerControlRules
 
         if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
         {
-            return assignment.ControllerMode;
+            return SeatControllerModes.Normalize(assignment.ControllerMode);
         }
 
-        return string.IsNullOrWhiteSpace(assignment.ControllerUserId)
-            ? SeatControllerModes.AiBotSeat
-            : SeatControllerModes.AiGhost;
+        return SeatControllerModes.AI;
     }
 
     public static bool IsDelegatedController(string? delegatedControllerUserId, string? currentUserId)

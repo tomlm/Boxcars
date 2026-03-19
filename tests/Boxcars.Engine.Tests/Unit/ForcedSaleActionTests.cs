@@ -247,7 +247,7 @@ public class ForcedSaleActionTests
                 {
                     GameId = "game-1",
                     PlayerUserId = "alice@example.com",
-                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    ControllerMode = SeatControllerModes.AI,
                     BotDefinitionId = "bot-1",
                     Status = BotAssignmentStatuses.Active
                 }
@@ -268,6 +268,8 @@ public class ForcedSaleActionTests
     public void ValidateActionAuthorization_RejectsServerActor_ForHumanControlledSeat()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", "alice@example.com", isConnected: true);
         var gameEntity = new GameEntity
         {
             PartitionKey = "game-1",
@@ -286,15 +288,15 @@ public class ForcedSaleActionTests
             ActorUserId = BotOptions.DefaultServerActorUserId
         };
 
-        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action, presenceService));
 
         Assert.IsType<InvalidOperationException>(exception.InnerException);
         Assert.Contains("Only the controlling participant for the active player may perform this action.", exception.InnerException!.Message);
     }
 
-    private static void InvokeValidateActionAuthorization(GameEntity gameEntity, Boxcars.Engine.Domain.GameEngine engine, PlayerAction action)
+    private static void InvokeValidateActionAuthorization(GameEntity gameEntity, Boxcars.Engine.Domain.GameEngine engine, PlayerAction action, GamePresenceService? presenceService = null)
     {
-        var service = CreateGameEngineServiceForTests();
+        var service = CreateGameEngineServiceForTests(presenceService);
         var method = typeof(GameEngineService).GetMethod("ValidateActionAuthorization", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("ValidateActionAuthorization was not found.");
 
@@ -336,12 +338,12 @@ public class ForcedSaleActionTests
         return (gameEntity, engine);
     }
 
-    private static GameEngineService CreateGameEngineServiceForTests()
+    private static GameEngineService CreateGameEngineServiceForTests(GamePresenceService? presenceService = null)
     {
         return new GameEngineService(
             new TestWebHostEnvironment(),
             new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
-            new GamePresenceService(),
+            presenceService ?? new GamePresenceService(),
             Options.Create(new BotOptions()),
             Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);

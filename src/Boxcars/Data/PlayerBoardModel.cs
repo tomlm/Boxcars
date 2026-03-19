@@ -59,17 +59,17 @@ public sealed class PlayerBoardModel
     /// <summary>True when the player is currently connected to the game session.</summary>
     public bool IsConnected { get; init; } = true;
 
-    /// <summary>True when the disconnected-seat Bot/Manual toggle should be shown.</summary>
+    /// <summary>True when the disconnected-seat AI/Manual toggle should be shown.</summary>
     public bool ShowDisconnectedControlToggle { get; init; }
 
-    /// <summary>True when the current user can switch the seat to bot control.</summary>
-    public bool CanSelectBotControl { get; init; }
+    /// <summary>True when the current user can switch the seat to AI control.</summary>
+    public bool CanSelectAiControl { get; init; }
 
     /// <summary>True when the current user can switch the seat to manual control.</summary>
     public bool CanSelectManualControl { get; init; }
 
-    /// <summary>True when bot control is currently selected for the disconnected seat.</summary>
-    public bool IsBotControlSelected { get; init; }
+    /// <summary>True when AI control is currently selected for the disconnected seat.</summary>
+    public bool IsAiControlSelected { get; init; }
 
     /// <summary>True when manual control is currently selected for the disconnected seat.</summary>
     public bool IsManualControlSelected { get; init; }
@@ -87,9 +87,9 @@ public sealed class PlayerBoardModel
     public bool IsAiControlled { get; init; }
 
     /// <summary>The resolved controller mode for the seat.</summary>
-    public string ControllerMode { get; init; } = SeatControllerModes.HumanDirect;
+    public string ControllerMode { get; init; } = SeatControllerModes.Self;
 
-    /// <summary>True when this seat is a dedicated bot player rather than a human seat in ghost mode.</summary>
+    /// <summary>True when this seat is a dedicated bot player rather than a disconnected human in bot mode.</summary>
     public bool IsBotPlayer { get; init; }
 
     /// <summary>True when the current viewer should see the exact cash amount instead of the coarse public indicator.</summary>

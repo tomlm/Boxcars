@@ -12,6 +12,8 @@ public interface IGameEngine
 
     Task<RailBaronGameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default);
 
+    Task SynchronizeStateAsync(string gameId, RailBaronGameState state, CancellationToken cancellationToken = default);
+
     bool IsGameBusy(string gameId);
 
     ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default);
