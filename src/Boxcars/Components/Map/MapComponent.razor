@@ -378,6 +378,9 @@
     public int CurrentTurnMovementRemaining { get; set; }
 
     [Parameter]
+    public int CurrentTurnMovementAllowance { get; set; }
+
+    [Parameter]
     public bool IsCurrentUserActivePlayer { get; set; }
 
     [Parameter]
@@ -1225,7 +1228,8 @@
             return false;
         }
 
-        if (CurrentTurnMovementRemaining > 0 && _selectedRouteSegments.Count >= CurrentTurnMovementRemaining)
+        var effectiveMovementCapacity = ResolveEffectiveMovementCapacity();
+        if (effectiveMovementCapacity > 0 && _selectedRouteSegments.Count >= effectiveMovementCapacity)
         {
             return false;
         }
@@ -1271,8 +1275,9 @@
             return false;
         }
 
-        if (CurrentTurnMovementRemaining > 0
-            && _selectedRouteSegments.Count + extensionSegments.Count > CurrentTurnMovementRemaining)
+        var effectiveMovementCapacity = ResolveEffectiveMovementCapacity();
+        if (effectiveMovementCapacity > 0
+            && _selectedRouteSegments.Count + extensionSegments.Count > effectiveMovementCapacity)
         {
             return false;
         }
@@ -1697,7 +1702,7 @@
                 StartNodeId = startNodeId,
                 DestinationNodeId = _destinationNodeId,
                 MovementType = MovementType,
-                MovementCapacity = CurrentTurnMovementRemaining,
+                MovementCapacity = ResolveEffectiveMovementCapacity(),
                 TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
                 PlayerColor = PlayerColor,
                 ResolveRailroadOwnership = ResolveRailroadOwnershipCategory
@@ -1776,9 +1781,7 @@
             return;
         }
 
-        var selectionSegmentLimit = CurrentTurnMovementRemaining > 0
-            ? CurrentTurnMovementRemaining
-            : int.MaxValue;
+        var selectionSegmentLimit = ResolveSuggestionSelectionSegmentLimit(suggestion);
 
         _selectedRouteNodeIds.Clear();
         _selectedRouteNodeIds.Add(suggestion.NodeIds[0]);
@@ -1805,6 +1808,34 @@
         }
 
         _ = NotifyRoutePreviewChangedAsync();
+    }
+
+    private int ResolveSuggestionSelectionSegmentLimit(RouteSuggestionResult suggestion)
+    {
+        var effectiveMovementCapacity = ResolveEffectiveMovementCapacity();
+        if (effectiveMovementCapacity > 0)
+        {
+            return effectiveMovementCapacity;
+        }
+
+        var segmentCount = 0;
+        var turnsConsumed = 0;
+
+        foreach (var segment in suggestion.Segments)
+        {
+            var turnsAdded = Math.Max(0, segment.Turns);
+            if (segmentCount > 0 && turnsConsumed + turnsAdded > 1)
+            {
+                break;
+            }
+
+            turnsConsumed += turnsAdded;
+            segmentCount++;
+        }
+
+        return segmentCount > 0
+            ? segmentCount
+            : suggestion.Segments.Count;
     }
 
     private void BuildSuggestionHighlights(RouteSuggestionResult suggestion)
@@ -2352,7 +2383,21 @@
         }
 
         var restoredStartNodeId = restoredNodeIds[0];
-        SetRouteStartNode(restoredStartNodeId, publishStartCityChanged: false, publishRoutePreviewChanged: false);
+        if (!string.Equals(_routeStartNodeId, restoredStartNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            SetRouteStartNode(restoredStartNodeId, publishStartCityChanged: false, publishRoutePreviewChanged: false);
+        }
+        else
+        {
+            var routeNode = _routeNodes.FirstOrDefault(candidate =>
+                string.Equals(candidate.NodeId, restoredStartNodeId, StringComparison.OrdinalIgnoreCase));
+            if (routeNode is not null)
+            {
+                _routeStartNodeId = routeNode.NodeId;
+                _routeStartNodeName = routeNode.Name;
+            }
+        }
+
         if (_routeContext is null
             || !string.Equals(_routeStartNodeId, restoredStartNodeId, StringComparison.OrdinalIgnoreCase)
             || restoredNodeIds.Count == 1)
@@ -2629,9 +2674,11 @@
             return (0, false);
         }
 
-        var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie
-            ? CurrentTurnMovementRemaining > 0 ? CurrentTurnMovementRemaining : 3
-            : 2;
+        var movementPointsPerTurn = ResolveEffectiveMovementCapacity();
+        if (movementPointsPerTurn <= 0)
+        {
+            movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        }
         var totalCost = 0;
         var hasUnfriendlyFee = false;
         var pointsUsedInCurrentTurn = 0;
@@ -2675,8 +2722,23 @@
             MoveCount = moveCount,
             FeeEstimate = GetSelectedRouteFeeEstimate(),
             HasUnfriendlyFee = GetSelectedRouteHasUnfriendlyFee(),
-            ExhaustsMovement = CurrentTurnMovementRemaining > 0 && moveCount >= CurrentTurnMovementRemaining
+            ExhaustsMovement = ResolveEffectiveMovementCapacity() > 0 && moveCount >= ResolveEffectiveMovementCapacity()
         };
+    }
+
+    private int ResolveEffectiveMovementCapacity()
+    {
+        if (CurrentTurnMovementRemaining > 0)
+        {
+            return CurrentTurnMovementRemaining;
+        }
+
+        if (CurrentTurnMovementAllowance > 0)
+        {
+            return CurrentTurnMovementAllowance;
+        }
+
+        return 0;
     }
 
     private bool IsRouteSelectionAtDestination()

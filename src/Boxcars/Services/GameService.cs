@@ -14,6 +14,8 @@ namespace Boxcars.Services;
 public class GameService
 {
     public const string DefaultMapFileName = "U21MAP.RB3";
+    private const string EventRowKeyPrefix = "Event_";
+    private const string EventRowKeyExclusiveUpperBound = "Event`";
 
     private readonly TableClient _gamesTable;
     private readonly TableClient _usersTable;
@@ -185,17 +187,25 @@ public class GameService
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
     {
+        return await GetGameEventsAsync(gameId, lastSeenEventRowKey: null, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, string? lastSeenEventRowKey, CancellationToken cancellationToken)
+    {
         var orderedEvents = new List<GameEventEntity>();
+        var normalizedLastSeenEventRowKey = string.IsNullOrWhiteSpace(lastSeenEventRowKey)
+            ? null
+            : lastSeenEventRowKey.Trim();
+        var inclusiveLowerRowKey = string.IsNullOrWhiteSpace(normalizedLastSeenEventRowKey)
+            ? EventRowKeyPrefix
+            : normalizedLastSeenEventRowKey;
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {inclusiveLowerRowKey} and RowKey lt {EventRowKeyExclusiveUpperBound}");
 
         await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
-                           entity => entity.PartitionKey == gameId,
+                           filter: filter,
                            cancellationToken: cancellationToken))
         {
-            if (!gameEvent.RowKey.StartsWith("Event_", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
             orderedEvents.Add(gameEvent);
         }
 
@@ -209,7 +219,22 @@ public class GameService
             previousGameEvent = gameEvent;
         }
 
-        return events;
+        if (string.IsNullOrWhiteSpace(normalizedLastSeenEventRowKey))
+        {
+            return events;
+        }
+
+        return events
+            .Where(item => !string.Equals(GetTimelineEventRowKey(item), normalizedLastSeenEventRowKey, StringComparison.Ordinal))
+            .ToList();
+    }
+
+    private static string GetTimelineEventRowKey(EventTimelineItem item)
+    {
+        var separatorIndex = item.EventId.LastIndexOf(':');
+        return separatorIndex >= 0
+            ? item.EventId[..separatorIndex]
+            : item.EventId;
     }
 
     private static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)

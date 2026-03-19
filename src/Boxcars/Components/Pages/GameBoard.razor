@@ -100,6 +100,7 @@
             <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+                              CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
                               MovementType="@CurrentMovementType"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                               PlayerOwnedRailroadIndices="@ActivePlayerOwnedRailroadIndices"
@@ -295,6 +296,7 @@
     private bool _pendingRestoredRouteSelection;
     private string? _lastAutoSuggestKey;
     private string? _selectedPurchaseOptionKey;
+    private int? _activeAuctionRailroadIndex;
     private string? _dismissedRailroadOverlayOptionKey;
     private string? _lastPurchaseResolutionKey;
     private double? _selectedRailroadOverlayClientX;
@@ -443,12 +445,7 @@
                 _dismissedRailroadOverlayOptionKey = null;
             }
 
-            var selectionEvent = await _gameMap.GetRailroadClientAnchorAsync(selectedRailroad.RailroadIndex);
-            if (selectionEvent is not null)
-            {
-                await PositionPurchaseOverlayAsync(selectionEvent);
-            }
-            else
+            if (!await TryPositionRailroadOverlayAsync(selectedRailroad.RailroadIndex))
             {
                 _selectedRailroadOverlayClientX = null;
                 _selectedRailroadOverlayClientY = null;
@@ -1382,6 +1379,7 @@ destinationPayoutIndex)
                 && turnViewState.PurchasePhase is { HasActivePurchaseControls: true, RailroadOptions.Count: > 0 })
             || (string.Equals(turnViewState.TurnPhase, "UseFees", StringComparison.OrdinalIgnoreCase)
                 && turnViewState.ForcedSalePhase is { SaleCandidates.Count: > 0 })
+            || turnViewState.ForcedSalePhase?.AuctionState is not null
             ? MapSelectionMode.Rail
             : MapSelectionMode.Route;
     }
@@ -1398,9 +1396,25 @@ destinationPayoutIndex)
         var existingEventIds = _gameEngineEvents
             .Select(item => item.EventId)
             .ToHashSet(StringComparer.Ordinal);
+        var shouldFetchIncrementally = notifyNewItems && _timelineInitialized;
 
-        var events = await LoadTimelineEventsAsync(existingEventIds, notifyNewItems && _timelineInitialized);
-        _gameEngineEvents = events.ToList();
+        var events = await LoadTimelineEventsAsync(existingEventIds, shouldFetchIncrementally);
+
+        if (shouldFetchIncrementally)
+        {
+            var newEvents = events
+                .Where(item => !existingEventIds.Contains(item.EventId))
+                .ToList();
+
+            if (newEvents.Count > 0)
+            {
+                _gameEngineEvents.AddRange(newEvents);
+            }
+        }
+        else
+        {
+            _gameEngineEvents = events.ToList();
+        }
 
         if (notifyNewItems && _timelineInitialized && existingEventIds.Count > 0)
         {
@@ -1438,10 +1452,15 @@ destinationPayoutIndex)
     private async Task<IReadOnlyList<EventTimelineItem>> LoadTimelineEventsAsync(HashSet<string> existingEventIds, bool waitForNewItems)
     {
         IReadOnlyList<EventTimelineItem> latestEvents = [];
+        var lastKnownEventRowKey = _gameEngineEvents.Count > 0
+            ? GetTimelineEventBaseId(_gameEngineEvents[^1])
+            : null;
 
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            latestEvents = await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
+            latestEvents = waitForNewItems && !string.IsNullOrWhiteSpace(lastKnownEventRowKey)
+                ? await GameService.GetGameEventsAsync(GameId, lastKnownEventRowKey, CancellationToken.None)
+                : await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
 
             if (!waitForNewItems || latestEvents.Any(item => !existingEventIds.Contains(item.EventId)))
             {
@@ -1585,7 +1604,10 @@ StringComparison.OrdinalIgnoreCase));
 
         if (!string.IsNullOrWhiteSpace(startNodeId))
         {
-            _gameMap.SetStartCity(startNodeId);
+            if (!string.Equals(_gameMap.RouteStartNodeId, startNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                _gameMap.SetStartCity(startNodeId);
+            }
         }
         else
         {
@@ -1595,15 +1617,27 @@ StringComparison.OrdinalIgnoreCase));
 
             if (!string.IsNullOrWhiteSpace(startCity.NodeId))
             {
-                _gameMap.SetStartCity(startCity.NodeId);
+                startNodeId = startCity.NodeId;
+                if (!string.Equals(_gameMap.RouteStartNodeId, startCity.NodeId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _gameMap.SetStartCity(startCity.NodeId);
+                }
             }
         }
 
+        var restoredNodeIds = !string.IsNullOrWhiteSpace(startNodeId) && isBonusMove
+            ? [startNodeId]
+            : !string.IsNullOrWhiteSpace(startNodeId) && string.IsNullOrWhiteSpace(activePlayer.DestinationCityName)
+                ? [startNodeId]
+                : restoredPreviewNodeIds;
+
         if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
         {
-            _gameMap.RestoreSelectedRoute(
-                !string.IsNullOrWhiteSpace(startNodeId) ? [startNodeId] : restoredPreviewNodeIds,
-                restoredPreviewSegmentKeys);
+            if (!RouteSelectionMatchesCurrentMap(restoredNodeIds, restoredPreviewSegmentKeys))
+            {
+                _gameMap.RestoreSelectedRoute(restoredNodeIds, restoredPreviewSegmentKeys);
+            }
+
             _pendingRestoredRouteSelection = false;
             return;
         }
@@ -1626,12 +1660,17 @@ StringComparison.OrdinalIgnoreCase));
 
         if (!string.IsNullOrWhiteSpace(destinationCity.NodeId))
         {
-            _gameMap.SetDestinationCity(destinationCity.NodeId);
+            if (!string.Equals(_gameMap.DestinationNodeId, destinationCity.NodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                _gameMap.SetDestinationCity(destinationCity.NodeId);
+            }
         }
 
-        _gameMap.RestoreSelectedRoute(
-            !string.IsNullOrWhiteSpace(startNodeId) && isBonusMove ? [startNodeId] : restoredPreviewNodeIds,
-            restoredPreviewSegmentKeys);
+        if (!RouteSelectionMatchesCurrentMap(restoredNodeIds, restoredPreviewSegmentKeys))
+        {
+            _gameMap.RestoreSelectedRoute(restoredNodeIds, restoredPreviewSegmentKeys);
+        }
+
         _pendingRestoredRouteSelection = false;
     }
 
@@ -1678,6 +1717,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentRouteFees => _turnViewState.PreviewFee;
 
+    private int CurrentTurnMovementAllowance => Math.Max(0, _gameState?.Turn.MovementAllowance ?? 0);
+
     private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
 
     private bool IsPendingBonusMove => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
@@ -1716,9 +1757,13 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 return -1;
             }
 
+            if (CurrentAuctionActorPlayerIndex is int auctionActorPlayerIndex)
+            {
+                return auctionActorPlayerIndex;
+            }
+
             if (CanCurrentUserControlPlayer(_gameState.ActivePlayerIndex))
             {
-            MergeTimelineNotifications();
                 return _gameState.ActivePlayerIndex;
             }
 
@@ -2376,7 +2421,35 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return InvokeAsync(StateHasChanged);
     }
 
-    private async Task PositionPurchaseOverlayAsync(RailroadSelectionEvent selectionEvent)
+    private async Task<bool> TryPositionRailroadOverlayAsync(int railroadIndex, bool centerOnRailroad = false)
+    {
+        if (_gameMap is null)
+        {
+            return false;
+        }
+
+        var selectionEvent = await _gameMap.GetRailroadClientAnchorAsync(railroadIndex);
+        if (selectionEvent is null)
+        {
+            return false;
+        }
+
+        await PositionPurchaseOverlayAsync(selectionEvent, centerOnRailroad);
+        return true;
+    }
+
+    private async Task CenterAuctionRailroadOverlayAsync(int railroadIndex)
+    {
+        if (!await TryPositionRailroadOverlayAsync(railroadIndex, centerOnRailroad: true))
+        {
+            _selectedRailroadOverlayClientX = null;
+            _selectedRailroadOverlayClientY = null;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PositionPurchaseOverlayAsync(RailroadSelectionEvent selectionEvent, bool centerOnRailroad = false)
     {
         const double overlayGapPixels = 12;
         const double overlayMarginPixels = 16;
@@ -2394,7 +2467,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var areaRight = areaLeft + relativePoint.Width;
         var areaBottom = areaTop + relativePoint.Height;
         var overlayWidth = Math.Min(overlayMaxWidthPixels, Math.Max(320, relativePoint.Width - (overlayMarginPixels * 2)));
-        var desiredLeft = selectionEvent.ClientX + overlayGapPixels;
+        var desiredLeft = centerOnRailroad
+            ? selectionEvent.ClientX - (overlayWidth / 2)
+            : selectionEvent.ClientX + overlayGapPixels;
         var desiredTop = selectionEvent.ClientY + overlayGapPixels;
         var rightOverflow = desiredLeft + overlayWidth + overlayMarginPixels - areaRight;
 
@@ -2436,9 +2511,32 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             _selectedRailroadOverlayClientY = null;
         }
 
+        if (CurrentAuctionState is not null)
+        {
+            var auctionRailroadKey = BuildRailroadOptionKey(CurrentAuctionState.RailroadIndex);
+            if (_activeAuctionRailroadIndex != CurrentAuctionState.RailroadIndex)
+            {
+                _selectedPurchaseOptionKey = auctionRailroadKey;
+                _dismissedRailroadOverlayOptionKey = null;
+                _selectedRailroadOverlayClientX = null;
+                _selectedRailroadOverlayClientY = null;
+                _selectedPurchaseTab = PurchaseExperienceTab.Map;
+                _ = CenterAuctionRailroadOverlayAsync(CurrentAuctionState.RailroadIndex);
+            }
+
+            _activeAuctionRailroadIndex = CurrentAuctionState.RailroadIndex;
+        }
+        else
+        {
+            _activeAuctionRailroadIndex = null;
+        }
+
         var availableRailroadOptionKeys = (CurrentForcedSalePhase?.SaleCandidates ?? [])
             .Select(candidate => BuildRailroadOptionKey(candidate.RailroadIndex))
             .Concat((CurrentPurchasePhase?.TaskbarOptions ?? []).Select(option => option.OptionKey))
+            .Concat(CurrentAuctionState is not null
+                ? [BuildRailroadOptionKey(CurrentAuctionState.RailroadIndex)]
+                : [])
             .ToHashSet(StringComparer.Ordinal);
 
         if (availableRailroadOptionKeys.Count > 0)
@@ -2541,13 +2639,43 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             _gameState.Turn.MovementAllowance.ToString(CultureInfo.InvariantCulture),
             activePlayer.DestinationCityName);
 
-        if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal))
+        var hasCurrentSuggestion = _gameMap.RouteSuggestion?.Status == RouteSuggestionStatus.Success;
+        if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal) && hasCurrentSuggestion)
         {
             return;
         }
 
         _lastAutoSuggestKey = autoSuggestKey;
         await _gameMap.SuggestRouteAsync();
+    }
+
+    private bool RouteSelectionMatchesCurrentMap(IReadOnlyList<string> nodeIds, IReadOnlyList<string> segmentKeys)
+    {
+        if (_gameMap is null)
+        {
+            return false;
+        }
+
+        return SequenceEqualIgnoreCase(_gameMap.GetSelectedRouteNodeIds(), nodeIds)
+            && SequenceEqualIgnoreCase(_gameMap.GetSelectedRouteSegmentKeys(), segmentKeys);
+    }
+
+    private static bool SequenceEqualIgnoreCase(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (!string.Equals(left[index], right[index], StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task OnAutoZoomEnabledChangedAsync(bool enabled)

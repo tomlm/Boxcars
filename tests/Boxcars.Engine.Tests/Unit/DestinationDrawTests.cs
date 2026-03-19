@@ -57,6 +57,31 @@ public class DestinationDrawTests
     }
 
     [Fact]
+    public void DrawDestination_ClearsPriorTripRouteState()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        var player = engine.CurrentTurn.ActivePlayer;
+
+        player.ActiveRoute = new Route(
+            ["0:0", "0:1", "0:2"],
+            [
+                new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = 0 },
+                new RouteSegment { FromNodeId = "0:1", ToNodeId = "0:2", RailroadIndex = 0 }
+            ],
+            totalCost: 1000);
+        player.RouteProgressIndex = 1;
+        player.UsedSegments.Add(new SegmentKey("0:0", "0:1", 0));
+
+        random.QueueWeightedDraw(1);
+        random.QueueWeightedDraw(0);
+        engine.DrawDestination();
+
+        Assert.Null(player.ActiveRoute);
+        Assert.Equal(0, player.RouteProgressIndex);
+        Assert.Empty(player.UsedSegments);
+    }
+
+    [Fact]
     public void DrawDestination_NotInDrawPhase_ThrowsInvalidOperation()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

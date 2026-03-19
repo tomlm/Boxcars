@@ -21,6 +21,7 @@
 				  PlayerColor="@PlayerColor"
 				  PlayerStates="@PlayerStates"
 				  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
+				  CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
 				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
 				  MovementType="@MovementType"
 				  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
@@ -108,6 +109,9 @@
 
 	[Parameter]
 	public int CurrentTurnMovementRemaining { get; set; }
+
+	[Parameter]
+	public int CurrentTurnMovementAllowance { get; set; }
 
 	[Parameter]
 	public bool IsCurrentUserActivePlayer { get; set; }

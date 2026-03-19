@@ -1423,6 +1423,9 @@ public sealed class GameEngine : ObservableBase
 
         player.Destination = city;
         player.TripOriginCity = player.CurrentCity;
+        player.ActiveRoute = null;
+        player.RouteProgressIndex = 0;
+        player.UsedSegments.Clear();
         DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
 
         CurrentTurn.Phase = HasPreparedBonusMove()

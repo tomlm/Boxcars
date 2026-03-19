@@ -59,6 +59,12 @@
                         </RowTemplate>
                     </MudTable>
                 }
+                else if (Overlay?.MetricRows.Count > 0)
+                {
+                    <MudText Typo="Typo.body2">
+                        <span class="railroad-purchase-overlay-text">No change to your network.</span>
+                    </MudText>
+                }
             </MudStack>
         </MudPaper>
     </div>

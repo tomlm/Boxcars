@@ -22,6 +22,8 @@ namespace Boxcars.GameEngine;
 public sealed class GameEngineService : BackgroundService, IGameEngine
 {
     private const int AutomaticTurnFlowStepLimit = 32;
+    private const string EventRowKeyPrefix = "Event_";
+    private const string EventRowKeyExclusiveUpperBound = "Event`";
 
     private readonly Channel<QueuedAction> _actions = Channel.CreateUnbounded<QueuedAction>(new UnboundedChannelOptions
     {
@@ -870,16 +872,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
     {
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
         GameEventEntity? latest = null;
         await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
-                           entity => entity.PartitionKey == gameId,
+                           filter: filter,
                            cancellationToken: cancellationToken))
         {
-            if (!gameEvent.RowKey.StartsWith("Event_", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
             if (latest is null || string.CompareOrdinal(gameEvent.RowKey, latest.RowKey) > 0)
             {
                 latest = gameEvent;
@@ -891,15 +890,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private async Task<List<GameEventEntity>> GetEventsOrderedAsync(string gameId, CancellationToken cancellationToken)
     {
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
         var events = new List<GameEventEntity>();
         await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
-                           entity => entity.PartitionKey == gameId,
+                           filter: filter,
                            cancellationToken: cancellationToken))
         {
-            if (gameEvent.RowKey.StartsWith("Event_", StringComparison.Ordinal))
-            {
-                events.Add(gameEvent);
-            }
+            events.Add(gameEvent);
         }
 
         events.Sort(static (left, right) => string.CompareOrdinal(left.RowKey, right.RowKey));
