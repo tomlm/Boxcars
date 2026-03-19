@@ -527,4 +527,125 @@ public class BotTurnResolutionTests
         Assert.NotNull(secondAction.BotMetadata);
         Assert.Equal("AuctionPlan", secondAction.BotMetadata!.DecisionSource);
     }
+
+    [Fact]
+    public async Task TryResolveAllAiAuctionAsync_WithOnlyAiBidders_AwardsRailroadInOneStep()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var bidderOne = engine.Players[1];
+        var bidderTwo = engine.Players[2];
+        var railroad = engine.Railroads[0];
+        railroad.Owner = seller;
+        seller.OwnedRailroads.Add(railroad);
+        bidderOne.Cash = railroad.PurchasePrice;
+        bidderTwo.Cash = railroad.PurchasePrice;
+
+        engine.AuctionRailroad(railroad);
+        var startingPrice = engine.CurrentTurn.AuctionState!.StartingPrice;
+        var turnNumber = engine.ToSnapshot().TurnNumber;
+
+        var presenceService = new GamePresenceService();
+        var bidderOneDefinition = BotTurnServiceTestHarness.CreateBotDefinition("bob@example.com", "Bob Bot");
+        var bidderTwoDefinition = BotTurnServiceTestHarness.CreateBotDefinition("charlie@example.com", "Charlie Bot");
+        var service = BotTurnServiceTestHarness.CreateService(presenceService, bidderOneDefinition, bidderTwoDefinition);
+        var game = new GameEntity
+        {
+            PartitionKey = BotTurnServiceTestHarness.GameId,
+            RowKey = "GAME",
+            GameId = BotTurnServiceTestHarness.GameId,
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+                BotTurnServiceTestHarness.CreateSelections(
+                    "seller@example.com",
+                    "bob@example.com",
+                    "charlie@example.com")),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                BotTurnServiceTestHarness.CreateDedicatedBotAssignment("bob@example.com", bidderOneDefinition.BotDefinitionId) with
+                {
+                    AuctionPlanTurnNumber = turnNumber,
+                    AuctionPlanRailroadIndex = railroad.Index,
+                    AuctionPlanStartingPrice = startingPrice,
+                    AuctionPlanMaximumBid = startingPrice
+                },
+                BotTurnServiceTestHarness.CreateDedicatedBotAssignment("charlie@example.com", bidderTwoDefinition.BotDefinitionId) with
+                {
+                    AuctionPlanTurnNumber = turnNumber,
+                    AuctionPlanRailroadIndex = railroad.Index,
+                    AuctionPlanStartingPrice = startingPrice,
+                    AuctionPlanMaximumBid = startingPrice + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement
+                }
+            ])
+        };
+
+        var summaryAction = await service.TryResolveAllAiAuctionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+
+        var bidAction = Assert.IsType<BidAction>(summaryAction);
+        Assert.Equal("All AI bidders", bidAction.PlayerId);
+        Assert.Equal(startingPrice + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement, bidAction.AmountBid);
+        Assert.Null(engine.CurrentTurn.AuctionState);
+        Assert.Equal(bidderTwo, railroad.Owner);
+        Assert.DoesNotContain(railroad, seller.OwnedRailroads);
+        Assert.Contains(railroad, bidderTwo.OwnedRailroads);
+        Assert.Equal("AllAiAuctionResolution", bidAction.BotMetadata!.DecisionSource);
+    }
+
+    [Fact]
+    public async Task TryResolveAllAiAuctionAsync_WhenAllAiBiddersDropOut_SellsRailroadToBank()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var railroad = engine.Railroads[0];
+        railroad.Owner = seller;
+        seller.OwnedRailroads.Add(railroad);
+        engine.AuctionRailroad(railroad);
+        var startingPrice = engine.CurrentTurn.AuctionState!.StartingPrice;
+        var turnNumber = engine.ToSnapshot().TurnNumber;
+
+        var presenceService = new GamePresenceService();
+        var bidderOneDefinition = BotTurnServiceTestHarness.CreateBotDefinition("bob@example.com", "Bob Bot");
+        var bidderTwoDefinition = BotTurnServiceTestHarness.CreateBotDefinition("charlie@example.com", "Charlie Bot");
+        var service = BotTurnServiceTestHarness.CreateService(presenceService, bidderOneDefinition, bidderTwoDefinition);
+        var game = new GameEntity
+        {
+            PartitionKey = BotTurnServiceTestHarness.GameId,
+            RowKey = "GAME",
+            GameId = BotTurnServiceTestHarness.GameId,
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+                BotTurnServiceTestHarness.CreateSelections(
+                    "seller@example.com",
+                    "bob@example.com",
+                    "charlie@example.com")),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                BotTurnServiceTestHarness.CreateDedicatedBotAssignment("bob@example.com", bidderOneDefinition.BotDefinitionId) with
+                {
+                    AuctionPlanTurnNumber = turnNumber,
+                    AuctionPlanRailroadIndex = railroad.Index,
+                    AuctionPlanStartingPrice = startingPrice,
+                    AuctionPlanMaximumBid = 0
+                },
+                BotTurnServiceTestHarness.CreateDedicatedBotAssignment("charlie@example.com", bidderTwoDefinition.BotDefinitionId) with
+                {
+                    AuctionPlanTurnNumber = turnNumber,
+                    AuctionPlanRailroadIndex = railroad.Index,
+                    AuctionPlanStartingPrice = startingPrice,
+                    AuctionPlanMaximumBid = 0
+                }
+            ])
+        };
+
+        var summaryAction = await service.TryResolveAllAiAuctionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+
+        var dropOutAction = Assert.IsType<AuctionDropOutAction>(summaryAction);
+        Assert.Equal("All AI bidders", dropOutAction.PlayerId);
+        Assert.Null(engine.CurrentTurn.AuctionState);
+        Assert.Null(railroad.Owner);
+        Assert.DoesNotContain(railroad, seller.OwnedRailroads);
+        Assert.Equal("AllAiAuctionResolution", dropOutAction.BotMetadata!.DecisionSource);
+    }
 }

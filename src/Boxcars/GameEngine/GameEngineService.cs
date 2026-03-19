@@ -625,6 +625,25 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
+            var allAiAuctionAction = await TryResolveAllAiAuctionAsync(gameEntity, gameEngine, cancellationToken);
+            if (allAiAuctionAction is not null)
+            {
+                var snapshotBeforeResolution = snapshot;
+                snapshot = gameEngine.ToSnapshot();
+
+                await PersistEventAsync(
+                    gameId,
+                    snapshot,
+                    allAiAuctionAction.Kind.ToString(),
+                    DescribeAction(gameEntity, allAiAuctionAction, snapshotBeforeResolution, snapshot, gameEngine),
+                    allAiAuctionAction.PlayerId,
+                    allAiAuctionAction,
+                    cancellationToken);
+
+                OnStateChanged?.Invoke(gameId, snapshot);
+                continue;
+            }
+
             var automaticAction = await CreateAutomaticTurnActionAsync(gameEntity, gameEngine, cancellationToken);
             if (automaticAction is null)
             {
@@ -663,6 +682,24 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         await PersistBotAssignmentsIfChangedAsync(gameEntity, originalBotAssignmentsJson, cancellationToken);
 
         throw new InvalidOperationException($"Automatic turn flow did not stabilize within {AutomaticTurnFlowStepLimit} steps.");
+    }
+
+    private async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
+        GameEntity gameEntity,
+        RailBaronGameEngine gameEngine,
+        CancellationToken cancellationToken)
+    {
+        if (gameEngine.CurrentTurn.AuctionState is null)
+        {
+            return null;
+        }
+
+        if (_mapDefinition is null)
+        {
+            throw new InvalidOperationException("The game map definition has not been initialized yet.");
+        }
+
+        return await _botTurnService.TryResolveAllAiAuctionAsync(gameEntity, gameEngine, _mapDefinition, cancellationToken);
     }
 
     private async Task<PlayerAction?> CreateAutomaticTurnActionAsync(
@@ -1144,16 +1181,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && sellerPlayerIndex.Value < snapshotBeforeAction.Players.Count
             && snapshotBeforeAction.Players[sellerPlayerIndex.Value].OwnedRailroadIndices.Contains(railroadIndex);
 
-        if (string.Equals(snapshotBeforeAction.Turn.Phase, nameof(TurnPhase.UseFees), StringComparison.OrdinalIgnoreCase)
-            && sellerOwnedRailroadBeforeAction
-            && railroad.Owner is null)
+        if (sellerOwnedRailroadBeforeAction && railroad.Owner is null)
         {
-            return string.Concat(
-                defaultDescription,
-                "; no bids remained, so ",
-                GetRailroadDisplayName(railroad),
-                " was sold to the bank for ",
-                FormatCurrency(railroad.PurchasePrice / 2));
+            return $"{GetRailroadDisplayName(railroad)} was sold to the bank for {FormatCurrency(railroad.PurchasePrice / 2)}";
         }
 
         var auctionBeforeAction = snapshotBeforeAction.Turn.Auction;

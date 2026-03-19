@@ -15,6 +15,7 @@ public sealed class BotTurnService
     private const string AuctionStrategyPhase = "AuctionStrategy";
     private const string AuctionMaxBidOptionType = "AuctionMaxBid";
     private const string AuctionDropOutOptionId = "auction-drop-out";
+    private const string AllAiAuctionResolutionSource = "AllAiAuctionResolution";
 
     private readonly UserDirectoryService _userDirectoryService;
     private readonly BotDecisionPromptBuilder _promptBuilder;
@@ -291,6 +292,108 @@ public sealed class BotTurnService
             TurnPhase.UseFees => await CreateForcedSaleActionAsync(game, gameEngine, mapDefinition, playerSelections, cancellationToken),
             _ => null
         };
+    }
+
+    public async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
+        GameEntity game,
+        RailBaronGameEngine gameEngine,
+        MapDefinition mapDefinition,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        ArgumentNullException.ThrowIfNull(gameEngine);
+        ArgumentNullException.ThrowIfNull(mapDefinition);
+
+        var auctionState = gameEngine.CurrentTurn.AuctionState;
+        if (auctionState is null)
+        {
+            return null;
+        }
+
+        var railroad = gameEngine.Railroads.FirstOrDefault(candidate => candidate.Index == auctionState.RailroadIndex)
+            ?? throw new InvalidOperationException($"Railroad '{auctionState.RailroadIndex}' was not found.");
+        var playerSelections = GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
+        var activeParticipantIndices = auctionState.Participants
+            .Where(participant => participant.IsEligible && !participant.HasDroppedOut)
+            .Select(participant => participant.PlayerIndex)
+            .Distinct()
+            .ToList();
+
+        if (activeParticipantIndices.Count == 0)
+        {
+            return null;
+        }
+
+        var assignmentContexts = new Dictionary<int, (BotAssignment Assignment, BotStrategyDefinitionEntity Definition)>();
+        foreach (var participantIndex in activeParticipantIndices)
+        {
+            var assignmentContext = await ResolveAuctionBidderContextAsync(game, playerSelections, participantIndex, cancellationToken);
+            if (assignmentContext is null)
+            {
+                return null;
+            }
+
+            assignmentContexts[participantIndex] = assignmentContext.Value;
+        }
+
+        var winningBid = 0;
+        while (gameEngine.CurrentTurn.AuctionState is { CurrentBidderPlayerIndex: int bidderPlayerIndex } liveAuctionState)
+        {
+            if (!assignmentContexts.TryGetValue(bidderPlayerIndex, out var assignmentContext))
+            {
+                return null;
+            }
+
+            var snapshot = gameEngine.ToSnapshot();
+            var plan = await ResolveAuctionBidPlanAsync(
+                game,
+                gameEngine,
+                mapDefinition,
+                snapshot,
+                playerSelections,
+                liveAuctionState,
+                bidderPlayerIndex,
+                assignmentContext,
+                cancellationToken);
+            if (plan is null)
+            {
+                return null;
+            }
+
+            assignmentContexts[bidderPlayerIndex] = (plan.Value.Assignment, assignmentContext.Definition);
+
+            var bidder = gameEngine.Players[bidderPlayerIndex];
+            var minimumBid = liveAuctionState.CurrentBid > 0
+                ? liveAuctionState.CurrentBid + RailBaronGameEngine.AuctionBidIncrement
+                : liveAuctionState.StartingPrice;
+
+            if (plan.Value.MaximumBid >= minimumBid && bidder.Cash >= minimumBid)
+            {
+                gameEngine.SubmitAuctionBid(railroad, bidder, minimumBid);
+                winningBid = minimumBid;
+                continue;
+            }
+
+            gameEngine.DropOutOfAuction(railroad, bidder);
+        }
+
+        var summaryMetadata = CreateCollectiveAuctionMetadata();
+        return railroad.Owner is not null && railroad.Owner.Index != auctionState.SellerPlayerIndex && winningBid > 0
+            ? new BidAction
+            {
+                PlayerId = "All AI bidders",
+                ActorUserId = ResolveBotActorUserId(),
+                RailroadIndex = auctionState.RailroadIndex,
+                AmountBid = winningBid,
+                BotMetadata = summaryMetadata
+            }
+            : new AuctionDropOutAction
+            {
+                PlayerId = "All AI bidders",
+                ActorUserId = ResolveBotActorUserId(),
+                RailroadIndex = auctionState.RailroadIndex,
+                BotMetadata = summaryMetadata
+            };
     }
 
     private async Task<PlayerAction?> CreateRegionChoiceActionAsync(
@@ -580,32 +683,89 @@ public sealed class BotTurnService
             return null;
         }
 
+        var plan = await ResolveAuctionBidPlanAsync(
+            game,
+            gameEngine,
+            mapDefinition,
+            snapshot,
+            playerSelections,
+            auctionState,
+            bidderPlayerIndex,
+            assignmentContext.Value,
+            cancellationToken);
+        if (plan is null)
+        {
+            return null;
+        }
+
         var bidder = gameEngine.Players[bidderPlayerIndex];
         var minimumBid = auctionState.CurrentBid > 0
             ? auctionState.CurrentBid + RailBaronGameEngine.AuctionBidIncrement
             : auctionState.StartingPrice;
-        var assignment = assignmentContext.Value.Assignment;
-        var botName = assignmentContext.Value.Definition.Name;
+
+        return BuildAuctionThresholdAction(
+            plan.Value.Assignment,
+            plan.Value.BotName,
+            ResolveBotActorUserId(),
+            bidder,
+            bidderPlayerIndex,
+            auctionState,
+            minimumBid,
+            plan.Value.MaximumBid,
+            plan.Value.Source,
+            plan.Value.FallbackReason);
+    }
+
+    private async Task<(BotAssignment Assignment, BotStrategyDefinitionEntity Definition)?> ResolveAuctionBidderContextAsync(
+        GameEntity game,
+        IReadOnlyList<GamePlayerSelection> playerSelections,
+        int bidderPlayerIndex,
+        CancellationToken cancellationToken)
+    {
+        var slotUserId = ResolveSlotUserId(playerSelections, bidderPlayerIndex);
+        if (string.IsNullOrWhiteSpace(slotUserId))
+        {
+            return null;
+        }
+
+        return await ResolveAssignmentContextAsync(game, slotUserId, cancellationToken);
+    }
+
+    private async Task<(BotAssignment Assignment, string BotName, int MaximumBid, string Source, string? FallbackReason)?> ResolveAuctionBidPlanAsync(
+        GameEntity game,
+        RailBaronGameEngine gameEngine,
+        MapDefinition mapDefinition,
+        global::Boxcars.Engine.Persistence.GameState snapshot,
+        IReadOnlyList<GamePlayerSelection> playerSelections,
+        AuctionState auctionState,
+        int bidderPlayerIndex,
+        (BotAssignment Assignment, BotStrategyDefinitionEntity Definition) assignmentContext,
+        CancellationToken cancellationToken)
+    {
+        var slotUserId = ResolveSlotUserId(playerSelections, bidderPlayerIndex);
+        if (string.IsNullOrWhiteSpace(slotUserId))
+        {
+            return null;
+        }
+
+        var bidder = gameEngine.Players[bidderPlayerIndex];
+        var minimumBid = auctionState.CurrentBid > 0
+            ? auctionState.CurrentBid + RailBaronGameEngine.AuctionBidIncrement
+            : auctionState.StartingPrice;
+        var assignment = assignmentContext.Assignment;
+        var botName = assignmentContext.Definition.Name;
 
         if (bidder.Cash < minimumBid)
         {
-            return new AuctionDropOutAction
-            {
-                PlayerId = bidder.Name,
-                PlayerIndex = bidderPlayerIndex,
-                ActorUserId = ResolveBotActorUserId(),
-                RailroadIndex = auctionState.RailroadIndex,
-                BotMetadata = CreateBotMetadata(assignment, botName, "OnlyLegalChoice")
-            };
+            return (assignment, botName, 0, "OnlyLegalChoice", null);
         }
 
         if (TryGetCachedAuctionMaximumBid(assignment, auctionState, snapshot.TurnNumber, out var cachedMaximumBid))
         {
-            return BuildAuctionThresholdAction(assignment, botName, ResolveBotActorUserId(), bidder, bidderPlayerIndex, auctionState, minimumBid, cachedMaximumBid, "AuctionPlan");
+            return (assignment, botName, cachedMaximumBid, "AuctionPlan", null);
         }
 
         var legalOptions = BuildAuctionStrategyOptions(minimumBid, bidder.Cash);
-
         var resolution = await ResolveDecisionAsync(
             game,
             slotUserId,
@@ -623,7 +783,6 @@ public sealed class BotTurnService
                 BuildAuctionPhaseContext(gameEngine, snapshot.Turn.Auction!, minimumBid)),
             legalOptions,
             cancellationToken);
-
         if (resolution is null)
         {
             return null;
@@ -633,18 +792,7 @@ public sealed class BotTurnService
             ? selectedMaximumBid
             : 0;
         assignment = CacheAuctionPlan(game, assignment, auctionState, snapshot.TurnNumber, maximumBid);
-
-        return BuildAuctionThresholdAction(
-            assignment,
-            botName,
-            ResolveBotActorUserId(),
-            bidder,
-            bidderPlayerIndex,
-            auctionState,
-            minimumBid,
-            maximumBid,
-            resolution.Source,
-            resolution.FallbackReason);
+        return (assignment, botName, maximumBid, resolution.Source, resolution.FallbackReason);
     }
 
     private async Task<PlayerAction?> CreateForcedSaleActionAsync(
@@ -1480,6 +1628,17 @@ public sealed class BotTurnService
             ControllerMode = assignment.ControllerMode,
             DecisionSource = source,
             FallbackReason = fallbackReason
+        };
+    }
+
+    private static BotRecordedActionMetadata CreateCollectiveAuctionMetadata()
+    {
+        return new BotRecordedActionMetadata
+        {
+            BotDefinitionId = string.Empty,
+            BotName = "AI Auction",
+            ControllerMode = SeatControllerModes.AiBotSeat,
+            DecisionSource = AllAiAuctionResolutionSource
         };
     }
 
