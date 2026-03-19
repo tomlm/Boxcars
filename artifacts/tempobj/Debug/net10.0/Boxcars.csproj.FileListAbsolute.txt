@@ -1,2 +1,0 @@
-S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\EmbeddedAttribute.cs
-S:\github\Boxcars\artifacts\tempobj\Debug\net10.0\ValidatableTypeAttribute.cs

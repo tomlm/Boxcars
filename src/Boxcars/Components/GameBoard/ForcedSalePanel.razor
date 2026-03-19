@@ -11,7 +11,8 @@
                        Value="SelectedRailroadIndex"
                        ValueChanged="OnSelectedRailroadIndexChangedAsync"
                        Label="Railroad to liquidate"
-                       Dense="true">
+                       Dense="true"
+                       Disabled="@IsBusy">
                 @foreach (var candidate in Phase.SaleCandidates)
                 {
                     <MudSelectItem T="int?" Value="@candidate.RailroadIndex">@candidate.RailroadName (@FormatCurrency(candidate.BankSalePrice) bank value)</MudSelectItem>
@@ -20,13 +21,13 @@
             <MudStack Row="true" Spacing="2">
                 <MudButton Variant="Variant.Filled"
                            Color="MudBlazor.Color.Error"
-                           Disabled="@(!CanSellToBank)"
+                           Disabled="@(!CanSellToBank || IsBusy)"
                            OnClick="OnSellToBankRequestedAsync">
                     Sell To Bank
                 </MudButton>
                 <MudButton Variant="Variant.Outlined"
                            Color="MudBlazor.Color.Primary"
-                           Disabled="@(!CanStartAuction)"
+                           Disabled="@(!CanStartAuction || IsBusy)"
                            OnClick="OnStartAuctionRequestedAsync">
                     Auction
                 </MudButton>
@@ -50,6 +51,9 @@
 
     [Parameter]
     public EventCallback StartAuctionRequested { get; set; }
+
+    [Parameter]
+    public bool IsBusy { get; set; }
 
     private SaleCandidateModel? SelectedCandidate => Phase.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == SelectedRailroadIndex)
         ?? Phase.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == Phase.SelectedRailroadIndex)

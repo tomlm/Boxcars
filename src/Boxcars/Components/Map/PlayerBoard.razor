@@ -27,24 +27,35 @@
                     <MudPaper Class="@GetCardClass(player)">
                         <MudStack Row="true" Class="player-card-portrait">
                             <div class="player-avatar-shell">
-                                <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
-                                    @if (HasThumbnail(player))
+                                <MudButton Variant="Variant.Text"
+                                           Color="MudBlazor.Color.Inherit"
+                                           Class="player-avatar-button"
+                                           OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
+                                           aria-label="@($"Focus map on {player.Name}")">
+                                    <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
+                                        @if (HasThumbnail(player))
+                                        {
+                                            <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
+                                        }
+                                        else
+                                        {
+                                            @GetInitial(player.Name)
+                                        }
+                                    </MudAvatar>
+                                </MudButton>
+                                    @if (!player.IsBotPlayer)
                                     {
-                                        <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
+                                        <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
+                                            <MudIcon Class="@GetStatusIconClass(player)"
+                                                     Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                                     Size="Size.Small" />
+                                        </MudTooltip>
                                     }
-                                    else
-                                    {
-                                        @GetInitial(player.Name)
-                                    }
-                                </MudAvatar>
-                                <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
-                                    <MudIcon Class="@GetStatusIconClass(player)"
-                                             Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
-                                             Size="Size.Small" />
-                                </MudTooltip>
                             </div>
-                            <MudStack>
-                                <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
+                            <MudStack Class="player-card-heading" Spacing="0">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="player-card-name-row">
+                                    <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
+                                </MudStack>
                                 <MudText Typo="Typo.caption" Class="player-card-subtitle">Home: @player.HomeCity</MudText>
                             </MudStack>
                         </MudStack>
@@ -96,28 +107,19 @@
 
                         </MudStack>
 
-                        @if (player.CanToggleConnection || player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
+                        @if (player.ShowDisconnectedControlToggle)
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
-                                @if (player.CanToggleConnection)
-                                {
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="@(player.IsConnected ? MudBlazor.Color.Warning : MudBlazor.Color.Success)"
-                                               Size="Size.Small"
-                                               OnClick="() => OnToggleConnection.InvokeAsync(player.Index)">
-                                        @(player.IsConnected ? "DISCONNECT" : "CONNECT")
-                                    </MudButton>
-                                }
-
-                                @if (player.CanTakeDelegatedControl || player.CanReleaseDelegatedControl)
-                                {
-                                    <MudButton Variant="Variant.Outlined"
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.caption">Bot</MudText>
+                                    <MudSwitch T="bool"
+                                               Value="@player.IsManualControlSelected"
+                                               ValueChanged="@(isManual => OnDisconnectedSeatControlChangedAsync(player, isManual))"
                                                Color="MudBlazor.Color.Primary"
-                                               Size="Size.Small"
-                                               OnClick="() => OnToggleDelegatedControl.InvokeAsync(player.Index)">
-                                        @(player.CanReleaseDelegatedControl ? "RELEASE" : "TAKE CONTROL")
-                                    </MudButton>
-                                }
+                                               Disabled="@(!CanToggleDisconnectedSeatControl(player))"
+                                               Class="player-card-control-switch" />
+                                    <MudText Typo="Typo.caption">Manual</MudText>
+                                </MudStack>
                             </MudStack>
                         }
                     </MudPaper>
@@ -132,10 +134,10 @@
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
 
     [Parameter]
-    public EventCallback<int> OnToggleConnection { get; set; }
+    public EventCallback<DisconnectedSeatControlRequest> OnSetDisconnectedSeatControl { get; set; }
 
     [Parameter]
-    public EventCallback<int> OnToggleDelegatedControl { get; set; }
+    public EventCallback<int> OnFocusPlayer { get; set; }
 
     private static string GetInitial(string name)
     {
@@ -177,7 +179,7 @@
 
     private static string GetCashValueClass(PlayerBoardModel player)
     {
-        if (player.IsCurrentUser || player.IsDelegatedToCurrentUser)
+        if (player.CanViewExactCash)
         {
             return string.Empty;
         }
@@ -185,6 +187,20 @@
         return player.Cash >= Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(0)
             ? "player-card-cash-value player-card-cash-value-affordable"
             : "player-card-cash-value player-card-cash-value-too-expensive";
+    }
+
+    private static bool CanToggleDisconnectedSeatControl(PlayerBoardModel player)
+    {
+        return player.CanSelectBotControl || player.CanSelectManualControl;
+    }
+
+    private Task OnDisconnectedSeatControlChangedAsync(PlayerBoardModel player, bool isManual)
+    {
+        return OnSetDisconnectedSeatControl.InvokeAsync(new DisconnectedSeatControlRequest
+        {
+            PlayerIndex = player.Index,
+            ControlMode = isManual ? DisconnectedSeatControlModes.Manual : DisconnectedSeatControlModes.Bot
+        });
     }
 
     private static string FormatPercent(decimal value)

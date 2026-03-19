@@ -51,4 +51,42 @@ public class RegionChoiceStateMapperTests
         Assert.Equal("SE", state.RegionChoicePhase.Options[1].RegionCode);
         Assert.Equal(1.0m, state.RegionChoicePhase.Options[1].AccessibleDestinationPercent);
     }
+
+    [Fact]
+    public void BuildTurnViewState_DedicatedBotAssignment_ProjectsAiControllerMode()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var mapper = new GameBoardStateMapper(
+            new NetworkCoverageService(),
+            new MapAnalysisService(new MapRouteService()),
+            new PurchaseRecommendationService(),
+            Options.Create(new PurchaseRulesOptions()));
+
+        var game = new GameEntity
+        {
+            PartitionKey = "game-1",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+            [
+                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
+            ]),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                new BotAssignment
+                {
+                    GameId = "game-1",
+                    PlayerUserId = "alice@example.com",
+                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    BotDefinitionId = "bot-1",
+                    Status = BotAssignmentStatuses.Active
+                }
+            ])
+        };
+
+        var state = mapper.BuildTurnViewState(game, engine.ToSnapshot(), "bob@example.com", engine.MapDefinition);
+
+        Assert.Equal(SeatControllerModes.AiBotSeat, state.ActivePlayerControllerMode);
+        Assert.False(state.IsCurrentUserActivePlayer);
+    }
 }

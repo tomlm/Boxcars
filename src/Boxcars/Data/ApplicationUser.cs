@@ -31,6 +31,12 @@ public class ApplicationUser : ITableEntity
     public string NormalizedNickname { get; set; } = string.Empty;
     public string ThumbnailUrl { get; set; } = string.Empty;
     public string PreferredColor { get; set; } = string.Empty;
+    public string StrategyText { get; set; } = string.Empty;
+    public bool IsBot { get; set; }
+    public string CreatedByUserId { get; set; } = string.Empty;
+    public DateTimeOffset CreatedUtc { get; set; }
+    public string ModifiedByUserId { get; set; } = string.Empty;
+    public DateTimeOffset ModifiedUtc { get; set; }
 
     // Scaffold-compatibility properties (not actively used but required by some Identity pages)
     public string ConcurrencyStamp { get; set; } = Guid.NewGuid().ToString();

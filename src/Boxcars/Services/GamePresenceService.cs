@@ -1,57 +1,105 @@
+using Azure;
+using Azure.Data.Tables;
+using Boxcars.Data;
+using Boxcars.Identity;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace Boxcars.Services;
 
-public sealed class GamePresenceService
+public sealed class GamePresenceService : IDisposable
 {
     private readonly object _sync = new();
-    private readonly Dictionary<string, Dictionary<string, HashSet<string>>> _connectionsByGameAndUser = new(StringComparer.Ordinal);
+    private TableClient? _gamesTable;
+    private TableClient? _usersTable;
+    private TimeProvider _timeProvider = TimeProvider.System;
+    private TimeSpan _connectionExpirationWindow = TimeSpan.FromSeconds(15);
+    private Timer? _staleConnectionTimer;
+    private readonly Dictionary<string, Dictionary<string, Dictionary<string, DateTimeOffset>>> _connectionsByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, bool>> _mockPresenceByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _delegatedControllersByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (string GameId, string UserId)> _connectionLookup = new(StringComparer.Ordinal);
+
+    [ActivatorUtilitiesConstructor]
+    public GamePresenceService(TableServiceClient tableServiceClient)
+    {
+        Initialize(
+            tableServiceClient?.GetTableClient(TableNames.GamesTable),
+            tableServiceClient?.GetTableClient(TableNames.UsersTable),
+            TimeProvider.System,
+            connectionExpirationWindow: null,
+            cleanupInterval: null);
+    }
+
+    public GamePresenceService()
+    {
+        Initialize(null, null, TimeProvider.System, connectionExpirationWindow: null, cleanupInterval: null);
+    }
+
+    public GamePresenceService(TimeProvider timeProvider, TimeSpan? connectionExpirationWindow = null, TimeSpan? cleanupInterval = null)
+    {
+        Initialize(null, null, timeProvider, connectionExpirationWindow, cleanupInterval);
+    }
+
+    public GamePresenceService(
+        TableClient gamesTable,
+        TableClient usersTable,
+        TimeProvider? timeProvider = null,
+        TimeSpan? connectionExpirationWindow = null,
+        TimeSpan? cleanupInterval = null)
+    {
+        Initialize(gamesTable, usersTable, timeProvider ?? TimeProvider.System, connectionExpirationWindow, cleanupInterval);
+    }
+
+    private void Initialize(
+        TableClient? gamesTable,
+        TableClient? usersTable,
+        TimeProvider timeProvider,
+        TimeSpan? connectionExpirationWindow = null,
+        TimeSpan? cleanupInterval = null)
+    {
+        _gamesTable = gamesTable;
+        _usersTable = usersTable;
+        _timeProvider = timeProvider;
+        _connectionExpirationWindow = connectionExpirationWindow ?? TimeSpan.FromSeconds(15);
+
+        var effectiveCleanupInterval = cleanupInterval ?? TimeSpan.FromSeconds(5);
+        if (effectiveCleanupInterval > TimeSpan.Zero)
+        {
+            _staleConnectionTimer = new Timer(
+                static state => ((GamePresenceService)state!).PruneStaleConnectionsAndNotify(),
+                this,
+                effectiveCleanupInterval,
+                effectiveCleanupInterval);
+        }
+    }
 
     public event Action<string>? PresenceChanged;
 
     public bool AddConnection(string gameId, string userId, string connectionId)
     {
-        var changed = false;
+        return AddOrRefreshConnection(gameId, userId, connectionId);
+    }
+
+    public bool RefreshConnection(string gameId, string userId, string connectionId)
+    {
+        return AddOrRefreshConnection(gameId, userId, connectionId);
+    }
+
+    public IReadOnlyList<string> PruneStaleConnections()
+    {
+        List<string> changedGameIds;
 
         lock (_sync)
         {
-            if (_connectionLookup.TryGetValue(connectionId, out var existing)
-                && string.Equals(existing.GameId, gameId, StringComparison.Ordinal)
-                && string.Equals(existing.UserId, userId, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (!_connectionsByGameAndUser.TryGetValue(gameId, out var users))
-            {
-                users = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-                _connectionsByGameAndUser[gameId] = users;
-            }
-
-            if (!users.TryGetValue(userId, out var connections))
-            {
-                connections = new HashSet<string>(StringComparer.Ordinal);
-                users[userId] = connections;
-            }
-
-            var wasOffline = connections.Count == 0;
-            connections.Add(connectionId);
-            _connectionLookup[connectionId] = (gameId, userId);
-            changed = wasOffline;
-
-            if (wasOffline)
-            {
-                changed = ClearIncomingDelegatedControlCore(gameId, userId) || changed;
-            }
+            changedGameIds = PruneStaleConnectionsCore(_timeProvider.GetUtcNow());
         }
 
-        if (changed)
+        foreach (var changedGameId in changedGameIds)
         {
-            NotifyPresenceChanged(gameId);
+            NotifyPresenceChanged(changedGameId);
         }
 
-        return changed;
+        return changedGameIds;
     }
 
     public bool RemoveConnection(string gameId, string userId, string connectionId)
@@ -101,21 +149,74 @@ public sealed class GamePresenceService
             return false;
         }
 
+        List<string>? changedGameIds;
+        bool isConnected;
+
         lock (_sync)
         {
+            changedGameIds = PruneStaleConnectionsCore(_timeProvider.GetUtcNow());
+
             var hasLiveConnections = _connectionsByGameAndUser.TryGetValue(gameId, out var users)
                 && users.TryGetValue(userId, out var connections)
                 && connections.Count > 0;
 
             if (hasLiveConnections)
             {
-                return true;
+                isConnected = true;
             }
-
-            return _mockPresenceByGameAndUser.TryGetValue(gameId, out var mockUsers)
-                && mockUsers.TryGetValue(userId, out var isConnected)
-                && isConnected;
+            else
+            {
+                isConnected = _mockPresenceByGameAndUser.TryGetValue(gameId, out var mockUsers)
+                    && mockUsers.TryGetValue(userId, out var mockConnected)
+                    && mockConnected;
+            }
         }
+
+        foreach (var changedGameId in changedGameIds)
+        {
+            NotifyPresenceChanged(changedGameId);
+        }
+
+        return isConnected;
+    }
+
+    public bool HasAnyConnectedUsers(string gameId, IEnumerable<string?> userIds)
+    {
+        ArgumentNullException.ThrowIfNull(userIds);
+
+        if (string.IsNullOrWhiteSpace(gameId))
+        {
+            return false;
+        }
+
+        List<string>? changedGameIds;
+        var hasConnectedUser = false;
+
+        lock (_sync)
+        {
+            changedGameIds = PruneStaleConnectionsCore(_timeProvider.GetUtcNow());
+
+            foreach (var userId in userIds)
+            {
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    continue;
+                }
+
+                if (IsUserConnectedCore(gameId, userId))
+                {
+                    hasConnectedUser = true;
+                    break;
+                }
+            }
+        }
+
+        foreach (var changedGameId in changedGameIds)
+        {
+            NotifyPresenceChanged(changedGameId);
+        }
+
+        return hasConnectedUser;
     }
 
     public bool EnsureMockConnectionState(string gameId, string userId, bool defaultConnected)
@@ -166,15 +267,16 @@ public sealed class GamePresenceService
                 {
                     changed = ClearIncomingDelegatedControlCore(gameId, userId) || changed;
                 }
-                else
-                {
-                    changed = ClearOutgoingDelegatedControlCore(gameId, userId) || changed;
-                }
             }
         }
 
         if (changed)
         {
+            if (isConnected)
+            {
+                QueueBotAssignmentClear(gameId, userId, "Reconnect");
+            }
+
             NotifyPresenceChanged(gameId);
         }
 
@@ -195,6 +297,16 @@ public sealed class GamePresenceService
                     ? controllerUserId
                     : null;
         }
+    }
+
+    public SeatControllerState ResolveSeatControllerState(string gameId, string? slotUserId, BotAssignment? activeBotAssignment)
+    {
+        return PlayerControlRules.ResolveSeatControllerState(
+            gameId,
+            slotUserId,
+            IsUserConnected(gameId, slotUserId),
+            GetDelegatedControllerUserId(gameId, slotUserId),
+            activeBotAssignment);
     }
 
     public bool TryTakeDelegatedControl(string gameId, string slotUserId, string controllerUserId)
@@ -267,6 +379,7 @@ public sealed class GamePresenceService
 
         if (changed)
         {
+            QueueBotAssignmentClear(gameId, slotUserId, "Delegated control released.");
             NotifyPresenceChanged(gameId);
         }
 
@@ -294,8 +407,6 @@ public sealed class GamePresenceService
         {
             _connectionsByGameAndUser.Remove(gameId);
         }
-
-        ClearOutgoingDelegatedControlCore(gameId, userId);
 
         return true;
     }
@@ -332,30 +443,227 @@ public sealed class GamePresenceService
         return true;
     }
 
-    private bool ClearOutgoingDelegatedControlCore(string gameId, string controllerUserId)
+    private bool AddOrRefreshConnection(string gameId, string userId, string connectionId)
     {
-        if (!_delegatedControllersByGameAndUser.TryGetValue(gameId, out var controllers))
+        if (string.IsNullOrWhiteSpace(gameId)
+            || string.IsNullOrWhiteSpace(userId)
+            || string.IsNullOrWhiteSpace(connectionId))
         {
             return false;
         }
 
-        var removedAny = false;
-        var delegatedSlots = controllers
-            .Where(entry => string.Equals(entry.Value, controllerUserId, StringComparison.OrdinalIgnoreCase))
-            .Select(entry => entry.Key)
-            .ToList();
+        var changed = false;
+        var changedGameIds = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var delegatedSlotUserId in delegatedSlots)
+        lock (_sync)
         {
-            removedAny = controllers.Remove(delegatedSlotUserId) || removedAny;
+            foreach (var changedGameId in PruneStaleConnectionsCore(_timeProvider.GetUtcNow()))
+            {
+                changedGameIds.Add(changedGameId);
+            }
+
+            if (!_connectionsByGameAndUser.TryGetValue(gameId, out var users))
+            {
+                users = new Dictionary<string, Dictionary<string, DateTimeOffset>>(StringComparer.OrdinalIgnoreCase);
+                _connectionsByGameAndUser[gameId] = users;
+            }
+
+            if (!users.TryGetValue(userId, out var connections))
+            {
+                connections = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+                users[userId] = connections;
+            }
+
+            var wasOffline = connections.Count == 0;
+            var now = _timeProvider.GetUtcNow();
+
+            if (_connectionLookup.TryGetValue(connectionId, out var existing)
+                && (!string.Equals(existing.GameId, gameId, StringComparison.Ordinal)
+                    || !string.Equals(existing.UserId, userId, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (RemoveConnectionCore(existing.GameId, existing.UserId, connectionId))
+                {
+                    changedGameIds.Add(existing.GameId);
+                }
+
+                wasOffline = true;
+            }
+
+            connections[connectionId] = now;
+            _connectionLookup[connectionId] = (gameId, userId);
+            changed = wasOffline;
+
+            if (wasOffline)
+            {
+                changed = ClearIncomingDelegatedControlCore(gameId, userId) || changed;
+            }
         }
 
-        if (controllers.Count == 0)
+        foreach (var changedGameId in changedGameIds)
         {
-            _delegatedControllersByGameAndUser.Remove(gameId);
+            NotifyPresenceChanged(changedGameId);
         }
 
-        return removedAny;
+        if (changed)
+        {
+            QueueBotAssignmentClear(gameId, userId, "Reconnect");
+            NotifyPresenceChanged(gameId);
+        }
+
+        return changed;
+    }
+
+    private List<string> PruneStaleConnectionsCore(DateTimeOffset now)
+    {
+        var changedGameIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (gameId, users) in _connectionsByGameAndUser.ToList())
+        {
+            foreach (var (_, connections) in users.ToList())
+            {
+                foreach (var (connectionId, lastSeenUtc) in connections.ToList())
+                {
+                    if (!IsConnectionStale(lastSeenUtc, now))
+                    {
+                        continue;
+                    }
+
+                    connections.Remove(connectionId);
+                    _connectionLookup.Remove(connectionId);
+                    changedGameIds.Add(gameId);
+                }
+            }
+
+            foreach (var (userId, connections) in users.Where(static pair => pair.Value.Count == 0).ToList())
+            {
+                users.Remove(userId);
+            }
+
+            if (users.Count == 0)
+            {
+                _connectionsByGameAndUser.Remove(gameId);
+            }
+        }
+
+        return changedGameIds.ToList();
+    }
+
+    private bool IsConnectionStale(DateTimeOffset lastSeenUtc, DateTimeOffset now)
+    {
+        return now - lastSeenUtc >= _connectionExpirationWindow;
+    }
+
+    private void PruneStaleConnectionsAndNotify()
+    {
+        _ = PruneStaleConnections();
+    }
+
+    private void QueueBotAssignmentClear(string gameId, string playerUserId, string clearReason)
+    {
+        if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(playerUserId))
+        {
+            return;
+        }
+
+        _ = ClearBotAssignmentsForPlayerAsync(gameId, playerUserId, clearReason);
+    }
+
+    private async Task ClearBotAssignmentsForPlayerAsync(string gameId, string playerUserId, string clearReason)
+    {
+        if (_gamesTable is null)
+        {
+            return;
+        }
+
+        if (!await ShouldClearAiControlForConnectedSeatAsync(playerUserId))
+        {
+            return;
+        }
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                var response = await _gamesTable.GetEntityAsync<GameEntity>(gameId, "GAME");
+                var gameEntity = response.Value;
+                var assignments = BotAssignmentSerialization.Deserialize(gameEntity.BotAssignmentsJson).ToList();
+                var changed = false;
+                var now = DateTimeOffset.UtcNow;
+
+                for (var index = 0; index < assignments.Count; index++)
+                {
+                    var assignment = assignments[index];
+                    if (!string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                        || assignment.ClearedUtc is not null)
+                    {
+                        continue;
+                    }
+
+                    assignments[index] = assignment with
+                    {
+                        Status = BotAssignmentStatuses.Cleared,
+                        ClearReason = clearReason,
+                        ClearedUtc = now
+                    };
+                    changed = true;
+                }
+
+                if (!changed)
+                {
+                    return;
+                }
+
+                var updateEntity = new TableEntity(gameEntity.PartitionKey, gameEntity.RowKey)
+                {
+                    [nameof(GameEntity.BotAssignmentsJson)] = BotAssignmentSerialization.Serialize(assignments)
+                };
+
+                await _gamesTable.UpdateEntityAsync(updateEntity, gameEntity.ETag, TableUpdateMode.Merge);
+                NotifyPresenceChanged(gameId);
+                return;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412 && attempt == 0)
+            {
+                continue;
+            }
+        }
+    }
+
+    private async Task<bool> ShouldClearAiControlForConnectedSeatAsync(string playerUserId)
+    {
+        if (_usersTable is null || string.IsNullOrWhiteSpace(playerUserId))
+        {
+            return true;
+        }
+
+        var profile = await TryGetUserProfileAsync(playerUserId);
+        return profile?.IsBot != true;
+    }
+
+    private async Task<ApplicationUser?> TryGetUserProfileAsync(string userId)
+    {
+        var candidateIds = string.Equals(userId, userId.ToLowerInvariant(), StringComparison.Ordinal)
+            ? new[] { userId }
+            : new[] { userId, userId.ToLowerInvariant() };
+
+        foreach (var candidateId in candidateIds)
+        {
+            try
+            {
+                var response = await _usersTable!.GetEntityAsync<ApplicationUser>("USER", candidateId);
+                return response.Value;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+            }
+        }
+
+        return null;
     }
 
     private void NotifyPresenceChanged(string gameId)
@@ -377,5 +685,10 @@ public sealed class GamePresenceService
                 System.Diagnostics.Debug.WriteLine($"GamePresenceService PresenceChanged handler failed for game '{gameId}': {exception}");
             }
         }
+    }
+
+    public void Dispose()
+    {
+        _staleConnectionTimer?.Dispose();
     }
 }

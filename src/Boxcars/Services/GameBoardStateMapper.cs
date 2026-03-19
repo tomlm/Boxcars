@@ -12,7 +12,8 @@ public sealed class GameBoardStateMapper(
     NetworkCoverageService networkCoverageService,
     MapAnalysisService mapAnalysisService,
     PurchaseRecommendationService purchaseRecommendationService,
-    IOptions<PurchaseRulesOptions> purchaseRulesOptions)
+    IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+    GamePresenceService? gamePresenceService = null)
 {
     public IReadOnlyList<GamePlayerSelection> GetPlayerSelections(GameEntity? game)
     {
@@ -21,13 +22,55 @@ public sealed class GameBoardStateMapper(
             : GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
     }
 
+    public IReadOnlyList<BotAssignment> GetBotAssignments(GameEntity? game)
+    {
+        return string.IsNullOrWhiteSpace(game?.BotAssignmentsJson)
+            ? []
+            : BotAssignmentSerialization.Deserialize(game.BotAssignmentsJson);
+    }
+
+    public IReadOnlyDictionary<string, BotAssignment> BuildLatestBotAssignments(GameEntity? game)
+    {
+        return GetBotAssignments(game)
+            .GroupBy(assignment => assignment.PlayerUserId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(assignment => assignment.ClearedUtc ?? assignment.AssignedUtc)
+                    .ThenByDescending(assignment => assignment.AssignedUtc)
+                    .First(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    public static string GetBotAssignmentStatusLabel(BotAssignment? assignment, string? botName = null)
+    {
+        if (assignment is null)
+        {
+            return string.Empty;
+        }
+
+        return assignment.Status switch
+        {
+            BotAssignmentStatuses.Active => string.IsNullOrWhiteSpace(botName) ? "Bot assigned" : botName,
+            BotAssignmentStatuses.MissingDefinition => "Bot removed from library",
+            BotAssignmentStatuses.DisconnectedController => string.Empty,
+            _ => string.Empty
+        };
+    }
+
     public IReadOnlyList<PlayerControlBinding> BuildPlayerControlBindings(GameEntity? game, string? currentUserId)
     {
         var selections = GetPlayerSelections(game);
+        var latestBotAssignments = BuildLatestBotAssignments(game);
 
         return selections
             .Select((selection, index) => new PlayerControlBinding
             {
+                ControllerMode = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode,
+                DelegatedControllerUserId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).DelegatedControllerUserId ?? string.Empty,
+                IsConnected = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).IsConnected,
+                BotDefinitionId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).BotDefinitionId ?? string.Empty,
+                HasBotAssignment = PlayerControlRules.IsAiControllerMode(ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode),
                 UserId = selection.UserId,
                 PlayerIndex = index,
                 DisplayName = string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName,
@@ -61,8 +104,8 @@ public sealed class GameBoardStateMapper(
         var activePlayer = activePlayerIndex >= 0 && activePlayerIndex < state.Players.Count
             ? state.Players[activePlayerIndex]
             : state.Players[0];
-        var activePlayerSlotUserId = activePlayerIndex >= 0 && activePlayerIndex < bindings.Count
-            ? bindings[activePlayerIndex].UserId
+        var activeBinding = activePlayerIndex >= 0 && activePlayerIndex < bindings.Count
+            ? bindings[activePlayerIndex]
             : null;
 
         var selectedRoutePreview = NormalizePreview(activePlayerIndex, state, preview ?? BuildSelectedRoutePreview(activePlayer, state));
@@ -88,19 +131,52 @@ public sealed class GameBoardStateMapper(
             MovementAllowance = movementAllowance,
             MovementRemaining = movementRemaining,
             PreviewFee = selectedRoutePreview.FeeEstimate,
+            PreviewHasUnfriendlyFee = selectedRoutePreview.HasUnfriendlyFee,
             CurrentRollTotal = CalculateRollTotal(state),
             IsActivePlayerAtDestination = IsPlayerAtDestination(activePlayer),
             ActivePlayerDestinationCity = activePlayer.DestinationCityName ?? string.Empty,
+            ActivePlayerControllerMode = activeBinding?.ControllerMode ?? SeatControllerModes.HumanDirect,
             SelectedRoutePreview = selectedRoutePreview,
             TraveledSegmentKeys = activePlayer.UsedSegments,
-            IsCurrentUserActivePlayer = PlayerControlRules.IsDirectlyBoundToUser(activePlayerSlotUserId, currentUserId)
-                || (activePlayer.IsActive && currentUserPlayerIndex >= 0 && currentUserPlayerIndex == activePlayerIndex),
+            IsCurrentUserActivePlayer = activeBinding is not null
+                && PlayerControlRules.CanUserControlSlot(
+                    activeBinding.UserId,
+                    currentUserId,
+                    activeBinding.DelegatedControllerUserId,
+                    activePlayer.IsActive),
             CanEndTurn = CanEndTurn(state, selectedRoutePreview),
             ArrivalResolution = resolvedArrival,
             PurchasePhase = resolvedArrival?.PurchasePhase,
             ForcedSalePhase = forcedSalePhase,
             RegionChoicePhase = regionChoicePhase
         };
+    }
+
+    private SeatControllerState ResolveSeatControllerState(
+        GameEntity? game,
+        string? slotUserId,
+        IReadOnlyDictionary<string, BotAssignment>? latestBotAssignments = null)
+    {
+        latestBotAssignments ??= BuildLatestBotAssignments(game);
+
+        var activeBotAssignment = !string.IsNullOrWhiteSpace(slotUserId)
+            && latestBotAssignments.TryGetValue(slotUserId, out var assignment)
+            && string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
+            && assignment.ClearedUtc is null
+                ? assignment
+                : null;
+
+        if (gamePresenceService is null)
+        {
+            return PlayerControlRules.ResolveSeatControllerState(
+                game?.GameId ?? string.Empty,
+                slotUserId,
+                isConnected: true,
+                delegatedControllerUserId: null,
+                activeBotAssignment);
+        }
+
+        return gamePresenceService.ResolveSeatControllerState(game?.GameId ?? string.Empty, slotUserId, activeBotAssignment);
     }
 
     public IReadOnlyList<PlayerMapState> BuildPlayerMapStates(GameEntity? game, RailBaronGameState? state, string? currentUserId)
@@ -152,13 +228,17 @@ public sealed class GameBoardStateMapper(
 
         var moveCount = Math.Max(0, segmentKeys.Count);
         var movementRemaining = Math.Max(0, state?.Turn.MovementRemaining ?? 0);
+        var feeSummary = state is null
+            ? new PreviewFeeSummary(0, false)
+            : CalculatePreviewFeeSummary(state, state.ActivePlayerIndex, segmentKeys);
 
         return new TurnMovementPreview
         {
             NodeIds = nodeIds,
             SegmentKeys = segmentKeys,
             MoveCount = moveCount,
-            FeeEstimate = state is null ? 0 : CalculatePreviewFee(state, state.ActivePlayerIndex, segmentKeys),
+            FeeEstimate = feeSummary.FeeEstimate,
+            HasUnfriendlyFee = feeSummary.HasUnfriendlyFee,
             ExhaustsMovement = movementRemaining > 0 && moveCount >= movementRemaining
         };
     }
@@ -167,18 +247,20 @@ public sealed class GameBoardStateMapper(
     {
         var moveCount = Math.Max(0, preview.SegmentKeys.Count);
         var movementRemaining = Math.Max(0, state.Turn.MovementRemaining);
+        var feeSummary = CalculatePreviewFeeSummary(state, activePlayerIndex, preview.SegmentKeys);
 
         return new TurnMovementPreview
         {
             NodeIds = preview.NodeIds,
             SegmentKeys = preview.SegmentKeys,
             MoveCount = moveCount,
-            FeeEstimate = CalculatePreviewFee(state, activePlayerIndex, preview.SegmentKeys),
+            FeeEstimate = feeSummary.FeeEstimate,
+            HasUnfriendlyFee = feeSummary.HasUnfriendlyFee,
             ExhaustsMovement = movementRemaining > 0 && moveCount >= movementRemaining
         };
     }
 
-    private static int CalculatePreviewFee(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> segmentKeys)
+    private static PreviewFeeSummary CalculatePreviewFeeSummary(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> segmentKeys)
     {
         var railroadIndices = new HashSet<int>(state.Turn.RailroadsRiddenThisTurn);
 
@@ -191,7 +273,12 @@ public sealed class GameBoardStateMapper(
         }
 
         var activePlayer = state.Players[activePlayerIndex];
-        var grandfatheredRailroadIndices = SimulateGrandfatheredRailroads(activePlayer.GrandfatheredRailroadIndices, segmentKeys);
+        var fullRateRailroadIndices = SimulateFullRateRailroads(
+            activePlayerIndex,
+            activePlayer.GrandfatheredRailroadIndices,
+            state.Turn.RailroadsRequiringFullOwnerRateThisTurn,
+            state.RailroadOwnership,
+            segmentKeys);
         var usesBaseRateRailroad = false;
         var ownerBuckets = new Dictionary<int, bool>();
 
@@ -211,7 +298,7 @@ public sealed class GameBoardStateMapper(
 
             if (ownerIndex.Value != activePlayerIndex)
             {
-                var requiresFullOwnerRate = !grandfatheredRailroadIndices.Contains(railroadIndex);
+                var requiresFullOwnerRate = fullRateRailroadIndices.Contains(railroadIndex);
                 if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
                 {
                     ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
@@ -225,16 +312,39 @@ public sealed class GameBoardStateMapper(
 
         var bankFee = usesBaseRateRailroad ? 1000 : 0;
         var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
-        return bankFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000);
+        return new PreviewFeeSummary(
+            bankFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000),
+            ownerBuckets.Count > 0);
     }
 
-    private static HashSet<int> SimulateGrandfatheredRailroads(IReadOnlyList<int> currentGrandfatheredRailroads, IReadOnlyList<string> segmentKeys)
+    private readonly record struct PreviewFeeSummary(int FeeEstimate, bool HasUnfriendlyFee);
+
+    private static HashSet<int> SimulateFullRateRailroads(
+        int activePlayerIndex,
+        IReadOnlyList<int> currentGrandfatheredRailroads,
+        IReadOnlyList<int> currentFullRateRailroads,
+        Dictionary<int, int?> railroadOwnership,
+        IReadOnlyList<string> segmentKeys)
     {
         var grandfatheredRailroads = currentGrandfatheredRailroads.ToHashSet();
+        var fullRateRailroads = currentFullRateRailroads.ToHashSet();
 
         foreach (var segmentKey in segmentKeys)
         {
-            if (!TryParseRailroadIndex(segmentKey, out var railroadIndex) || grandfatheredRailroads.Count == 0)
+            if (!TryParseRailroadIndex(segmentKey, out var railroadIndex))
+            {
+                continue;
+            }
+
+            if (railroadOwnership.TryGetValue(railroadIndex, out var ownerIndex)
+                && ownerIndex is not null
+                && ownerIndex.Value != activePlayerIndex
+                && !grandfatheredRailroads.Contains(railroadIndex))
+            {
+                fullRateRailroads.Add(railroadIndex);
+            }
+
+            if (grandfatheredRailroads.Count == 0)
             {
                 continue;
             }
@@ -249,7 +359,7 @@ public sealed class GameBoardStateMapper(
             }
         }
 
-        return grandfatheredRailroads;
+        return fullRateRailroads;
     }
 
     private static bool TryParseRailroadIndex(string segmentKey, out int railroadIndex)

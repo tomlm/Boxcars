@@ -7,6 +7,7 @@ using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -42,6 +43,32 @@ public class Program
         var tableStorageConnectionString = builder.Configuration["AzureTableStorage:ConnectionString"]
             ?? throw new InvalidOperationException("AzureTableStorage:ConnectionString not found.");
         builder.Services.AddSingleton(new TableServiceClient(tableStorageConnectionString));
+
+        builder.Services.AddOptions<BotOptions>()
+            .Configure(options =>
+            {
+                builder.Configuration.GetSection(BotOptions.SectionName).Bind(options);
+
+                if (string.IsNullOrWhiteSpace(options.OpenAIKey))
+                {
+                    options.OpenAIKey = builder.Configuration[BotOptions.LegacyApiKeySettingName] ?? string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(options.ServerActorUserId))
+                {
+                    options.ServerActorUserId = BotOptions.DefaultServerActorUserId;
+                }
+
+                if (string.IsNullOrWhiteSpace(options.ServerActorDisplayName))
+                {
+                    options.ServerActorDisplayName = BotOptions.DefaultServerActorDisplayName;
+                }
+            })
+            .Validate(static options => options.DecisionTimeoutSeconds > 0, "Bots:DecisionTimeoutSeconds must be greater than zero.")
+            .Validate(static options => string.IsNullOrWhiteSpace(options.OpenAIModel) is false, "Bots:OpenAIModel is required.")
+            .Validate(static options => string.IsNullOrWhiteSpace(options.ServerActorUserId) is false, "Bots:ServerActorUserId is required.")
+            .Validate(static options => string.IsNullOrWhiteSpace(options.ServerActorDisplayName) is false, "Bots:ServerActorDisplayName is required.")
+            .ValidateOnStart();
 
         // UI component libraries
         builder.Services.AddHttpClient();
@@ -79,9 +106,16 @@ public class Program
             .ValidateOnStart();
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
-        builder.Services.AddSingleton<GamePresenceService>();
+        builder.Services.AddScoped<GameCircuitPresenceTracker>();
+        builder.Services.AddScoped<CircuitHandler, GamePresenceCircuitHandler>();
+        builder.Services.AddSingleton<GamePresenceService>(serviceProvider =>
+            new GamePresenceService(serviceProvider.GetRequiredService<TableServiceClient>()));
+        builder.Services.AddSingleton<UserDirectoryService>();
+        builder.Services.AddSingleton<BotDecisionPromptBuilder>();
+        builder.Services.AddSingleton<OpenAiBotClient>();
+        builder.Services.AddSingleton<BotTurnService>();
         builder.Services.AddScoped<GameBoardStateMapper>();
-        builder.Services.AddScoped<NetworkCoverageService>();
+        builder.Services.AddSingleton<NetworkCoverageService>();
         builder.Services.AddScoped<MapAnalysisService>();
         builder.Services.AddScoped<PurchaseRecommendationService>();
         builder.Services.AddScoped<MapBackgroundResolver>();
@@ -104,42 +138,56 @@ public class Program
         }
 
         var usersTable = tableService.GetTableClient(TableNames.UsersTable);
-        var beatlesUsers = new[]
+        var bots = new[]
         {
-            (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple"),
-            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "orange"),
-            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow"),
-            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "blue")
+            (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple", Strategy: "This bot values connectivity and access, and tries to build an optimal network to get to the most likely cities." ),
+            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "orange", Strategy: "This bot strategically hybrid balance of access, connectivity, regional access and opportunities to monopolize cities." ),
+            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow", Strategy: "Popper likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
+            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" )
         };
 
-        foreach (var beatle in beatlesUsers)
+        foreach (var bot in bots)
         {
-            var userId = beatle.Email.ToLowerInvariant();
+            var userId = bot.Email.ToLowerInvariant();
             var existing = await usersTable.GetEntityIfExistsAsync<ApplicationUser>("USER", userId);
             if (existing.HasValue && existing.Value is { } existingUser)
             {
-                var normalizedPreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor);
-                if (!string.Equals(existingUser.PreferredColor, normalizedPreferredColor, StringComparison.OrdinalIgnoreCase))
+                var normalizedPreferredColor = PlayerColorOptions.NormalizeOrDefault(bot.PreferredColor);
+                var desiredStrategy = bot.Strategy;
+                if (!string.Equals(existingUser.PreferredColor, normalizedPreferredColor, StringComparison.OrdinalIgnoreCase)
+                    || !existingUser.IsBot
+                    || !string.Equals(existingUser.StrategyText, desiredStrategy, StringComparison.Ordinal))
                 {
                     existingUser.PreferredColor = normalizedPreferredColor;
+                    existingUser.IsBot = true;
+                    existingUser.StrategyText = desiredStrategy;
+                    existingUser.ModifiedUtc = DateTimeOffset.UtcNow;
                     await usersTable.UpdateEntityAsync(existingUser, existingUser.ETag, TableUpdateMode.Replace);
                 }
 
                 continue;
             }
 
+            var now = DateTimeOffset.UtcNow;
+
             await usersTable.AddEntityAsync(new ApplicationUser
             {
                 PartitionKey = "USER",
                 RowKey = userId,
-                Email = beatle.Email,
-                NormalizedEmail = beatle.Email.ToUpperInvariant(),
-                UserName = beatle.Email,
-                NormalizedUserName = beatle.Email.ToUpperInvariant(),
-                Name = beatle.Name,
-                Nickname = beatle.Nickname,
-                NormalizedNickname = beatle.Nickname.ToUpperInvariant(),
-                PreferredColor = PlayerColorOptions.NormalizeOrDefault(beatle.PreferredColor),
+                Email = bot.Email,
+                NormalizedEmail = bot.Email.ToUpperInvariant(),
+                UserName = bot.Email,
+                NormalizedUserName = bot.Email.ToUpperInvariant(),
+                Name = bot.Name,
+                Nickname = bot.Nickname,
+                NormalizedNickname = bot.Nickname.ToUpperInvariant(),
+                PreferredColor = PlayerColorOptions.NormalizeOrDefault(bot.PreferredColor),
+                StrategyText = PlayerProfileService.DefaultStrategyText,
+                IsBot = true,
+                CreatedByUserId = "system",
+                CreatedUtc = now,
+                ModifiedByUserId = "system",
+                ModifiedUtc = now,
                 SecurityStamp = Guid.NewGuid().ToString(),
                 EmailConfirmed = true
             });

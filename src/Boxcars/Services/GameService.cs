@@ -125,6 +125,66 @@ public class GameService
         }
     }
 
+    public async Task<GameUpdateResult> UpdateBotAssignmentsAsync(GameEntity game, string botAssignmentsJson, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+
+        List<BotAssignment> assignments;
+        try
+        {
+            assignments = NormalizeBotAssignments(botAssignmentsJson);
+        }
+        catch (JsonException)
+        {
+            return GameUpdateResult.Failed("The bot assignment payload was invalid. Refresh and try again.");
+        }
+
+        try
+        {
+            var updateEntity = new TableEntity(game.PartitionKey, game.RowKey)
+            {
+                [nameof(GameEntity.BotAssignmentsJson)] = BotAssignmentSerialization.Serialize(assignments)
+            };
+
+            await _gamesTable.UpdateEntityAsync(updateEntity, game.ETag, TableUpdateMode.Merge, cancellationToken);
+
+            var updatedGame = await GetGameAsync(game.GameId, cancellationToken);
+            return updatedGame is null
+                ? GameUpdateResult.Failed("Game is no longer active.")
+                : GameUpdateResult.Success(updatedGame);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 412)
+        {
+            return GameUpdateResult.Conflict("The game changed before the bot assignment could be saved. Refresh and try again.");
+        }
+    }
+
+    private static List<BotAssignment> NormalizeBotAssignments(string botAssignmentsJson)
+    {
+        return BotAssignmentSerialization.Deserialize(botAssignmentsJson)
+            .Select(assignment => assignment with
+            {
+                ControllerMode = NormalizeControllerMode(assignment),
+                ControllerUserId = string.Equals(NormalizeControllerMode(assignment), SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
+                    ? string.Empty
+                    : assignment.ControllerUserId,
+                Status = string.IsNullOrWhiteSpace(assignment.Status) ? BotAssignmentStatuses.Active : assignment.Status
+            })
+            .ToList();
+    }
+
+    private static string NormalizeControllerMode(BotAssignment assignment)
+    {
+        if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
+        {
+            return assignment.ControllerMode;
+        }
+
+        return string.IsNullOrWhiteSpace(assignment.ControllerUserId)
+            ? SeatControllerModes.AiBotSeat
+            : SeatControllerModes.AiGhost;
+    }
+
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
     {
         var orderedEvents = new List<GameEventEntity>();
@@ -168,6 +228,7 @@ public class GameService
         }
 
         var previousSnapshot = TryDeserializeSnapshot(previousGameEvent?.SerializedGameState ?? string.Empty);
+        var playerAction = GameEventSerialization.DeserializePlayerAction(gameEvent.EventKind, gameEvent.EventData);
         var timelineItems = new List<EventTimelineItem>();
         var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
         var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
@@ -182,9 +243,10 @@ public class GameService
                         gameEvent,
                         $"{gameEvent.RowKey}:destination-region-choice",
                         EventTimelineKind.NewDestination,
-                        string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                            string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                             ? $"{actingPlayerName} must choose a replacement destination region."
-                            : gameEvent.ChangeSummary));
+                                : gameEvent.ChangeSummary,
+                            playerAction));
                     break;
                 }
 
@@ -194,7 +256,8 @@ public class GameService
                     EventTimelineKind.NewDestination,
                     string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
                         ? $"{actingPlayerName} has a new destination."
-                        : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"));
+                        : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}",
+                    playerAction));
                 break;
 
             case "ChooseDestinationRegion":
@@ -206,7 +269,8 @@ public class GameService
                         ? string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
                             ? $"{actingPlayerName} chose a replacement destination region."
                             : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "RollDice":
@@ -214,7 +278,8 @@ public class GameService
                     gameEvent,
                     $"{gameEvent.RowKey}:roll",
                     EventTimelineKind.DiceRoll,
-                    $"{actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}"));
+                    $"{actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}",
+                    playerAction));
                 break;
 
             case "Move":
@@ -224,7 +289,8 @@ public class GameService
                     EventTimelineKind.Move,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} moved."
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
 
                 if (snapshot.Turn.ArrivalResolution is null)
                 {
@@ -235,7 +301,8 @@ public class GameService
                     gameEvent,
                     $"{gameEvent.RowKey}:arrival",
                     EventTimelineKind.Arrival,
-                    DescribeArrival(actingPlayerName, snapshot.Turn.ArrivalResolution)));
+                        DescribeArrival(actingPlayerName, snapshot.Turn.ArrivalResolution),
+                        playerAction));
 
                 if (snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable)
                 {
@@ -243,7 +310,8 @@ public class GameService
                         gameEvent,
                         $"{gameEvent.RowKey}:purchase",
                         EventTimelineKind.PurchaseOpportunity,
-                        $"{actingPlayerName} may buy a railroad or locomotive before ending the turn."));
+                        $"{actingPlayerName} may buy a railroad or locomotive before ending the turn.",
+                        playerAction));
                 }
 
                 break;
@@ -256,7 +324,8 @@ public class GameService
                         gameEvent,
                         $"{gameEvent.RowKey}:fees",
                         EventTimelineKind.PayFees,
-                        payFeesDescription));
+                        payFeesDescription,
+                        playerAction));
                 }
                 break;
 
@@ -267,7 +336,8 @@ public class GameService
                     EventTimelineKind.PayFees,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} sold a railroad to raise cash for fees."
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "StartAuction":
@@ -277,7 +347,8 @@ public class GameService
                     EventTimelineKind.PayFees,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} started a railroad auction."
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "Bid":
@@ -287,7 +358,8 @@ public class GameService
                     EventTimelineKind.PayFees,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} placed an auction bid."
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "AuctionPass":
@@ -297,7 +369,8 @@ public class GameService
                     EventTimelineKind.PayFees,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} passed in the auction."
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "AuctionDropOut":
@@ -307,7 +380,8 @@ public class GameService
                     EventTimelineKind.PayFees,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} dropped out of the auction."
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "PurchaseRailroad":
@@ -315,7 +389,8 @@ public class GameService
                     gameEvent,
                     $"{gameEvent.RowKey}:purchase",
                     EventTimelineKind.Purchase,
-                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary));
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "BuyEngine":
@@ -324,7 +399,8 @@ public class GameService
                     gameEvent,
                     $"{gameEvent.RowKey}:purchase",
                     EventTimelineKind.Purchase,
-                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A locomotive was upgraded." : gameEvent.ChangeSummary));
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A locomotive was upgraded." : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
 
             case "DeclinePurchase":
@@ -334,7 +410,8 @@ public class GameService
                     EventTimelineKind.DeclinedPurchase,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} declined the purchase opportunity"
-                        : gameEvent.ChangeSummary));
+                        : gameEvent.ChangeSummary,
+                    playerAction));
                 break;
         }
 
@@ -344,7 +421,8 @@ public class GameService
                 gameEvent,
                 gameEvent.RowKey,
                 ResolveTimelineKind(gameEvent.EventKind),
-                gameEvent.ChangeSummary));
+                gameEvent.ChangeSummary,
+                playerAction));
         }
 
         return timelineItems;
@@ -371,7 +449,8 @@ public class GameService
         GameEventEntity gameEvent,
         string eventId,
         EventTimelineKind eventKind,
-        string? description)
+        string? description,
+        PlayerAction? playerAction = null)
     {
         return new EventTimelineItem
         {
@@ -381,7 +460,14 @@ public class GameService
                 ? gameEvent.EventKind
                 : description,
             OccurredUtc = gameEvent.OccurredUtc,
-            ActingPlayerIndex = gameEvent.ActingPlayerIndex
+            ActingPlayerIndex = gameEvent.ActingPlayerIndex,
+            ActingUserId = playerAction?.ActorUserId ?? gameEvent.ActingUserId,
+            IsAiAction = playerAction?.IsServerAuthoredAiAction == true,
+            BotDefinitionId = playerAction?.BotMetadata?.BotDefinitionId ?? string.Empty,
+            BotName = playerAction?.BotMetadata?.BotName ?? string.Empty,
+            BotControllerMode = playerAction?.BotMetadata?.ControllerMode ?? string.Empty,
+            BotDecisionSource = playerAction?.BotMetadata?.DecisionSource ?? string.Empty,
+            BotFallbackReason = playerAction?.BotMetadata?.FallbackReason ?? string.Empty
         };
     }
 
@@ -498,7 +584,7 @@ public class GameService
             return string.Empty;
         }
 
-        var grandfatheredRailroads = activePlayerState.GrandfatheredRailroadIndices.ToHashSet();
+        var fullRateRailroads = snapshot.Turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
         var usedBaseRateRailroad = false;
         var opposingOwnerRates = new Dictionary<int, bool>();
 
@@ -516,7 +602,7 @@ public class GameService
                 continue;
             }
 
-            var requiresFullOwnerRate = !grandfatheredRailroads.Contains(railroadIndex);
+            var requiresFullOwnerRate = fullRateRailroads.Contains(railroadIndex);
             if (!opposingOwnerRates.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
             {
                 opposingOwnerRates[ownerIndex.Value] = requiresFullOwnerRate;
@@ -635,4 +721,29 @@ public class GameActionResult
     public bool Success { get; set; }
     public string? GameId { get; set; }
     public string? Reason { get; set; }
+}
+
+public sealed record GameUpdateResult
+{
+    public bool Succeeded { get; init; }
+    public bool IsConflict { get; init; }
+    public string? ErrorMessage { get; init; }
+    public GameEntity? Game { get; init; }
+
+    public static GameUpdateResult Success(GameEntity game) => new()
+    {
+        Succeeded = true,
+        Game = game
+    };
+
+    public static GameUpdateResult Conflict(string message) => new()
+    {
+        IsConflict = true,
+        ErrorMessage = message
+    };
+
+    public static GameUpdateResult Failed(string message) => new()
+    {
+        ErrorMessage = message
+    };
 }

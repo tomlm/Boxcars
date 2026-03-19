@@ -13,7 +13,7 @@
             }
 
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-                <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0">
+                <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0 || IsBusy">
                     @foreach (var option in TaskbarState.Options)
                     {
                         <MudSelectItem T="string" Value="@option.OptionKey">
@@ -23,11 +23,11 @@
                     }
                 </MudSelect>
 
-                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy" OnClick="OnBuyRequestedAsync">
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy || IsBusy" OnClick="OnBuyRequestedAsync">
                     BUY
                 </MudButton>
 
-                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline" OnClick="OnDeclineRequestedAsync">
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline || IsBusy" OnClick="OnDeclineRequestedAsync">
                     DECLINE
                 </MudButton>
             </MudStack>
@@ -51,6 +51,9 @@
 
     [Parameter]
     public EventCallback DeclineRequested { get; set; }
+
+    [Parameter]
+    public bool IsBusy { get; set; }
 
     [Parameter]
     public NetworkCoverageSnapshot? CurrentCoverage { get; set; }

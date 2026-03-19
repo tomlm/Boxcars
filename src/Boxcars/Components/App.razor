@@ -18,7 +18,7 @@
 
 <body>
     <Routes @rendermode="PageRenderMode" />
-    <script src="js/mapBoard.js?v=2"></script>
+    <script src="js/mapBoard.js?v=3"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
@@ -26,10 +26,12 @@
 </html>
 
 @code {
+    private static readonly IComponentRenderMode InteractiveServerWithoutPrerender = new InteractiveServerRenderMode(prerender: false);
+
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
 
     private IComponentRenderMode? PageRenderMode => HttpContext.Request.Path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase)
         ? null
-        : InteractiveServer;
+        : InteractiveServerWithoutPrerender;
 }

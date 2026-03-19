@@ -1,5 +1,8 @@
 @inherits LayoutComponentBase
 @inject NavigationManager Navigation
+@inject PlayerProfileService ProfileService
+@using Boxcars.Services
+@using Microsoft.AspNetCore.Components.Authorization
 @using MudBlazor
 
 <MudThemeProvider Theme="_darkTheme" IsDarkMode="true" />
@@ -34,7 +37,48 @@
         PaletteDark = new PaletteDark()
     };
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
     private bool IsAccountRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("Account", StringComparison.OrdinalIgnoreCase);
 
     private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthenticationStateTask is null || IsAccountRoute)
+        {
+            return;
+        }
+
+        var authenticationState = await AuthenticationStateTask;
+        if (authenticationState.User.Identity?.IsAuthenticated != true)
+        {
+            return;
+        }
+
+        var userId = authenticationState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return;
+        }
+
+        var profile = await ProfileService.GetProfileAsync(userId, CancellationToken.None);
+        if (profile is not null && PlayerProfileService.HasRequiredStrategyText(profile.StrategyText))
+        {
+            return;
+        }
+
+        var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var returnUrl = string.IsNullOrWhiteSpace(relativeUri)
+            ? "/dashboard"
+            : string.Concat("/", relativeUri);
+        var redirectUri = Navigation.GetUriWithQueryParameters("/Account/Manage/Preferences", new Dictionary<string, object?>
+        {
+            ["requiredStrategy"] = true,
+            ["returnUrl"] = returnUrl
+        });
+
+        Navigation.NavigateTo(redirectUri, replace: true);
+    }
 }

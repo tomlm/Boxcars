@@ -36,17 +36,18 @@
                                      Step="@Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement"
                                      Immediate="true"
                                      Label="Bid amount"
+                                     Disabled="@IsBusy"
                                      Class="railroad-auction-bid-input" />
 
-                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="OnBidRequestedAsync">
+                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="@IsBusy" OnClick="OnBidRequestedAsync">
                         Bid
                     </MudButton>
 
-                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" OnClick="OnPassRequestedAsync">
+                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="@IsBusy" OnClick="OnPassRequestedAsync">
                         Pass
                     </MudButton>
 
-                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" OnClick="OnDropOutRequestedAsync">
+                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" Disabled="@IsBusy" OnClick="OnDropOutRequestedAsync">
                         Drop Out
                     </MudButton>
                 </MudStack>
@@ -76,6 +77,9 @@
 
     [Parameter]
     public EventCallback DropOutRequested { get; set; }
+
+    [Parameter]
+    public bool IsBusy { get; set; }
 
     private string CurrentBidLabel => AuctionState.CurrentBid > 0
         ? FormatCurrency(AuctionState.CurrentBid)

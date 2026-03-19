@@ -17,3 +17,12 @@
     min-height: 1.75rem;
     white-space: nowrap;
 }
+
+.movement-status-fee {
+    transition: color 120ms ease;
+}
+
+.movement-status-fee-unfriendly {
+    color: var(--mud-palette-error);
+    font-weight: 700;
+}

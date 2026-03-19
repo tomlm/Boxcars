@@ -32,7 +32,8 @@
 				  RouteSuggestionChanged="@RouteSuggestionChanged"
 				  RoutePreviewChanged="@RoutePreviewChanged"
 				  DestinationCityChanged="@DestinationCityChanged"
-				  StartCityChanged="@StartCityChanged" />
+				  StartCityChanged="@StartCityChanged"
+				  MapReady="@MapReady" />
 
 
 		<MudPaper Class="game-map-zoom-overlay" Outlined="true" Square="false">
@@ -137,6 +138,9 @@
 
 	[Parameter]
 	public EventCallback<TurnMovementPreview> RoutePreviewChanged { get; set; }
+
+	[Parameter]
+	public EventCallback MapReady { get; set; }
 
 	[Parameter]
 	public EventCallback<string> DestinationCityChanged { get; set; }

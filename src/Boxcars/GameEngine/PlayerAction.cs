@@ -1,4 +1,5 @@
 using Boxcars.Engine.Domain;
+using Boxcars.Data;
 
 namespace Boxcars.GameEngine;
 
@@ -25,6 +26,9 @@ public abstract record PlayerAction
     public required string PlayerId { get; init; }
     public string ActorUserId { get; init; } = string.Empty;
     public int? PlayerIndex { get; init; }
+    public BotRecordedActionMetadata? BotMetadata { get; init; }
+    public bool IsServerAuthoredAiAction => BotMetadata is not null
+        && string.Equals(ActorUserId, BotOptions.DefaultServerActorUserId, StringComparison.OrdinalIgnoreCase);
     public abstract PlayerActionKind Kind { get; }
     public DateTimeOffset EnqueuedAtUtc { get; init; } = DateTimeOffset.UtcNow;
 }

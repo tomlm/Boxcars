@@ -228,6 +228,70 @@ public class ForcedSaleActionTests
         Assert.Contains("Only the controlling participant for the active player may perform this action.", exception.InnerException!.Message);
     }
 
+    [Fact]
+    public void ValidateActionAuthorization_AllowsServerActor_ForAiControlledSeat()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+            [
+                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
+            ]),
+            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
+            [
+                new BotAssignment
+                {
+                    GameId = "game-1",
+                    PlayerUserId = "alice@example.com",
+                    ControllerMode = SeatControllerModes.AiBotSeat,
+                    BotDefinitionId = "bot-1",
+                    Status = BotAssignmentStatuses.Active
+                }
+            ])
+        };
+
+        var action = new EndTurnAction
+        {
+            PlayerId = engine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            ActorUserId = BotOptions.DefaultServerActorUserId
+        };
+
+        InvokeValidateActionAuthorization(gameEntity, engine, action);
+    }
+
+    [Fact]
+    public void ValidateActionAuthorization_RejectsServerActor_ForHumanControlledSeat()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            GameId = "game-1",
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+            [
+                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
+            ])
+        };
+
+        var action = new EndTurnAction
+        {
+            PlayerId = engine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            ActorUserId = BotOptions.DefaultServerActorUserId
+        };
+
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("Only the controlling participant for the active player may perform this action.", exception.InnerException!.Message);
+    }
+
     private static void InvokeValidateActionAuthorization(GameEntity gameEntity, Boxcars.Engine.Domain.GameEngine engine, PlayerAction action)
     {
         var service = CreateGameEngineServiceForTests();
@@ -239,10 +303,10 @@ public class ForcedSaleActionTests
 
     private static string InvokeDescribeAction(PlayerAction action, Boxcars.Engine.Persistence.GameState snapshotBeforeAction, Boxcars.Engine.Persistence.GameState snapshotAfterAction, Boxcars.Engine.Domain.GameEngine engine)
     {
-        var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Static)
+        var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("DescribeAction was not found.");
 
-        return (string)(method.Invoke(null, [action, snapshotBeforeAction, snapshotAfterAction, engine])
+        return (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, action, snapshotBeforeAction, snapshotAfterAction, engine])
             ?? throw new InvalidOperationException("DescribeAction returned null."));
     }
 
@@ -278,6 +342,7 @@ public class ForcedSaleActionTests
             new TestWebHostEnvironment(),
             new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
             new GamePresenceService(),
+            Options.Create(new BotOptions()),
             Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
     }

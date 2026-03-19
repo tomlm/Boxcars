@@ -13,9 +13,11 @@ public sealed class BoardTurnViewState
     public int MovementAllowance { get; init; }
     public int MovementRemaining { get; init; }
     public int PreviewFee { get; init; }
+    public bool PreviewHasUnfriendlyFee { get; init; }
     public int CurrentRollTotal { get; init; }
     public bool IsActivePlayerAtDestination { get; init; }
     public string ActivePlayerDestinationCity { get; init; } = string.Empty;
+    public string ActivePlayerControllerMode { get; init; } = SeatControllerModes.HumanDirect;
     public TurnMovementPreview SelectedRoutePreview { get; init; } = TurnMovementPreview.Empty;
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
     public bool IsCurrentUserActivePlayer { get; init; }

@@ -6,7 +6,8 @@ public enum PurchaseExperienceTab
     Regions,
     Cities,
     Railroads,
-    Network
+    Network,
+    History
 }
 
 public sealed class PurchasePhaseModel

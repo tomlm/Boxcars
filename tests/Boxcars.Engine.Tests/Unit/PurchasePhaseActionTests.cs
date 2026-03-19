@@ -105,6 +105,7 @@ public class PurchasePhaseActionTests
         player.Cash = railroadToBuy.PurchasePrice + 4_000;
         engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
 
         engine.BuyRailroad(railroadToBuy);
 
@@ -338,6 +339,11 @@ public class PurchasePhaseActionTests
         random.QueueWeightedDraw(0);
         engine.DrawDestination();
 
+        Assert.Equal(TurnPhase.RegionChoice, engine.CurrentTurn.Phase);
+
+        random.QueueWeightedDraw(0);
+        engine.ChooseDestinationRegion("NE");
+
         Assert.Equal(TurnPhase.Move, engine.CurrentTurn.Phase);
         Assert.Equal("New York", player.Destination?.Name);
 
@@ -389,6 +395,11 @@ public class PurchasePhaseActionTests
         random.QueueWeightedDraw(0);
         random.QueueWeightedDraw(0);
         engine.DrawDestination();
+
+        Assert.Equal(TurnPhase.RegionChoice, engine.CurrentTurn.Phase);
+
+        random.QueueWeightedDraw(0);
+        engine.ChooseDestinationRegion("NE");
 
         Assert.Equal(TurnPhase.Move, engine.CurrentTurn.Phase);
         Assert.Equal("New York", player.Destination?.Name);

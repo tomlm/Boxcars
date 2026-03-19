@@ -413,6 +413,9 @@
     [Parameter]
     public EventCallback<TurnMovementPreview> RoutePreviewChanged { get; set; }
 
+    [Parameter]
+    public EventCallback MapReady { get; set; }
+
     public MapDefinition? MapDefinition => _mapDefinition;
     public IReadOnlyList<string> Errors => _errors;
     public IReadOnlyList<string> Warnings => _warnings;
@@ -652,6 +655,11 @@
         _loadedMapFileName = configuredMapFile;
 
         await NotifyViewportChanged();
+
+        if (MapReady.HasDelegate)
+        {
+            await MapReady.InvokeAsync();
+        }
     }
 
     private string? ResolveMapPath(string configuredMapFile)
@@ -2606,15 +2614,26 @@
 
     public int GetSelectedRouteFeeEstimate()
     {
+        return GetSelectedRouteFeeSummary().FeeEstimate;
+    }
+
+    public bool GetSelectedRouteHasUnfriendlyFee()
+    {
+        return GetSelectedRouteFeeSummary().HasUnfriendlyFee;
+    }
+
+    private (int FeeEstimate, bool HasUnfriendlyFee) GetSelectedRouteFeeSummary()
+    {
         if (_selectedRouteSegments.Count == 0)
         {
-            return 0;
+            return (0, false);
         }
 
         var movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie
             ? CurrentTurnMovementRemaining > 0 ? CurrentTurnMovementRemaining : 3
             : 2;
         var totalCost = 0;
+        var hasUnfriendlyFee = false;
         var pointsUsedInCurrentTurn = 0;
         var lastRailroadIndex = -1;
 
@@ -2631,6 +2650,7 @@
             if (startsNewTurn)
             {
                 totalCost += costPerTurn;
+                hasUnfriendlyFee |= ownershipCategory == RailroadOwnershipCategory.Unfriendly;
                 pointsUsedInCurrentTurn = 1;
             }
             else
@@ -2641,7 +2661,7 @@
             lastRailroadIndex = segment.RailroadIndex;
         }
 
-        return totalCost;
+        return (totalCost, hasUnfriendlyFee);
     }
 
     private TurnMovementPreview BuildSelectedRoutePreview()
@@ -2654,6 +2674,7 @@
             SegmentKeys = GetSelectedRouteSegmentKeys(),
             MoveCount = moveCount,
             FeeEstimate = GetSelectedRouteFeeEstimate(),
+            HasUnfriendlyFee = GetSelectedRouteHasUnfriendlyFee(),
             ExhaustsMovement = CurrentTurnMovementRemaining > 0 && moveCount >= CurrentTurnMovementRemaining
         };
     }

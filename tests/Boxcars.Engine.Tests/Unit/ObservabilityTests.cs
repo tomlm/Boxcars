@@ -175,8 +175,10 @@ public class ObservabilityTests
     [Fact]
     public void Turn_ForcedSaleStateChange_FiresPropertyChanged()
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine();
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
 
         var player = engine.CurrentTurn.ActivePlayer;
         var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
@@ -189,6 +191,7 @@ public class ObservabilityTests
         player.Cash = 0;
         engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
 
         var changedProps = new List<string>();
         engine.CurrentTurn.PropertyChanged += (s, e) => changedProps.Add(e.PropertyName!);
@@ -203,8 +206,10 @@ public class ObservabilityTests
     [Fact]
     public void ForcedSaleSnapshot_Restore_PreservesReconnectState()
     {
-        var (engine, random) = GameEngineFixture.CreateTestEngine();
-        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
 
         var player = engine.CurrentTurn.ActivePlayer;
         var ownedRailroad = engine.Railroads.First(rr => rr.Index == 0);
@@ -217,6 +222,7 @@ public class ObservabilityTests
         player.Cash = 0;
         engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
 
         engine.DeclinePurchase();
 

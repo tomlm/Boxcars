@@ -83,6 +83,22 @@ else
             </MudText>
         </MudPaper>
 
+        <MudPaper Class="pa-6 dashboard-feature-link-shell">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="3">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.h5" Class="dashboard-section-title">Bots</MudText>
+                    <MudText Typo="Typo.body2" Class="dashboard-muted">
+                        Manage bot players and their strategies from the dedicated bots page.
+                    </MudText>
+                </MudStack>
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Primary"
+                           OnClick='@(() => Navigation.NavigateTo("/bots"))'>
+                    Manage Bots
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+
         <MudPaper Class="pa-6">
             <MudText Typo="Typo.h5" Class="dashboard-section-title">Games</MudText>
 

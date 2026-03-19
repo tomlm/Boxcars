@@ -8,7 +8,11 @@
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
                 @if (!IsPurchasePhase)
                 {
-                    @if (IsBonusMove)
+                    @if (!string.IsNullOrWhiteSpace(PhaseStatusMessage))
+                    {
+                        <MudText Typo="Typo.body2">@PhaseStatusMessage</MudText>
+                    }
+                    else if (IsBonusMove)
                     {
                         <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
                         <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
@@ -23,9 +27,9 @@
                 {
                     <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
                 }
-                @if (!IsPurchasePhase)
+                @if (!IsPurchasePhase && string.IsNullOrWhiteSpace(PhaseStatusMessage))
                 {
-                    <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+                    <MudText Typo="Typo.body2" Class="@FeeTextClass">Fees: @FormatCurrency(State.PreviewFee)</MudText>
                 }
             </MudStack>
         </MudPaper>
@@ -35,7 +39,11 @@
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
             @if (!IsPurchasePhase)
             {
-                @if (IsBonusMove)
+                @if (!string.IsNullOrWhiteSpace(PhaseStatusMessage))
+                {
+                    <MudText Typo="Typo.body2">@PhaseStatusMessage</MudText>
+                }
+                else if (IsBonusMove)
                 {
                     <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
                     <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
@@ -50,9 +58,9 @@
             {
                 <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
             }
-            @if (!IsPurchasePhase)
+            @if (!IsPurchasePhase && string.IsNullOrWhiteSpace(PhaseStatusMessage))
             {
-                <MudText Typo="Typo.body2">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+                <MudText Typo="Typo.body2" Class="@FeeTextClass">Fees: @FormatCurrency(State.PreviewFee)</MudText>
             }
         </MudStack>
     }
@@ -67,6 +75,21 @@
 
     private bool IsPurchasePhase => string.Equals(State.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
     private bool IsBonusMove => State.RedDie.HasValue && State.WhiteDieOne <= 0 && State.WhiteDieTwo <= 0;
+    private bool HasResolvedRoll => IsBonusMove
+        || State.WhiteDieOne > 0
+        || State.WhiteDieTwo > 0
+        || State.CurrentRollTotal > 0
+        || State.MovementAllowance > 0;
+    private string? PhaseStatusMessage => string.Equals(State.TurnPhase, "DrawDestination", StringComparison.OrdinalIgnoreCase)
+        ? "Picking destination..."
+        : IsRollPending
+            ? "Rolling dice..."
+            : null;
+    private bool IsRollPending =>
+        (string.Equals(State.TurnPhase, "Roll", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(State.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
+        && !HasResolvedRoll;
+    private string FeeTextClass => State.PreviewHasUnfriendlyFee ? "movement-status-fee movement-status-fee-unfriendly" : "movement-status-fee";
 
     private static string FormatCurrency(int value)
     {
