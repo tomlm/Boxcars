@@ -166,7 +166,7 @@ else
         CurrentInput.Nickname = _profile.Nickname;
         CurrentInput.ThumbnailUrl = _profile.ThumbnailUrl;
         CurrentInput.PreferredColor = PlayerColorOptions.NormalizeOrDefault(_profile.PreferredColor);
-        CurrentInput.StrategyText = PlayerProfileService.NormalizeStrategyText(_profile.StrategyText);
+        CurrentInput.StrategyText = PlayerProfileService.ResolveStrategyTextOrDefault(_profile.StrategyText);
         originalNickname = CurrentInput.Nickname ?? string.Empty;
         originalThumbnailUrl = CurrentInput.ThumbnailUrl ?? string.Empty;
         originalPreferredColor = CurrentInput.PreferredColor ?? PlayerColorOptions.Colors[0];

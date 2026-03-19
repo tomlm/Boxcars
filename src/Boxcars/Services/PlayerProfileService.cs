@@ -178,7 +178,7 @@ public class PlayerProfileService
     {
         user.RowKey = NormalizeUserId(user.RowKey);
         user.ThumbnailUrl = ResolveThumbnailUrl(user.Email, user.ThumbnailUrl);
-        user.StrategyText = NormalizeStrategyText(user.StrategyText);
+        user.StrategyText = ResolveStrategyTextOrDefault(user.StrategyText);
         return user;
     }
 

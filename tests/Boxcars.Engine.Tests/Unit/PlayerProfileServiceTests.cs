@@ -74,6 +74,20 @@ public class PlayerProfileServiceTests
     }
 
     [Fact]
+    public async Task GetProfileAsync_BlankStoredStrategyText_ReturnsDefaultStrategyText()
+    {
+        var user = CreateUser("alice@example.com", "Alice");
+        user.StrategyText = "   ";
+        var usersTable = new FakeUsersTableClient(user);
+        var service = new PlayerProfileService(new UserDirectoryService(usersTable));
+
+        var profile = await service.GetProfileAsync("alice@example.com", CancellationToken.None);
+
+        Assert.NotNull(profile);
+        Assert.Equal(PlayerProfileService.DefaultStrategyText, profile!.StrategyText);
+    }
+
+    [Fact]
     public async Task UpdateStrategyTextAsync_RefreshesCachedProfile()
     {
         var usersTable = new FakeUsersTableClient(CreateUser("alice@example.com", "Alice"));
