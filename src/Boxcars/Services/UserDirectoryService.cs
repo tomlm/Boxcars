@@ -146,6 +146,20 @@ public sealed class UserDirectoryService
         return CloneBotDefinition(bot);
     }
 
+    public async Task<BotStrategyDefinitionEntity?> GetAutomationProfileAsync(string userId, CancellationToken cancellationToken)
+    {
+        var normalizedUserId = NormalizeUserId(userId);
+        if (string.IsNullOrWhiteSpace(normalizedUserId))
+        {
+            return null;
+        }
+
+        var user = await GetUserAsync(normalizedUserId, cancellationToken);
+        return user is null
+            ? null
+            : MapAutomationProfile(user);
+    }
+
     public async Task<BotDefinitionWriteResult> CreateBotDefinitionAsync(string actingUserId, string name, string strategyText, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(actingUserId))
@@ -371,6 +385,27 @@ public sealed class UserDirectoryService
                 ? user.Name
                 : user.Nickname,
             StrategyText = NormalizeStrategyText(user.StrategyText),
+            IsBotUser = user.IsBot,
+            CreatedByUserId = user.CreatedByUserId,
+            CreatedUtc = user.CreatedUtc,
+            ModifiedByUserId = user.ModifiedByUserId,
+            ModifiedUtc = user.ModifiedUtc
+        };
+    }
+
+    private static BotStrategyDefinitionEntity MapAutomationProfile(ApplicationUser user)
+    {
+        return new BotStrategyDefinitionEntity
+        {
+            PartitionKey = user.PartitionKey,
+            RowKey = NormalizeUserId(user.RowKey),
+            Timestamp = user.Timestamp,
+            ETag = user.ETag,
+            BotDefinitionId = NormalizeUserId(user.RowKey),
+            Name = string.IsNullOrWhiteSpace(user.Nickname)
+                ? user.Name
+                : user.Nickname,
+            StrategyText = PlayerProfileService.ResolveStrategyTextOrDefault(user.StrategyText),
             IsBotUser = user.IsBot,
             CreatedByUserId = user.CreatedByUserId,
             CreatedUtc = user.CreatedUtc,

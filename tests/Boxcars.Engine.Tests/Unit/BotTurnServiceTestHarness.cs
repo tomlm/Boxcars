@@ -21,7 +21,15 @@ internal static class BotTurnServiceTestHarness
 
     public static BotTurnService CreateService(GamePresenceService presenceService, params BotStrategyDefinitionEntity[] botDefinitions)
     {
-        return CreateService(presenceService, new FakeHttpClientFactory(), botDefinitions);
+        return CreateService(presenceService, new FakeHttpClientFactory(), [], botDefinitions);
+    }
+
+    public static BotTurnService CreateServiceWithUsers(
+        GamePresenceService presenceService,
+        IReadOnlyList<ApplicationUser> users,
+        params BotStrategyDefinitionEntity[] botDefinitions)
+    {
+        return CreateService(presenceService, new FakeHttpClientFactory(), users, botDefinitions);
     }
 
     public static (BotTurnService Service, RecordingHttpMessageHandler Handler) CreateServiceWithOpenAiSelection(
@@ -30,15 +38,16 @@ internal static class BotTurnServiceTestHarness
         params BotStrategyDefinitionEntity[] botDefinitions)
     {
         var handler = new RecordingHttpMessageHandler(BuildSelectedOptionResponse(selectedOptionId), HttpStatusCode.OK);
-        return (CreateService(presenceService, new FakeHttpClientFactory(handler), botDefinitions), handler);
+        return (CreateService(presenceService, new FakeHttpClientFactory(handler), [], botDefinitions), handler);
     }
 
     private static BotTurnService CreateService(
         GamePresenceService presenceService,
         IHttpClientFactory httpClientFactory,
+        IReadOnlyList<ApplicationUser> users,
         params BotStrategyDefinitionEntity[] botDefinitions)
     {
-        var userDirectoryService = new UserDirectoryService(new FakeBotTableClient(botDefinitions));
+        var userDirectoryService = new UserDirectoryService(new FakeBotTableClient(users, botDefinitions));
 
         var botOptions = Options.Create(new BotOptions
         {
@@ -192,6 +201,33 @@ internal static class BotTurnServiceTestHarness
         };
     }
 
+    public static ApplicationUser CreateUser(
+        string userId,
+        string name = "Test User",
+        string? nickname = null,
+        string? strategyText = null,
+        bool isBot = false)
+    {
+        return new ApplicationUser
+        {
+            PartitionKey = "USER",
+            RowKey = userId,
+            Email = userId,
+            NormalizedEmail = userId.ToUpperInvariant(),
+            UserName = userId,
+            NormalizedUserName = userId.ToUpperInvariant(),
+            Name = name,
+            Nickname = nickname ?? name,
+            NormalizedNickname = (nickname ?? name).ToUpperInvariant(),
+            StrategyText = strategyText ?? PlayerProfileService.DefaultStrategyText,
+            IsBot = isBot,
+            CreatedByUserId = ControllerUserId,
+            CreatedUtc = new DateTimeOffset(2026, 3, 16, 0, 0, 0, TimeSpan.Zero),
+            ModifiedByUserId = ControllerUserId,
+            ModifiedUtc = new DateTimeOffset(2026, 3, 16, 0, 0, 0, TimeSpan.Zero)
+        };
+    }
+
     private static TableServiceClient CreateTableServiceClient()
     {
         return new TableServiceClient(
@@ -203,11 +239,16 @@ internal static class BotTurnServiceTestHarness
     {
         private readonly Dictionary<(string PartitionKey, string RowKey), ITableEntity> _entities;
 
-        public FakeBotTableClient(IEnumerable<BotStrategyDefinitionEntity> botDefinitions)
+        public FakeBotTableClient(IEnumerable<ApplicationUser> users, IEnumerable<BotStrategyDefinitionEntity> botDefinitions)
         {
-            _entities = botDefinitions.ToDictionary<BotStrategyDefinitionEntity, (string PartitionKey, string RowKey), ITableEntity>(
-                definition => ("USER", definition.BotDefinitionId),
-                definition => new ApplicationUser
+            _entities = users.ToDictionary<ApplicationUser, (string PartitionKey, string RowKey), ITableEntity>(
+                user => ("USER", user.RowKey),
+                user => user,
+                EqualityComparer<(string PartitionKey, string RowKey)>.Default);
+
+            foreach (var definition in botDefinitions)
+            {
+                _entities[("USER", definition.BotDefinitionId)] = new ApplicationUser
                 {
                     PartitionKey = "USER",
                     RowKey = definition.BotDefinitionId,
@@ -224,8 +265,8 @@ internal static class BotTurnServiceTestHarness
                     CreatedUtc = definition.CreatedUtc,
                     ModifiedByUserId = definition.ModifiedByUserId,
                     ModifiedUtc = definition.ModifiedUtc
-                },
-                EqualityComparer<(string PartitionKey, string RowKey)>.Default);
+                };
+            }
         }
 
         public override Task<Response<T>> GetEntityAsync<T>(

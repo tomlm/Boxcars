@@ -902,7 +902,7 @@ public sealed class BotTurnService
                 return null;
             }
 
-            var implicitDefinition = await _userDirectoryService.GetBotDefinitionAsync(playerUserId, cancellationToken);
+            var implicitDefinition = await _userDirectoryService.GetAutomationProfileAsync(playerUserId, cancellationToken);
             if (implicitDefinition is null)
             {
                 return null;
@@ -923,7 +923,9 @@ public sealed class BotTurnService
         var botDefinitionId = string.Equals(resolvedControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
             ? playerUserId
             : assignment.BotDefinitionId;
-        var botDefinition = await _userDirectoryService.GetBotDefinitionAsync(botDefinitionId, cancellationToken);
+        var botDefinition = string.Equals(resolvedControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
+            ? await _userDirectoryService.GetAutomationProfileAsync(playerUserId, cancellationToken)
+            : await _userDirectoryService.GetBotDefinitionAsync(botDefinitionId, cancellationToken);
         if (botDefinition is null)
         {
             ClearAssignment(game, playerUserId, "The assigned bot definition no longer exists.", BotAssignmentStatuses.MissingDefinition);
@@ -937,20 +939,12 @@ public sealed class BotTurnService
             return null;
         }
 
-        if (string.Equals(resolvedControllerMode, SeatControllerModes.AiGhost, StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(assignment.ControllerUserId)
-            && !string.Equals(delegatedControllerUserId, assignment.ControllerUserId, StringComparison.OrdinalIgnoreCase))
-        {
-            ClearAssignment(game, playerUserId, "Delegated control is no longer active.", BotAssignmentStatuses.DisconnectedController);
-            return null;
-        }
-
         return (assignment with
         {
             ControllerMode = resolvedControllerMode,
             ControllerUserId = string.Equals(resolvedControllerMode, SeatControllerModes.AiBotSeat, StringComparison.OrdinalIgnoreCase)
                 ? string.Empty
-                : assignment.ControllerUserId,
+                : string.Empty,
             BotDefinitionId = botDefinitionId
         }, botDefinition);
     }

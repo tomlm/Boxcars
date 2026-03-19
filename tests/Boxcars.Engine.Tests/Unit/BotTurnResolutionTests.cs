@@ -266,27 +266,92 @@ public class BotTurnResolutionTests
     }
 
     [Fact]
-    public async Task CreateBotActionAsync_GhostAssignmentWithoutDelegatedControl_ReturnsNull()
+    public async Task CreateBotActionAsync_DisconnectedHumanWithoutAssignment_UsesPlayerStrategyProfile()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
-        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.Phase = TurnPhase.RegionChoice;
+        engine.CurrentTurn.PendingRegionChoice = new PendingRegionChoice
+        {
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            CurrentCityName = engine.CurrentTurn.ActivePlayer.CurrentCity.Name,
+            CurrentRegionCode = engine.CurrentTurn.ActivePlayer.CurrentCity.RegionCode,
+            TriggeredByInitialRegionCode = engine.CurrentTurn.ActivePlayer.CurrentCity.RegionCode,
+            EligibleRegionCodes = ["SE"],
+            EligibleCityCountsByRegion = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["SE"] = 2
+            }
+        };
 
         var presenceService = new GamePresenceService();
-        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
-            botDefinitionId: BotTurnServiceTestHarness.ActivePlayerUserId,
-            name: "Ghost Bot");
-        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
+        presenceService.SetMockConnectionState(BotTurnServiceTestHarness.GameId, BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        var playerProfile = BotTurnServiceTestHarness.CreateUser(
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Alice",
+            strategyText: "Prefer the only legal region.");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile]);
+        var game = new GameEntity
+        {
+            PartitionKey = BotTurnServiceTestHarness.GameId,
+            RowKey = "GAME",
+            GameId = BotTurnServiceTestHarness.GameId,
+            PlayersJson = GamePlayerSelectionSerialization.Serialize(
+                BotTurnServiceTestHarness.CreateSelections(
+                    BotTurnServiceTestHarness.ActivePlayerUserId,
+                    BotTurnServiceTestHarness.OtherPlayerUserId))
+        };
+
+        var action = await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+
+        var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
+        Assert.Equal("SE", regionAction.SelectedRegionCode);
+        Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, regionAction.ActorUserId);
+        Assert.NotNull(regionAction.BotMetadata);
+        Assert.Equal("OnlyLegalChoice", regionAction.BotMetadata!.DecisionSource);
+        Assert.Equal("Alice", regionAction.BotMetadata.BotName);
+    }
+
+    [Fact]
+    public async Task CreateBotActionAsync_GhostAssignmentWithoutDelegatedControl_UsesPlayerStrategyProfile()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.RegionChoice;
+        engine.CurrentTurn.PendingRegionChoice = new PendingRegionChoice
+        {
+            PlayerIndex = engine.CurrentTurn.ActivePlayer.Index,
+            CurrentCityName = engine.CurrentTurn.ActivePlayer.CurrentCity.Name,
+            CurrentRegionCode = engine.CurrentTurn.ActivePlayer.CurrentCity.RegionCode,
+            TriggeredByInitialRegionCode = engine.CurrentTurn.ActivePlayer.CurrentCity.RegionCode,
+            EligibleRegionCodes = ["SE"],
+            EligibleCityCountsByRegion = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["SE"] = 2
+            }
+        };
+
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState(BotTurnServiceTestHarness.GameId, BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        var playerProfile = BotTurnServiceTestHarness.CreateUser(
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Alice",
+            strategyText: "Prefer the only legal region.");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile]);
         var game = BotTurnServiceTestHarness.CreateGhostControlledGame(
             BotTurnServiceTestHarness.CreateSelections(
                 BotTurnServiceTestHarness.ActivePlayerUserId,
                 BotTurnServiceTestHarness.OtherPlayerUserId),
             BotTurnServiceTestHarness.ActivePlayerUserId,
             BotTurnServiceTestHarness.ControllerUserId,
-            botDefinition.BotDefinitionId);
+            "legacy-ghost-definition");
 
         var action = await service.CreateBotActionAsync(game, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
-        Assert.Null(action);
+        var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
+        Assert.Equal("SE", regionAction.SelectedRegionCode);
+        Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, regionAction.ActorUserId);
+        Assert.NotNull(regionAction.BotMetadata);
+        Assert.Equal("OnlyLegalChoice", regionAction.BotMetadata!.DecisionSource);
+        Assert.Equal("Alice", regionAction.BotMetadata.BotName);
     }
 
     [Fact]
