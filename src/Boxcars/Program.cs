@@ -142,7 +142,7 @@ public class Program
         {
             (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple", Strategy: "This bot values connectivity and access, and tries to build an optimal network to get to the most likely cities." ),
             (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "orange", Strategy: "This bot strategically hybrid balance of access, connectivity, regional access and opportunities to monopolize cities." ),
-            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow", Strategy: "Popper likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
+            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow", Strategy: "This bot likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
             (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" )
         };
 
@@ -160,7 +160,7 @@ public class Program
                 {
                     existingUser.PreferredColor = normalizedPreferredColor;
                     existingUser.IsBot = true;
-                    existingUser.StrategyText = desiredStrategy;
+                    existingUser.StrategyText = existingUser.StrategyText ?? desiredStrategy ?? PlayerProfileService.DefaultStrategyText;
                     existingUser.ModifiedUtc = DateTimeOffset.UtcNow;
                     await usersTable.UpdateEntityAsync(existingUser, existingUser.ETag, TableUpdateMode.Replace);
                 }
@@ -182,7 +182,7 @@ public class Program
                 Nickname = bot.Nickname,
                 NormalizedNickname = bot.Nickname.ToUpperInvariant(),
                 PreferredColor = PlayerColorOptions.NormalizeOrDefault(bot.PreferredColor),
-                StrategyText = PlayerProfileService.DefaultStrategyText,
+                StrategyText = bot.Strategy ?? PlayerProfileService.DefaultStrategyText,
                 IsBot = true,
                 CreatedByUserId = "system",
                 CreatedUtc = now,
