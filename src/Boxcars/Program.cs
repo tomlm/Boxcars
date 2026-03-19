@@ -140,10 +140,11 @@ public class Program
         var usersTable = tableService.GetTableClient(TableNames.UsersTable);
         var bots = new[]
         {
-            (Email: "paul@beatles.com", Name: "Paul McCartney", Nickname: "Paul", PreferredColor: "purple", Strategy: "This bot values connectivity and access, and tries to build an optimal network to get to the most likely cities." ),
-            (Email: "ringo@beatles.com", Name: "Ringo Starr", Nickname: "Ringo", PreferredColor: "orange", Strategy: "This bot strategically hybrid balance of access, connectivity, regional access and opportunities to monopolize cities." ),
-            (Email: "george@beatles.com", Name: "George Harrison", Nickname: "George", PreferredColor: "yellow", Strategy: "This bot likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
-            (Email: "john@beatles.com", Name: "John Lennon", Nickname: "John", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" )
+            (Email: "connecto@boxcars.net", Name: "Connecto", Nickname: "Connecto", PreferredColor: "purple", Strategy: "This bot values connectivity and access, and tries to build an optimal network to get to the most likely cities." ),
+            (Email: "balenco@boxcars.net", Name: "Balenco", Nickname: "Balenco", PreferredColor: "orange", Strategy: "This bot strategically hybrid balance of access, connectivity, regional access and opportunities to monopolize cities." ),
+            (Email: "pooper@boxcars.net", Name: "Pooper", Nickname: "Pooper", PreferredColor: "yellow", Strategy: "This bot likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
+            (Email: "rat@boxcars.net", Name: "Rat Bastard", Nickname: "Rat Bastard", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" ),
+            (Email: "cheapo@boxcars.net", Name: "El Cheapo", Nickname: "El Cheapo", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" )
         };
 
         foreach (var bot in bots)
