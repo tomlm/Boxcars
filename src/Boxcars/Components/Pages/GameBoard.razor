@@ -548,7 +548,7 @@
         }
 
         var confirmed = await ConfirmForcedSaleActionAsync(
-            "Confirm Sellback",
+            "Confirm Sale To Bank",
             $"Are you sure you want to sell {SelectedForcedSaleCandidate.RailroadName} to the bank?");
         if (!confirmed)
         {
@@ -2360,8 +2360,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         var result = await DialogService.ShowMessageBox(
             title,
             message,
-            yesText: "Yes",
-            noText: "No");
+            yesText: "YES",
+            noText: "NO");
 
         return result == true;
     }
