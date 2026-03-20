@@ -2,6 +2,7 @@ using Boxcars.Data;
 using Boxcars.Data.Maps;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
+using Boxcars.Services.Maps;
 using Microsoft.Extensions.Options;
 using RailBaronGameState = Boxcars.Engine.Persistence.GameState;
 using PlayerStateSnapshot = Boxcars.Engine.Persistence.PlayerState;
@@ -671,6 +672,7 @@ public sealed class GameBoardStateMapper(
                     otherOwnedRailroadIndices)
                 .RegionAccess
                 .ToDictionary(region => region.RegionCode, region => region, StringComparer.OrdinalIgnoreCase);
+        var regionChoiceAverages = BuildRegionChoiceAverages(mapDefinition, pendingRegionChoice.CurrentCityName);
         var regionByCode = mapDefinition?.Regions.ToDictionary(region => region.Code, StringComparer.OrdinalIgnoreCase)
             ?? new Dictionary<string, RegionDefinition>(StringComparer.OrdinalIgnoreCase);
 
@@ -687,6 +689,7 @@ public sealed class GameBoardStateMapper(
                 var eligibleCityCount = pendingRegionChoice.EligibleCityCountsByRegion.TryGetValue(regionCode, out var count)
                     ? count
                     : 0;
+                regionChoiceAverages.TryGetValue(regionCode, out var regionChoiceAverage);
 
                 return new DestinationRegionOption
                 {
@@ -695,7 +698,9 @@ public sealed class GameBoardStateMapper(
                     RegionProbabilityPercent = regionProbability,
                     AccessibleDestinationPercent = coverage?.AccessibleDestinationPercent ?? 0m,
                     MonopolyDestinationPercent = coverage?.MonopolyDestinationPercent ?? 0m,
-                    EligibleCityCount = eligibleCityCount
+                    EligibleCityCount = eligibleCityCount,
+                    AverageDistance = regionChoiceAverage?.AverageDistance,
+                    AveragePayout = regionChoiceAverage?.AveragePayout
                 };
             })
             .OrderByDescending(option => option.AccessibleDestinationPercent)
@@ -717,6 +722,143 @@ public sealed class GameBoardStateMapper(
             CanConfirm = options.Count > 0
         };
     }
+
+    private static Dictionary<string, RegionChoiceAverageMetrics> BuildRegionChoiceAverages(
+        MapDefinition? mapDefinition,
+        string currentCityName)
+    {
+        if (mapDefinition is null || string.IsNullOrWhiteSpace(currentCityName))
+        {
+            return new Dictionary<string, RegionChoiceAverageMetrics>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var currentCity = mapDefinition.Cities.FirstOrDefault(city =>
+            string.Equals(city.Name, currentCityName, StringComparison.OrdinalIgnoreCase));
+        if (currentCity is null)
+        {
+            return new Dictionary<string, RegionChoiceAverageMetrics>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var regionIndexByCode = mapDefinition.Regions.ToDictionary(region => region.Code, region => region.Index, StringComparer.OrdinalIgnoreCase);
+        var routeService = new MapRouteService();
+        var routeContext = routeService.BuildContext(mapDefinition);
+        var currentNodeId = TryBuildCityNodeId(currentCity, regionIndexByCode);
+
+        return mapDefinition.Regions
+            .Select(region => new
+            {
+                region.Code,
+                Metrics = BuildRegionChoiceAverageMetrics(
+                    mapDefinition,
+                    routeService,
+                    routeContext,
+                    regionIndexByCode,
+                    currentCity,
+                    currentNodeId,
+                    region.Code)
+            })
+            .Where(entry => entry.Metrics is not null)
+            .ToDictionary(
+                entry => entry.Code,
+                entry => entry.Metrics!,
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static RegionChoiceAverageMetrics? BuildRegionChoiceAverageMetrics(
+        MapDefinition mapDefinition,
+        MapRouteService routeService,
+        MapRouteContext routeContext,
+        IReadOnlyDictionary<string, int> regionIndexByCode,
+        CityDefinition currentCity,
+        string? currentNodeId,
+        string regionCode)
+    {
+        var weightedCities = mapDefinition.Cities
+            .Where(city => string.Equals(city.RegionCode, regionCode, StringComparison.OrdinalIgnoreCase)
+                && city.Probability.HasValue
+                && city.Probability.Value > 0)
+            .ToList();
+        if (weightedCities.Count == 0)
+        {
+            return null;
+        }
+
+        var totalWeight = weightedCities.Sum(city => Convert.ToDecimal(city.Probability!.Value, System.Globalization.CultureInfo.InvariantCulture));
+        if (totalWeight <= 0m)
+        {
+            return null;
+        }
+
+        decimal? averageDistance = null;
+        if (!string.IsNullOrWhiteSpace(currentNodeId) && routeContext.Adjacency.ContainsKey(currentNodeId))
+        {
+            decimal weightedDistanceTotal = 0m;
+            decimal distanceWeightTotal = 0m;
+
+            foreach (var city in weightedCities)
+            {
+                var destinationNodeId = TryBuildCityNodeId(city, regionIndexByCode);
+                if (string.IsNullOrWhiteSpace(destinationNodeId))
+                {
+                    continue;
+                }
+
+                int? distance = string.Equals(currentNodeId, destinationNodeId, StringComparison.OrdinalIgnoreCase)
+                    ? 0
+                    : routeContext.Adjacency.ContainsKey(destinationNodeId)
+                        ? routeService.FindShortestSelection(routeContext, currentNodeId, destinationNodeId)?.Segments.Count
+                        : null;
+                if (!distance.HasValue)
+                {
+                    continue;
+                }
+
+                var weight = Convert.ToDecimal(city.Probability!.Value, System.Globalization.CultureInfo.InvariantCulture) / totalWeight;
+                weightedDistanceTotal += weight * distance.Value;
+                distanceWeightTotal += weight;
+            }
+
+            if (distanceWeightTotal > 0m)
+            {
+                averageDistance = decimal.Round(weightedDistanceTotal / distanceWeightTotal, 2, MidpointRounding.AwayFromZero);
+            }
+        }
+
+        decimal? averagePayout = null;
+        if (currentCity.PayoutIndex.HasValue)
+        {
+            decimal weightedPayoutTotal = 0m;
+            decimal payoutWeightTotal = 0m;
+
+            foreach (var city in weightedCities)
+            {
+                if (!city.PayoutIndex.HasValue || !mapDefinition.TryGetPayout(currentCity.PayoutIndex.Value, city.PayoutIndex.Value, out var payout))
+                {
+                    continue;
+                }
+
+                var weight = Convert.ToDecimal(city.Probability!.Value, System.Globalization.CultureInfo.InvariantCulture) / totalWeight;
+                weightedPayoutTotal += weight * payout;
+                payoutWeightTotal += weight;
+            }
+
+            if (payoutWeightTotal > 0m)
+            {
+                averagePayout = decimal.Round(weightedPayoutTotal / payoutWeightTotal, 0, MidpointRounding.AwayFromZero);
+            }
+        }
+
+        return new RegionChoiceAverageMetrics(averageDistance, averagePayout);
+    }
+
+    private static string? TryBuildCityNodeId(CityDefinition city, IReadOnlyDictionary<string, int> regionIndexByCode)
+    {
+        return city.MapDotIndex.HasValue && regionIndexByCode.TryGetValue(city.RegionCode, out var regionIndex)
+            ? MapRouteService.NodeKey(regionIndex, city.MapDotIndex.Value)
+            : null;
+    }
+
+    private sealed record RegionChoiceAverageMetrics(decimal? AverageDistance, decimal? AveragePayout);
 
     private ForcedSalePhaseModel? BuildForcedSalePhaseModel(
         RailBaronGameState state,

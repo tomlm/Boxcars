@@ -32,4 +32,8 @@ public sealed class DestinationRegionOption
     public decimal MonopolyDestinationPercent { get; init; }
 
     public int EligibleCityCount { get; init; }
+
+    public decimal? AverageDistance { get; init; }
+
+    public decimal? AveragePayout { get; init; }
 }

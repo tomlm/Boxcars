@@ -16,6 +16,8 @@
                 <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.RegionProbabilityPercent)"><strong>Region %</strong></MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.AccessibleDestinationPercent)"><strong>Access %</strong></MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.MonopolyDestinationPercent)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.AverageDistance)"><strong>Avg Distance</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.AveragePayout)"><strong>Avg Payout</strong></MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.EligibleCityCount)"><strong>Cities</strong></MudTableSortLabel></MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
@@ -24,6 +26,8 @@
                 <MudTd DataLabel="Region %">@FormatPercent(context.RegionProbabilityPercent)</MudTd>
                 <MudTd DataLabel="Access %">@FormatPercent(context.AccessibleDestinationPercent)</MudTd>
                 <MudTd DataLabel="Monopoly %">@FormatPercent(context.MonopolyDestinationPercent)</MudTd>
+                <MudTd DataLabel="Avg Distance">@FormatAverageDistance(context.AverageDistance)</MudTd>
+                <MudTd DataLabel="Avg Payout">@FormatCurrency(context.AveragePayout)</MudTd>
                 <MudTd DataLabel="Cities">@context.EligibleCityCount</MudTd>
                 <MudTd DataLabel="Select">
                     <MudButton Variant="@(IsSelected(context.RegionCode) ? Variant.Filled : Variant.Outlined)"
@@ -81,5 +85,19 @@
     private static string FormatPercent(decimal value)
     {
         return string.Concat(value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture), "%");
+    }
+
+    private static string FormatAverageDistance(decimal? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+            : "-";
+    }
+
+    private static string FormatCurrency(decimal? value)
+    {
+        return value.HasValue
+            ? string.Concat("$", decimal.Round(value.Value, 0, MidpointRounding.AwayFromZero).ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
+            : "-";
     }
 }

@@ -43,8 +43,12 @@ public class RegionChoiceStateMapperTests
         Assert.Equal(2, state.RegionChoicePhase.Options[0].EligibleCityCount);
         Assert.Equal(1.0m, state.RegionChoicePhase.Options[0].AccessibleDestinationPercent);
         Assert.Equal(0m, state.RegionChoicePhase.Options[0].MonopolyDestinationPercent);
+        Assert.Equal(0.50m, state.RegionChoicePhase.Options[0].AverageDistance);
+        Assert.Equal(2750m, state.RegionChoicePhase.Options[0].AveragePayout);
         Assert.Equal("SE", state.RegionChoicePhase.Options[1].RegionCode);
         Assert.Equal(1.0m, state.RegionChoicePhase.Options[1].AccessibleDestinationPercent);
+        Assert.Equal(5.50m, state.RegionChoicePhase.Options[1].AverageDistance);
+        Assert.Equal(9500m, state.RegionChoicePhase.Options[1].AveragePayout);
     }
 
     [Fact]
