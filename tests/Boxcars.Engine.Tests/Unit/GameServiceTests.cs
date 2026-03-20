@@ -41,6 +41,8 @@ public class GameServiceTests
         updatedPlayerState.ExpressTurnCount = 2;
         updatedPlayerState.ExpressRollTotal = 15;
         updatedPlayerState.TotalPayoffsCollected = 21000;
+        updatedPlayerState.TotalFeesPaid = 6000;
+        updatedPlayerState.TotalFeesCollected = 2000;
         updatedPlayerState.TotalRailroadFaceValuePurchased = 4000;
         updatedPlayerState.TotalRailroadAmountPaid = 4500;
         updatedPlayerState.AuctionWins = 1;
@@ -58,6 +60,8 @@ public class GameServiceTests
         Assert.Equal(2, persisted.ExpressTurnCount);
         Assert.Equal(15, persisted.ExpressRollTotal);
         Assert.Equal(21000, persisted.TotalPayoffsCollected);
+        Assert.Equal(6000, persisted.TotalFeesPaid);
+        Assert.Equal(2000, persisted.TotalFeesCollected);
         Assert.Equal(4000, persisted.TotalRailroadFaceValuePurchased);
         Assert.Equal(4500, persisted.TotalRailroadAmountPaid);
         Assert.Equal(1, persisted.AuctionWins);
@@ -165,6 +169,7 @@ public class GameServiceTests
             playerState.BonusRollTotal = tableEntity.GetInt32(nameof(GamePlayerStateEntity.BonusRollTotal)) ?? playerState.BonusRollTotal;
             playerState.TotalPayoffsCollected = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalPayoffsCollected)) ?? playerState.TotalPayoffsCollected;
             playerState.TotalFeesPaid = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalFeesPaid)) ?? playerState.TotalFeesPaid;
+            playerState.TotalFeesCollected = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalFeesCollected)) ?? playerState.TotalFeesCollected;
             playerState.TotalRailroadFaceValuePurchased = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)) ?? playerState.TotalRailroadFaceValuePurchased;
             playerState.TotalRailroadAmountPaid = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)) ?? playerState.TotalRailroadAmountPaid;
             playerState.AuctionWins = tableEntity.GetInt32(nameof(GamePlayerStateEntity.AuctionWins)) ?? playerState.AuctionWins;

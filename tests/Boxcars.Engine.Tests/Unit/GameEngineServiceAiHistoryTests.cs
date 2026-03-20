@@ -392,6 +392,90 @@ public class GameEngineServiceAiHistoryTests
         Assert.Equal("Boston|Atlanta*", persisted.DestinationLog);
     }
 
+    [Fact]
+    public async Task UpdatePlayerStateStatisticsAsync_FeeResolution_TracksPaidAndCollectedTotals()
+    {
+        var payerState = new GamePlayerStateEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = GamePlayerStateEntity.BuildRowKey(0),
+            GameId = "game-1",
+            SeatIndex = 0,
+            PlayerUserId = "alice@example.com",
+            ETag = new ETag("\"seat-0\"")
+        };
+        var collectorState = new GamePlayerStateEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = GamePlayerStateEntity.BuildRowKey(1),
+            GameId = "game-1",
+            SeatIndex = 1,
+            PlayerUserId = "bob@example.com",
+            ETag = new ETag("\"seat-1\"")
+        };
+        var gamesTable = new StatisticsDirectLoadFakeGamesTableClient(payerState, collectorState);
+        var service = new GameEngineService(
+            new TestWebHostEnvironment(),
+            gamesTable,
+            new GamePresenceService(),
+            null!,
+            Options.Create(new BotOptions()),
+            Options.Create(new PurchaseRulesOptions()),
+            NullLogger<GameEngineService>.Instance);
+
+        var snapshotBeforeAction = new global::Boxcars.Engine.Persistence.GameState
+        {
+            ActivePlayerIndex = 0,
+            Players =
+            [
+                new global::Boxcars.Engine.Persistence.PlayerState
+                {
+                    Name = "Alice",
+                    CurrentCityName = "Boston",
+                    GrandfatheredRailroadIndices = []
+                },
+                new global::Boxcars.Engine.Persistence.PlayerState
+                {
+                    Name = "Bob",
+                    CurrentCityName = "Atlanta",
+                    OwnedRailroadIndices = [1]
+                }
+            ],
+            RailroadOwnership = new Dictionary<int, int?>
+            {
+                [1] = 1,
+                [2] = null
+            },
+            Turn = new global::Boxcars.Engine.Persistence.TurnState
+            {
+                PendingFeeAmount = 6000,
+                RailroadsRiddenThisTurn = [1, 2],
+                RailroadsRequiringFullOwnerRateThisTurn = [1]
+            }
+        };
+        var snapshotAfterAction = new global::Boxcars.Engine.Persistence.GameState
+        {
+            ActivePlayerIndex = 0,
+            Players = snapshotBeforeAction.Players,
+            RailroadOwnership = snapshotBeforeAction.RailroadOwnership,
+            Turn = new global::Boxcars.Engine.Persistence.TurnState
+            {
+                PendingFeeAmount = 0,
+                RailroadsRiddenThisTurn = [1, 2],
+                RailroadsRequiringFullOwnerRateThisTurn = [1]
+            }
+        };
+
+        await InvokeUpdatePlayerStateStatisticsAsync(service, "game-1", snapshotBeforeAction, snapshotAfterAction);
+
+        Assert.Equal(2, gamesTable.GetEntityCount);
+        var persistedPayer = gamesTable.PlayerStates.Single(playerState => playerState.SeatIndex == 0);
+        var persistedCollector = gamesTable.PlayerStates.Single(playerState => playerState.SeatIndex == 1);
+        Assert.Equal(6000, persistedPayer.TotalFeesPaid);
+        Assert.Equal(0, persistedPayer.TotalFeesCollected);
+        Assert.Equal(5000, persistedCollector.TotalFeesCollected);
+    }
+
     private static IReadOnlyList<EventTimelineItem> InvokeBuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
     {
         var method = typeof(GameService).GetMethod("BuildTimelineItems", BindingFlags.NonPublic | BindingFlags.Static)
@@ -614,6 +698,7 @@ public class GameEngineServiceAiHistoryTests
             playerState.BonusRollTotal = tableEntity.GetInt32(nameof(GamePlayerStateEntity.BonusRollTotal)) ?? playerState.BonusRollTotal;
             playerState.TotalPayoffsCollected = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalPayoffsCollected)) ?? playerState.TotalPayoffsCollected;
             playerState.TotalFeesPaid = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalFeesPaid)) ?? playerState.TotalFeesPaid;
+            playerState.TotalFeesCollected = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalFeesCollected)) ?? playerState.TotalFeesCollected;
             playerState.TotalRailroadFaceValuePurchased = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)) ?? playerState.TotalRailroadFaceValuePurchased;
             playerState.TotalRailroadAmountPaid = tableEntity.GetInt32(nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)) ?? playerState.TotalRailroadAmountPaid;
             playerState.AuctionWins = tableEntity.GetInt32(nameof(GamePlayerStateEntity.AuctionWins)) ?? playerState.AuctionWins;

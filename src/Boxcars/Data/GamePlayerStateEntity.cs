@@ -44,6 +44,7 @@ public sealed class GamePlayerStateEntity : ITableEntity
     public int BonusRollTotal { get; set; }
     public int TotalPayoffsCollected { get; set; }
     public int TotalFeesPaid { get; set; }
+    public int TotalFeesCollected { get; set; }
     public int TotalRailroadFaceValuePurchased { get; set; }
     public int TotalRailroadAmountPaid { get; set; }
     public int AuctionWins { get; set; }
@@ -136,6 +137,7 @@ public static class GamePlayerStateProjection
         updatedPlayerState.BonusRollTotal = 0;
         updatedPlayerState.TotalPayoffsCollected = 0;
         updatedPlayerState.TotalFeesPaid = 0;
+        updatedPlayerState.TotalFeesCollected = 0;
         updatedPlayerState.TotalRailroadFaceValuePurchased = 0;
         updatedPlayerState.TotalRailroadAmountPaid = 0;
         updatedPlayerState.AuctionWins = 0;
@@ -184,6 +186,7 @@ public static class GamePlayerStateProjection
             BonusRollTotal = playerState.BonusRollTotal,
             TotalPayoffsCollected = playerState.TotalPayoffsCollected,
             TotalFeesPaid = playerState.TotalFeesPaid,
+            TotalFeesCollected = playerState.TotalFeesCollected,
             TotalRailroadFaceValuePurchased = playerState.TotalRailroadFaceValuePurchased,
             TotalRailroadAmountPaid = playerState.TotalRailroadAmountPaid,
             AuctionWins = playerState.AuctionWins,

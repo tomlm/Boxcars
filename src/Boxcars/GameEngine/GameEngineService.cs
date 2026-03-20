@@ -1091,10 +1091,20 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && snapshotAfterAction.Turn.PendingFeeAmount == 0
             && snapshotAfterAction.Turn.ForcedSale?.EliminationTriggered != true)
         {
+            var feeTransfers = ResolveFeeTransfers(snapshotBeforeAction);
+
             AddToPlayerStatistic(playerStatesBySeatIndex, snapshotBeforeAction.ActivePlayerIndex, state =>
             {
-                state.TotalFeesPaid += Math.Max(0, snapshotBeforeAction.Turn.PendingFeeAmount);
+                state.TotalFeesPaid += feeTransfers.Sum(transfer => transfer.Amount);
             });
+
+            foreach (var feeTransfer in feeTransfers.Where(transfer => transfer.RecipientPlayerIndex.HasValue))
+            {
+                AddToPlayerStatistic(playerStatesBySeatIndex, feeTransfer.RecipientPlayerIndex!.Value, state =>
+                {
+                    state.TotalFeesCollected += feeTransfer.Amount;
+                });
+            }
         }
 
         if (snapshotBeforeAction.Turn.Auction is null && snapshotAfterAction.Turn.Auction is not null)
@@ -1371,6 +1381,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             [nameof(GamePlayerStateEntity.BonusRollTotal)] = updatedPlayerState.BonusRollTotal,
             [nameof(GamePlayerStateEntity.TotalPayoffsCollected)] = updatedPlayerState.TotalPayoffsCollected,
             [nameof(GamePlayerStateEntity.TotalFeesPaid)] = updatedPlayerState.TotalFeesPaid,
+            [nameof(GamePlayerStateEntity.TotalFeesCollected)] = updatedPlayerState.TotalFeesCollected,
             [nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)] = updatedPlayerState.TotalRailroadFaceValuePurchased,
             [nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)] = updatedPlayerState.TotalRailroadAmountPaid,
             [nameof(GamePlayerStateEntity.AuctionWins)] = updatedPlayerState.AuctionWins,
@@ -1411,6 +1422,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && snapshotAfterAction.Turn.ForcedSale?.EliminationTriggered != true)
         {
             affectedPlayerIndices.Add(snapshotBeforeAction.ActivePlayerIndex);
+
+            foreach (var feeTransfer in ResolveFeeTransfers(snapshotBeforeAction))
+            {
+                if (feeTransfer.RecipientPlayerIndex.HasValue)
+                {
+                    affectedPlayerIndices.Add(feeTransfer.RecipientPlayerIndex.Value);
+                }
+            }
         }
 
         if (snapshotBeforeAction.Turn.Auction is null && snapshotAfterAction.Turn.Auction is not null)
@@ -1542,6 +1561,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && left.BonusRollTotal == right.BonusRollTotal
             && left.TotalPayoffsCollected == right.TotalPayoffsCollected
             && left.TotalFeesPaid == right.TotalFeesPaid
+            && left.TotalFeesCollected == right.TotalFeesCollected
             && left.TotalRailroadFaceValuePurchased == right.TotalRailroadFaceValuePurchased
             && left.TotalRailroadAmountPaid == right.TotalRailroadAmountPaid
             && left.AuctionWins == right.AuctionWins
@@ -1554,7 +1574,61 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 && string.Equals(left.DestinationLog, right.DestinationLog, StringComparison.Ordinal);
     }
 
-            private readonly record struct AssignedDestinationStatistic(int PlayerIndex, string DestinationCityName);
+    private static List<FeeTransferStatistic> ResolveFeeTransfers(RailBaronGameState snapshotBeforeAction)
+    {
+        if (snapshotBeforeAction.ActivePlayerIndex < 0
+            || snapshotBeforeAction.ActivePlayerIndex >= snapshotBeforeAction.Players.Count)
+        {
+            return [];
+        }
+
+        var rider = snapshotBeforeAction.Players[snapshotBeforeAction.ActivePlayerIndex];
+        var opponentRate = snapshotBeforeAction.AllRailroadsSold ? 10000 : 5000;
+        var feeBuckets = new Dictionary<int, FeeBucketStatistic>();
+
+        foreach (var railroadIndex in snapshotBeforeAction.Turn.RailroadsRiddenThisTurn)
+        {
+            var ownerIndex = snapshotBeforeAction.RailroadOwnership.GetValueOrDefault(railroadIndex);
+            var usesBaseRate = !ownerIndex.HasValue || ownerIndex.Value == snapshotBeforeAction.ActivePlayerIndex;
+            var ownerKey = usesBaseRate ? -1 : ownerIndex!.Value;
+
+            if (!feeBuckets.TryGetValue(ownerKey, out var bucket))
+            {
+                bucket = new FeeBucketStatistic(usesBaseRate ? null : ownerIndex, requiresFullOwnerRate: false);
+                feeBuckets[ownerKey] = bucket;
+            }
+
+            if (!usesBaseRate && snapshotBeforeAction.Turn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroadIndex))
+            {
+                bucket.RequiresFullOwnerRate = true;
+            }
+        }
+
+        return feeBuckets.Values
+            .Select(bucket => new FeeTransferStatistic(
+                rider.Name,
+                bucket.OwnerPlayerIndex,
+                bucket.OwnerPlayerIndex is null ? 1000 : bucket.RequiresFullOwnerRate ? opponentRate : 1000))
+            .Where(transfer => transfer.Amount > 0)
+            .ToList();
+    }
+
+    private sealed class FeeBucketStatistic
+    {
+        public FeeBucketStatistic(int? ownerPlayerIndex, bool requiresFullOwnerRate)
+        {
+            OwnerPlayerIndex = ownerPlayerIndex;
+            RequiresFullOwnerRate = requiresFullOwnerRate;
+        }
+
+        public int? OwnerPlayerIndex { get; }
+
+        public bool RequiresFullOwnerRate { get; set; }
+    }
+
+    private readonly record struct FeeTransferStatistic(string PayerPlayerName, int? RecipientPlayerIndex, int Amount);
+
+    private readonly record struct AssignedDestinationStatistic(int PlayerIndex, string DestinationCityName);
 
     private static Azure.ETag ResolveIfMatchETag(GameEntity gameEntity)
     {

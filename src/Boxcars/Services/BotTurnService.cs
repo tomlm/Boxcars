@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Boxcars.Data;
@@ -16,6 +17,10 @@ public sealed class BotTurnService
     private const string AuctionMaxBidOptionType = "AuctionMaxBid";
     private const string AuctionDropOutOptionId = "auction-drop-out";
     private const string AllAiAuctionResolutionSource = "AllAiAuctionResolution";
+    private static readonly JsonSerializerOptions IndentedJsonSerializerOptions = new()
+    {
+        WriteIndented = true
+    };
 
     private readonly UserDirectoryService _userDirectoryService;
     private readonly BotDecisionPromptBuilder _promptBuilder;
@@ -160,6 +165,7 @@ public sealed class BotTurnService
 
         var systemPrompt = _promptBuilder.BuildSystemPrompt(context);
         var userPrompt = _promptBuilder.BuildUserPrompt(context);
+        WritePurchaseReserveDebugPayload(context.Phase, context.TargetPlayerName, authoritativeStatePayload);
         var openAiResult = await _openAiBotClient.SelectOptionAsync(systemPrompt, userPrompt, cancellationToken);
 
         if (!openAiResult.Succeeded)
@@ -202,6 +208,32 @@ public sealed class BotTurnService
             SelectedOptionId = selectedOption.OptionId,
             Source = "OpenAI"
         };
+    }
+
+    private static void WritePurchaseReserveDebugPayload(string phase, string targetPlayerName, string authoritativeStatePayload)
+    {
+        if (!string.Equals(phase, "Purchase", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(authoritativeStatePayload))
+        {
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(authoritativeStatePayload);
+            if (!document.RootElement.TryGetProperty("PhaseContext", out var phaseContext)
+                || !phaseContext.TryGetProperty("PurchaseRisk", out var purchaseRisk))
+            {
+                return;
+            }
+
+            var formattedPayload = JsonSerializer.Serialize(purchaseRisk, IndentedJsonSerializerOptions);
+            Debug.WriteLine($"BotTurnService Purchase reserve model for '{targetPlayerName}': {formattedPayload}");
+        }
+        catch (JsonException exception)
+        {
+            Debug.WriteLine($"BotTurnService failed to parse purchase reserve model for '{targetPlayerName}': {exception.Message}");
+        }
     }
 
     public async Task<PlayerAction?> CreateBotActionAsync(
@@ -491,6 +523,8 @@ public sealed class BotTurnService
         var legalOptions = new List<BotLegalOption>();
         var snapshotPlayer = snapshot.Players[player.Index];
         var pendingFeeAmount = CalculatePendingFeeAmount(gameEngine, player.Index, snapshotPlayer, snapshot.Turn.RailroadsRiddenThisTurn);
+        var currentCoverage = _networkCoverageService.BuildSnapshot(mapDefinition, player.OwnedRailroads.Select(railroad => railroad.Index));
+        var purchaseReserve = BuildPurchaseReserveProfile(mapDefinition, player, currentCoverage, pendingFeeAmount);
 
         foreach (var railroad in gameEngine.Railroads
                      .Where(railroad => railroad.Owner is null && !railroad.IsPublic && railroad.PurchasePrice <= player.Cash)
@@ -499,6 +533,7 @@ public sealed class BotTurnService
         {
             var projectedCashAfterPurchase = player.Cash - railroad.PurchasePrice;
             var projectedFeeShortfall = Math.Max(0, pendingFeeAmount - projectedCashAfterPurchase);
+            var reserveShortfall = Math.Max(0, purchaseReserve.RecommendedOperatingReserveCash - projectedCashAfterPurchase);
             var optionId = $"buy-railroad:{railroad.Index}";
             legalOptions.Add(new BotLegalOption
             {
@@ -509,7 +544,9 @@ public sealed class BotTurnService
                     railroad.PurchasePrice,
                     projectedCashAfterPurchase,
                     pendingFeeAmount,
-                    projectedFeeShortfall),
+                    projectedFeeShortfall,
+                    purchaseReserve.RecommendedOperatingReserveCash,
+                    reserveShortfall),
                 Payload = railroad.Index.ToString(CultureInfo.InvariantCulture)
             });
 
@@ -534,6 +571,7 @@ public sealed class BotTurnService
 
             var projectedCashAfterPurchase = player.Cash - amountPaid;
             var projectedFeeShortfall = Math.Max(0, pendingFeeAmount - projectedCashAfterPurchase);
+            var reserveShortfall = Math.Max(0, purchaseReserve.RecommendedOperatingReserveCash - projectedCashAfterPurchase);
             var optionId = $"buy-engine:{engineType}";
             legalOptions.Add(new BotLegalOption
             {
@@ -544,7 +582,9 @@ public sealed class BotTurnService
                     amountPaid,
                     projectedCashAfterPurchase,
                     pendingFeeAmount,
-                    projectedFeeShortfall),
+                    projectedFeeShortfall,
+                    purchaseReserve.RecommendedOperatingReserveCash,
+                    reserveShortfall),
                 Payload = engineType.ToString()
             });
 
@@ -1086,6 +1126,7 @@ public sealed class BotTurnService
         var currentCoverage = _networkCoverageService.BuildSnapshot(mapDefinition, ownedRailroadIndices);
         var snapshotPlayer = snapshot.Players[playerIndex];
         var pendingFeeAmount = CalculatePendingFeeAmount(gameEngine, playerIndex, snapshotPlayer, snapshot.Turn.RailroadsRiddenThisTurn);
+        var purchaseReserve = BuildPurchaseReserveProfile(mapDefinition, player, currentCoverage, pendingFeeAmount);
 
         return new
         {
@@ -1096,6 +1137,27 @@ public sealed class BotTurnService
             PendingFeeAmount = pendingFeeAmount,
             CashAfterFeesWithoutPurchase = player.Cash - pendingFeeAmount,
             ImmediateForcedSaleWithoutPurchase = player.Cash < pendingFeeAmount,
+            PurchaseRisk = new
+            {
+                purchaseReserve.CurrentRegionCode,
+                purchaseReserve.RecommendedOperatingReserveCash,
+                purchaseReserve.EngineRiskMultiplier,
+                purchaseReserve.WeightedReservePressure,
+                TopRiskRegions = purchaseReserve.RegionPressures
+                    .Take(4)
+                    .Select(pressure => new
+                    {
+                        pressure.RegionCode,
+                        pressure.RegionName,
+                        pressure.ProbabilityPercent,
+                        pressure.OwnedAccessPercent,
+                        pressure.AccessGapPercent,
+                        pressure.RegionHopCount,
+                        pressure.HopMultiplier,
+                        pressure.WeightedReservePressure
+                    })
+                    .ToList()
+            },
             AffordableRailroadOptions = gameEngine.Railroads
                 .Where(railroad => railroad.Owner is null && !railroad.IsPublic && railroad.PurchasePrice <= player.Cash)
                 .OrderByDescending(railroad => railroad.PurchasePrice)
@@ -1105,6 +1167,7 @@ public sealed class BotTurnService
                     var projectedCoverage = _networkCoverageService.BuildProjectedSnapshot(mapDefinition, ownedRailroadIndices, railroad.Index);
                     var cashAfterPurchase = player.Cash - railroad.PurchasePrice;
                     var feeShortfall = Math.Max(0, pendingFeeAmount - cashAfterPurchase);
+                    var reserveShortfall = Math.Max(0, purchaseReserve.RecommendedOperatingReserveCash - cashAfterPurchase);
                     return new
                     {
                         railroad.Index,
@@ -1115,6 +1178,10 @@ public sealed class BotTurnService
                         CashAfterFees = cashAfterPurchase - pendingFeeAmount,
                         WouldTriggerForcedSale = feeShortfall > 0,
                         FeeShortfall = feeShortfall,
+                        RecommendedOperatingReserveCash = purchaseReserve.RecommendedOperatingReserveCash,
+                        PreservesRecommendedOperatingReserve = reserveShortfall == 0,
+                        OperatingReserveShortfall = reserveShortfall,
+                        CashVsRecommendedOperatingReserve = cashAfterPurchase - purchaseReserve.RecommendedOperatingReserveCash,
                         CurrentAccessibleDestinationPercent = currentCoverage.AccessibleDestinationPercent,
                         ProjectedAccessibleDestinationPercent = projectedCoverage.AccessibleDestinationPercent,
                         AccessDeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
@@ -1132,6 +1199,7 @@ public sealed class BotTurnService
                     var upgradeCost = RailBaronGameEngine.GetUpgradeCost(player.LocomotiveType, engineType, _purchaseRulesOptions.SuperchiefPrice);
                     var cashAfterPurchase = player.Cash - upgradeCost;
                     var feeShortfall = Math.Max(0, pendingFeeAmount - cashAfterPurchase);
+                    var reserveShortfall = Math.Max(0, purchaseReserve.RecommendedOperatingReserveCash - cashAfterPurchase);
                     return new
                     {
                         EngineType = engineType.ToString(),
@@ -1140,7 +1208,11 @@ public sealed class BotTurnService
                         CashAfterPurchase = cashAfterPurchase,
                         CashAfterFees = cashAfterPurchase - pendingFeeAmount,
                         WouldTriggerForcedSale = feeShortfall > 0,
-                        FeeShortfall = feeShortfall
+                        FeeShortfall = feeShortfall,
+                        RecommendedOperatingReserveCash = purchaseReserve.RecommendedOperatingReserveCash,
+                        PreservesRecommendedOperatingReserve = reserveShortfall == 0,
+                        OperatingReserveShortfall = reserveShortfall,
+                        CashVsRecommendedOperatingReserve = cashAfterPurchase - purchaseReserve.RecommendedOperatingReserveCash
                     };
                 })
                 .Where(option => option.UpgradeCost > 0)
@@ -1163,21 +1235,181 @@ public sealed class BotTurnService
         };
     }
 
-    private static string BuildPurchaseDisplayText(string label, int purchasePrice, int cashAfterPurchase, int pendingFeeAmount, int projectedFeeShortfall)
+    private static string BuildPurchaseDisplayText(
+        string label,
+        int purchasePrice,
+        int cashAfterPurchase,
+        int pendingFeeAmount,
+        int projectedFeeShortfall,
+        int recommendedOperatingReserveCash,
+        int reserveShortfall)
     {
         var currencyCulture = CultureInfo.InvariantCulture;
+        var reserveText = reserveShortfall > 0
+            ? $", reserve target {recommendedOperatingReserveCash.ToString("C0", currencyCulture)}, operating cushion short by {reserveShortfall.ToString("C0", currencyCulture)}"
+            : $", reserve target {recommendedOperatingReserveCash.ToString("C0", currencyCulture)}, operating cushion preserved";
 
         if (pendingFeeAmount <= 0)
         {
-            return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)})";
+            return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}{reserveText})";
         }
 
         if (projectedFeeShortfall > 0)
         {
-            return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}, fees due {pendingFeeAmount.ToString("C0", currencyCulture)}, forced-sale shortfall {projectedFeeShortfall.ToString("C0", currencyCulture)})";
+            return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}, fees due {pendingFeeAmount.ToString("C0", currencyCulture)}, forced-sale shortfall {projectedFeeShortfall.ToString("C0", currencyCulture)}{reserveText})";
         }
 
-        return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}, fees due {pendingFeeAmount.ToString("C0", currencyCulture)}, fees still covered)";
+        return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}, fees due {pendingFeeAmount.ToString("C0", currencyCulture)}, fees still covered{reserveText})";
+    }
+
+    private static PurchaseReserveProfile BuildPurchaseReserveProfile(
+        MapDefinition mapDefinition,
+        Player player,
+        NetworkCoverageSnapshot currentCoverage,
+        int pendingFeeAmount)
+    {
+        var currentRegionCode = player.CurrentCity.RegionCode;
+        var regionProbabilityLookup = BuildRegionProbabilityLookup(mapDefinition);
+        var ownedRegionAccessByCode = currentCoverage.RegionAccess
+            .ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
+        var regionHopCounts = BuildRegionHopCounts(mapDefinition, currentRegionCode);
+        var engineRiskMultiplier = GetPurchaseReserveEngineMultiplier(player.LocomotiveType);
+
+        var regionPressures = mapDefinition.Regions
+            .Where(region => !string.Equals(region.Code, currentRegionCode, StringComparison.OrdinalIgnoreCase))
+            .Select(region =>
+            {
+                var probabilityPercent = regionProbabilityLookup.TryGetValue(region.Code, out var probabilityValue)
+                    ? probabilityValue
+                    : 0m;
+                var ownedAccessPercent = ownedRegionAccessByCode.TryGetValue(region.Code, out var accessValue)
+                    ? accessValue
+                    : 0m;
+                var accessGapPercent = Math.Max(0m, 100m - ownedAccessPercent);
+                var regionHopCount = regionHopCounts.TryGetValue(region.Code, out var hopCount)
+                    ? hopCount
+                    : Math.Max(1, mapDefinition.Regions.Count);
+                var hopMultiplier = 1m + Math.Max(0, regionHopCount - 1) * 0.35m;
+                var weightedReservePressure = Math.Round(
+                    probabilityPercent * accessGapPercent / 100m * hopMultiplier,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+                return new PurchaseReservePressure(
+                    region.Code,
+                    region.Name,
+                    probabilityPercent,
+                    ownedAccessPercent,
+                    accessGapPercent,
+                    regionHopCount,
+                    hopMultiplier,
+                    weightedReservePressure);
+            })
+            .OrderByDescending(pressure => pressure.WeightedReservePressure)
+            .ThenByDescending(pressure => pressure.ProbabilityPercent)
+            .ThenBy(pressure => pressure.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var weightedReservePressure = regionPressures.Sum(pressure => pressure.WeightedReservePressure);
+        var engineReserveFloor = GetPurchaseReserveFloor(player.LocomotiveType);
+        var variableReserve = weightedReservePressure * 55m * engineRiskMultiplier;
+        var recommendedOperatingReserveCash = RoundUpToNearest(
+            decimal.ToInt32(Math.Ceiling(engineReserveFloor + pendingFeeAmount + variableReserve)),
+            500);
+
+        return new PurchaseReserveProfile(
+            currentRegionCode,
+            recommendedOperatingReserveCash,
+            engineRiskMultiplier,
+            weightedReservePressure,
+            regionPressures);
+    }
+
+    private static decimal GetPurchaseReserveEngineMultiplier(LocomotiveType locomotiveType)
+    {
+        return locomotiveType switch
+        {
+            LocomotiveType.Freight => 1.3m,
+            LocomotiveType.Express => 1.1m,
+            LocomotiveType.Superchief => 0.9m,
+            _ => 1m
+        };
+    }
+
+    private static int GetPurchaseReserveFloor(LocomotiveType locomotiveType)
+    {
+        return locomotiveType switch
+        {
+            LocomotiveType.Freight => 10_000,
+            LocomotiveType.Express => 8_000,
+            LocomotiveType.Superchief => 6_000,
+            _ => 8_000
+        };
+    }
+
+    private static Dictionary<string, int> BuildRegionHopCounts(MapDefinition mapDefinition, string originRegionCode)
+    {
+        var regionCodeByIndex = mapDefinition.Regions
+            .ToDictionary(region => region.Index, region => region.Code);
+        var adjacencyByRegion = mapDefinition.Regions
+            .ToDictionary(
+                region => region.Code,
+                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var segment in mapDefinition.RailroadRouteSegments)
+        {
+            if (!regionCodeByIndex.TryGetValue(segment.StartRegionIndex, out var startRegionCode)
+                || !regionCodeByIndex.TryGetValue(segment.EndRegionIndex, out var endRegionCode)
+                || string.Equals(startRegionCode, endRegionCode, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            adjacencyByRegion[startRegionCode].Add(endRegionCode);
+            adjacencyByRegion[endRegionCode].Add(startRegionCode);
+        }
+
+        var hopCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [originRegionCode] = 0
+        };
+        var queue = new Queue<string>();
+        queue.Enqueue(originRegionCode);
+
+        while (queue.Count > 0)
+        {
+            var regionCode = queue.Dequeue();
+            var currentHopCount = hopCounts[regionCode];
+
+            if (!adjacencyByRegion.TryGetValue(regionCode, out var neighbors))
+            {
+                continue;
+            }
+
+            foreach (var neighbor in neighbors)
+            {
+                if (hopCounts.ContainsKey(neighbor))
+                {
+                    continue;
+                }
+
+                hopCounts[neighbor] = currentHopCount + 1;
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        return hopCounts;
+    }
+
+    private static int RoundUpToNearest(int amount, int increment)
+    {
+        if (amount <= 0)
+        {
+            return 0;
+        }
+
+        return ((amount + increment - 1) / increment) * increment;
     }
 
     private static int CalculatePendingFeeAmount(
@@ -1559,6 +1791,23 @@ public sealed class BotTurnService
     {
         return CreateBotMetadata(playerState, definition.Name, source, fallbackReason, definition.IsBotUser);
     }
+
+    private sealed record PurchaseReserveProfile(
+        string CurrentRegionCode,
+        int RecommendedOperatingReserveCash,
+        decimal EngineRiskMultiplier,
+        decimal WeightedReservePressure,
+        IReadOnlyList<PurchaseReservePressure> RegionPressures);
+
+    private sealed record PurchaseReservePressure(
+        string RegionCode,
+        string RegionName,
+        decimal ProbabilityPercent,
+        decimal OwnedAccessPercent,
+        decimal AccessGapPercent,
+        int RegionHopCount,
+        decimal HopMultiplier,
+        decimal WeightedReservePressure);
 
     private static BotRecordedActionMetadata CreateBotMetadata(GamePlayerStateEntity playerState, string botName, string source, string? fallbackReason = null, bool isBotPlayer = false)
     {

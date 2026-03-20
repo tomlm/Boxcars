@@ -487,6 +487,7 @@ public class GamePresenceServiceTests
             BonusRollTotal = entity.BonusRollTotal,
             TotalPayoffsCollected = entity.TotalPayoffsCollected,
             TotalFeesPaid = entity.TotalFeesPaid,
+            TotalFeesCollected = entity.TotalFeesCollected,
             TotalRailroadFaceValuePurchased = entity.TotalRailroadFaceValuePurchased,
             TotalRailroadAmountPaid = entity.TotalRailroadAmountPaid,
             AuctionWins = entity.AuctionWins,

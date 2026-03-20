@@ -13,6 +13,8 @@ public sealed class BotDecisionPromptBuilder
             "Return JSON only with the shape {\"selectedOptionId\":\"...\"}.",
             "Never invent rules, options, or state.",
             "In Purchase, account for fees already incurred this turn before spending cash.",
+            "In Purchase, use PhaseContext.PurchaseRisk.RecommendedOperatingReserveCash as the baseline operating cushion the player should preserve after buying.",
+            "If a purchase leaves cash below that cushion, prefer declining or a cheaper option unless the buy materially improves access in the high-pressure regions listed in TopRiskRegions.",
             "A buy that forces an immediate sale can be correct, but only when the resulting network position is meaningfully better than declining or choosing a cheaper option.",
             "In AuctionStrategy, choose the maximum bid ceiling the player should tolerate for this auction, not a one-turn action.",
             $"Current phase: {context.Phase}.");

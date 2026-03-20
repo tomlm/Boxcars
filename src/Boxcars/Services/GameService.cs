@@ -220,6 +220,7 @@ public class GameService
                     [nameof(GamePlayerStateEntity.BonusRollTotal)] = proposedPlayerState.BonusRollTotal,
                     [nameof(GamePlayerStateEntity.TotalPayoffsCollected)] = proposedPlayerState.TotalPayoffsCollected,
                     [nameof(GamePlayerStateEntity.TotalFeesPaid)] = proposedPlayerState.TotalFeesPaid,
+                    [nameof(GamePlayerStateEntity.TotalFeesCollected)] = proposedPlayerState.TotalFeesCollected,
                     [nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)] = proposedPlayerState.TotalRailroadFaceValuePurchased,
                     [nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)] = proposedPlayerState.TotalRailroadAmountPaid,
                     [nameof(GamePlayerStateEntity.AuctionWins)] = proposedPlayerState.AuctionWins,
@@ -281,6 +282,7 @@ public class GameService
             && left.BonusRollTotal == right.BonusRollTotal
             && left.TotalPayoffsCollected == right.TotalPayoffsCollected
             && left.TotalFeesPaid == right.TotalFeesPaid
+            && left.TotalFeesCollected == right.TotalFeesCollected
             && left.TotalRailroadFaceValuePurchased == right.TotalRailroadFaceValuePurchased
             && left.TotalRailroadAmountPaid == right.TotalRailroadAmountPaid
             && left.AuctionWins == right.AuctionWins

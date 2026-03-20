@@ -18,6 +18,8 @@ public class BotDecisionPromptBuilderTests
         Assert.Contains("TargetPlayer", prompt, StringComparison.Ordinal);
         Assert.Contains("fees already incurred this turn", prompt, StringComparison.Ordinal);
         Assert.Contains("forces an immediate sale", prompt, StringComparison.Ordinal);
+        Assert.Contains("RecommendedOperatingReserveCash", prompt, StringComparison.Ordinal);
+        Assert.Contains("TopRiskRegions", prompt, StringComparison.Ordinal);
     }
 
     [Fact]

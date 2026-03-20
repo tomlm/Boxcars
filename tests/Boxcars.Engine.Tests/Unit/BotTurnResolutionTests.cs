@@ -226,6 +226,42 @@ public class BotTurnResolutionTests
     }
 
     [Fact]
+    public async Task CreateBotActionAsync_PurchaseRequest_IncludesOperatingReserveAnalysis()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.PendingRegionChoice = null;
+
+        var presenceService = new GamePresenceService();
+        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
+            botDefinitionId: BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Reserve Bot");
+        var (service, handler) = BotTurnServiceTestHarness.CreateServiceWithOpenAiSelection(
+            presenceService,
+            "decline-purchase",
+            botDefinition);
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                BotTurnServiceTestHarness.ActivePlayerUserId,
+                BotTurnServiceTestHarness.OtherPlayerUserId),
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            botDefinition.BotDefinitionId);
+
+        var action = await service.CreateBotActionAsync(
+            BotTurnServiceTestHarness.GameId,
+            playerStates,
+            engine,
+            GameEngineFixture.CreateTestMap(),
+            CancellationToken.None);
+
+        Assert.IsType<DeclinePurchaseAction>(action);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Contains("RecommendedOperatingReserveCash", handler.LastRequestBody, StringComparison.Ordinal);
+        Assert.Contains("TopRiskRegions", handler.LastRequestBody, StringComparison.Ordinal);
+        Assert.Contains("PreservesRecommendedOperatingReserve", handler.LastRequestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CreateBotActionAsync_MovePhase_UsesSavedRouteSegments()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

@@ -213,7 +213,7 @@
                                 <RegionChoicePanel Phase="CurrentRegionChoicePhase!"
                                                    SelectedRegionCode="@_selectedRegionChoiceCode"
                                                    SelectedRegionCodeChanged="OnSelectedRegionChoiceChangedAsync"
-                                                                                                     IsBusy="@IsGameBusy"
+                                                   IsBusy="@_awaitingAuthoritativeUpdate"
                                                    ConfirmRequested="OnConfirmRegionChoiceAsync" />
                             }
                             else if (ShouldShowPurchaseTaskbar)
@@ -245,7 +245,7 @@
                                 <ForcedSalePanel Phase="CurrentForcedSalePhase!"
                                                  SelectedRailroadIndex="@SelectedForcedSaleCandidate?.RailroadIndex"
                                                  SelectedRailroadIndexChanged="OnForcedSaleRailroadChangedAsync"
-                                                 IsBusy="@IsGameBusy"
+                                                 IsBusy="@_awaitingAuthoritativeUpdate"
                                                  SellToBankRequested="OnSellRailroadToBankAsync"
                                                  StartAuctionRequested="OnStartAuctionAsync" />
                             }
