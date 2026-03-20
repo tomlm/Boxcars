@@ -476,10 +476,16 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    private Task OnPurchaseTabSelected(PurchaseExperienceTab tab)
+    private async Task OnPurchaseTabSelected(PurchaseExperienceTab tab)
     {
         _selectedPurchaseTab = tab;
-        return InvokeAsync(StateHasChanged);
+
+        if (tab == PurchaseExperienceTab.Stats)
+        {
+            await RefreshPlayerStatesAsync();
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnRailroadSelectedAsync(RailroadSelectionEvent selectionEvent)
@@ -2879,7 +2885,24 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private async Task RefreshGameEntityAsync()
     {
         _game = await GameService.GetGameAsync(GameId, CancellationToken.None);
+        await RefreshPlayerStatesAsync();
+    }
+
+    private async Task RefreshPlayerStatesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
         _playerStates = (await GameService.GetGamePlayerStatesAsync(GameId, CancellationToken.None)).ToList();
+
+        if (_gameState is not null)
+        {
+            _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_playerStates, _gameState, _currentUserId).ToList();
+        }
+
+        await RefreshBotDisplayNamesAsync();
     }
 
     private async Task RefreshBotDisplayNamesAsync()
