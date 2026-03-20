@@ -15,72 +15,71 @@ public sealed class GameBoardStateMapper(
     IOptions<PurchaseRulesOptions> purchaseRulesOptions,
     GamePresenceService? gamePresenceService = null)
 {
-    public IReadOnlyList<GamePlayerSelection> GetPlayerSelections(GameEntity? game)
+    public IReadOnlyList<GamePlayerSelection> GetPlayerSelections(IReadOnlyList<GamePlayerStateEntity>? playerStates)
     {
-        return string.IsNullOrWhiteSpace(game?.PlayersJson)
+        return playerStates is null || playerStates.Count == 0
             ? []
-            : GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
+            : GamePlayerStateProjection.BuildPlayerSelections(playerStates);
     }
 
-    public IReadOnlyList<BotAssignment> GetBotAssignments(GameEntity? game)
+    public IReadOnlyList<GamePlayerStateEntity> GetBotControlledPlayerStates(IReadOnlyList<GamePlayerStateEntity>? playerStates)
     {
-        return string.IsNullOrWhiteSpace(game?.BotAssignmentsJson)
+        return playerStates is null || playerStates.Count == 0
             ? []
-            : BotAssignmentSerialization.Deserialize(game.BotAssignmentsJson);
+            : playerStates
+                .Where(playerState => !string.IsNullOrWhiteSpace(playerState.BotDefinitionId))
+                .ToList();
     }
 
-    public IReadOnlyDictionary<string, BotAssignment> BuildLatestBotAssignments(GameEntity? game)
+    public IReadOnlyDictionary<string, GamePlayerStateEntity> BuildLatestBotControlStates(IReadOnlyList<GamePlayerStateEntity>? playerStates)
     {
-        return GetBotAssignments(game)
-            .GroupBy(assignment => assignment.PlayerUserId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                group => group.Key,
-                group => group
-                    .OrderByDescending(assignment => assignment.ClearedUtc ?? assignment.AssignedUtc)
-                    .ThenByDescending(assignment => assignment.AssignedUtc)
-                    .First(),
-                StringComparer.OrdinalIgnoreCase);
+        return BuildPlayerStateLookup(playerStates);
     }
 
-    public static string GetBotAssignmentStatusLabel(BotAssignment? assignment, string? botName = null)
+    public static string GetBotControlStatusLabel(GamePlayerStateEntity? playerState, string? botName = null)
     {
-        if (assignment is null)
+        if (playerState is null)
         {
             return string.Empty;
         }
 
-        return assignment.Status switch
+        return playerState.BotControlStatus switch
         {
-            BotAssignmentStatuses.Active => string.IsNullOrWhiteSpace(botName) ? "Bot assigned" : botName,
-            BotAssignmentStatuses.MissingDefinition => "Bot removed from library",
+            BotControlStatuses.Active => string.IsNullOrWhiteSpace(botName) ? "Bot assigned" : botName,
+            BotControlStatuses.MissingDefinition => "Bot removed from library",
             _ => string.Empty
         };
     }
 
-    public IReadOnlyList<PlayerControlBinding> BuildPlayerControlBindings(GameEntity? game, string? currentUserId)
+    public IReadOnlyList<PlayerControlBinding> BuildPlayerControlBindings(string gameId, IReadOnlyList<GamePlayerStateEntity>? playerStates, string? currentUserId)
     {
-        var selections = GetPlayerSelections(game);
-        var latestBotAssignments = BuildLatestBotAssignments(game);
+        var selections = GetPlayerSelections(playerStates);
+        var playerStatesByUserId = BuildPlayerStateLookup(playerStates);
 
         return selections
-            .Select((selection, index) => new PlayerControlBinding
+            .Select((selection, index) =>
             {
-                ControllerMode = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode,
-                DelegatedControllerUserId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).DelegatedControllerUserId ?? string.Empty,
-                IsConnected = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).IsConnected,
-                BotDefinitionId = ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).BotDefinitionId ?? string.Empty,
-                HasBotAssignment = PlayerControlRules.IsAiControlledMode(ResolveSeatControllerState(game, selection.UserId, latestBotAssignments).ControllerMode),
-                UserId = selection.UserId,
-                PlayerIndex = index,
-                DisplayName = string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName,
-                Color = selection.Color,
-                IsCurrentUser = PlayerControlRules.IsDirectlyBoundToUser(selection.UserId, currentUserId)
+                var controllerState = ResolveSeatControllerState(gameId, selection.UserId, playerStatesByUserId);
+                return new PlayerControlBinding
+                {
+                    ControllerMode = controllerState.ControllerMode,
+                    DelegatedControllerUserId = controllerState.DelegatedControllerUserId ?? string.Empty,
+                    IsConnected = controllerState.IsConnected,
+                    BotDefinitionId = controllerState.BotDefinitionId ?? string.Empty,
+                    HasActiveBotControl = PlayerControlRules.IsAiControlledMode(controllerState.ControllerMode),
+                    UserId = selection.UserId,
+                    PlayerIndex = index,
+                    DisplayName = string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName,
+                    Color = selection.Color,
+                    IsCurrentUser = PlayerControlRules.IsDirectlyBoundToUser(selection.UserId, currentUserId)
+                };
             })
             .ToList();
     }
 
     public BoardTurnViewState BuildTurnViewState(
-        GameEntity? game,
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity>? playerStates,
         RailBaronGameState? state,
         string? currentUserId,
         MapDefinition? mapDefinition = null,
@@ -92,7 +91,7 @@ public sealed class GameBoardStateMapper(
             return new BoardTurnViewState();
         }
 
-        var bindings = BuildPlayerControlBindings(game, currentUserId);
+        var bindings = BuildPlayerControlBindings(gameId, playerStates, currentUserId);
         var currentUserPlayerIndex = bindings
             .Where(binding => binding.IsCurrentUser)
             .Select(binding => binding.PlayerIndex)
@@ -152,40 +151,55 @@ public sealed class GameBoardStateMapper(
     }
 
     private SeatControllerState ResolveSeatControllerState(
-        GameEntity? game,
+        string gameId,
         string? slotUserId,
-        IReadOnlyDictionary<string, BotAssignment>? latestBotAssignments = null)
+        Dictionary<string, GamePlayerStateEntity>? playerStatesByUserId = null)
     {
-        latestBotAssignments ??= BuildLatestBotAssignments(game);
-
-        var activeBotAssignment = !string.IsNullOrWhiteSpace(slotUserId)
-            && latestBotAssignments.TryGetValue(slotUserId, out var assignment)
-            && string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-            && assignment.ClearedUtc is null
-                ? assignment
+        playerStatesByUserId ??= BuildPlayerStateLookup(null);
+        var activePlayerState = !string.IsNullOrWhiteSpace(slotUserId)
+            && playerStatesByUserId.TryGetValue(slotUserId, out var playerState)
+                ? playerState
                 : null;
 
         if (gamePresenceService is null)
         {
             return PlayerControlRules.ResolveSeatControllerState(
-                game?.GameId ?? string.Empty,
+                gameId,
                 slotUserId,
                 isConnected: true,
                 delegatedControllerUserId: null,
-                activeBotAssignment);
+                activePlayerState);
         }
 
-        return gamePresenceService.ResolveSeatControllerState(game?.GameId ?? string.Empty, slotUserId, activeBotAssignment);
+        return gamePresenceService.ResolveSeatControllerState(gameId, slotUserId, activePlayerState);
     }
 
-    public IReadOnlyList<PlayerMapState> BuildPlayerMapStates(GameEntity? game, RailBaronGameState? state, string? currentUserId)
+    private static Dictionary<string, GamePlayerStateEntity> BuildPlayerStateLookup(IReadOnlyList<GamePlayerStateEntity>? playerStates)
+    {
+        if (playerStates is null || playerStates.Count == 0)
+        {
+            return new Dictionary<string, GamePlayerStateEntity>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return playerStates
+            .Where(playerState => !string.IsNullOrWhiteSpace(playerState.PlayerUserId))
+            .GroupBy(playerState => playerState.PlayerUserId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderByDescending(playerState => playerState.BotControlClearedUtc ?? playerState.BotControlActivatedUtc ?? DateTimeOffset.MinValue)
+                    .ThenByDescending(playerState => playerState.BotControlActivatedUtc ?? DateTimeOffset.MinValue)
+                    .First(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IReadOnlyList<PlayerMapState> BuildPlayerMapStates(IReadOnlyList<GamePlayerStateEntity>? playerStates, RailBaronGameState? state, string? currentUserId)
     {
         if (state is null)
         {
             return [];
         }
 
-        var selections = GetPlayerSelections(game);
+        var selections = GetPlayerSelections(playerStates);
 
         return state.Players
             .Select((player, index) =>
@@ -520,10 +534,11 @@ public sealed class GameBoardStateMapper(
         var allEligibleEngineTypes = GetEligibleUpgradeTargets(ParseLocomotiveType(activePlayer.LocomotiveType)).ToList();
         var hasUpgradeableEngine = allEligibleEngineTypes.Count > 0;
         var hasUnownedRailroads = mapDefinition is not null && mapDefinition.Railroads.Any(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null);
-        var hasActivePurchaseControls = taskbarOptions.Count > 0;
-        var noPurchaseNotification = !hasActivePurchaseControls && (hasUnownedRailroads || hasUpgradeableEngine)
+        var hasPurchaseOptions = taskbarOptions.Count > 0;
+        var noPurchaseNotification = !hasPurchaseOptions && (hasUnownedRailroads || hasUpgradeableEngine)
             ? $"{activePlayer.Name} does not have enough money to purchase anything."
             : null;
+        var hasActivePurchaseControls = hasPurchaseOptions || !string.IsNullOrWhiteSpace(noPurchaseNotification);
 
         return new PurchasePhaseModel
         {

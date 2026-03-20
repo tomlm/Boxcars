@@ -7,12 +7,12 @@ public static class PlayerControlRules
         string? slotUserId,
         bool isConnected,
         string? delegatedControllerUserId,
-        BotAssignment? activeBotAssignment)
+        GamePlayerStateEntity? activePlayerState)
     {
-        var resolvedBotControllerMode = ResolveBotControllerMode(activeBotAssignment);
+        var resolvedBotControllerMode = ResolveBotControllerMode(activePlayerState);
         var controllerMode = resolvedBotControllerMode switch
         {
-            SeatControllerModes.AI when activeBotAssignment is not null && string.IsNullOrWhiteSpace(activeBotAssignment.ControllerUserId) => SeatControllerModes.AI,
+            SeatControllerModes.AI when activePlayerState is not null && string.IsNullOrWhiteSpace(activePlayerState.ControllerUserId) => SeatControllerModes.AI,
             _ when !isConnected && !string.IsNullOrWhiteSpace(delegatedControllerUserId) => SeatControllerModes.Delegated,
             _ when !isConnected => SeatControllerModes.AI,
             _ => SeatControllerModes.Self
@@ -26,7 +26,7 @@ public static class PlayerControlRules
             DelegatedControllerUserId = delegatedControllerUserId,
             OwningHumanUserId = slotUserId,
             IsConnected = isConnected,
-            BotDefinitionId = activeBotAssignment?.BotDefinitionId
+            BotDefinitionId = activePlayerState?.BotDefinitionId
                 ?? (SeatControllerModes.IsAiControlled(controllerMode)
                     ? slotUserId
                     : null)
@@ -97,21 +97,26 @@ public static class PlayerControlRules
         return SeatControllerModes.IsAiControlled(controllerMode);
     }
 
-    public static string? ResolveBotControllerMode(BotAssignment? assignment)
+    public static string? ResolveBotControllerMode(GamePlayerStateEntity? playerState)
     {
-        if (assignment is null
-            || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-            || assignment.ClearedUtc is not null)
+        if (playerState is null
+            || !string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+            || playerState.BotControlClearedUtc is not null)
         {
             return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
+        if (!string.IsNullOrWhiteSpace(playerState.ControllerMode))
         {
-            return SeatControllerModes.Normalize(assignment.ControllerMode);
+            return SeatControllerModes.Normalize(playerState.ControllerMode);
         }
 
         return SeatControllerModes.AI;
+    }
+
+    public static bool HasActiveBotControl(GamePlayerStateEntity? playerState)
+    {
+        return ResolveBotControllerMode(playerState) is not null;
     }
 
     public static bool IsDelegatedController(string? delegatedControllerUserId, string? currentUserId)

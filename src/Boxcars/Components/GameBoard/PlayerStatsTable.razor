@@ -1,0 +1,128 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<div class="player-stats-table-scope">
+    @if (PlayerColumns.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">
+            Player statistics are not available yet.
+        </MudAlert>
+    }
+    else
+    {
+        <MudPaper Class="player-stats-table-panel" Outlined="true">
+            <MudStack Spacing="0" Class="player-stats-table-header">
+                <MudText Typo="Typo.h6">Stats</MudText>
+                <MudText Typo="Typo.caption">Players are shown in columns and tracked stats in rows.</MudText>
+            </MudStack>
+
+            <div class="player-stats-table-host">
+                <MudTable T="PlayerStatisticRow" Items="StatisticRows" Dense="true" Hover="true" Breakpoint="Breakpoint.None">
+                    <HeaderContent>
+                        <MudTh>Stat</MudTh>
+                        @foreach (var player in PlayerColumns)
+                        {
+                            <MudTh>
+                                <MudStack Spacing="0" Class="player-stats-column-heading">
+                                    <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
+                                    <MudText Typo="Typo.caption" Class="player-stats-column-subtitle">Seat @(player.SeatIndex + 1)</MudText>
+                                </MudStack>
+                            </MudTh>
+                        }
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Stat" Class="player-stats-row-label">@context.Label</MudTd>
+                        @foreach (var player in PlayerColumns)
+                        {
+                            <MudTd DataLabel="@player.DisplayName">
+                                @context.GetValue(player.PlayerState)
+                            </MudTd>
+                        }
+                    </RowTemplate>
+                </MudTable>
+            </div>
+        </MudPaper>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<PlayerBoardModel> Players { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<GamePlayerStateEntity> PlayerStates { get; set; } = [];
+
+    private IReadOnlyList<PlayerStatsColumn> PlayerColumns => PlayerStates
+        .OrderBy(playerState => playerState.SeatIndex)
+        .Select(playerState =>
+        {
+            var matchingPlayer = Players.FirstOrDefault(player => player.Index == playerState.SeatIndex);
+            var displayName = matchingPlayer?.Name;
+            if (string.IsNullOrWhiteSpace(displayName))
+            {
+                displayName = string.IsNullOrWhiteSpace(playerState.DisplayName)
+                    ? playerState.PlayerUserId
+                    : playerState.DisplayName;
+            }
+
+            return new PlayerStatsColumn(playerState.SeatIndex, displayName ?? $"Seat {playerState.SeatIndex + 1}", playerState);
+        })
+        .ToArray();
+
+    private static IReadOnlyList<PlayerStatisticRow> StatisticRows { get; } =
+    [
+        new("Turns Taken", state => FormatCount(state.TurnsTaken)),
+        new("Avg Freight", state => FormatAverage(state.FreightRollTotal, state.FreightTurnCount)),
+        new("Avg Express", state => FormatAverage(state.ExpressRollTotal, state.ExpressTurnCount)),
+        new("Avg Superchief", state => FormatAverage(state.SuperchiefRollTotal, state.SuperchiefTurnCount)),
+        new("Bonus Rolls", state => FormatCount(state.BonusRollCount)),
+        new("Bonus Roll Total", state => FormatCount(state.BonusRollTotal)),
+        new("Payoffs Collected", state => FormatCurrency(state.TotalPayoffsCollected)),
+        new("Fees Paid", state => FormatCurrency(state.TotalFeesPaid)),
+        new("Railroad Face Value Bought", state => FormatCurrency(state.TotalRailroadFaceValuePurchased)),
+        new("Railroad Amount Paid", state => FormatCurrency(state.TotalRailroadAmountPaid)),
+        new("Auction Wins", state => FormatCount(state.AuctionWins)),
+        new("Auction Bids", state => FormatCount(state.AuctionBidsPlaced)),
+        new("Railroads Purchased", state => FormatCount(state.RailroadsPurchasedCount)),
+        new("Railroads Auctioned", state => FormatCount(state.RailroadsAuctionedCount)),
+        new("Railroads Sold To Bank", state => FormatCount(state.RailroadsSoldToBankCount)),
+        new("Destinations", state => FormatDestinationLog(state)),
+        new("% Unfriendly", state => FormatPercentage(state.UnfriendlyDestinationCount, state.DestinationCount))
+    ];
+
+    private static string FormatCount(int value)
+    {
+        return value.ToString("N0");
+    }
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${value:N0}";
+    }
+
+    private static string FormatAverage(int total, int count)
+    {
+        return count <= 0
+            ? "0.0"
+            : ((decimal)total / count).ToString("0.0");
+    }
+
+    private static string FormatDestinationLog(GamePlayerStateEntity state)
+    {
+        var entries = state.GetDestinationLogEntries();
+        return entries.Count == 0
+            ? "None"
+            : string.Join(", ", entries);
+    }
+
+    private static string FormatPercentage(int value, int total)
+    {
+        return total <= 0
+            ? "0.0%"
+            : $"{Math.Round(value * 100m / total, 1, MidpointRounding.AwayFromZero):0.0}%";
+    }
+
+    private sealed record PlayerStatsColumn(int SeatIndex, string DisplayName, GamePlayerStateEntity PlayerState);
+
+    private sealed record PlayerStatisticRow(string Label, Func<GamePlayerStateEntity, string> GetValue);
+}

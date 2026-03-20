@@ -30,7 +30,6 @@ public class BotActionHistoryTests
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
                 ControllerMode = SeatControllerModes.AI,
-                IsBotPlayer = true,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -60,7 +59,6 @@ public class BotActionHistoryTests
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
                 ControllerMode = SeatControllerModes.AI,
-                IsBotPlayer = true,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -103,7 +101,6 @@ public class BotActionHistoryTests
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
                 ControllerMode = SeatControllerModes.AI,
-                IsBotPlayer = true,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -113,7 +110,7 @@ public class BotActionHistoryTests
         engine.ChooseDestinationRegion("SE");
         var snapshotAfterAction = engine.ToSnapshot();
 
-        var summary = InvokeDescribeAction(service, CreateGameEntity(), action, snapshotBeforeAction, snapshotAfterAction, engine);
+        var summary = InvokeDescribeAction(service, CreateGameEntity(), CreatePlayerStates(), action, snapshotBeforeAction, snapshotAfterAction, engine);
 
         Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta. [AUTO; Timeout]", summary);
     }
@@ -140,6 +137,7 @@ public class BotActionHistoryTests
                 BotDefinitionId = "bot-1",
                 BotName = "El Cheapo",
                 ControllerMode = SeatControllerModes.AI,
+                IsBotPlayer = true,
                 DecisionSource = "Fallback",
                 FallbackReason = "Timeout"
             }
@@ -149,7 +147,7 @@ public class BotActionHistoryTests
         engine.ChooseDestinationRegion("SE");
         var snapshotAfterAction = engine.ToSnapshot();
 
-        var summary = InvokeDescribeAction(service, CreateGameEntity(), action, snapshotBeforeAction, snapshotAfterAction, engine);
+        var summary = InvokeDescribeAction(service, CreateGameEntity(), CreatePlayerStates(), action, snapshotBeforeAction, snapshotAfterAction, engine);
 
         Assert.Equal("Alice chose SE as the replacement destination region and received Atlanta.", summary);
     }
@@ -177,7 +175,7 @@ public class BotActionHistoryTests
         engine.MoveAlongRoute(1);
         var snapshotAfterAction = engine.ToSnapshot();
 
-        var summary = InvokeDescribeAction(service, CreateGameEntity(), action, snapshotBeforeAction, snapshotAfterAction, engine);
+        var summary = InvokeDescribeAction(service, CreateGameEntity(), CreatePlayerStates(), action, snapshotBeforeAction, snapshotAfterAction, engine);
 
         Assert.Equal("Alice moved 1 space [TOM]", summary);
     }
@@ -211,7 +209,7 @@ public class BotActionHistoryTests
     }
 
     [Fact]
-    public void BuildLatestBotAssignments_PrefersLatestAssignmentStatusPerPlayer()
+    public void BuildLatestBotControlStates_PrefersLatestControlStatusPerPlayer()
     {
         var mapper = new GameBoardStateMapper(
             new NetworkCoverageService(),
@@ -219,55 +217,41 @@ public class BotActionHistoryTests
             new PurchaseRecommendationService(),
             Options.Create(new PurchaseRulesOptions()));
 
-        var game = new GameEntity
-        {
-            PartitionKey = "game-1",
-            GameId = "game-1",
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "alice@example.com",
-                    ControllerUserId = "bob@example.com",
-                    BotDefinitionId = "bot-old",
-                    AssignedUtc = new DateTimeOffset(2026, 3, 16, 10, 0, 0, TimeSpan.Zero),
-                    Status = BotAssignmentStatuses.Active
-                },
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "alice@example.com",
-                    ControllerUserId = "bob@example.com",
-                    BotDefinitionId = "bot-new",
-                    AssignedUtc = new DateTimeOffset(2026, 3, 16, 11, 0, 0, TimeSpan.Zero),
-                    ClearedUtc = new DateTimeOffset(2026, 3, 16, 11, 5, 0, TimeSpan.Zero),
-                    Status = BotAssignmentStatuses.MissingDefinition,
-                    ClearReason = "The assigned bot definition no longer exists."
-                },
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "charlie@example.com",
-                    ControllerUserId = "bob@example.com",
-                    BotDefinitionId = "bot-charlie",
-                    AssignedUtc = new DateTimeOffset(2026, 3, 16, 11, 10, 0, TimeSpan.Zero),
-                    Status = BotAssignmentStatuses.Active
-                }
-            ])
-        };
+        var controlStates = mapper.BuildLatestBotControlStates(
+        [
+            new GamePlayerStateEntity
+            {
+                GameId = "game-1",
+                SeatIndex = 0,
+                PlayerUserId = "alice@example.com",
+                ControllerUserId = "bob@example.com",
+                BotDefinitionId = "bot-new",
+                BotControlActivatedUtc = new DateTimeOffset(2026, 3, 16, 11, 0, 0, TimeSpan.Zero),
+                BotControlClearedUtc = new DateTimeOffset(2026, 3, 16, 11, 5, 0, TimeSpan.Zero),
+                BotControlStatus = BotControlStatuses.MissingDefinition,
+                BotControlClearReason = "The assigned bot definition no longer exists."
+            },
+            new GamePlayerStateEntity
+            {
+                GameId = "game-1",
+                SeatIndex = 1,
+                PlayerUserId = "charlie@example.com",
+                ControllerUserId = "bob@example.com",
+                BotDefinitionId = "bot-charlie",
+                BotControlActivatedUtc = new DateTimeOffset(2026, 3, 16, 11, 10, 0, TimeSpan.Zero),
+                BotControlStatus = BotControlStatuses.Active
+            }
+        ]);
 
-        var assignments = mapper.BuildLatestBotAssignments(game);
-
-        Assert.Equal(2, assignments.Count);
-        Assert.Equal("bot-new", assignments["alice@example.com"].BotDefinitionId);
-        Assert.Equal(BotAssignmentStatuses.MissingDefinition, assignments["alice@example.com"].Status);
-        Assert.Equal("Bot removed from library", GameBoardStateMapper.GetBotAssignmentStatusLabel(assignments["alice@example.com"]));
-        Assert.Equal("El Cheapo", GameBoardStateMapper.GetBotAssignmentStatusLabel(assignments["charlie@example.com"], "El Cheapo"));
+        Assert.Equal(2, controlStates.Count);
+        Assert.Equal("bot-new", controlStates["alice@example.com"].BotDefinitionId);
+        Assert.Equal(BotControlStatuses.MissingDefinition, controlStates["alice@example.com"].BotControlStatus);
+        Assert.Equal("Bot removed from library", GameBoardStateMapper.GetBotControlStatusLabel(controlStates["alice@example.com"]));
+        Assert.Equal("El Cheapo", GameBoardStateMapper.GetBotControlStatusLabel(controlStates["charlie@example.com"], "El Cheapo"));
     }
 
     [Fact]
-    public void BuildPlayerControlBindings_ActiveBotAssignment_ProjectsControllerMode()
+    public void BuildPlayerControlBindings_ActiveBotControl_ProjectsControllerMode()
     {
         var mapper = new GameBoardStateMapper(
             new NetworkCoverageService(),
@@ -275,38 +259,25 @@ public class BotActionHistoryTests
             new PurchaseRecommendationService(),
             Options.Create(new PurchaseRulesOptions()));
 
-        var game = new GameEntity
-        {
-            PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
-                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
-            ]),
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "alice@example.com",
-                    ControllerMode = SeatControllerModes.AI,
-                    BotDefinitionId = "bot-1",
-                    Status = BotAssignmentStatuses.Active
-                }
-            ])
-        };
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
+            new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
+        ],
+        "alice@example.com",
+        "bot-1");
 
-        var bindings = mapper.BuildPlayerControlBindings(game, "bob@example.com");
+        var bindings = mapper.BuildPlayerControlBindings("game-1", playerStates, "bob@example.com");
 
         Assert.Equal(SeatControllerModes.AI, bindings[0].ControllerMode);
-        Assert.True(bindings[0].HasBotAssignment);
+        Assert.True(bindings[0].HasActiveBotControl);
         Assert.Equal("bot-1", bindings[0].BotDefinitionId);
     }
 
     private static string InvokeDescribeAction(
         GameEngineService service,
         GameEntity gameEntity,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         PlayerAction action,
         Boxcars.Engine.Persistence.GameState snapshotBeforeAction,
         Boxcars.Engine.Persistence.GameState snapshotAfterAction,
@@ -315,7 +286,7 @@ public class BotActionHistoryTests
         var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("DescribeAction was not found.");
 
-        return (string)(method.Invoke(service, [gameEntity, action, snapshotBeforeAction, snapshotAfterAction, engine])
+        return (string)(method.Invoke(service, [gameEntity, playerStates, action, snapshotBeforeAction, snapshotAfterAction, engine])
             ?? throw new InvalidOperationException("DescribeAction returned null."));
     }
 
@@ -325,13 +296,17 @@ public class BotActionHistoryTests
         {
             PartitionKey = "game-1",
             RowKey = "GAME",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
-                new GamePlayerSelection { UserId = "tom@example.com", DisplayName = "TOM", Color = "#222222" }
-            ])
+            GameId = "game-1"
         };
+    }
+
+    private static IReadOnlyList<GamePlayerStateEntity> CreatePlayerStates()
+    {
+        return BotTurnServiceTestHarness.CreatePlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
+            new GamePlayerSelection { UserId = "tom@example.com", DisplayName = "TOM", Color = "#222222" }
+        ]);
     }
 
     private static GameEngineService CreateGameEngineServiceForTests()

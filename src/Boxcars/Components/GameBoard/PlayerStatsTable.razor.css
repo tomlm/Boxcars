@@ -1,0 +1,50 @@
+.player-stats-table-scope {
+    min-height: 100%;
+}
+
+::deep .player-stats-table-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding: 0.85rem;
+    background: color-mix(in srgb, var(--mud-palette-surface) 90%, black 10%);
+}
+
+.player-stats-table-header {
+    margin-bottom: 0.75rem;
+}
+
+.player-stats-table-host {
+    overflow-x: auto;
+}
+
+::deep .player-stats-table-host .mud-table-root {
+    background: transparent;
+}
+
+::deep .player-stats-table-host .mud-table-container {
+    overflow-x: auto;
+}
+
+::deep .player-stats-table-host .mud-table-head .mud-table-cell {
+    white-space: nowrap;
+}
+
+.player-stats-column-heading {
+    min-width: 7.5rem;
+}
+
+.player-stats-column-subtitle {
+    opacity: 0.72;
+}
+
+::deep .player-stats-row-label {
+    white-space: nowrap;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--mud-palette-surface) 84%, black 16%);
+}
+
+::deep .player-stats-table-host .mud-table-body .mud-table-cell {
+    white-space: normal;
+    vertical-align: top;
+}

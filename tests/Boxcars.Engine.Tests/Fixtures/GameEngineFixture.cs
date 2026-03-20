@@ -167,16 +167,16 @@ public static class GameEngineFixture
             case TurnPhase.Purchase:
                 if (engine.CurrentTurn.Phase == TurnPhase.DrawDestination)
                 {
-                    var currentCityName = engine.CurrentTurn.ActivePlayer.CurrentCity.Name;
-                    if (string.Equals(currentCityName, "New York", StringComparison.OrdinalIgnoreCase))
+                    var currentRegionCode = engine.CurrentTurn.ActivePlayer.CurrentCity.RegionCode;
+                    if (string.Equals(currentRegionCode, "NE", StringComparison.OrdinalIgnoreCase))
                     {
-                        random.QueueWeightedDraw(0);
                         random.QueueWeightedDraw(1);
+                        random.QueueWeightedDraw(0);
                     }
                     else
                     {
-                        random.QueueWeightedDraw(1);
-                        random.QueueWeightedDraw(1);
+                        random.QueueWeightedDraw(0);
+                        random.QueueWeightedDraw(0);
                     }
 
                     engine.DrawDestination();
@@ -186,13 +186,15 @@ public static class GameEngineFixture
                 {
                     var route = engine.SuggestRoute();
                     engine.SaveRoute(route);
-                    random.QueueDiceRoll(1, 1);
+                    random.QueueDiceRoll(6, 5);
                     engine.RollDice();
                 }
 
                 if (engine.CurrentTurn.Phase == TurnPhase.Move)
                 {
-                    engine.MoveAlongRoute(1);
+                    var remainingStepsToDestination = Math.Max(1, engine.CurrentTurn.ActivePlayer.ActiveRoute!.NodeIds.Count - 1 - engine.CurrentTurn.ActivePlayer.RouteProgressIndex);
+                    var stepsToMove = Math.Min(remainingStepsToDestination, engine.CurrentTurn.MovementRemaining);
+                    engine.MoveAlongRoute(stepsToMove);
                 }
                 break;
 

@@ -24,18 +24,13 @@ public class RegionChoiceStateMapperTests
             new PurchaseRecommendationService(),
             Options.Create(new PurchaseRulesOptions()));
 
-        var game = new GameEntity
-        {
-            PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
-                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
-            ])
-        };
+        var playerStates = BotTurnServiceTestHarness.CreatePlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
+            new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
+        ]);
 
-        var state = mapper.BuildTurnViewState(game, engine.ToSnapshot(), "alice@example.com", engine.MapDefinition);
+        var state = mapper.BuildTurnViewState("game-1", playerStates, engine.ToSnapshot(), "alice@example.com", engine.MapDefinition);
 
         Assert.NotNull(state.RegionChoicePhase);
         Assert.Equal(TurnPhase.RegionChoice.ToString(), state.TurnPhase);
@@ -53,7 +48,7 @@ public class RegionChoiceStateMapperTests
     }
 
     [Fact]
-    public void BuildTurnViewState_DedicatedBotAssignment_ProjectsAiControllerMode()
+    public void BuildTurnViewState_DedicatedBotControl_ProjectsAiControllerMode()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
         var mapper = new GameBoardStateMapper(
@@ -62,29 +57,15 @@ public class RegionChoiceStateMapperTests
             new PurchaseRecommendationService(),
             Options.Create(new PurchaseRulesOptions()));
 
-        var game = new GameEntity
-        {
-            PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
-                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
-            ]),
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "alice@example.com",
-                    ControllerMode = SeatControllerModes.AI,
-                    BotDefinitionId = "bot-1",
-                    Status = BotAssignmentStatuses.Active
-                }
-            ])
-        };
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = "Alice", Color = "#111111" },
+            new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "#222222" }
+        ],
+        "alice@example.com",
+        "bot-1");
 
-        var state = mapper.BuildTurnViewState(game, engine.ToSnapshot(), "bob@example.com", engine.MapDefinition);
+        var state = mapper.BuildTurnViewState("game-1", playerStates, engine.ToSnapshot(), "bob@example.com", engine.MapDefinition);
 
         Assert.Equal(SeatControllerModes.AI, state.ActivePlayerControllerMode);
         Assert.False(state.IsCurrentUserActivePlayer);

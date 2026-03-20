@@ -274,7 +274,7 @@ public sealed class GamePresenceService : IDisposable
         {
             if (isConnected)
             {
-                QueueBotAssignmentClear(gameId, userId, "Reconnect");
+                QueueBotControlClear(gameId, userId, "Reconnect");
             }
 
             NotifyPresenceChanged(gameId);
@@ -299,14 +299,14 @@ public sealed class GamePresenceService : IDisposable
         }
     }
 
-    public SeatControllerState ResolveSeatControllerState(string gameId, string? slotUserId, BotAssignment? activeBotAssignment)
+    public SeatControllerState ResolveSeatControllerState(string gameId, string? slotUserId, GamePlayerStateEntity? activePlayerState)
     {
         return PlayerControlRules.ResolveSeatControllerState(
             gameId,
             slotUserId,
             IsUserConnected(gameId, slotUserId),
             GetDelegatedControllerUserId(gameId, slotUserId),
-            activeBotAssignment);
+            activePlayerState);
     }
 
     public bool TryTakeDelegatedControl(string gameId, string slotUserId, string controllerUserId)
@@ -379,7 +379,7 @@ public sealed class GamePresenceService : IDisposable
 
         if (changed)
         {
-            QueueBotAssignmentClear(gameId, slotUserId, "Delegated control released.");
+            QueueBotControlClear(gameId, slotUserId, "Delegated control released.");
             NotifyPresenceChanged(gameId);
         }
 
@@ -506,7 +506,7 @@ public sealed class GamePresenceService : IDisposable
 
         if (changed)
         {
-            QueueBotAssignmentClear(gameId, userId, "Reconnect");
+            QueueBotControlClear(gameId, userId, "Reconnect");
             NotifyPresenceChanged(gameId);
         }
 
@@ -558,17 +558,17 @@ public sealed class GamePresenceService : IDisposable
         _ = PruneStaleConnections();
     }
 
-    private void QueueBotAssignmentClear(string gameId, string playerUserId, string clearReason)
+    private void QueueBotControlClear(string gameId, string playerUserId, string clearReason)
     {
         if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(playerUserId))
         {
             return;
         }
 
-        _ = ClearBotAssignmentsForPlayerAsync(gameId, playerUserId, clearReason);
+        _ = ClearBotControlForPlayerAsync(gameId, playerUserId, clearReason);
     }
 
-    private async Task ClearBotAssignmentsForPlayerAsync(string gameId, string playerUserId, string clearReason)
+    private async Task ClearBotControlForPlayerAsync(string gameId, string playerUserId, string clearReason)
     {
         if (_gamesTable is null)
         {
@@ -584,28 +584,36 @@ public sealed class GamePresenceService : IDisposable
         {
             try
             {
-                var response = await _gamesTable.GetEntityAsync<GameEntity>(gameId, "GAME");
-                var gameEntity = response.Value;
-                var assignments = BotAssignmentSerialization.Deserialize(gameEntity.BotAssignmentsJson).ToList();
-                var changed = false;
                 var now = DateTimeOffset.UtcNow;
 
-                for (var index = 0; index < assignments.Count; index++)
-                {
-                    var assignment = assignments[index];
-                    if (!string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
-                        || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                        || assignment.ClearedUtc is not null)
-                    {
-                        continue;
-                    }
+                var playerStates = new List<GamePlayerStateEntity>();
+                var filter = TableClient.CreateQueryFilter(
+                    $"PartitionKey eq {gameId} and RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound}");
 
-                    assignments[index] = assignment with
+                await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(filter: filter))
+                {
+                    playerStates.Add(playerState);
+                }
+
+                if (playerStates.Count == 0)
+                {
+                    return;
+                }
+
+                var changed = false;
+                foreach (var playerState in playerStates.Where(playerState =>
+                             string.Equals(playerState.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
+                             && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                             && playerState.BotControlClearedUtc is null))
+                {
+                    var updateEntity = new TableEntity(playerState.PartitionKey, playerState.RowKey)
                     {
-                        Status = BotAssignmentStatuses.Cleared,
-                        ClearReason = clearReason,
-                        ClearedUtc = now
+                        [nameof(GamePlayerStateEntity.BotControlClearedUtc)] = now,
+                        [nameof(GamePlayerStateEntity.BotControlStatus)] = BotControlStatuses.Cleared,
+                        [nameof(GamePlayerStateEntity.BotControlClearReason)] = clearReason
                     };
+
+                    await _gamesTable.UpdateEntityAsync(updateEntity, ResolveIfMatchETag(playerState), TableUpdateMode.Merge);
                     changed = true;
                 }
 
@@ -614,12 +622,6 @@ public sealed class GamePresenceService : IDisposable
                     return;
                 }
 
-                var updateEntity = new TableEntity(gameEntity.PartitionKey, gameEntity.RowKey)
-                {
-                    [nameof(GameEntity.BotAssignmentsJson)] = BotAssignmentSerialization.Serialize(assignments)
-                };
-
-                await _gamesTable.UpdateEntityAsync(updateEntity, gameEntity.ETag, TableUpdateMode.Merge);
                 NotifyPresenceChanged(gameId, metadataChanged: true);
                 return;
             }
@@ -692,6 +694,13 @@ public sealed class GamePresenceService : IDisposable
     public void Dispose()
     {
         _staleConnectionTimer?.Dispose();
+    }
+
+    private static ETag ResolveIfMatchETag(GamePlayerStateEntity playerState)
+    {
+        return string.IsNullOrWhiteSpace(playerState.ETag.ToString())
+            ? ETag.All
+            : playerState.ETag;
     }
 }
 

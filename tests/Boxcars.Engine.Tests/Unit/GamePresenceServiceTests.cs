@@ -95,7 +95,7 @@ public class GamePresenceServiceTests
         service.SetMockConnectionState("game-1", "target", isConnected: false);
         service.TryTakeDelegatedControl("game-1", "target", "controller");
 
-        var controllerState = service.ResolveSeatControllerState("game-1", "target", activeBotAssignment: null);
+        var controllerState = service.ResolveSeatControllerState("game-1", "target", activePlayerState: null);
 
         Assert.Equal(SeatControllerModes.Delegated, controllerState.ControllerMode);
         Assert.Equal("controller", controllerState.DelegatedControllerUserId);
@@ -109,7 +109,7 @@ public class GamePresenceServiceTests
 
         service.SetMockConnectionState("game-1", "target", isConnected: false);
 
-        var controllerState = service.ResolveSeatControllerState("game-1", "target", activeBotAssignment: null);
+        var controllerState = service.ResolveSeatControllerState("game-1", "target", activePlayerState: null);
 
         Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
         Assert.Equal("target", controllerState.BotDefinitionId);
@@ -117,7 +117,7 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public void ResolveSeatControllerState_BotAssignment_ReturnsBot()
+    public void ResolveSeatControllerState_BotControl_ReturnsBot()
     {
         var service = new GamePresenceService();
 
@@ -126,14 +126,14 @@ public class GamePresenceServiceTests
         var controllerState = service.ResolveSeatControllerState(
             "game-1",
             "target",
-            new BotAssignment
+            new GamePlayerStateEntity
             {
                 GameId = "game-1",
                 PlayerUserId = "target",
                 ControllerUserId = string.Empty,
                 ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
-                Status = BotAssignmentStatuses.Active
+                BotControlStatus = BotControlStatuses.Active
             });
 
         Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
@@ -142,20 +142,20 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public void ResolveSeatControllerState_DedicatedBotAssignment_ReturnsBot()
+    public void ResolveSeatControllerState_DedicatedBotControl_ReturnsBot()
     {
         var service = new GamePresenceService();
 
         var controllerState = service.ResolveSeatControllerState(
             "game-1",
             "beatle-bot",
-            new BotAssignment
+            new GamePlayerStateEntity
             {
                 GameId = "game-1",
                 PlayerUserId = "beatle-bot",
                 ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
-                Status = BotAssignmentStatuses.Active
+                BotControlStatus = BotControlStatuses.Active
             });
 
         Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
@@ -175,14 +175,14 @@ public class GamePresenceServiceTests
         var controllerState = service.ResolveSeatControllerState(
             "game-1",
             "target",
-            new BotAssignment
+            new GamePlayerStateEntity
             {
                 GameId = "game-1",
                 PlayerUserId = "target",
                 ControllerUserId = "controller",
                 ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
-                Status = BotAssignmentStatuses.Active
+                BotControlStatus = BotControlStatuses.Active
             });
 
         Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
@@ -190,7 +190,7 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public void Reconnect_BotAssignmentFallsBackToSelf()
+    public void Reconnect_BotControlFallsBackToSelf()
     {
         var service = new GamePresenceService();
 
@@ -202,14 +202,14 @@ public class GamePresenceServiceTests
         var controllerState = service.ResolveSeatControllerState(
             "game-1",
             "target",
-            new BotAssignment
+            new GamePlayerStateEntity
             {
                 GameId = "game-1",
                 PlayerUserId = "target",
                 ControllerUserId = "controller",
                 ControllerMode = SeatControllerModes.AI,
                 BotDefinitionId = "bot-1",
-                Status = BotAssignmentStatuses.Active
+                BotControlStatus = BotControlStatuses.Active
             });
 
         Assert.Equal(SeatControllerModes.Self, controllerState.ControllerMode);
@@ -217,25 +217,26 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public async Task SetMockConnectionState_HumanReconnect_ClearsPersistedAiAssignment()
+    public async Task SetMockConnectionState_HumanReconnect_ClearsPersistedAiControl()
     {
-        var gamesTable = new FakeGamesTableClient(new GameEntity
-        {
-            PartitionKey = "game-1",
-            RowKey = "GAME",
-            GameId = "game-1",
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "target",
-                    ControllerMode = SeatControllerModes.AI,
-                    BotDefinitionId = "target",
-                    Status = BotAssignmentStatuses.Active
-                }
-            ])
-        });
+        var gamesTable = new FakeGamesTableClient(
+            new GameEntity
+            {
+                PartitionKey = "game-1",
+                RowKey = "GAME",
+                GameId = "game-1"
+            },
+            new GamePlayerStateEntity
+            {
+                PartitionKey = "game-1",
+                RowKey = GamePlayerStateEntity.BuildRowKey(0),
+                GameId = "game-1",
+                SeatIndex = 0,
+                PlayerUserId = "target",
+                ControllerMode = SeatControllerModes.AI,
+                BotDefinitionId = "target",
+                BotControlStatus = BotControlStatuses.Active
+            });
         var usersTable = new FakeUsersTableClient(new ApplicationUser
         {
             PartitionKey = "USER",
@@ -252,36 +253,36 @@ public class GamePresenceServiceTests
         service.SetMockConnectionState("game-1", "target", isConnected: true);
 
         await WaitForAsync(() =>
-            BotAssignmentSerialization.Deserialize(gamesTable.GameEntity.BotAssignmentsJson)
-                .Any(assignment => string.Equals(assignment.PlayerUserId, "target", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(assignment.Status, BotAssignmentStatuses.Cleared, StringComparison.OrdinalIgnoreCase)));
+            gamesTable.PlayerStates.Any(playerState => string.Equals(playerState.PlayerUserId, "target", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(playerState.BotControlStatus, BotControlStatuses.Cleared, StringComparison.OrdinalIgnoreCase)));
 
-        var assignment = Assert.Single(BotAssignmentSerialization.Deserialize(gamesTable.GameEntity.BotAssignmentsJson));
-        Assert.Equal(BotAssignmentStatuses.Cleared, assignment.Status);
-        Assert.Equal("Reconnect", assignment.ClearReason);
-        Assert.NotNull(assignment.ClearedUtc);
+        var playerState = Assert.Single(gamesTable.PlayerStates);
+        Assert.Equal(BotControlStatuses.Cleared, playerState.BotControlStatus);
+        Assert.Equal("Reconnect", playerState.BotControlClearReason);
+        Assert.NotNull(playerState.BotControlClearedUtc);
     }
 
     [Fact]
-    public async Task SetMockConnectionState_BotReconnect_DoesNotClearDedicatedBotAssignment()
+    public async Task SetMockConnectionState_BotReconnect_DoesNotClearDedicatedBotControl()
     {
-        var gamesTable = new FakeGamesTableClient(new GameEntity
-        {
-            PartitionKey = "game-1",
-            RowKey = "GAME",
-            GameId = "game-1",
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "beatle-bot",
-                    ControllerMode = SeatControllerModes.AI,
-                    BotDefinitionId = "beatle-bot",
-                    Status = BotAssignmentStatuses.Active
-                }
-            ])
-        });
+        var gamesTable = new FakeGamesTableClient(
+            new GameEntity
+            {
+                PartitionKey = "game-1",
+                RowKey = "GAME",
+                GameId = "game-1"
+            },
+            new GamePlayerStateEntity
+            {
+                PartitionKey = "game-1",
+                RowKey = GamePlayerStateEntity.BuildRowKey(0),
+                GameId = "game-1",
+                SeatIndex = 0,
+                PlayerUserId = "beatle-bot",
+                ControllerMode = SeatControllerModes.AI,
+                BotDefinitionId = "beatle-bot",
+                BotControlStatus = BotControlStatuses.Active
+            });
         var usersTable = new FakeUsersTableClient(new ApplicationUser
         {
             PartitionKey = "USER",
@@ -299,9 +300,9 @@ public class GamePresenceServiceTests
 
         await Task.Delay(50);
 
-        var assignment = Assert.Single(BotAssignmentSerialization.Deserialize(gamesTable.GameEntity.BotAssignmentsJson));
-        Assert.Equal(BotAssignmentStatuses.Active, assignment.Status);
-        Assert.Null(assignment.ClearedUtc);
+        var playerState = Assert.Single(gamesTable.PlayerStates);
+        Assert.Equal(BotControlStatuses.Active, playerState.BotControlStatus);
+        Assert.Null(playerState.BotControlClearedUtc);
     }
 
     private static async Task WaitForAsync(Func<bool> condition)
@@ -334,9 +335,10 @@ public class GamePresenceServiceTests
         }
     }
 
-    private sealed class FakeGamesTableClient(GameEntity gameEntity) : TableClient
+    private sealed class FakeGamesTableClient(GameEntity gameEntity, params GamePlayerStateEntity[] playerStates) : TableClient
     {
         public GameEntity GameEntity { get; private set; } = Clone(gameEntity);
+        public List<GamePlayerStateEntity> PlayerStates { get; } = playerStates.Select(Clone).ToList();
 
         public override Task<Response<T>> GetEntityAsync<T>(
             string partitionKey,
@@ -344,13 +346,57 @@ public class GamePresenceServiceTests
             IEnumerable<string>? select = null,
             CancellationToken cancellationToken = default)
         {
-            if (!string.Equals(partitionKey, GameEntity.PartitionKey, StringComparison.Ordinal)
-                || !string.Equals(rowKey, GameEntity.RowKey, StringComparison.Ordinal))
+            if (typeof(T) == typeof(GameEntity))
             {
-                throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
+                if (!string.Equals(partitionKey, GameEntity.PartitionKey, StringComparison.Ordinal)
+                    || !string.Equals(rowKey, GameEntity.RowKey, StringComparison.Ordinal))
+                {
+                    throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
+                }
+
+                return Task.FromResult(Response.FromValue((T)(ITableEntity)Clone(GameEntity), new FakeResponse((int)HttpStatusCode.OK)));
             }
 
-            return Task.FromResult(Response.FromValue((T)(ITableEntity)Clone(GameEntity), new FakeResponse((int)HttpStatusCode.OK)));
+            if (typeof(T) == typeof(GamePlayerStateEntity))
+            {
+                var playerState = PlayerStates.SingleOrDefault(playerState =>
+                    string.Equals(playerState.PartitionKey, partitionKey, StringComparison.Ordinal)
+                    && string.Equals(playerState.RowKey, rowKey, StringComparison.Ordinal));
+
+                if (playerState is null)
+                {
+                    throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
+                }
+
+                return Task.FromResult(Response.FromValue((T)(ITableEntity)Clone(playerState), new FakeResponse((int)HttpStatusCode.OK)));
+            }
+
+            throw new NotSupportedException($"Unsupported entity type: {typeof(T).Name}");
+        }
+
+        public override AsyncPageable<T> QueryAsync<T>(
+            string? filter = null,
+            int? maxPerPage = null,
+            IEnumerable<string>? select = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (typeof(T) == typeof(GamePlayerStateEntity))
+            {
+                var values = PlayerStates
+                    .Select(Clone)
+                    .Cast<T>()
+                    .ToList();
+
+                return AsyncPageable<T>.FromPages(
+                [
+                    Page<T>.FromValues(values, continuationToken: null, new FakeResponse((int)HttpStatusCode.OK))
+                ]);
+            }
+
+            return AsyncPageable<T>.FromPages(
+            [
+                Page<T>.FromValues([], continuationToken: null, new FakeResponse((int)HttpStatusCode.OK))
+            ]);
         }
 
         public override Task<Response> UpdateEntityAsync<T>(
@@ -360,8 +406,15 @@ public class GamePresenceServiceTests
             CancellationToken cancellationToken = default)
         {
             var tableEntity = entity as TableEntity ?? throw new InvalidOperationException("Expected table entity.");
-            GameEntity.BotAssignmentsJson = tableEntity.GetString(nameof(GameEntity.BotAssignmentsJson)) ?? GameEntity.BotAssignmentsJson;
-            GameEntity.ETag = new ETag("\"updated\"");
+
+            var playerState = PlayerStates.Single(existing =>
+                string.Equals(existing.PartitionKey, tableEntity.PartitionKey, StringComparison.Ordinal)
+                && string.Equals(existing.RowKey, tableEntity.RowKey, StringComparison.Ordinal));
+
+            playerState.BotControlClearedUtc = tableEntity.GetDateTimeOffset(nameof(GamePlayerStateEntity.BotControlClearedUtc)) ?? playerState.BotControlClearedUtc;
+            playerState.BotControlStatus = tableEntity.GetString(nameof(GamePlayerStateEntity.BotControlStatus)) ?? playerState.BotControlStatus;
+            playerState.BotControlClearReason = tableEntity.GetString(nameof(GamePlayerStateEntity.BotControlClearReason)) ?? playerState.BotControlClearReason;
+            playerState.ETag = new ETag("\"updated\"");
             return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
         }
     }
@@ -395,8 +448,52 @@ public class GamePresenceServiceTests
             RowKey = entity.RowKey,
             Timestamp = entity.Timestamp,
             ETag = entity.ETag,
+            GameId = entity.GameId
+        };
+    }
+
+    private static GamePlayerStateEntity Clone(GamePlayerStateEntity entity)
+    {
+        return new GamePlayerStateEntity
+        {
+            PartitionKey = entity.PartitionKey,
+            RowKey = entity.RowKey,
+            Timestamp = entity.Timestamp,
+            ETag = entity.ETag,
             GameId = entity.GameId,
-            BotAssignmentsJson = entity.BotAssignmentsJson
+            SeatIndex = entity.SeatIndex,
+            PlayerUserId = entity.PlayerUserId,
+            DisplayName = entity.DisplayName,
+            Color = entity.Color,
+            ControllerMode = entity.ControllerMode,
+            ControllerUserId = entity.ControllerUserId,
+            BotDefinitionId = entity.BotDefinitionId,
+            AuctionPlanTurnNumber = entity.AuctionPlanTurnNumber,
+            AuctionPlanRailroadIndex = entity.AuctionPlanRailroadIndex,
+            AuctionPlanStartingPrice = entity.AuctionPlanStartingPrice,
+            AuctionPlanMaximumBid = entity.AuctionPlanMaximumBid,
+            BotControlActivatedUtc = entity.BotControlActivatedUtc,
+            BotControlClearedUtc = entity.BotControlClearedUtc,
+            BotControlStatus = entity.BotControlStatus,
+            BotControlClearReason = entity.BotControlClearReason,
+            TurnsTaken = entity.TurnsTaken,
+            FreightTurnCount = entity.FreightTurnCount,
+            FreightRollTotal = entity.FreightRollTotal,
+            ExpressTurnCount = entity.ExpressTurnCount,
+            ExpressRollTotal = entity.ExpressRollTotal,
+            SuperchiefTurnCount = entity.SuperchiefTurnCount,
+            SuperchiefRollTotal = entity.SuperchiefRollTotal,
+            BonusRollCount = entity.BonusRollCount,
+            BonusRollTotal = entity.BonusRollTotal,
+            TotalPayoffsCollected = entity.TotalPayoffsCollected,
+            TotalFeesPaid = entity.TotalFeesPaid,
+            TotalRailroadFaceValuePurchased = entity.TotalRailroadFaceValuePurchased,
+            TotalRailroadAmountPaid = entity.TotalRailroadAmountPaid,
+            AuctionWins = entity.AuctionWins,
+            AuctionBidsPlaced = entity.AuctionBidsPlaced,
+            RailroadsPurchasedCount = entity.RailroadsPurchasedCount,
+            RailroadsAuctionedCount = entity.RailroadsAuctionedCount,
+            RailroadsSoldToBankCount = entity.RailroadsSoldToBankCount
         };
     }
 

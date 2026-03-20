@@ -6,7 +6,6 @@ using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Microsoft.AspNetCore.SignalR;
-using System.Text.Json;
 using System.Globalization;
 
 namespace Boxcars.Services;
@@ -23,9 +22,18 @@ public class GameService
     private readonly IGameEngine _gameEngine;
 
     public GameService(TableServiceClient tableServiceClient, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
+        : this(
+            tableServiceClient.GetTableClient(TableNames.GamesTable),
+            tableServiceClient.GetTableClient(TableNames.UsersTable),
+            hubContext,
+            gameEngine)
     {
-        _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
-        _usersTable = tableServiceClient.GetTableClient(TableNames.UsersTable);
+    }
+
+    public GameService(TableClient gamesTable, TableClient usersTable, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
+    {
+        _gamesTable = gamesTable;
+        _usersTable = usersTable;
         _hubContext = hubContext;
         _gameEngine = gameEngine;
     }
@@ -33,10 +41,11 @@ public class GameService
     public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
     {
         var games = await GetAllGamesAsync(cancellationToken);
+        var activeGameIds = await GetGameIdsForPlayerAsync(playerId, cancellationToken);
 
         var activeGame = games
             .OrderByDescending(game => game.CreatedAt)
-            .FirstOrDefault(game => IsPlayerInGame(game, playerId));
+            .FirstOrDefault(game => activeGameIds.Contains(game.GameId));
 
         return new DashboardState
         {
@@ -127,62 +136,161 @@ public class GameService
         }
     }
 
-    public async Task<GameUpdateResult> UpdateBotAssignmentsAsync(GameEntity game, string botAssignmentsJson, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<GamePlayerStateEntity>> GetGamePlayerStatesAsync(string gameId, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(game);
+        var playerStates = new List<GamePlayerStateEntity>();
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound}");
 
-        List<BotAssignment> assignments;
+        await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(
+                           filter: filter,
+                           cancellationToken: cancellationToken))
+        {
+            playerStates.Add(playerState);
+        }
+
+        playerStates.Sort(static (left, right) => left.SeatIndex.CompareTo(right.SeatIndex));
+        return playerStates;
+    }
+
+    public async Task<GamePlayerStateEntity?> GetGamePlayerStateAsync(string gameId, int seatIndex, CancellationToken cancellationToken)
+    {
         try
         {
-            assignments = NormalizeBotAssignments(botAssignmentsJson);
+            var response = await _gamesTable.GetEntityAsync<GamePlayerStateEntity>(
+                gameId,
+                GamePlayerStateEntity.BuildRowKey(seatIndex),
+                cancellationToken: cancellationToken);
+
+            return response.Value;
         }
-        catch (JsonException)
+        catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            return GameUpdateResult.Failed("The bot assignment payload was invalid. Refresh and try again.");
+            return null;
         }
+    }
+
+    public async Task<GameUpdateResult> UpdatePlayerStatesAsync(string gameId, IReadOnlyList<GamePlayerStateEntity> playerStates, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameId);
+        ArgumentNullException.ThrowIfNull(playerStates);
 
         try
         {
-            var updateEntity = new TableEntity(game.PartitionKey, game.RowKey)
+            var persistedPlayerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
+            if (persistedPlayerStates.Count == 0)
             {
-                [nameof(GameEntity.BotAssignmentsJson)] = BotAssignmentSerialization.Serialize(assignments)
-            };
+                return GameUpdateResult.Failed("Game player state rows were not found.");
+            }
 
-            await _gamesTable.UpdateEntityAsync(updateEntity, game.ETag, TableUpdateMode.Merge, cancellationToken);
+            var proposedBySeatIndex = playerStates.ToDictionary(playerState => playerState.SeatIndex);
+            foreach (var persistedPlayerState in persistedPlayerStates)
+            {
+                if (!proposedBySeatIndex.TryGetValue(persistedPlayerState.SeatIndex, out var proposedPlayerState))
+                {
+                    continue;
+                }
 
-            var updatedGame = await GetGameAsync(game.GameId, cancellationToken);
+                if (ArePlayerStateMutableColumnsEqual(persistedPlayerState, proposedPlayerState))
+                {
+                    continue;
+                }
+
+                var updateEntity = new TableEntity(persistedPlayerState.PartitionKey, persistedPlayerState.RowKey)
+                {
+                    [nameof(GamePlayerStateEntity.ControllerMode)] = proposedPlayerState.ControllerMode,
+                    [nameof(GamePlayerStateEntity.ControllerUserId)] = proposedPlayerState.ControllerUserId,
+                    [nameof(GamePlayerStateEntity.BotDefinitionId)] = proposedPlayerState.BotDefinitionId,
+                    [nameof(GamePlayerStateEntity.AuctionPlanTurnNumber)] = proposedPlayerState.AuctionPlanTurnNumber,
+                    [nameof(GamePlayerStateEntity.AuctionPlanRailroadIndex)] = proposedPlayerState.AuctionPlanRailroadIndex,
+                    [nameof(GamePlayerStateEntity.AuctionPlanStartingPrice)] = proposedPlayerState.AuctionPlanStartingPrice,
+                    [nameof(GamePlayerStateEntity.AuctionPlanMaximumBid)] = proposedPlayerState.AuctionPlanMaximumBid,
+                    [nameof(GamePlayerStateEntity.BotControlActivatedUtc)] = proposedPlayerState.BotControlActivatedUtc,
+                    [nameof(GamePlayerStateEntity.BotControlClearedUtc)] = proposedPlayerState.BotControlClearedUtc,
+                    [nameof(GamePlayerStateEntity.BotControlStatus)] = proposedPlayerState.BotControlStatus,
+                    [nameof(GamePlayerStateEntity.BotControlClearReason)] = proposedPlayerState.BotControlClearReason,
+                    [nameof(GamePlayerStateEntity.TurnsTaken)] = proposedPlayerState.TurnsTaken,
+                    [nameof(GamePlayerStateEntity.FreightTurnCount)] = proposedPlayerState.FreightTurnCount,
+                    [nameof(GamePlayerStateEntity.FreightRollTotal)] = proposedPlayerState.FreightRollTotal,
+                    [nameof(GamePlayerStateEntity.ExpressTurnCount)] = proposedPlayerState.ExpressTurnCount,
+                    [nameof(GamePlayerStateEntity.ExpressRollTotal)] = proposedPlayerState.ExpressRollTotal,
+                    [nameof(GamePlayerStateEntity.SuperchiefTurnCount)] = proposedPlayerState.SuperchiefTurnCount,
+                    [nameof(GamePlayerStateEntity.SuperchiefRollTotal)] = proposedPlayerState.SuperchiefRollTotal,
+                    [nameof(GamePlayerStateEntity.BonusRollCount)] = proposedPlayerState.BonusRollCount,
+                    [nameof(GamePlayerStateEntity.BonusRollTotal)] = proposedPlayerState.BonusRollTotal,
+                    [nameof(GamePlayerStateEntity.TotalPayoffsCollected)] = proposedPlayerState.TotalPayoffsCollected,
+                    [nameof(GamePlayerStateEntity.TotalFeesPaid)] = proposedPlayerState.TotalFeesPaid,
+                    [nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)] = proposedPlayerState.TotalRailroadFaceValuePurchased,
+                    [nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)] = proposedPlayerState.TotalRailroadAmountPaid,
+                    [nameof(GamePlayerStateEntity.AuctionWins)] = proposedPlayerState.AuctionWins,
+                    [nameof(GamePlayerStateEntity.AuctionBidsPlaced)] = proposedPlayerState.AuctionBidsPlaced,
+                    [nameof(GamePlayerStateEntity.RailroadsPurchasedCount)] = proposedPlayerState.RailroadsPurchasedCount,
+                    [nameof(GamePlayerStateEntity.RailroadsAuctionedCount)] = proposedPlayerState.RailroadsAuctionedCount,
+                    [nameof(GamePlayerStateEntity.RailroadsSoldToBankCount)] = proposedPlayerState.RailroadsSoldToBankCount,
+                    [nameof(GamePlayerStateEntity.DestinationCount)] = proposedPlayerState.DestinationCount,
+                    [nameof(GamePlayerStateEntity.UnfriendlyDestinationCount)] = proposedPlayerState.UnfriendlyDestinationCount,
+                    [nameof(GamePlayerStateEntity.DestinationLog)] = proposedPlayerState.DestinationLog
+                };
+
+                await _gamesTable.UpdateEntityAsync(updateEntity, persistedPlayerState.ETag, TableUpdateMode.Merge, cancellationToken);
+            }
+
+            var updatedGame = await GetGameAsync(gameId, cancellationToken);
+            var updatedPlayerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
             return updatedGame is null
                 ? GameUpdateResult.Failed("Game is no longer active.")
-                : GameUpdateResult.Success(updatedGame);
+                : GameUpdateResult.Success(updatedGame, updatedPlayerStates);
         }
         catch (RequestFailedException ex) when (ex.Status == 412)
         {
-            return GameUpdateResult.Conflict("The game changed before the bot assignment could be saved. Refresh and try again.");
+            return GameUpdateResult.Conflict("The game changed before the seat state change could be saved. Refresh and try again.");
         }
     }
 
-    private static List<BotAssignment> NormalizeBotAssignments(string botAssignmentsJson)
+    private static bool ArePlayerStateMutableColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
     {
-        return BotAssignmentSerialization.Deserialize(botAssignmentsJson)
-            .Select(assignment => assignment with
-            {
-                ControllerMode = NormalizeControllerMode(assignment),
-                ControllerUserId = string.Equals(NormalizeControllerMode(assignment), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase)
-                    ? string.Empty
-                    : assignment.ControllerUserId,
-                Status = string.IsNullOrWhiteSpace(assignment.Status) ? BotAssignmentStatuses.Active : assignment.Status
-            })
-            .ToList();
+        return AreBotControlColumnsEqual(left, right)
+            && AreStatisticsColumnsEqual(left, right);
     }
 
-    private static string NormalizeControllerMode(BotAssignment assignment)
+    private static bool AreBotControlColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
     {
-        if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
-        {
-            return SeatControllerModes.Normalize(assignment.ControllerMode);
-        }
+        return string.Equals(left.ControllerMode, right.ControllerMode, StringComparison.Ordinal)
+            && string.Equals(left.ControllerUserId, right.ControllerUserId, StringComparison.Ordinal)
+            && string.Equals(left.BotDefinitionId, right.BotDefinitionId, StringComparison.Ordinal)
+            && left.AuctionPlanTurnNumber == right.AuctionPlanTurnNumber
+            && left.AuctionPlanRailroadIndex == right.AuctionPlanRailroadIndex
+            && left.AuctionPlanStartingPrice == right.AuctionPlanStartingPrice
+            && left.AuctionPlanMaximumBid == right.AuctionPlanMaximumBid
+            && left.BotControlActivatedUtc == right.BotControlActivatedUtc
+            && left.BotControlClearedUtc == right.BotControlClearedUtc
+            && string.Equals(left.BotControlStatus, right.BotControlStatus, StringComparison.Ordinal)
+            && string.Equals(left.BotControlClearReason, right.BotControlClearReason, StringComparison.Ordinal);
+    }
 
-        return SeatControllerModes.AI;
+    private static bool AreStatisticsColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
+    {
+        return left.TurnsTaken == right.TurnsTaken
+            && left.FreightTurnCount == right.FreightTurnCount
+            && left.FreightRollTotal == right.FreightRollTotal
+            && left.ExpressTurnCount == right.ExpressTurnCount
+            && left.ExpressRollTotal == right.ExpressRollTotal
+            && left.SuperchiefTurnCount == right.SuperchiefTurnCount
+            && left.SuperchiefRollTotal == right.SuperchiefRollTotal
+            && left.BonusRollCount == right.BonusRollCount
+            && left.BonusRollTotal == right.BonusRollTotal
+            && left.TotalPayoffsCollected == right.TotalPayoffsCollected
+            && left.TotalFeesPaid == right.TotalFeesPaid
+            && left.TotalRailroadFaceValuePurchased == right.TotalRailroadFaceValuePurchased
+            && left.TotalRailroadAmountPaid == right.TotalRailroadAmountPaid
+            && left.AuctionWins == right.AuctionWins
+            && left.AuctionBidsPlaced == right.AuctionBidsPlaced
+            && left.RailroadsPurchasedCount == right.RailroadsPurchasedCount
+            && left.RailroadsAuctionedCount == right.RailroadsAuctionedCount
+                && left.RailroadsSoldToBankCount == right.RailroadsSoldToBankCount
+                && left.DestinationCount == right.DestinationCount
+                && left.UnfriendlyDestinationCount == right.UnfriendlyDestinationCount
+                && string.Equals(left.DestinationLog, right.DestinationLog, StringComparison.Ordinal);
     }
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
@@ -726,10 +834,25 @@ public class GameService
         return games;
     }
 
-    private static bool IsPlayerInGame(GameEntity game, string playerId)
+    private async Task<HashSet<string>> GetGameIdsForPlayerAsync(string playerId, CancellationToken cancellationToken)
     {
-        var players = GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
-        return players.Any(player => string.Equals(player.UserId, playerId, StringComparison.OrdinalIgnoreCase));
+        var gameIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var filter = TableClient.CreateQueryFilter(
+            $"RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound} and PlayerUserId eq {playerId}");
+
+        await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(filter: filter, cancellationToken: cancellationToken))
+        {
+            if (!string.IsNullOrWhiteSpace(playerState.GameId))
+            {
+                gameIds.Add(playerState.GameId);
+            }
+            else if (!string.IsNullOrWhiteSpace(playerState.PartitionKey))
+            {
+                gameIds.Add(playerState.PartitionKey);
+            }
+        }
+
+        return gameIds;
     }
 }
 
@@ -753,11 +876,13 @@ public sealed record GameUpdateResult
     public bool IsConflict { get; init; }
     public string? ErrorMessage { get; init; }
     public GameEntity? Game { get; init; }
+    public IReadOnlyList<GamePlayerStateEntity> PlayerStates { get; init; } = [];
 
-    public static GameUpdateResult Success(GameEntity game) => new()
+    public static GameUpdateResult Success(GameEntity game, IReadOnlyList<GamePlayerStateEntity>? playerStates = null) => new()
     {
         Succeeded = true,
-        Game = game
+        Game = game,
+        PlayerStates = playerStates ?? []
     };
 
     public static GameUpdateResult Conflict(string message) => new()

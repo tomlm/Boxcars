@@ -58,7 +58,7 @@ public class ForcedSaleActionTests
     [Fact]
     public void ValidateActionAuthorization_AllowsCurrentAuctionParticipantBid_WhenActorControlsThatSlot()
     {
-        var (gameEntity, engine) = CreateAuctionAuthorizationContext();
+        var (gameEntity, playerStates, engine) = CreateAuctionAuthorizationContext();
         var currentBidderIndex = engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex!.Value;
         var currentBidder = engine.Players[currentBidderIndex];
 
@@ -71,13 +71,13 @@ public class ForcedSaleActionTests
             AmountBid = engine.CurrentTurn.AuctionState.StartingPrice
         };
 
-        InvokeValidateActionAuthorization(gameEntity, engine, action);
+        InvokeValidateActionAuthorization(gameEntity, playerStates, engine, action);
     }
 
     [Fact]
     public void ValidateActionAuthorization_RejectsAuctionPass_WhenActorDoesNotControlBidderSlot()
     {
-        var (gameEntity, engine) = CreateAuctionAuthorizationContext();
+        var (gameEntity, playerStates, engine) = CreateAuctionAuthorizationContext();
         var currentBidderIndex = engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex!.Value;
         var currentBidder = engine.Players[currentBidderIndex];
 
@@ -89,7 +89,7 @@ public class ForcedSaleActionTests
             RailroadIndex = engine.CurrentTurn.AuctionState.RailroadIndex
         };
 
-        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, playerStates, engine, action));
 
         Assert.IsType<InvalidOperationException>(exception.InnerException);
         Assert.Contains("Only the controlling participant for the acting player may perform this auction action.", exception.InnerException!.Message);
@@ -98,7 +98,7 @@ public class ForcedSaleActionTests
     [Fact]
     public void ValidateActionAuthorization_RejectsAuctionDropOut_ForUncontrolledBeatlesSlot()
     {
-        var (gameEntity, engine) = CreateAuctionAuthorizationContext(slotTwoUserId: "george@beatles.com");
+        var (gameEntity, playerStates, engine) = CreateAuctionAuthorizationContext(slotTwoUserId: "george@beatles.com");
         var currentBidderIndex = engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex!.Value;
         var currentBidder = engine.Players[currentBidderIndex];
 
@@ -110,7 +110,7 @@ public class ForcedSaleActionTests
             RailroadIndex = engine.CurrentTurn.AuctionState.RailroadIndex
         };
 
-        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, playerStates, engine, action));
 
         Assert.IsType<InvalidOperationException>(exception.InnerException);
         Assert.Contains("Only the controlling participant for the acting player may perform this auction action.", exception.InnerException!.Message);
@@ -119,7 +119,7 @@ public class ForcedSaleActionTests
     [Fact]
     public void ValidateActionAuthorization_RejectsAuctionBid_WhenParticipantHasBeenEliminated()
     {
-        var (gameEntity, engine) = CreateAuctionAuthorizationContext();
+        var (gameEntity, playerStates, engine) = CreateAuctionAuthorizationContext();
         var currentBidderIndex = engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex!.Value;
         var currentBidder = engine.Players[currentBidderIndex];
         currentBidder.IsActive = false;
@@ -134,7 +134,7 @@ public class ForcedSaleActionTests
             AmountBid = engine.CurrentTurn.AuctionState.StartingPrice
         };
 
-        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, playerStates, engine, action));
 
         Assert.IsType<InvalidOperationException>(exception.InnerException);
         Assert.Contains("Eliminated players may only spectate", exception.InnerException!.Message);
@@ -206,13 +206,13 @@ public class ForcedSaleActionTests
         var gameEntity = new GameEntity
         {
             PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
-                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
-            ])
+            GameId = "game-1"
         };
+        var playerStates = BotTurnServiceTestHarness.CreatePlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
+            new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
+        ]);
 
         var action = new ChooseDestinationRegionAction
         {
@@ -222,7 +222,7 @@ public class ForcedSaleActionTests
             SelectedRegionCode = "SE"
         };
 
-        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action));
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, playerStates, engine, action));
 
         Assert.IsType<InvalidOperationException>(exception.InnerException);
         Assert.Contains("Only the controlling participant for the active player may perform this action.", exception.InnerException!.Message);
@@ -235,24 +235,15 @@ public class ForcedSaleActionTests
         var gameEntity = new GameEntity
         {
             PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
-                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
-            ]),
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                new BotAssignment
-                {
-                    GameId = "game-1",
-                    PlayerUserId = "alice@example.com",
-                    ControllerMode = SeatControllerModes.AI,
-                    BotDefinitionId = "bot-1",
-                    Status = BotAssignmentStatuses.Active
-                }
-            ])
+            GameId = "game-1"
         };
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
+            new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
+        ],
+        "alice@example.com",
+        "bot-1");
 
         var action = new EndTurnAction
         {
@@ -261,7 +252,7 @@ public class ForcedSaleActionTests
             ActorUserId = BotOptions.DefaultServerActorUserId
         };
 
-        InvokeValidateActionAuthorization(gameEntity, engine, action);
+        InvokeValidateActionAuthorization(gameEntity, playerStates, engine, action);
     }
 
     [Fact]
@@ -273,13 +264,13 @@ public class ForcedSaleActionTests
         var gameEntity = new GameEntity
         {
             PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
-                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
-            ])
+            GameId = "game-1"
         };
+        var playerStates = BotTurnServiceTestHarness.CreatePlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
+            new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
+        ]);
 
         var action = new EndTurnAction
         {
@@ -288,19 +279,22 @@ public class ForcedSaleActionTests
             ActorUserId = BotOptions.DefaultServerActorUserId
         };
 
-        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, engine, action, presenceService));
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeValidateActionAuthorization(gameEntity, playerStates, engine, action, presenceService));
 
         Assert.IsType<InvalidOperationException>(exception.InnerException);
         Assert.Contains("Only the controlling participant for the active player may perform this action.", exception.InnerException!.Message);
     }
 
-    private static void InvokeValidateActionAuthorization(GameEntity gameEntity, Boxcars.Engine.Domain.GameEngine engine, PlayerAction action, GamePresenceService? presenceService = null)
+    private static void InvokeValidateActionAuthorization(GameEntity gameEntity, List<GamePlayerStateEntity> playerStates, Boxcars.Engine.Domain.GameEngine engine, PlayerAction action, GamePresenceService? presenceService = null)
     {
         var service = CreateGameEngineServiceForTests(presenceService);
-        var method = typeof(GameEngineService).GetMethod("ValidateActionAuthorization", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new InvalidOperationException("ValidateActionAuthorization was not found.");
+        var method = typeof(GameEngineService).GetMethod("ValidateActionAuthorizationAsync", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("ValidateActionAuthorizationAsync was not found.");
 
-        method.Invoke(service, [gameEntity, engine, action]);
+        var task = (Task)(method.Invoke(service, [gameEntity, playerStates, engine, action, CancellationToken.None])
+            ?? throw new InvalidOperationException("ValidateActionAuthorizationAsync returned null."));
+
+        task.GetAwaiter().GetResult();
     }
 
     private static string InvokeDescribeAction(PlayerAction action, Boxcars.Engine.Persistence.GameState snapshotBeforeAction, Boxcars.Engine.Persistence.GameState snapshotAfterAction, Boxcars.Engine.Domain.GameEngine engine)
@@ -308,11 +302,23 @@ public class ForcedSaleActionTests
         var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("DescribeAction was not found.");
 
-        return (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, action, snapshotBeforeAction, snapshotAfterAction, engine])
+        var playerStates = engine.Players
+            .Select((player, index) => GamePlayerStateEntity.Create(
+                "game-1",
+                index,
+                new GamePlayerSelection
+                {
+                    UserId = $"player-{index}@example.com",
+                    DisplayName = player.Name,
+                    Color = $"#{index + 1}{index + 1}{index + 1}{index + 1}{index + 1}{index + 1}"
+                }))
+            .ToList();
+
+        return (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, playerStates, action, snapshotBeforeAction, snapshotAfterAction, engine])
             ?? throw new InvalidOperationException("DescribeAction returned null."));
     }
 
-    private static (GameEntity GameEntity, Boxcars.Engine.Domain.GameEngine Engine) CreateAuctionAuthorizationContext(string slotTwoUserId = "bidder@example.com")
+    private static (GameEntity GameEntity, List<GamePlayerStateEntity> PlayerStates, Boxcars.Engine.Domain.GameEngine Engine) CreateAuctionAuthorizationContext(string slotTwoUserId = "bidder@example.com")
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
         engine.CurrentTurn.Phase = TurnPhase.Purchase;
@@ -326,16 +332,16 @@ public class ForcedSaleActionTests
         var gameEntity = new GameEntity
         {
             PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "seller@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
-                new GamePlayerSelection { UserId = slotTwoUserId, DisplayName = engine.Players[1].Name, Color = "#222222" },
-                new GamePlayerSelection { UserId = "other@example.com", DisplayName = engine.Players[2].Name, Color = "#333333" }
-            ])
+            GameId = "game-1"
         };
+        var playerStates = BotTurnServiceTestHarness.CreatePlayerStates(
+        [
+            new GamePlayerSelection { UserId = "seller@example.com", DisplayName = engine.Players[0].Name, Color = "#111111" },
+            new GamePlayerSelection { UserId = slotTwoUserId, DisplayName = engine.Players[1].Name, Color = "#222222" },
+            new GamePlayerSelection { UserId = "other@example.com", DisplayName = engine.Players[2].Name, Color = "#333333" }
+        ]);
 
-        return (gameEntity, engine);
+        return (gameEntity, playerStates, engine);
     }
 
     private static GameEngineService CreateGameEngineServiceForTests(GamePresenceService? presenceService = null)

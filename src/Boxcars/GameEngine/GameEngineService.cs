@@ -57,9 +57,28 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         IOptions<BotOptions> botOptions,
         IOptions<PurchaseRulesOptions> purchaseRulesOptions,
         ILogger<GameEngineService> logger)
+        : this(
+            webHostEnvironment,
+            tableServiceClient.GetTableClient(TableNames.GamesTable),
+            gamePresenceService,
+            botTurnService,
+            botOptions,
+            purchaseRulesOptions,
+            logger)
+    {
+    }
+
+    public GameEngineService(
+        IWebHostEnvironment webHostEnvironment,
+        TableClient gamesTable,
+        GamePresenceService gamePresenceService,
+        BotTurnService botTurnService,
+        IOptions<BotOptions> botOptions,
+        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+        ILogger<GameEngineService> logger)
     {
         _webHostEnvironment = webHostEnvironment;
-        _gamesTable = tableServiceClient.GetTableClient(TableNames.GamesTable);
+        _gamesTable = gamesTable;
         _gamePresenceService = gamePresenceService;
         _botTurnService = botTurnService;
         _botOptions = botOptions.Value;
@@ -136,15 +155,21 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             {
                 request.MapFileName,
                 request.MaxPlayers
-            }),
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(request.Players)
+            })
         };
+
+        var playerStates = request.Players
+            .Select((player, seatIndex) => GamePlayerStateEntity.Create(gameId, seatIndex, player))
+            .ToList();
+
+        await _botTurnService.EnsureBotSeatControlStatesAsync(gameId, playerStates, request.CreatorUserId, cancellationToken);
 
         await _gamesTable.AddEntityAsync(gameEntity, cancellationToken);
 
-        var originalBotAssignmentsJson = gameEntity.BotAssignmentsJson;
-        await _botTurnService.EnsureBotSeatAssignmentsAsync(gameEntity, request.Players, request.CreatorUserId, cancellationToken);
-        await PersistBotAssignmentsIfChangedAsync(gameEntity, originalBotAssignmentsJson, cancellationToken);
+        foreach (var playerState in playerStates)
+        {
+            await _gamesTable.AddEntityAsync(playerState, cancellationToken);
+        }
 
         var snapshot = createdGameEngine.ToSnapshot();
         await PersistEventAsync(gameId, snapshot, "CreateGame", "Game created.", request.CreatorUserId, new
@@ -230,6 +255,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             new { RevertedEvent = events[^1].RowKey },
             cancellationToken);
 
+        await RebuildPlayerStatisticsAsync(gameId, events.Take(Math.Max(0, events.Count - 1)).ToList(), cancellationToken);
+
         PublishStateChanged(
             gameId,
             restoredSnapshot,
@@ -253,19 +280,22 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     gameEngine = await GetOrCreateGameEngineAsync(queuedAction.GameId, stoppingToken);
                     var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
                         ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
+                    var playerStates = await GetGamePlayerStatesAsync(queuedAction.GameId, stoppingToken);
 
                     var snapshotBeforeAction = gameEngine.ToSnapshot();
-                    ProcessTurn(gameEntity, gameEngine, queuedAction.Action);
+                    await ProcessTurnAsync(gameEntity, playerStates, gameEngine, queuedAction.Action, stoppingToken);
                     var snapshot = gameEngine.ToSnapshot();
 
                     var persistedGameEvent = await PersistEventAsync(
                         queuedAction.GameId,
                         snapshot,
                         queuedAction.Action.Kind.ToString(),
-                        DescribeAction(gameEntity, queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
+                        DescribeAction(gameEntity, playerStates, queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
                         queuedAction.Action.PlayerId,
                         queuedAction.Action,
                         stoppingToken);
+
+                    await UpdatePlayerStateStatisticsAsync(queuedAction.GameId, snapshotBeforeAction, snapshot, stoppingToken);
 
                     PublishStateChanged(
                         queuedAction.GameId,
@@ -347,7 +377,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         _mapDefinition = loadResult.Definition;
     }
 
-    private void ProcessTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
+    private async Task ProcessTurnAsync(
+        GameEntity gameEntity,
+        List<GamePlayerStateEntity> playerStates,
+        RailBaronGameEngine gameEngine,
+        PlayerAction action,
+        CancellationToken cancellationToken)
     {
         var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
         if (action is not (BidAction or AuctionPassAction or AuctionDropOutAction)
@@ -356,7 +391,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException($"Action player '{action.PlayerId}' does not match active player '{activePlayer.Name}'.");
         }
 
-        ValidateActionAuthorization(gameEntity, gameEngine, action);
+        await ValidateActionAuthorizationAsync(gameEntity, playerStates, gameEngine, action, cancellationToken);
 
         switch (action)
         {
@@ -472,7 +507,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
     }
 
-    private void ValidateActionAuthorization(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
+    private Task ValidateActionAuthorizationAsync(
+        GameEntity gameEntity,
+        List<GamePlayerStateEntity> playerStates,
+        RailBaronGameEngine gameEngine,
+        PlayerAction action,
+        CancellationToken cancellationToken)
     {
         var activePlayerIndex = gameEngine.CurrentTurn.ActivePlayer.Index;
         var allowsNonActiveParticipant = action is BidAction or AuctionPassAction or AuctionDropOutAction;
@@ -496,7 +536,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("Eliminated players may only spectate and cannot perform game actions.");
         }
 
-        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
+        var selections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
         var authorizedPlayerIndex = allowsNonActiveParticipant ? actionPlayerIndex : activePlayerIndex;
         if (authorizedPlayerIndex < 0 || authorizedPlayerIndex >= selections.Count)
         {
@@ -504,8 +544,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var slotUserId = selections[authorizedPlayerIndex].UserId;
-        var activeBotAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
-        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeBotAssignment);
+        var activePlayerState = _botTurnService.FindActivePlayerState(playerStates, slotUserId);
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
         var authorized = PlayerControlRules.CanUserControlSlot(controllerState, action.ActorUserId, isPlayerActive: true)
             || PlayerControlRules.CanServerControlSlot(controllerState, action.ActorUserId, _botOptions.ServerActorUserId, isPlayerActive: true);
         if (!authorized)
@@ -514,6 +554,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 ? "Only the controlling participant for the acting player may perform this auction action."
                 : "Only the controlling participant for the active player may perform this action.");
         }
+
+        return Task.CompletedTask;
     }
 
     private async Task<RailBaronGameEngine> GetOrCreateGameEngineAsync(string gameId, CancellationToken cancellationToken)
@@ -535,8 +577,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
         }
 
-        var players = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson)
-            .Select(player => string.IsNullOrWhiteSpace(player.DisplayName) ? player.UserId : player.DisplayName)
+        var playerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
+        var players = playerStates
+            .OrderBy(playerState => playerState.SeatIndex)
+            .Select(playerState => string.IsNullOrWhiteSpace(playerState.DisplayName) ? playerState.PlayerUserId : playerState.DisplayName)
             .ToList();
 
         var initializedGameEngine = CreateGameEngine(players);
@@ -636,15 +680,18 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
-        var playerSelections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
-        await _botTurnService.EnsureBotSeatAssignmentsAsync(gameEntity, playerSelections, gameEntity.CreatorId, cancellationToken);
+        var playerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
+        var originalPlayerStates = playerStates
+            .Select(GamePlayerStateProjection.Clone)
+            .ToList();
+
+        await _botTurnService.EnsureBotSeatControlStatesAsync(gameId, playerStates, gameEntity.CreatorId, cancellationToken);
 
         var snapshot = gameEngine.ToSnapshot();
-        var originalBotAssignmentsJson = gameEntity.BotAssignmentsJson;
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
-            var allAiAuctionAction = await TryResolveAllAiAuctionAsync(gameEntity, gameEngine, cancellationToken);
+            var allAiAuctionAction = await TryResolveAllAiAuctionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
             if (allAiAuctionAction is not null)
             {
                 var snapshotBeforeResolution = snapshot;
@@ -654,19 +701,21 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     gameId,
                     snapshot,
                     allAiAuctionAction.Kind.ToString(),
-                    DescribeAction(gameEntity, allAiAuctionAction, snapshotBeforeResolution, snapshot, gameEngine),
+                    DescribeAction(gameEntity, playerStates, allAiAuctionAction, snapshotBeforeResolution, snapshot, gameEngine),
                     allAiAuctionAction.PlayerId,
                     allAiAuctionAction,
                     cancellationToken);
+
+                await UpdatePlayerStateStatisticsAsync(gameId, snapshotBeforeResolution, snapshot, cancellationToken);
 
                 PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution));
                 continue;
             }
 
-            var automaticAction = await CreateAutomaticTurnActionAsync(gameEntity, gameEngine, cancellationToken);
+            var automaticAction = await CreateAutomaticTurnActionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
             if (automaticAction is null)
             {
-                await PersistBotAssignmentsIfChangedAsync(gameEntity, originalBotAssignmentsJson, cancellationToken);
+                await PersistPlayerStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
                 return snapshot;
             }
 
@@ -677,7 +726,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             }
             else
             {
-                ProcessTurn(gameEntity, gameEngine, automaticAction);
+                await ProcessTurnAsync(gameEntity, playerStates, gameEngine, automaticAction, cancellationToken);
             }
             snapshot = gameEngine.ToSnapshot();
 
@@ -685,10 +734,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 gameId,
                 snapshot,
                 automaticAction.Kind.ToString(),
-                DescribeAction(gameEntity, automaticAction, snapshotBeforeAction, snapshot, gameEngine),
+                DescribeAction(gameEntity, playerStates, automaticAction, snapshotBeforeAction, snapshot, gameEngine),
                 automaticAction.PlayerId,
                 automaticAction,
                 cancellationToken);
+
+            await UpdatePlayerStateStatisticsAsync(gameId, snapshotBeforeAction, snapshot, cancellationToken);
 
             PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction));
 
@@ -698,13 +749,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             }
         }
 
-        await PersistBotAssignmentsIfChangedAsync(gameEntity, originalBotAssignmentsJson, cancellationToken);
+        await PersistPlayerStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
 
         throw new InvalidOperationException($"Automatic turn flow did not stabilize within {AutomaticTurnFlowStepLimit} steps.");
     }
 
     private async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
         GameEntity gameEntity,
+        List<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
@@ -718,15 +770,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
-        return await _botTurnService.TryResolveAllAiAuctionAsync(gameEntity, gameEngine, _mapDefinition, cancellationToken);
+        return await _botTurnService.TryResolveAllAiAuctionAsync(gameEntity.GameId, playerStates, gameEngine, _mapDefinition, cancellationToken);
     }
 
     private async Task<PlayerAction?> CreateAutomaticTurnActionAsync(
         GameEntity gameEntity,
+        List<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
-        if (!HasConnectedTableUser(gameEntity))
+        if (!HasConnectedTableUser(gameEntity.GameId, playerStates))
         {
             return null;
         }
@@ -742,44 +795,43 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
-        if (!IsAiControlledSeatTurn(gameEntity, gameEngine))
+        if (!IsAiControlledSeatTurn(gameEntity, playerStates, gameEngine))
         {
             return null;
         }
 
-        return await _botTurnService.CreateBotActionAsync(gameEntity, gameEngine, _mapDefinition, cancellationToken);
+        return await _botTurnService.CreateBotActionAsync(gameEntity.GameId, playerStates, gameEngine, _mapDefinition, cancellationToken);
     }
 
-    private bool IsAiControlledSeatTurn(GameEntity gameEntity, RailBaronGameEngine gameEngine)
+    private bool IsAiControlledSeatTurn(GameEntity gameEntity, List<GamePlayerStateEntity> playerStates, RailBaronGameEngine gameEngine)
     {
-        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
         var actingPlayerIndex = gameEngine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex ?? gameEngine.CurrentTurn.ActivePlayer.Index;
-        if (actingPlayerIndex < 0 || actingPlayerIndex >= selections.Count)
+        if (actingPlayerIndex < 0 || actingPlayerIndex >= playerStates.Count)
         {
             return false;
         }
 
-        var slotUserId = selections[actingPlayerIndex].UserId;
-        var activeAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
-        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeAssignment);
+        var slotUserId = playerStates[actingPlayerIndex].PlayerUserId;
+        var activePlayerState = _botTurnService.FindActivePlayerState(playerStates, slotUserId);
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
         return PlayerControlRules.IsAiControlledMode(controllerState.ControllerMode);
     }
 
-    private bool HasConnectedTableUser(GameEntity gameEntity)
+    private bool HasConnectedTableUser(string gameId, IReadOnlyList<GamePlayerStateEntity> playerStates)
     {
         var candidateUserIds = new List<string?>();
-        foreach (var selection in GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson))
+        foreach (var playerState in playerStates)
         {
-            candidateUserIds.Add(selection.UserId);
+            candidateUserIds.Add(playerState.PlayerUserId);
 
-            var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameEntity.GameId, selection.UserId);
+            var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameId, playerState.PlayerUserId);
             if (!string.IsNullOrWhiteSpace(delegatedControllerUserId))
             {
                 candidateUserIds.Add(delegatedControllerUserId);
             }
         }
 
-        return _gamePresenceService.HasAnyConnectedUsers(gameEntity.GameId, candidateUserIds);
+        return _gamePresenceService.HasAnyConnectedUsers(gameId, candidateUserIds);
     }
 
     private void OnPresenceChanged(GamePresenceChange change)
@@ -818,7 +870,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             try
             {
                 var gameEntity = await GetGameEntityAsync(gameId, CancellationToken.None);
-                if (gameEntity is null || !HasConnectedTableUser(gameEntity))
+                if (gameEntity is null)
+                {
+                    return;
+                }
+
+                var playerStates = await GetGamePlayerStatesAsync(gameId, CancellationToken.None);
+                if (!HasConnectedTableUser(gameId, playerStates))
                 {
                     return;
                 }
@@ -844,35 +902,672 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
     }
 
-    private async Task PersistBotAssignmentsIfChangedAsync(
-        GameEntity gameEntity,
-        string originalBotAssignmentsJson,
+    private async Task PersistPlayerStateControlChangesAsync(
+        List<GamePlayerStateEntity> originalPlayerStates,
+        List<GamePlayerStateEntity> updatedPlayerStates,
         CancellationToken cancellationToken)
     {
-        if (string.Equals(originalBotAssignmentsJson, gameEntity.BotAssignmentsJson, StringComparison.Ordinal))
+        foreach (var pair in originalPlayerStates.Zip(updatedPlayerStates, static (original, updated) => (original, updated)))
         {
-            return;
+            if (AreBotControlColumnsEqual(pair.original, pair.updated))
+            {
+                continue;
+            }
+
+            await PersistPlayerStateControlChangeAsync(pair.original, pair.updated, cancellationToken);
         }
-
-        var updateEntity = new TableEntity(gameEntity.PartitionKey, gameEntity.RowKey)
-        {
-            [nameof(GameEntity.BotAssignmentsJson)] = gameEntity.BotAssignmentsJson
-        };
-
-        var response = await _gamesTable.UpdateEntityAsync(updateEntity, ResolveIfMatchETag(gameEntity), TableUpdateMode.Merge, cancellationToken);
-        if (!TryGetResponseETag(response, out var etag))
-        {
-            return;
-        }
-
-        gameEntity.ETag = etag;
     }
+
+    private async Task PersistPlayerStateControlChangeAsync(
+        GamePlayerStateEntity originalPlayerState,
+        GamePlayerStateEntity updatedPlayerState,
+        CancellationToken cancellationToken)
+    {
+        var persistedPlayerState = originalPlayerState;
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                var updateEntity = BuildPlayerStateControlUpdateEntity(persistedPlayerState, updatedPlayerState);
+                await _gamesTable.UpdateEntityAsync(
+                    updateEntity,
+                    ResolvePlayerStateIfMatchETag(persistedPlayerState),
+                    TableUpdateMode.Merge,
+                    cancellationToken);
+
+                return;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412 && attempt == 0)
+            {
+                var refreshedPlayerState = await GetGamePlayerStateAsync(originalPlayerState.GameId, originalPlayerState.SeatIndex, cancellationToken);
+                if (refreshedPlayerState is null || AreBotControlColumnsEqual(refreshedPlayerState, updatedPlayerState))
+                {
+                    return;
+                }
+
+                persistedPlayerState = refreshedPlayerState;
+            }
+        }
+    }
+
+    private static TableEntity BuildPlayerStateControlUpdateEntity(
+        GamePlayerStateEntity persistedPlayerState,
+        GamePlayerStateEntity updatedPlayerState)
+    {
+        return new TableEntity(persistedPlayerState.PartitionKey, persistedPlayerState.RowKey)
+        {
+            [nameof(GamePlayerStateEntity.ControllerMode)] = updatedPlayerState.ControllerMode,
+            [nameof(GamePlayerStateEntity.ControllerUserId)] = updatedPlayerState.ControllerUserId,
+            [nameof(GamePlayerStateEntity.BotDefinitionId)] = updatedPlayerState.BotDefinitionId,
+            [nameof(GamePlayerStateEntity.AuctionPlanTurnNumber)] = updatedPlayerState.AuctionPlanTurnNumber,
+            [nameof(GamePlayerStateEntity.AuctionPlanRailroadIndex)] = updatedPlayerState.AuctionPlanRailroadIndex,
+            [nameof(GamePlayerStateEntity.AuctionPlanStartingPrice)] = updatedPlayerState.AuctionPlanStartingPrice,
+            [nameof(GamePlayerStateEntity.AuctionPlanMaximumBid)] = updatedPlayerState.AuctionPlanMaximumBid,
+            [nameof(GamePlayerStateEntity.BotControlActivatedUtc)] = updatedPlayerState.BotControlActivatedUtc,
+            [nameof(GamePlayerStateEntity.BotControlClearedUtc)] = updatedPlayerState.BotControlClearedUtc,
+            [nameof(GamePlayerStateEntity.BotControlStatus)] = updatedPlayerState.BotControlStatus,
+            [nameof(GamePlayerStateEntity.BotControlClearReason)] = updatedPlayerState.BotControlClearReason
+        };
+    }
+
+    private async Task UpdatePlayerStateStatisticsAsync(
+        string gameId,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction,
+        CancellationToken cancellationToken)
+    {
+        var affectedPlayerIndices = ResolveAffectedStatisticPlayerIndices(snapshotBeforeAction, snapshotAfterAction);
+        if (affectedPlayerIndices.Count == 0)
+        {
+            return;
+        }
+
+        var playerStates = new List<GamePlayerStateEntity>();
+        foreach (var playerIndex in affectedPlayerIndices.Order())
+        {
+            var playerState = await GetGamePlayerStateAsync(gameId, playerIndex, cancellationToken);
+            if (playerState is not null)
+            {
+                playerStates.Add(playerState);
+            }
+        }
+
+        if (playerStates.Count == 0)
+        {
+            return;
+        }
+
+        var updatedPlayerStates = playerStates
+            .Select(GamePlayerStateProjection.Clone)
+            .ToList();
+
+        ApplyStatisticsDelta(
+            updatedPlayerStates.ToDictionary(playerState => playerState.SeatIndex),
+            _mapDefinition,
+            snapshotBeforeAction,
+            snapshotAfterAction);
+        await PersistPlayerStatisticsAsync(playerStates, updatedPlayerStates, cancellationToken);
+    }
+
+    private async Task RebuildPlayerStatisticsAsync(
+        string gameId,
+        List<GameEventEntity> sourceEvents,
+        CancellationToken cancellationToken)
+    {
+        var playerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
+        if (playerStates.Count == 0)
+        {
+            return;
+        }
+
+        var rebuiltPlayerStates = playerStates
+            .Select(GamePlayerStateProjection.ResetStatistics)
+            .ToList();
+        var rebuiltPlayerStatesBySeatIndex = rebuiltPlayerStates.ToDictionary(playerState => playerState.SeatIndex);
+
+        RailBaronGameState? previousSnapshot = null;
+        foreach (var gameEvent in sourceEvents)
+        {
+            if (string.IsNullOrWhiteSpace(gameEvent.SerializedGameState))
+            {
+                continue;
+            }
+
+            var currentSnapshot = GameEventSerialization.DeserializeSnapshot(gameEvent.SerializedGameState);
+            if (previousSnapshot is not null)
+            {
+                ApplyStatisticsDelta(rebuiltPlayerStatesBySeatIndex, _mapDefinition, previousSnapshot, currentSnapshot);
+            }
+
+            previousSnapshot = currentSnapshot;
+        }
+
+        await PersistPlayerStatisticsAsync(playerStates, rebuiltPlayerStates, cancellationToken);
+    }
+
+    private async Task PersistPlayerStatisticsAsync(
+        List<GamePlayerStateEntity> originalPlayerStates,
+        List<GamePlayerStateEntity> updatedPlayerStates,
+        CancellationToken cancellationToken)
+    {
+        foreach (var pair in originalPlayerStates.Zip(updatedPlayerStates, static (original, updated) => (original, updated)))
+        {
+            if (AreStatisticsColumnsEqual(pair.original, pair.updated))
+            {
+                continue;
+            }
+
+            await PersistPlayerStatisticChangeAsync(pair.original, pair.updated, cancellationToken);
+        }
+    }
+
+    private static void ApplyStatisticsDelta(
+        Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex,
+        MapDefinition? mapDefinition,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction)
+    {
+        if (TryResolvePrimaryRoll(snapshotBeforeAction, snapshotAfterAction, out var rollPlayerIndex, out var engineType, out var rollTotal))
+        {
+            IncrementEngineRollStatistics(playerStatesBySeatIndex, rollPlayerIndex, engineType, rollTotal);
+        }
+
+        if (TryResolveBonusRoll(snapshotBeforeAction, snapshotAfterAction, out var bonusPlayerIndex, out var bonusRollTotal))
+        {
+            IncrementBonusRollStatistics(playerStatesBySeatIndex, bonusPlayerIndex, bonusRollTotal);
+        }
+
+        if (snapshotAfterAction.Turn.ArrivalResolution is not null
+            && !AreArrivalResolutionsEquivalent(snapshotBeforeAction.Turn.ArrivalResolution, snapshotAfterAction.Turn.ArrivalResolution))
+        {
+            AddToPlayerStatistic(playerStatesBySeatIndex, snapshotAfterAction.Turn.ArrivalResolution.PlayerIndex, state =>
+            {
+                state.TotalPayoffsCollected += Math.Max(0, snapshotAfterAction.Turn.ArrivalResolution.PayoutAmount);
+            });
+        }
+
+        if (snapshotBeforeAction.Turn.PendingFeeAmount > 0
+            && snapshotAfterAction.Turn.PendingFeeAmount == 0
+            && snapshotAfterAction.Turn.ForcedSale?.EliminationTriggered != true)
+        {
+            AddToPlayerStatistic(playerStatesBySeatIndex, snapshotBeforeAction.ActivePlayerIndex, state =>
+            {
+                state.TotalFeesPaid += Math.Max(0, snapshotBeforeAction.Turn.PendingFeeAmount);
+            });
+        }
+
+        if (snapshotBeforeAction.Turn.Auction is null && snapshotAfterAction.Turn.Auction is not null)
+        {
+            AddToPlayerStatistic(playerStatesBySeatIndex, snapshotAfterAction.Turn.Auction.SellerPlayerIndex, state =>
+            {
+                state.RailroadsAuctionedCount++;
+            });
+        }
+
+        if (snapshotBeforeAction.Turn.Auction is not null
+            && snapshotAfterAction.Turn.Auction is not null
+            && snapshotAfterAction.Turn.Auction.CurrentBid > snapshotBeforeAction.Turn.Auction.CurrentBid
+            && snapshotAfterAction.Turn.Auction.LastBidderPlayerIndex is int bidderPlayerIndex)
+        {
+            AddToPlayerStatistic(playerStatesBySeatIndex, bidderPlayerIndex, state =>
+            {
+                state.AuctionBidsPlaced++;
+            });
+        }
+
+        ApplyDestinationAssignmentChanges(playerStatesBySeatIndex, mapDefinition, snapshotBeforeAction, snapshotAfterAction);
+
+        ApplyRailroadOwnershipChanges(playerStatesBySeatIndex, snapshotBeforeAction, snapshotAfterAction);
+    }
+
+    private static void ApplyDestinationAssignmentChanges(
+        Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex,
+        MapDefinition? mapDefinition,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction)
+    {
+        foreach (var destinationAssignment in ResolveAssignedDestinations(snapshotBeforeAction, snapshotAfterAction))
+        {
+            var isFriendlyDestination = IsFriendlyDestination(mapDefinition, snapshotAfterAction, destinationAssignment.PlayerIndex, destinationAssignment.DestinationCityName);
+            var destinationLogEntry = isFriendlyDestination
+                ? destinationAssignment.DestinationCityName
+                : string.Concat(destinationAssignment.DestinationCityName, "*");
+
+            AddToPlayerStatistic(playerStatesBySeatIndex, destinationAssignment.PlayerIndex, state =>
+            {
+                state.DestinationCount++;
+                if (!isFriendlyDestination)
+                {
+                    state.UnfriendlyDestinationCount++;
+                }
+
+                state.AppendDestinationLogEntry(destinationLogEntry);
+            });
+        }
+    }
+
+    private static void ApplyRailroadOwnershipChanges(
+        Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction)
+    {
+        foreach (var railroadIndex in snapshotBeforeAction.RailroadOwnership.Keys
+                     .Concat(snapshotAfterAction.RailroadOwnership.Keys)
+                     .Distinct())
+        {
+            var previousOwnerIndex = snapshotBeforeAction.RailroadOwnership.GetValueOrDefault(railroadIndex);
+            var nextOwnerIndex = snapshotAfterAction.RailroadOwnership.GetValueOrDefault(railroadIndex);
+            if (previousOwnerIndex == nextOwnerIndex)
+            {
+                continue;
+            }
+
+            var railroadFaceValue = RailBaronGameEngine.GetRailroadPurchasePrice(railroadIndex);
+
+            if (nextOwnerIndex.HasValue)
+            {
+                var amountPaid = ResolveRailroadPurchaseAmount(snapshotBeforeAction, railroadIndex, railroadFaceValue);
+                AddToPlayerStatistic(playerStatesBySeatIndex, nextOwnerIndex.Value, state =>
+                {
+                    state.RailroadsPurchasedCount++;
+                    state.TotalRailroadFaceValuePurchased += railroadFaceValue;
+                    state.TotalRailroadAmountPaid += amountPaid;
+                    if (previousOwnerIndex.HasValue)
+                    {
+                        state.AuctionWins++;
+                    }
+                });
+            }
+            else if (previousOwnerIndex.HasValue)
+            {
+                AddToPlayerStatistic(playerStatesBySeatIndex, previousOwnerIndex.Value, state =>
+                {
+                    state.RailroadsSoldToBankCount++;
+                });
+            }
+        }
+    }
+
+    private static int ResolveRailroadPurchaseAmount(RailBaronGameState snapshotBeforeAction, int railroadIndex, int railroadFaceValue)
+    {
+        if (snapshotBeforeAction.Turn.Auction is not null
+            && snapshotBeforeAction.Turn.Auction.RailroadIndex == railroadIndex
+            && snapshotBeforeAction.Turn.Auction.CurrentBid > 0)
+        {
+            return snapshotBeforeAction.Turn.Auction.CurrentBid;
+        }
+
+        return railroadFaceValue;
+    }
+
+    private static List<AssignedDestinationStatistic> ResolveAssignedDestinations(
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction)
+    {
+        var playerCount = Math.Min(snapshotBeforeAction.Players.Count, snapshotAfterAction.Players.Count);
+        var assignedDestinations = new List<AssignedDestinationStatistic>(capacity: 1);
+
+        for (var playerIndex = 0; playerIndex < playerCount; playerIndex++)
+        {
+            var previousDestination = snapshotBeforeAction.Players[playerIndex].DestinationCityName;
+            var nextDestination = snapshotAfterAction.Players[playerIndex].DestinationCityName;
+
+            if (string.IsNullOrWhiteSpace(nextDestination)
+                || string.Equals(previousDestination, nextDestination, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            assignedDestinations.Add(new AssignedDestinationStatistic(playerIndex, nextDestination));
+        }
+
+        return assignedDestinations;
+    }
+
+    private static bool IsFriendlyDestination(
+        MapDefinition? mapDefinition,
+        RailBaronGameState snapshotAfterAction,
+        int playerIndex,
+        string destinationCityName)
+    {
+        if (mapDefinition is null)
+        {
+            return true;
+        }
+
+        var destinationCity = mapDefinition.Cities.FirstOrDefault(city =>
+            string.Equals(city.Name, destinationCityName, StringComparison.OrdinalIgnoreCase));
+        if (destinationCity?.MapDotIndex is not int dotIndex)
+        {
+            return true;
+        }
+
+        var regionIndex = mapDefinition.Regions.FirstOrDefault(region =>
+            string.Equals(region.Code, destinationCity.RegionCode, StringComparison.OrdinalIgnoreCase))?.Index;
+        if (!regionIndex.HasValue)
+        {
+            return true;
+        }
+
+        var servingRailroadIndices = mapDefinition.RailroadRouteSegments
+            .Where(segment => SegmentTouchesCity(segment, regionIndex.Value, dotIndex))
+            .Select(segment => segment.RailroadIndex)
+            .Distinct()
+            .ToList();
+        if (servingRailroadIndices.Count == 0)
+        {
+            return false;
+        }
+
+        return servingRailroadIndices.Any(railroadIndex =>
+        {
+            var ownerIndex = snapshotAfterAction.RailroadOwnership.GetValueOrDefault(railroadIndex);
+            return !ownerIndex.HasValue || ownerIndex.Value == playerIndex;
+        });
+    }
+
+    private static bool SegmentTouchesCity(RailroadRouteSegmentDefinition segment, int regionIndex, int dotIndex)
+    {
+        return (segment.StartRegionIndex == regionIndex && segment.StartDotIndex == dotIndex)
+            || (segment.EndRegionIndex == regionIndex && segment.EndDotIndex == dotIndex);
+    }
+
+    private static void IncrementEngineRollStatistics(Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex, int playerIndex, string engineType, int rollTotal)
+    {
+        AddToPlayerStatistic(playerStatesBySeatIndex, playerIndex, state =>
+        {
+            state.TurnsTaken++;
+
+            if (string.Equals(engineType, LocomotiveType.Freight.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                state.FreightTurnCount++;
+                state.FreightRollTotal += Math.Max(0, rollTotal);
+                return;
+            }
+
+            if (string.Equals(engineType, LocomotiveType.Express.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                state.ExpressTurnCount++;
+                state.ExpressRollTotal += Math.Max(0, rollTotal);
+                return;
+            }
+
+            if (string.Equals(engineType, LocomotiveType.Superchief.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                state.SuperchiefTurnCount++;
+                state.SuperchiefRollTotal += Math.Max(0, rollTotal);
+            }
+        });
+    }
+
+    private static void IncrementBonusRollStatistics(Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex, int playerIndex, int rollTotal)
+    {
+        AddToPlayerStatistic(playerStatesBySeatIndex, playerIndex, state =>
+        {
+            state.BonusRollCount++;
+            state.BonusRollTotal += Math.Max(0, rollTotal);
+        });
+    }
+
+    private static void AddToPlayerStatistic(Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex, int playerIndex, Action<GamePlayerStateEntity> applyUpdate)
+    {
+        if (playerIndex < 0 || !playerStatesBySeatIndex.TryGetValue(playerIndex, out var playerState))
+        {
+            return;
+        }
+
+        applyUpdate(playerState);
+    }
+
+    private async Task PersistPlayerStatisticChangeAsync(
+        GamePlayerStateEntity originalPlayerState,
+        GamePlayerStateEntity updatedPlayerState,
+        CancellationToken cancellationToken)
+    {
+        var persistedPlayerState = originalPlayerState;
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                var updateEntity = BuildPlayerStateStatisticsUpdateEntity(persistedPlayerState, updatedPlayerState);
+                await _gamesTable.UpdateEntityAsync(
+                    updateEntity,
+                    ResolvePlayerStateIfMatchETag(persistedPlayerState),
+                    TableUpdateMode.Merge,
+                    cancellationToken);
+
+                return;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412 && attempt == 0)
+            {
+                var refreshedPlayerState = await GetGamePlayerStateAsync(originalPlayerState.GameId, originalPlayerState.SeatIndex, cancellationToken);
+                if (refreshedPlayerState is null)
+                {
+                    return;
+                }
+
+                updatedPlayerState.ETag = refreshedPlayerState.ETag;
+                persistedPlayerState = refreshedPlayerState;
+            }
+        }
+    }
+
+    private static TableEntity BuildPlayerStateStatisticsUpdateEntity(
+        GamePlayerStateEntity persistedPlayerState,
+        GamePlayerStateEntity updatedPlayerState)
+    {
+        return new TableEntity(persistedPlayerState.PartitionKey, persistedPlayerState.RowKey)
+        {
+            [nameof(GamePlayerStateEntity.TurnsTaken)] = updatedPlayerState.TurnsTaken,
+            [nameof(GamePlayerStateEntity.FreightTurnCount)] = updatedPlayerState.FreightTurnCount,
+            [nameof(GamePlayerStateEntity.FreightRollTotal)] = updatedPlayerState.FreightRollTotal,
+            [nameof(GamePlayerStateEntity.ExpressTurnCount)] = updatedPlayerState.ExpressTurnCount,
+            [nameof(GamePlayerStateEntity.ExpressRollTotal)] = updatedPlayerState.ExpressRollTotal,
+            [nameof(GamePlayerStateEntity.SuperchiefTurnCount)] = updatedPlayerState.SuperchiefTurnCount,
+            [nameof(GamePlayerStateEntity.SuperchiefRollTotal)] = updatedPlayerState.SuperchiefRollTotal,
+            [nameof(GamePlayerStateEntity.BonusRollCount)] = updatedPlayerState.BonusRollCount,
+            [nameof(GamePlayerStateEntity.BonusRollTotal)] = updatedPlayerState.BonusRollTotal,
+            [nameof(GamePlayerStateEntity.TotalPayoffsCollected)] = updatedPlayerState.TotalPayoffsCollected,
+            [nameof(GamePlayerStateEntity.TotalFeesPaid)] = updatedPlayerState.TotalFeesPaid,
+            [nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)] = updatedPlayerState.TotalRailroadFaceValuePurchased,
+            [nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)] = updatedPlayerState.TotalRailroadAmountPaid,
+            [nameof(GamePlayerStateEntity.AuctionWins)] = updatedPlayerState.AuctionWins,
+            [nameof(GamePlayerStateEntity.AuctionBidsPlaced)] = updatedPlayerState.AuctionBidsPlaced,
+            [nameof(GamePlayerStateEntity.RailroadsPurchasedCount)] = updatedPlayerState.RailroadsPurchasedCount,
+            [nameof(GamePlayerStateEntity.RailroadsAuctionedCount)] = updatedPlayerState.RailroadsAuctionedCount,
+            [nameof(GamePlayerStateEntity.RailroadsSoldToBankCount)] = updatedPlayerState.RailroadsSoldToBankCount,
+            [nameof(GamePlayerStateEntity.DestinationCount)] = updatedPlayerState.DestinationCount,
+            [nameof(GamePlayerStateEntity.UnfriendlyDestinationCount)] = updatedPlayerState.UnfriendlyDestinationCount,
+            [nameof(GamePlayerStateEntity.DestinationLog)] = updatedPlayerState.DestinationLog
+        };
+    }
+
+    private static HashSet<int> ResolveAffectedStatisticPlayerIndices(
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction)
+    {
+        var affectedPlayerIndices = new HashSet<int>();
+
+        if (TryResolvePrimaryRoll(snapshotBeforeAction, snapshotAfterAction, out var rollPlayerIndex, out _, out _))
+        {
+            affectedPlayerIndices.Add(rollPlayerIndex);
+        }
+
+        if (TryResolveBonusRoll(snapshotBeforeAction, snapshotAfterAction, out var bonusPlayerIndex, out _))
+        {
+            affectedPlayerIndices.Add(bonusPlayerIndex);
+        }
+
+        if (snapshotAfterAction.Turn.ArrivalResolution is not null
+            && !AreArrivalResolutionsEquivalent(snapshotBeforeAction.Turn.ArrivalResolution, snapshotAfterAction.Turn.ArrivalResolution))
+        {
+            affectedPlayerIndices.Add(snapshotAfterAction.Turn.ArrivalResolution.PlayerIndex);
+        }
+
+        if (snapshotBeforeAction.Turn.PendingFeeAmount > 0
+            && snapshotAfterAction.Turn.PendingFeeAmount == 0
+            && snapshotAfterAction.Turn.ForcedSale?.EliminationTriggered != true)
+        {
+            affectedPlayerIndices.Add(snapshotBeforeAction.ActivePlayerIndex);
+        }
+
+        if (snapshotBeforeAction.Turn.Auction is null && snapshotAfterAction.Turn.Auction is not null)
+        {
+            affectedPlayerIndices.Add(snapshotAfterAction.Turn.Auction.SellerPlayerIndex);
+        }
+
+        if (snapshotBeforeAction.Turn.Auction is not null
+            && snapshotAfterAction.Turn.Auction is not null
+            && snapshotAfterAction.Turn.Auction.CurrentBid > snapshotBeforeAction.Turn.Auction.CurrentBid
+            && snapshotAfterAction.Turn.Auction.LastBidderPlayerIndex is int bidderPlayerIndex)
+        {
+            affectedPlayerIndices.Add(bidderPlayerIndex);
+        }
+
+        foreach (var railroadIndex in snapshotBeforeAction.RailroadOwnership.Keys
+                     .Concat(snapshotAfterAction.RailroadOwnership.Keys)
+                     .Distinct())
+        {
+            var previousOwnerIndex = snapshotBeforeAction.RailroadOwnership.GetValueOrDefault(railroadIndex);
+            var nextOwnerIndex = snapshotAfterAction.RailroadOwnership.GetValueOrDefault(railroadIndex);
+            if (previousOwnerIndex == nextOwnerIndex)
+            {
+                continue;
+            }
+
+            if (previousOwnerIndex.HasValue)
+            {
+                affectedPlayerIndices.Add(previousOwnerIndex.Value);
+            }
+
+            if (nextOwnerIndex.HasValue)
+            {
+                affectedPlayerIndices.Add(nextOwnerIndex.Value);
+            }
+        }
+
+        foreach (var destinationAssignment in ResolveAssignedDestinations(snapshotBeforeAction, snapshotAfterAction))
+        {
+            affectedPlayerIndices.Add(destinationAssignment.PlayerIndex);
+        }
+
+        affectedPlayerIndices.RemoveWhere(playerIndex => playerIndex < 0);
+        return affectedPlayerIndices;
+    }
+
+    private static bool TryResolvePrimaryRoll(
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction,
+        out int playerIndex,
+        out string engineType,
+        out int rollTotal)
+    {
+        playerIndex = snapshotBeforeAction.ActivePlayerIndex;
+        engineType = string.Empty;
+        rollTotal = 0;
+
+        var whiteDice = snapshotAfterAction.Turn.DiceResult?.WhiteDice;
+        if (whiteDice is not { Length: >= 2 }
+            || whiteDice.Sum() <= 0
+            || AreDiceResultsEquivalent(snapshotBeforeAction.Turn.DiceResult, snapshotAfterAction.Turn.DiceResult)
+            || playerIndex < 0
+            || playerIndex >= snapshotBeforeAction.Players.Count)
+        {
+            return false;
+        }
+
+        engineType = snapshotBeforeAction.Players[playerIndex].LocomotiveType;
+        rollTotal = whiteDice.Sum() + (snapshotAfterAction.Turn.DiceResult?.RedDie ?? 0);
+        return true;
+    }
+
+    private static bool TryResolveBonusRoll(
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction,
+        out int playerIndex,
+        out int rollTotal)
+    {
+        playerIndex = snapshotBeforeAction.ActivePlayerIndex;
+        rollTotal = 0;
+
+        var whiteDice = snapshotAfterAction.Turn.DiceResult?.WhiteDice;
+        if (whiteDice is not { Length: >= 2 }
+            || whiteDice.Any(value => value != 0)
+            || snapshotAfterAction.Turn.DiceResult?.RedDie is not int redDie
+            || !snapshotBeforeAction.Turn.BonusRollAvailable
+            || AreDiceResultsEquivalent(snapshotBeforeAction.Turn.DiceResult, snapshotAfterAction.Turn.DiceResult))
+        {
+            return false;
+        }
+
+        rollTotal = redDie;
+        return true;
+    }
+
+    private static bool AreArrivalResolutionsEquivalent(Boxcars.Engine.Persistence.ArrivalResolutionState? left, Boxcars.Engine.Persistence.ArrivalResolutionState? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return left.PlayerIndex == right.PlayerIndex
+            && left.PayoutAmount == right.PayoutAmount
+            && string.Equals(left.DestinationCityName, right.DestinationCityName, StringComparison.Ordinal);
+    }
+
+    private static bool AreDiceResultsEquivalent(Boxcars.Engine.Persistence.DiceResultState? left, Boxcars.Engine.Persistence.DiceResultState? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return left.RedDie == right.RedDie
+            && left.WhiteDice.SequenceEqual(right.WhiteDice);
+    }
+
+    private static bool AreStatisticsColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
+    {
+        return left.TurnsTaken == right.TurnsTaken
+            && left.FreightTurnCount == right.FreightTurnCount
+            && left.FreightRollTotal == right.FreightRollTotal
+            && left.ExpressTurnCount == right.ExpressTurnCount
+            && left.ExpressRollTotal == right.ExpressRollTotal
+            && left.SuperchiefTurnCount == right.SuperchiefTurnCount
+            && left.SuperchiefRollTotal == right.SuperchiefRollTotal
+            && left.BonusRollCount == right.BonusRollCount
+            && left.BonusRollTotal == right.BonusRollTotal
+            && left.TotalPayoffsCollected == right.TotalPayoffsCollected
+            && left.TotalFeesPaid == right.TotalFeesPaid
+            && left.TotalRailroadFaceValuePurchased == right.TotalRailroadFaceValuePurchased
+            && left.TotalRailroadAmountPaid == right.TotalRailroadAmountPaid
+            && left.AuctionWins == right.AuctionWins
+            && left.AuctionBidsPlaced == right.AuctionBidsPlaced
+            && left.RailroadsPurchasedCount == right.RailroadsPurchasedCount
+            && left.RailroadsAuctionedCount == right.RailroadsAuctionedCount
+                && left.RailroadsSoldToBankCount == right.RailroadsSoldToBankCount
+                && left.DestinationCount == right.DestinationCount
+                && left.UnfriendlyDestinationCount == right.UnfriendlyDestinationCount
+                && string.Equals(left.DestinationLog, right.DestinationLog, StringComparison.Ordinal);
+    }
+
+            private readonly record struct AssignedDestinationStatistic(int PlayerIndex, string DestinationCityName);
 
     private static Azure.ETag ResolveIfMatchETag(GameEntity gameEntity)
     {
         return string.IsNullOrWhiteSpace(gameEntity.ETag.ToString())
             ? Azure.ETag.All
             : gameEntity.ETag;
+    }
+
+    private static Azure.ETag ResolvePlayerStateIfMatchETag(GamePlayerStateEntity playerState)
+    {
+        return string.IsNullOrWhiteSpace(playerState.ETag.ToString())
+            ? Azure.ETag.All
+            : playerState.ETag;
     }
 
     private static bool TryGetResponseETag(Response response, out Azure.ETag etag)
@@ -886,6 +1581,55 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         etag = default;
         return false;
+    }
+
+    private async Task<List<GamePlayerStateEntity>> GetGamePlayerStatesAsync(string gameId, CancellationToken cancellationToken)
+    {
+        var playerStates = new List<GamePlayerStateEntity>();
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound}");
+
+        await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(
+                           filter: filter,
+                           cancellationToken: cancellationToken))
+        {
+            playerStates.Add(playerState);
+        }
+
+        playerStates.Sort(static (left, right) => left.SeatIndex.CompareTo(right.SeatIndex));
+        return playerStates;
+    }
+
+    private async Task<GamePlayerStateEntity?> GetGamePlayerStateAsync(string gameId, int seatIndex, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _gamesTable.GetEntityAsync<GamePlayerStateEntity>(
+                gameId,
+                GamePlayerStateEntity.BuildRowKey(seatIndex),
+                cancellationToken: cancellationToken);
+
+            return response.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    private static bool AreBotControlColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
+    {
+        return string.Equals(left.ControllerMode, right.ControllerMode, StringComparison.Ordinal)
+            && string.Equals(left.ControllerUserId, right.ControllerUserId, StringComparison.Ordinal)
+            && string.Equals(left.BotDefinitionId, right.BotDefinitionId, StringComparison.Ordinal)
+            && left.AuctionPlanTurnNumber == right.AuctionPlanTurnNumber
+            && left.AuctionPlanRailroadIndex == right.AuctionPlanRailroadIndex
+            && left.AuctionPlanStartingPrice == right.AuctionPlanStartingPrice
+            && left.AuctionPlanMaximumBid == right.AuctionPlanMaximumBid
+            && left.BotControlActivatedUtc == right.BotControlActivatedUtc
+            && left.BotControlClearedUtc == right.BotControlClearedUtc
+            && string.Equals(left.BotControlStatus, right.BotControlStatus, StringComparison.Ordinal)
+            && string.Equals(left.BotControlClearReason, right.BotControlClearReason, StringComparison.Ordinal);
     }
 
     private void PublishStateChanged(string gameId, RailBaronGameState state, IReadOnlyList<EventTimelineItem>? timelineItems = null)
@@ -939,7 +1683,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return events;
     }
 
-    private string DescribeAction(GameEntity gameEntity, PlayerAction action, RailBaronGameState snapshotBeforeAction, RailBaronGameState snapshotAfterAction, RailBaronGameEngine gameEngine)
+    private string DescribeAction(
+        GameEntity gameEntity,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        PlayerAction action,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction,
+        RailBaronGameEngine gameEngine)
     {
         var actorName = ResolveActorName(action, snapshotBeforeAction);
 
@@ -982,10 +1732,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             _ => $"{actorName} performed {action.Kind}"
         };
 
-        return string.Concat(description, BuildActionAttributionSuffix(gameEntity, action, snapshotBeforeAction));
+        return string.Concat(description, BuildActionAttributionSuffix(gameEntity, playerStates, action, snapshotBeforeAction));
     }
 
-    private string BuildActionAttributionSuffix(GameEntity gameEntity, PlayerAction action, RailBaronGameState snapshotBeforeAction)
+    private string BuildActionAttributionSuffix(
+        GameEntity gameEntity,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        PlayerAction action,
+        RailBaronGameState snapshotBeforeAction)
     {
         if (action.BotMetadata is not null)
         {
@@ -997,7 +1751,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return string.Empty;
         }
 
-        var selections = GamePlayerSelectionSerialization.Deserialize(gameEntity.PlayersJson);
+        var selections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
         var slotUserId = ResolveActingSlotUserId(selections, action, snapshotBeforeAction);
         if (string.IsNullOrWhiteSpace(slotUserId)
             || string.Equals(slotUserId, action.ActorUserId, StringComparison.OrdinalIgnoreCase))
@@ -1005,8 +1759,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return string.Empty;
         }
 
-        var activeAssignment = _botTurnService.GetActiveAssignment(gameEntity, slotUserId);
-        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activeAssignment);
+        var activePlayerState = _botTurnService.FindActivePlayerState(playerStates, slotUserId);
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
         if (!SeatControllerModes.IsDelegated(controllerState.ControllerMode))
         {
             return string.Empty;

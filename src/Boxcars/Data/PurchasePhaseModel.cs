@@ -7,6 +7,7 @@ public enum PurchaseExperienceTab
     Cities,
     Railroads,
     Network,
+    Stats,
     History
 }
 

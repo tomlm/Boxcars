@@ -17,6 +17,4 @@ public class GameEntity : ITableEntity
     public int CurrentPlayerCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public string SettingsJson { get; set; } = string.Empty;
-    public string PlayersJson { get; set; } = "[]";
-    public string BotAssignmentsJson { get; set; } = BotAssignmentSerialization.EmptyPayload;
 }

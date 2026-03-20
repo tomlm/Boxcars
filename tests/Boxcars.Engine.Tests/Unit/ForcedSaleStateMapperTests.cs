@@ -39,18 +39,13 @@ public class ForcedSaleStateMapperTests
             new PurchaseRecommendationService(),
             Options.Create(new PurchaseRulesOptions()));
 
-        var game = new GameEntity
-        {
-            PartitionKey = "game-1",
-            GameId = "game-1",
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(
-            [
-                new GamePlayerSelection { UserId = "alice@example.com", DisplayName = player.Name, Color = "#111111" },
-                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
-            ])
-        };
+        var playerStates = BotTurnServiceTestHarness.CreatePlayerStates(
+        [
+            new GamePlayerSelection { UserId = "alice@example.com", DisplayName = player.Name, Color = "#111111" },
+            new GamePlayerSelection { UserId = "bob@example.com", DisplayName = engine.Players[1].Name, Color = "#222222" }
+        ]);
 
-        var state = mapper.BuildTurnViewState(game, snapshot, "alice@example.com", mapDefinition);
+        var state = mapper.BuildTurnViewState("game-1", playerStates, snapshot, "alice@example.com", mapDefinition);
 
         Assert.NotNull(state.ForcedSalePhase);
         Assert.NotNull(state.ForcedSalePhase!.ProjectedNetworkAfterSale);

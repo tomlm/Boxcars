@@ -46,137 +46,76 @@ public sealed class BotTurnService
         _logger = logger;
     }
 
-    public IReadOnlyList<BotAssignment> GetAssignments(GameEntity game)
+    public GamePlayerStateEntity? FindActivePlayerState(IReadOnlyList<GamePlayerStateEntity> playerStates, string playerUserId)
     {
-        ArgumentNullException.ThrowIfNull(game);
-        return BotAssignmentSerialization.Deserialize(game.BotAssignmentsJson);
+        ArgumentNullException.ThrowIfNull(playerStates);
+
+        return playerStates.FirstOrDefault(playerState =>
+            string.Equals(playerState.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+            && playerState.BotControlClearedUtc is null);
     }
 
-    public BotAssignment? GetActiveAssignment(GameEntity game, string playerUserId)
+    public bool ClearActiveBotControl(IReadOnlyList<GamePlayerStateEntity> playerStates, string playerUserId, string clearReason, string clearedStatus = BotControlStatuses.Cleared)
     {
-        return GetAssignments(game).FirstOrDefault(assignment =>
-            string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-            && assignment.ClearedUtc is null);
-    }
+        ArgumentNullException.ThrowIfNull(playerStates);
 
-    public bool UpsertAssignment(
-        GameEntity game,
-        string playerUserId,
-        string controllerUserId,
-        string botDefinitionId,
-        string? controllerMode = null)
-    {
-        ArgumentNullException.ThrowIfNull(game);
-
-        controllerMode ??= string.IsNullOrWhiteSpace(controllerUserId)
-            ? SeatControllerModes.AI
-            : SeatControllerModes.AI;
-
-        var assignments = GetAssignments(game).ToList();
-        var now = DateTimeOffset.UtcNow;
-
-        for (var index = 0; index < assignments.Count; index++)
-        {
-            var assignment = assignments[index];
-            if (!string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                || assignment.ClearedUtc is not null)
-            {
-                continue;
-            }
-
-            assignments[index] = assignment with
-            {
-                Status = BotAssignmentStatuses.Cleared,
-                ClearReason = "Reassigned",
-                ClearedUtc = now
-            };
-        }
-
-        assignments.Add(new BotAssignment
-        {
-            GameId = game.GameId,
-            PlayerUserId = playerUserId,
-            ControllerUserId = controllerUserId,
-            ControllerMode = controllerMode,
-            BotDefinitionId = botDefinitionId,
-            AssignedUtc = now,
-            Status = BotAssignmentStatuses.Active
-        });
-
-        PersistAssignments(game, assignments);
-        return true;
-    }
-
-    public bool ClearAssignment(GameEntity game, string playerUserId, string clearReason, string clearedStatus = BotAssignmentStatuses.Cleared)
-    {
-        ArgumentNullException.ThrowIfNull(game);
-
-        var assignments = GetAssignments(game).ToList();
         var changed = false;
         var now = DateTimeOffset.UtcNow;
 
-        for (var index = 0; index < assignments.Count; index++)
+        foreach (var playerState in playerStates.Where(playerState =>
+                     string.Equals(playerState.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                     && playerState.BotControlClearedUtc is null))
         {
-            var assignment = assignments[index];
-            if (!string.Equals(assignment.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(assignment.Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                || assignment.ClearedUtc is not null)
-            {
-                continue;
-            }
-
-            assignments[index] = assignment with
-            {
-                Status = clearedStatus,
-                ClearReason = clearReason,
-                ClearedUtc = now
-            };
+            playerState.BotControlStatus = clearedStatus;
+            playerState.BotControlClearReason = clearReason;
+            playerState.BotControlClearedUtc = now;
             changed = true;
-        }
-
-        if (changed)
-        {
-            PersistAssignments(game, assignments);
         }
 
         return changed;
     }
 
-    public async Task EnsureBotSeatAssignmentsAsync(
-        GameEntity game,
-        IReadOnlyList<GamePlayerSelection> playerSelections,
+    public async Task EnsureBotSeatControlStatesAsync(
+        string gameId,
+        List<GamePlayerStateEntity> playerStates,
         string controllerUserId,
         CancellationToken cancellationToken)
     {
-        foreach (var selection in playerSelections)
+        foreach (var playerState in playerStates)
         {
-            if (string.IsNullOrWhiteSpace(selection.UserId))
+            if (string.IsNullOrWhiteSpace(playerState.PlayerUserId))
             {
                 continue;
             }
 
-            var strategyProfile = await _userDirectoryService.GetBotDefinitionAsync(selection.UserId, cancellationToken);
+            var strategyProfile = await _userDirectoryService.GetBotDefinitionAsync(playerState.PlayerUserId, cancellationToken);
             if (strategyProfile is null || !strategyProfile.IsBotUser)
             {
                 continue;
             }
 
-            var existingAssignment = GetActiveAssignment(game, selection.UserId);
-            if (existingAssignment is not null
-                && string.Equals(PlayerControlRules.ResolveBotControllerMode(existingAssignment), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(existingAssignment.BotDefinitionId, selection.UserId, StringComparison.OrdinalIgnoreCase))
+            if (PlayerControlRules.HasActiveBotControl(playerState)
+                && string.Equals(PlayerControlRules.ResolveBotControllerMode(playerState), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(playerState.BotDefinitionId, playerState.PlayerUserId, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            UpsertAssignment(game, selection.UserId, string.Empty, selection.UserId, SeatControllerModes.AI);
+            playerState.ControllerMode = SeatControllerModes.AI;
+            playerState.ControllerUserId = string.Empty;
+            playerState.BotDefinitionId = playerState.PlayerUserId;
+            playerState.BotControlActivatedUtc = DateTimeOffset.UtcNow;
+            playerState.BotControlClearedUtc = null;
+            playerState.BotControlStatus = BotControlStatuses.Active;
+            playerState.BotControlClearReason = string.Empty;
         }
     }
 
     public async Task<BotDecisionResolution?> ResolveDecisionAsync(
-        GameEntity game,
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         string playerUserId,
         string targetPlayerName,
         string phase,
@@ -185,20 +124,19 @@ public sealed class BotTurnService
         IReadOnlyList<BotLegalOption> legalOptions,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(game);
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameId);
 
-        var assignmentContext = await ResolveAssignmentContextAsync(game, playerUserId, cancellationToken);
-        if (assignmentContext is null)
+        var botControlContext = await ResolveBotControlContextAsync(gameId, playerStates, playerUserId, cancellationToken);
+        if (botControlContext is null)
         {
             return null;
         }
 
-        var assignment = assignmentContext.Value.Assignment;
-        var botDefinition = assignmentContext.Value.Definition;
+        var botDefinition = botControlContext.Value.Definition;
 
         var context = new BotDecisionContext
         {
-            GameId = game.GameId,
+            GameId = gameId,
             PlayerUserId = playerUserId,
             TargetPlayerName = targetPlayerName,
             Phase = phase,
@@ -267,40 +205,42 @@ public sealed class BotTurnService
     }
 
     public async Task<PlayerAction?> CreateBotActionAsync(
-        GameEntity game,
+        string gameId,
+        List<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(game);
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameId);
         ArgumentNullException.ThrowIfNull(gameEngine);
         ArgumentNullException.ThrowIfNull(mapDefinition);
 
         var snapshot = gameEngine.ToSnapshot();
-        var playerSelections = GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
+        var playerSelections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
 
         if (gameEngine.CurrentTurn.AuctionState is not null)
         {
-            return await CreateAuctionActionAsync(game, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken);
+            return await CreateAuctionActionAsync(gameId, playerStates, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken);
         }
 
         return gameEngine.CurrentTurn.Phase switch
         {
-            TurnPhase.RegionChoice => await CreateRegionChoiceActionAsync(game, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
-            TurnPhase.Move => await CreateMoveActionAsync(game, gameEngine, snapshot, playerSelections, cancellationToken),
-            TurnPhase.Purchase => await CreatePurchaseActionAsync(game, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
-            TurnPhase.UseFees => await CreateForcedSaleActionAsync(game, gameEngine, mapDefinition, playerSelections, cancellationToken),
+            TurnPhase.RegionChoice => await CreateRegionChoiceActionAsync(gameId, playerStates, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
+            TurnPhase.Move => await CreateMoveActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, cancellationToken),
+            TurnPhase.Purchase => await CreatePurchaseActionAsync(gameId, playerStates, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
+            TurnPhase.UseFees => await CreateForcedSaleActionAsync(gameId, playerStates, gameEngine, mapDefinition, playerSelections, cancellationToken),
             _ => null
         };
     }
 
     public async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
-        GameEntity game,
+        string gameId,
+        List<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(game);
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameId);
         ArgumentNullException.ThrowIfNull(gameEngine);
         ArgumentNullException.ThrowIfNull(mapDefinition);
 
@@ -312,7 +252,7 @@ public sealed class BotTurnService
 
         var railroad = gameEngine.Railroads.FirstOrDefault(candidate => candidate.Index == auctionState.RailroadIndex)
             ?? throw new InvalidOperationException($"Railroad '{auctionState.RailroadIndex}' was not found.");
-        var playerSelections = GamePlayerSelectionSerialization.Deserialize(game.PlayersJson);
+        var playerSelections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
         var activeParticipantIndices = auctionState.Participants
             .Where(participant => participant.IsEligible && !participant.HasDroppedOut)
             .Select(participant => participant.PlayerIndex)
@@ -324,43 +264,44 @@ public sealed class BotTurnService
             return null;
         }
 
-        var assignmentContexts = new Dictionary<int, (BotAssignment Assignment, BotStrategyDefinitionEntity Definition)>();
+        var botControlContexts = new Dictionary<int, (GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition)>();
         foreach (var participantIndex in activeParticipantIndices)
         {
-            var assignmentContext = await ResolveAuctionBidderContextAsync(game, playerSelections, participantIndex, cancellationToken);
-            if (assignmentContext is null)
+            var botControlContext = await ResolveAuctionBidderContextAsync(gameId, playerStates, playerSelections, participantIndex, cancellationToken);
+            if (botControlContext is null)
             {
                 return null;
             }
 
-            assignmentContexts[participantIndex] = assignmentContext.Value;
+            botControlContexts[participantIndex] = botControlContext.Value;
         }
 
         var winningBid = 0;
         while (gameEngine.CurrentTurn.AuctionState is { CurrentBidderPlayerIndex: int bidderPlayerIndex } liveAuctionState)
         {
-            if (!assignmentContexts.TryGetValue(bidderPlayerIndex, out var assignmentContext))
+            if (!botControlContexts.TryGetValue(bidderPlayerIndex, out var botControlContext))
             {
                 return null;
             }
 
             var snapshot = gameEngine.ToSnapshot();
             var plan = await ResolveAuctionBidPlanAsync(
-                game,
+                gameId,
+                playerStates,
                 gameEngine,
                 mapDefinition,
                 snapshot,
                 playerSelections,
                 liveAuctionState,
                 bidderPlayerIndex,
-                assignmentContext,
+                botControlContext,
                 cancellationToken);
             if (plan is null)
             {
                 return null;
             }
 
-            assignmentContexts[bidderPlayerIndex] = (plan.Value.Assignment, assignmentContext.Definition);
+            botControlContexts[bidderPlayerIndex] = (plan.Value.PlayerState, botControlContext.Definition);
 
             var bidder = gameEngine.Players[bidderPlayerIndex];
             var minimumBid = liveAuctionState.CurrentBid > 0
@@ -397,7 +338,8 @@ public sealed class BotTurnService
     }
 
     private async Task<PlayerAction?> CreateRegionChoiceActionAsync(
-        GameEntity game,
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
@@ -411,8 +353,8 @@ public sealed class BotTurnService
             return null;
         }
 
-        var assignmentContext = await ResolveAssignmentContextAsync(game, slotUserId, cancellationToken);
-        if (assignmentContext is null)
+        var botControlContext = await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
+        if (botControlContext is null)
         {
             return null;
         }
@@ -429,13 +371,14 @@ public sealed class BotTurnService
             .ToList();
 
         var resolution = await ResolveDecisionAsync(
-            game,
+            gameId,
+            playerStates,
             slotUserId,
             gameEngine.CurrentTurn.ActivePlayer.Name,
             "PickRegion",
             snapshot.TurnNumber,
             BuildOpenAiStatePayload(
-                game.GameId,
+                gameId,
                 gameEngine,
                 snapshot,
                 mapDefinition,
@@ -457,12 +400,13 @@ public sealed class BotTurnService
             PlayerIndex = playerIndex,
             ActorUserId = ResolveBotActorUserId(),
             SelectedRegionCode = resolution.SelectedOptionId["region:".Length..],
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, resolution.Source, resolution.FallbackReason)
+            BotMetadata = CreateBotMetadata(botControlContext.Value.PlayerState, botControlContext.Value.Definition, resolution.Source, resolution.FallbackReason)
         };
     }
 
     private async Task<PlayerAction?> CreateMoveActionAsync(
-        GameEntity game,
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         global::Boxcars.Engine.Persistence.GameState snapshot,
         IReadOnlyList<GamePlayerSelection> playerSelections,
@@ -475,8 +419,8 @@ public sealed class BotTurnService
             return null;
         }
 
-        var assignmentContext = await ResolveAssignmentContextAsync(game, slotUserId, cancellationToken);
-        if (assignmentContext is null)
+        var botControlContext = await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
+        if (botControlContext is null)
         {
             return null;
         }
@@ -517,12 +461,13 @@ public sealed class BotTurnService
             ActorUserId = ResolveBotActorUserId(),
             PointsTaken = pointsTaken,
             SelectedSegmentKeys = selectedSegmentKeys,
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, "SuggestedRoute")
+            BotMetadata = CreateBotMetadata(botControlContext.Value.PlayerState, botControlContext.Value.Definition, "SuggestedRoute")
         };
     }
 
     private async Task<PlayerAction?> CreatePurchaseActionAsync(
-        GameEntity game,
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
@@ -536,8 +481,8 @@ public sealed class BotTurnService
             return null;
         }
 
-        var assignmentContext = await ResolveAssignmentContextAsync(game, slotUserId, cancellationToken);
-        if (assignmentContext is null)
+        var botControlContext = await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
+        if (botControlContext is null)
         {
             return null;
         }
@@ -629,13 +574,14 @@ public sealed class BotTurnService
         };
 
         var resolution = await ResolveDecisionAsync(
-            game,
+            gameId,
+            playerStates,
             slotUserId,
             player.Name,
             "Purchase",
             snapshot.TurnNumber,
             BuildOpenAiStatePayload(
-                game.GameId,
+                gameId,
                 gameEngine,
                 snapshot,
                 mapDefinition,
@@ -653,12 +599,13 @@ public sealed class BotTurnService
 
         return action with
         {
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, resolution.Source, resolution.FallbackReason)
+            BotMetadata = CreateBotMetadata(botControlContext.Value.PlayerState, botControlContext.Value.Definition, resolution.Source, resolution.FallbackReason)
         };
     }
 
     private async Task<PlayerAction?> CreateAuctionActionAsync(
-        GameEntity game,
+        string gameId,
+        List<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
@@ -677,21 +624,22 @@ public sealed class BotTurnService
             return null;
         }
 
-        var assignmentContext = await ResolveAssignmentContextAsync(game, slotUserId, cancellationToken);
-        if (assignmentContext is null)
+        var botControlContext = await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
+        if (botControlContext is null)
         {
             return null;
         }
 
         var plan = await ResolveAuctionBidPlanAsync(
-            game,
+            gameId,
+            playerStates,
             gameEngine,
             mapDefinition,
             snapshot,
             playerSelections,
             auctionState,
             bidderPlayerIndex,
-            assignmentContext.Value,
+            botControlContext.Value,
             cancellationToken);
         if (plan is null)
         {
@@ -704,8 +652,8 @@ public sealed class BotTurnService
             : auctionState.StartingPrice;
 
         return BuildAuctionThresholdAction(
-            plan.Value.Assignment,
-            plan.Value.BotName,
+            plan.Value.PlayerState,
+            botControlContext.Value.Definition,
             ResolveBotActorUserId(),
             bidder,
             bidderPlayerIndex,
@@ -716,8 +664,9 @@ public sealed class BotTurnService
             plan.Value.FallbackReason);
     }
 
-    private async Task<(BotAssignment Assignment, BotStrategyDefinitionEntity Definition)?> ResolveAuctionBidderContextAsync(
-        GameEntity game,
+    private async Task<(GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition)?> ResolveAuctionBidderContextAsync(
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         IReadOnlyList<GamePlayerSelection> playerSelections,
         int bidderPlayerIndex,
         CancellationToken cancellationToken)
@@ -728,18 +677,19 @@ public sealed class BotTurnService
             return null;
         }
 
-        return await ResolveAssignmentContextAsync(game, slotUserId, cancellationToken);
+        return await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
     }
 
-    private async Task<(BotAssignment Assignment, string BotName, int MaximumBid, string Source, string? FallbackReason)?> ResolveAuctionBidPlanAsync(
-        GameEntity game,
+    private async Task<(GamePlayerStateEntity PlayerState, int MaximumBid, string Source, string? FallbackReason)?> ResolveAuctionBidPlanAsync(
+        string gameId,
+        List<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
         IReadOnlyList<GamePlayerSelection> playerSelections,
         AuctionState auctionState,
         int bidderPlayerIndex,
-        (BotAssignment Assignment, BotStrategyDefinitionEntity Definition) assignmentContext,
+        (GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition) botControlContext,
         CancellationToken cancellationToken)
     {
         var slotUserId = ResolveSlotUserId(playerSelections, bidderPlayerIndex);
@@ -752,28 +702,28 @@ public sealed class BotTurnService
         var minimumBid = auctionState.CurrentBid > 0
             ? auctionState.CurrentBid + RailBaronGameEngine.AuctionBidIncrement
             : auctionState.StartingPrice;
-        var assignment = assignmentContext.Assignment;
-        var botName = assignmentContext.Definition.Name;
+        var playerState = botControlContext.PlayerState;
 
         if (bidder.Cash < minimumBid)
         {
-            return (assignment, botName, 0, "OnlyLegalChoice", null);
+            return (playerState, 0, "OnlyLegalChoice", null);
         }
 
-        if (TryGetCachedAuctionMaximumBid(assignment, auctionState, snapshot.TurnNumber, out var cachedMaximumBid))
+        if (TryGetCachedAuctionMaximumBid(playerState, auctionState, snapshot.TurnNumber, out var cachedMaximumBid))
         {
-            return (assignment, botName, cachedMaximumBid, "AuctionPlan", null);
+            return (playerState, cachedMaximumBid, "AuctionPlan", null);
         }
 
         var legalOptions = BuildAuctionStrategyOptions(minimumBid, bidder.Cash);
         var resolution = await ResolveDecisionAsync(
-            game,
+            gameId,
+            playerStates,
             slotUserId,
             bidder.Name,
             AuctionStrategyPhase,
             snapshot.TurnNumber,
             BuildOpenAiStatePayload(
-                game.GameId,
+                gameId,
                 gameEngine,
                 snapshot,
                 mapDefinition,
@@ -791,12 +741,13 @@ public sealed class BotTurnService
         var maximumBid = TryParseAuctionMaximumBid(resolution.SelectedOptionId, out var selectedMaximumBid)
             ? selectedMaximumBid
             : 0;
-        assignment = CacheAuctionPlan(game, assignment, auctionState, snapshot.TurnNumber, maximumBid);
-        return (assignment, botName, maximumBid, resolution.Source, resolution.FallbackReason);
+        playerState = CacheAuctionPlan(playerStates, playerState, auctionState, snapshot.TurnNumber, maximumBid);
+        return (playerState, maximumBid, resolution.Source, resolution.FallbackReason);
     }
 
     private async Task<PlayerAction?> CreateForcedSaleActionAsync(
-        GameEntity game,
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         IReadOnlyList<GamePlayerSelection> playerSelections,
@@ -809,8 +760,8 @@ public sealed class BotTurnService
             return null;
         }
 
-        var assignmentContext = await ResolveAssignmentContextAsync(game, slotUserId, cancellationToken);
-        if (assignmentContext is null)
+        var botControlContext = await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
+        if (botControlContext is null)
         {
             return null;
         }
@@ -861,7 +812,7 @@ public sealed class BotTurnService
                 PlayerIndex = player.Index,
                 ActorUserId = ResolveBotActorUserId(),
                 RailroadIndex = bestCandidate.Railroad.Index,
-                BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, "DeterministicAuction")
+                BotMetadata = CreateBotMetadata(botControlContext.Value.PlayerState, botControlContext.Value.Definition, "DeterministicAuction")
             };
         }
 
@@ -872,7 +823,7 @@ public sealed class BotTurnService
             ActorUserId = ResolveBotActorUserId(),
             RailroadIndex = bestCandidate.Railroad.Index,
             AmountReceived = bestCandidate.Railroad.PurchasePrice / 2,
-            BotMetadata = CreateBotMetadata(assignmentContext.Value.Assignment, assignmentContext.Value.Definition, "DeterministicSell")
+            BotMetadata = CreateBotMetadata(botControlContext.Value.PlayerState, botControlContext.Value.Definition, "DeterministicSell")
         };
     }
 
@@ -886,16 +837,17 @@ public sealed class BotTurnService
             && player.Cash >= startingPrice);
     }
 
-    private async Task<(BotAssignment Assignment, BotStrategyDefinitionEntity Definition)?> ResolveAssignmentContextAsync(
-        GameEntity game,
+    private async Task<(GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition)?> ResolveBotControlContextAsync(
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
         string playerUserId,
         CancellationToken cancellationToken)
     {
-        var assignment = GetActiveAssignment(game, playerUserId);
-        var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(game.GameId, playerUserId);
-        var isConnected = _gamePresenceService.IsUserConnected(game.GameId, playerUserId);
+        var playerState = FindActivePlayerState(playerStates, playerUserId);
+        var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameId, playerUserId);
+        var isConnected = _gamePresenceService.IsUserConnected(gameId, playerUserId);
 
-        if (assignment is null)
+        if (playerState is null)
         {
             if (isConnected || !string.IsNullOrWhiteSpace(delegatedControllerUserId))
             {
@@ -908,60 +860,60 @@ public sealed class BotTurnService
                 return null;
             }
 
-            return (new BotAssignment
-            {
-                GameId = game.GameId,
-                PlayerUserId = playerUserId,
-                ControllerMode = SeatControllerModes.AI,
-                ControllerUserId = string.Empty,
-                BotDefinitionId = playerUserId,
-                Status = BotAssignmentStatuses.Active
-            }, implicitDefinition);
+            var existingPlayerState = playerStates.FirstOrDefault(candidate =>
+                string.Equals(candidate.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase));
+            var implicitPlayerState = existingPlayerState is null
+                ? new GamePlayerStateEntity
+                {
+                    GameId = gameId,
+                    PlayerUserId = playerUserId,
+                    ControllerMode = SeatControllerModes.AI,
+                    ControllerUserId = string.Empty,
+                    BotDefinitionId = playerUserId,
+                    BotControlStatus = BotControlStatuses.Active
+                }
+                : GamePlayerStateProjection.Clone(existingPlayerState);
+
+            implicitPlayerState.ControllerMode = SeatControllerModes.AI;
+            implicitPlayerState.ControllerUserId = string.Empty;
+            implicitPlayerState.BotDefinitionId = playerUserId;
+            implicitPlayerState.BotControlStatus = BotControlStatuses.Active;
+            implicitPlayerState.BotControlClearedUtc = null;
+            implicitPlayerState.BotControlClearReason = string.Empty;
+            return (implicitPlayerState, implicitDefinition);
         }
 
-        var resolvedControllerMode = ResolveAssignmentControllerMode(assignment, playerUserId);
+        var resolvedControllerMode = PlayerControlRules.ResolveBotControllerMode(playerState) ?? SeatControllerModes.AI;
         var dedicatedBotSeatDefinition = await _userDirectoryService.GetBotDefinitionAsync(playerUserId, cancellationToken);
         var isDedicatedBotPlayer = dedicatedBotSeatDefinition?.IsBotUser == true;
         var botDefinitionId = isDedicatedBotPlayer
-            ? string.IsNullOrWhiteSpace(assignment.BotDefinitionId) ? playerUserId : assignment.BotDefinitionId
+            ? string.IsNullOrWhiteSpace(playerState.BotDefinitionId) ? playerUserId : playerState.BotDefinitionId
             : playerUserId;
         var botDefinition = isDedicatedBotPlayer
             ? await _userDirectoryService.GetBotDefinitionAsync(botDefinitionId, cancellationToken)
             : await _userDirectoryService.GetAutomationProfileAsync(playerUserId, cancellationToken);
         if (botDefinition is null)
         {
-            ClearAssignment(game, playerUserId, "The assigned bot definition no longer exists.", BotAssignmentStatuses.MissingDefinition);
+            ClearActiveBotControl(playerStates, playerUserId, "The assigned bot definition no longer exists.", BotControlStatuses.MissingDefinition);
             return null;
         }
 
         if (SeatControllerModes.IsAiControlled(resolvedControllerMode)
             && isConnected)
         {
-            ClearAssignment(game, playerUserId, "Player reconnected.", BotAssignmentStatuses.Cleared);
+            ClearActiveBotControl(playerStates, playerUserId, "Player reconnected.", BotControlStatuses.Cleared);
             return null;
         }
 
-        return (assignment with
-        {
-            ControllerMode = resolvedControllerMode,
-            ControllerUserId = string.Empty,
-            BotDefinitionId = botDefinitionId
-        }, botDefinition);
+        playerState.ControllerMode = resolvedControllerMode;
+        playerState.ControllerUserId = string.Empty;
+        playerState.BotDefinitionId = botDefinitionId;
+        return (playerState, botDefinition);
     }
 
     private string ResolveBotActorUserId()
     {
         return _botOptions.ServerActorUserId;
-    }
-
-    private static string ResolveAssignmentControllerMode(BotAssignment assignment, string playerUserId)
-    {
-        if (!string.IsNullOrWhiteSpace(assignment.ControllerMode))
-        {
-            return SeatControllerModes.Normalize(assignment.ControllerMode);
-        }
-
-        return SeatControllerModes.AI;
     }
 
     private static string? ResolveSlotUserId(IReadOnlyList<GamePlayerSelection> selections, int playerIndex)
@@ -1320,25 +1272,25 @@ public sealed class BotTurnService
         return int.TryParse(optionId["auction-cap:".Length..], NumberStyles.Integer, CultureInfo.InvariantCulture, out maximumBid);
     }
 
-    private static bool TryGetCachedAuctionMaximumBid(BotAssignment assignment, AuctionState auctionState, int turnNumber, out int maximumBid)
+    private static bool TryGetCachedAuctionMaximumBid(GamePlayerStateEntity playerState, AuctionState auctionState, int turnNumber, out int maximumBid)
     {
         maximumBid = 0;
 
-        if (assignment.AuctionPlanMaximumBid is null
-            || assignment.AuctionPlanTurnNumber != turnNumber
-            || assignment.AuctionPlanRailroadIndex != auctionState.RailroadIndex
-            || assignment.AuctionPlanStartingPrice != auctionState.StartingPrice)
+        if (playerState.AuctionPlanMaximumBid is null
+            || playerState.AuctionPlanTurnNumber != turnNumber
+            || playerState.AuctionPlanRailroadIndex != auctionState.RailroadIndex
+            || playerState.AuctionPlanStartingPrice != auctionState.StartingPrice)
         {
             return false;
         }
 
-        maximumBid = assignment.AuctionPlanMaximumBid.Value;
+        maximumBid = playerState.AuctionPlanMaximumBid.Value;
         return true;
     }
 
     private static PlayerAction BuildAuctionThresholdAction(
-        BotAssignment assignment,
-        string botName,
+        GamePlayerStateEntity playerState,
+        BotStrategyDefinitionEntity definition,
         string actorUserId,
         Player bidder,
         int bidderPlayerIndex,
@@ -1357,7 +1309,7 @@ public sealed class BotTurnService
                 ActorUserId = actorUserId,
                 RailroadIndex = auctionState.RailroadIndex,
                 AmountBid = minimumBid,
-                BotMetadata = CreateBotMetadata(assignment, botName, source, fallbackReason)
+                BotMetadata = CreateBotMetadata(playerState, definition, source, fallbackReason)
             };
         }
 
@@ -1367,41 +1319,39 @@ public sealed class BotTurnService
             PlayerIndex = bidderPlayerIndex,
             ActorUserId = actorUserId,
             RailroadIndex = auctionState.RailroadIndex,
-            BotMetadata = CreateBotMetadata(assignment, botName, source, fallbackReason)
+            BotMetadata = CreateBotMetadata(playerState, definition, source, fallbackReason)
         };
     }
 
-    private BotAssignment CacheAuctionPlan(
-        GameEntity game,
-        BotAssignment assignment,
+    private static GamePlayerStateEntity CacheAuctionPlan(
+        List<GamePlayerStateEntity> playerStates,
+        GamePlayerStateEntity playerState,
         AuctionState auctionState,
         int turnNumber,
         int maximumBid)
     {
-        var updatedAssignment = assignment with
-        {
-            AuctionPlanTurnNumber = turnNumber,
-            AuctionPlanRailroadIndex = auctionState.RailroadIndex,
-            AuctionPlanStartingPrice = auctionState.StartingPrice,
-            AuctionPlanMaximumBid = maximumBid
-        };
+        playerState.AuctionPlanTurnNumber = turnNumber;
+        playerState.AuctionPlanRailroadIndex = auctionState.RailroadIndex;
+        playerState.AuctionPlanStartingPrice = auctionState.StartingPrice;
+        playerState.AuctionPlanMaximumBid = maximumBid;
 
-        var assignments = GetAssignments(game).ToList();
-        for (var index = 0; index < assignments.Count; index++)
+        for (var index = 0; index < playerStates.Count; index++)
         {
-            if (!string.Equals(assignments[index].PlayerUserId, assignment.PlayerUserId, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(assignments[index].Status, BotAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                || assignments[index].ClearedUtc is not null)
+            if (!string.Equals(playerStates[index].PlayerUserId, playerState.PlayerUserId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(playerStates[index].BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                || playerStates[index].BotControlClearedUtc is not null)
             {
                 continue;
             }
 
-            assignments[index] = updatedAssignment;
-            PersistAssignments(game, assignments);
-            return updatedAssignment;
+            playerStates[index].AuctionPlanTurnNumber = playerState.AuctionPlanTurnNumber;
+            playerStates[index].AuctionPlanRailroadIndex = playerState.AuctionPlanRailroadIndex;
+            playerStates[index].AuctionPlanStartingPrice = playerState.AuctionPlanStartingPrice;
+            playerStates[index].AuctionPlanMaximumBid = playerState.AuctionPlanMaximumBid;
+            return playerStates[index];
         }
 
-        return updatedAssignment;
+        return playerState;
     }
 
     private static object BuildAuctionPhaseContext(
@@ -1605,18 +1555,18 @@ public sealed class BotTurnService
         return string.Concat(fromNodeId, "|", toNodeId, "|", railroadIndex.ToString(CultureInfo.InvariantCulture));
     }
 
-    private static BotRecordedActionMetadata CreateBotMetadata(BotAssignment assignment, BotStrategyDefinitionEntity definition, string source, string? fallbackReason = null)
+    private static BotRecordedActionMetadata CreateBotMetadata(GamePlayerStateEntity playerState, BotStrategyDefinitionEntity definition, string source, string? fallbackReason = null)
     {
-        return CreateBotMetadata(assignment, definition.Name, source, fallbackReason, definition.IsBotUser);
+        return CreateBotMetadata(playerState, definition.Name, source, fallbackReason, definition.IsBotUser);
     }
 
-    private static BotRecordedActionMetadata CreateBotMetadata(BotAssignment assignment, string botName, string source, string? fallbackReason = null, bool isBotPlayer = false)
+    private static BotRecordedActionMetadata CreateBotMetadata(GamePlayerStateEntity playerState, string botName, string source, string? fallbackReason = null, bool isBotPlayer = false)
     {
         return new BotRecordedActionMetadata
         {
-            BotDefinitionId = assignment.BotDefinitionId,
+            BotDefinitionId = playerState.BotDefinitionId,
             BotName = botName,
-            ControllerMode = assignment.ControllerMode,
+            ControllerMode = playerState.ControllerMode,
             IsBotPlayer = isBotPlayer,
             DecisionSource = source,
             FallbackReason = fallbackReason
@@ -1635,8 +1585,4 @@ public sealed class BotTurnService
         };
     }
 
-    private static void PersistAssignments(GameEntity game, IReadOnlyList<BotAssignment> assignments)
-    {
-        game.BotAssignmentsJson = BotAssignmentSerialization.Serialize(assignments);
-    }
 }

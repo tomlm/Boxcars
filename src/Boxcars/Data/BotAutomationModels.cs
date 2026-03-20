@@ -2,23 +2,6 @@ using System.Text.Json;
 
 namespace Boxcars.Data;
 
-public sealed record BotAssignment
-{
-    public string GameId { get; init; } = string.Empty;
-    public string PlayerUserId { get; init; } = string.Empty;
-    public string ControllerUserId { get; init; } = string.Empty;
-    public string ControllerMode { get; init; } = string.Empty;
-    public string BotDefinitionId { get; init; } = string.Empty;
-    public int? AuctionPlanTurnNumber { get; init; }
-    public int? AuctionPlanRailroadIndex { get; init; }
-    public int? AuctionPlanStartingPrice { get; init; }
-    public int? AuctionPlanMaximumBid { get; init; }
-    public DateTimeOffset AssignedUtc { get; init; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset? ClearedUtc { get; init; }
-    public string Status { get; init; } = BotAssignmentStatuses.Active;
-    public string? ClearReason { get; init; }
-}
-
 public sealed record SeatControllerState
 {
     public string GameId { get; init; } = string.Empty;
@@ -77,7 +60,7 @@ public static class SeatControllerModes
     }
 }
 
-public static class BotAssignmentStatuses
+public static class BotControlStatuses
 {
     public const string Active = "Active";
     public const string Cleared = "Cleared";
@@ -167,22 +150,3 @@ public static class SeatControllerStateSerialization
     }
 }
 
-public static class BotAssignmentSerialization
-{
-    public const string EmptyPayload = "[]";
-
-    public static string Serialize(IReadOnlyList<BotAssignment> assignments)
-    {
-        return JsonSerializer.Serialize(assignments);
-    }
-
-    public static IReadOnlyList<BotAssignment> Deserialize(string payload)
-    {
-        if (string.IsNullOrWhiteSpace(payload))
-        {
-            return [];
-        }
-
-        return JsonSerializer.Deserialize<List<BotAssignment>>(payload) ?? [];
-    }
-}

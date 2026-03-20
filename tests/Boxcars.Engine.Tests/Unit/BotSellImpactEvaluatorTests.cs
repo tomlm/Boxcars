@@ -41,8 +41,12 @@ public class BotSellImpactEvaluatorTests
             BotTurnServiceTestHarness.ControllerUserId);
 
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition();
-        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
-        var game = BotTurnServiceTestHarness.CreateAssignedGame(
+        var playerProfile = BotTurnServiceTestHarness.CreateUser(
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Alice",
+            strategyText: "Sell the least damaging railroad when forced to raise cash.");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile], botDefinition);
+        var playerStates = BotTurnServiceTestHarness.CreateAssignedPlayerStates(
             BotTurnServiceTestHarness.CreateSelections(
                 BotTurnServiceTestHarness.ActivePlayerUserId,
                 BotTurnServiceTestHarness.OtherPlayerUserId),
@@ -65,14 +69,14 @@ public class BotSellImpactEvaluatorTests
             .Select(candidate => candidate.Railroad)
             .First();
 
-        var action = await service.CreateBotActionAsync(game, engine, mapDefinition, CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, mapDefinition, CancellationToken.None);
 
         var sellAction = Assert.IsType<SellRailroadAction>(action);
         Assert.Equal(expectedRailroad.Index, sellAction.RailroadIndex);
         Assert.Equal(expectedRailroad.PurchasePrice / 2, sellAction.AmountReceived);
         Assert.NotNull(sellAction.BotMetadata);
         Assert.Equal("DeterministicSell", sellAction.BotMetadata!.DecisionSource);
-        Assert.Equal(botDefinition.Name, sellAction.BotMetadata.BotName);
+        Assert.Equal("Alice", sellAction.BotMetadata.BotName);
     }
 
     [Fact]
@@ -107,8 +111,12 @@ public class BotSellImpactEvaluatorTests
             BotTurnServiceTestHarness.ControllerUserId);
 
         var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition();
-        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
-        var game = BotTurnServiceTestHarness.CreateAssignedGame(
+        var playerProfile = BotTurnServiceTestHarness.CreateUser(
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Alice",
+            strategyText: "Auction the least damaging railroad when another player can bid.");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [playerProfile], botDefinition);
+        var playerStates = BotTurnServiceTestHarness.CreateAssignedPlayerStates(
             BotTurnServiceTestHarness.CreateSelections(
                 BotTurnServiceTestHarness.ActivePlayerUserId,
                 BotTurnServiceTestHarness.OtherPlayerUserId),
@@ -131,12 +139,12 @@ public class BotSellImpactEvaluatorTests
             .Select(candidate => candidate.Railroad)
             .First();
 
-        var action = await service.CreateBotActionAsync(game, engine, mapDefinition, CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, mapDefinition, CancellationToken.None);
 
         var auctionAction = Assert.IsType<StartAuctionAction>(action);
         Assert.Equal(expectedRailroad.Index, auctionAction.RailroadIndex);
         Assert.NotNull(auctionAction.BotMetadata);
         Assert.Equal("DeterministicAuction", auctionAction.BotMetadata!.DecisionSource);
-        Assert.Equal(botDefinition.Name, auctionAction.BotMetadata.BotName);
+        Assert.Equal("Alice", auctionAction.BotMetadata.BotName);
     }
 }

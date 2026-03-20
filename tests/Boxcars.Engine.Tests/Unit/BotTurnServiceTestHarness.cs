@@ -69,93 +69,52 @@ internal static class BotTurnServiceTestHarness
             NullLogger<BotTurnService>.Instance);
     }
 
-    public static GameEntity CreateAssignedGame(
+    public static List<GamePlayerStateEntity> CreateAssignedPlayerStates(
         IReadOnlyList<GamePlayerSelection> selections,
         string playerUserId,
         string controllerUserId,
         string botDefinitionId)
     {
-        return new GameEntity
-        {
-            PartitionKey = GameId,
-            RowKey = "GAME",
-            GameId = GameId,
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(selections),
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                new BotAssignment
-                {
-                    GameId = GameId,
-                    PlayerUserId = playerUserId,
-                    ControllerUserId = controllerUserId,
-                    ControllerMode = SeatControllerModes.AI,
-                    BotDefinitionId = botDefinitionId,
-                    Status = BotAssignmentStatuses.Active
-                }
-            ])
-        };
+        var playerStates = CreatePlayerStates(selections);
+        var playerState = playerStates.Single(playerState => string.Equals(playerState.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase));
+        playerState.ControllerMode = SeatControllerModes.AI;
+        playerState.ControllerUserId = controllerUserId;
+        playerState.BotDefinitionId = botDefinitionId;
+        playerState.BotControlActivatedUtc = DateTimeOffset.UtcNow;
+        playerState.BotControlStatus = BotControlStatuses.Active;
+        return playerStates;
     }
 
-    public static GameEntity CreateDedicatedBotSeatGame(
+    public static List<GamePlayerStateEntity> CreateDedicatedBotSeatPlayerStates(
         IReadOnlyList<GamePlayerSelection> selections,
         string playerUserId,
         string botDefinitionId)
     {
-        return new GameEntity
-        {
-            PartitionKey = GameId,
-            RowKey = "GAME",
-            GameId = GameId,
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(selections),
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                CreateDedicatedBotAssignment(playerUserId, botDefinitionId)
-            ])
-        };
+        var playerStates = CreatePlayerStates(selections);
+        var playerState = playerStates.Single(playerState => string.Equals(playerState.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase));
+        playerState.ControllerMode = SeatControllerModes.AI;
+        playerState.ControllerUserId = string.Empty;
+        playerState.BotDefinitionId = botDefinitionId;
+        playerState.BotControlActivatedUtc = DateTimeOffset.UtcNow;
+        playerState.BotControlStatus = BotControlStatuses.Active;
+        return playerStates;
     }
 
-    public static GameEntity CreateBotControlledGame(
+    public static List<GamePlayerStateEntity> CreateBotControlledPlayerStates(
         IReadOnlyList<GamePlayerSelection> selections,
         string playerUserId,
         string controllerUserId,
         string botDefinitionId)
     {
-        return new GameEntity
-        {
-            PartitionKey = GameId,
-            RowKey = "GAME",
-            GameId = GameId,
-            PlayersJson = GamePlayerSelectionSerialization.Serialize(selections),
-            BotAssignmentsJson = BotAssignmentSerialization.Serialize(
-            [
-                CreateBotAssignment(playerUserId, controllerUserId, botDefinitionId)
-            ])
-        };
+        return CreateAssignedPlayerStates(selections, playerUserId, controllerUserId, botDefinitionId);
     }
 
-    public static BotAssignment CreateDedicatedBotAssignment(string playerUserId, string botDefinitionId)
+    public static List<GamePlayerStateEntity> CreatePlayerStates(
+        IReadOnlyList<GamePlayerSelection> selections)
     {
-        return new BotAssignment
-        {
-            GameId = GameId,
-            PlayerUserId = playerUserId,
-            ControllerMode = SeatControllerModes.AI,
-            BotDefinitionId = botDefinitionId,
-            Status = BotAssignmentStatuses.Active
-        };
-    }
-
-    public static BotAssignment CreateBotAssignment(string playerUserId, string controllerUserId, string botDefinitionId)
-    {
-        return new BotAssignment
-        {
-            GameId = GameId,
-            PlayerUserId = playerUserId,
-            ControllerUserId = controllerUserId,
-            ControllerMode = SeatControllerModes.AI,
-            BotDefinitionId = botDefinitionId,
-            Status = BotAssignmentStatuses.Active
-        };
+        return selections
+            .Select((selection, seatIndex) => GamePlayerStateEntity.Create(GameId, seatIndex, selection))
+            .ToList();
     }
 
     public static void ConfigureDelegatedControl(GamePresenceService presenceService, string playerUserId, string controllerUserId)
