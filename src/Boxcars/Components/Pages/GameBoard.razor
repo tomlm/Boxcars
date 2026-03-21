@@ -41,15 +41,15 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
-<div style="display: flex; flex-direction: row; height: calc(100dvh - 64px); width: 100%; overflow: hidden">
-    <div style="width: 270px; flex-shrink: 0; overflow-y: auto; background: #000; border-right: 1px solid #ccc; padding: 0.5rem 0.4rem 0.75rem; box-sizing: border-box">
+<MudStack Row="true" Class="overflow-hidden" Style="height: calc(100dvh - 64px); width: 100%">
+    <MudPaper Class="flex-shrink-0 overflow-y-auto" Style="width: 270px; background: #000; border-right: 1px solid #ccc; padding: 0.5rem 0.4rem 0.75rem; box-sizing: border-box">
         <PlayerBoard Players="_players"
                  OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
                  OnFocusPlayer="OnFocusPlayerAsync"
                  />
-    </div>
+    </MudPaper>
 
-    <div style="display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden">
+    <MudStack Class="flex-grow-1 overflow-hidden" Style="min-height: 0; min-width: 0">
         @if (_gameMap?.Errors.Count > 0)
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true" Style="border-radius: 0">
@@ -65,7 +65,7 @@
         {
             <MudToggleGroup T="PurchaseExperienceTab" Value="_selectedPurchaseTab" ValueChanged="OnPurchaseTabSelected"
                            Color="MudBlazor.Color.Primary" Size="Size.Small"
-                           Style="padding: 0.75rem 0.75rem 0; flex-shrink: 0">
+                           Class="flex-shrink-0 pa-3 pb-0">
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Map" Text="Map" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Regions" Text="Regions" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Cities" Text="Cities" />
@@ -107,7 +107,7 @@
 
         @if (ShouldShowPurchaseExperienceTabs)
         {
-            <div style="@AnalysisAreaStyle">
+            <MudStack Class="@AnalysisAreaClass" Style="@AnalysisAreaStyle">
                 @if (IsNetworkPurchaseTabActive)
                 {
                     <MudStack Spacing="2">
@@ -126,8 +126,8 @@
                 }
                 else if (IsHistoryPurchaseTabActive)
                 {
-                    <MudPaper Style="display: flex; flex-direction: column; min-height: 100%; padding: 0.85rem; background: color-mix(in srgb, var(--mud-palette-surface) 90%, black 10%)" Outlined="true">
-                        <MudStack Spacing="0" Style="margin-bottom: 0.75rem">
+                    <MudPaper Outlined="true" Class="d-flex flex-column pa-3" Style="min-height: 100%; background: color-mix(in srgb, var(--mud-palette-surface) 90%, black 10%)">
+                        <MudStack Spacing="0" Class="mb-3">
                             <MudText Typo="Typo.h6">History</MudText>
                             <MudText Typo="Typo.caption">@NotificationHistorySummary</MudText>
                         </MudStack>
@@ -138,16 +138,16 @@
                         }
                         else
                         {
-                            <MudList T="NotificationHistoryEntry" Dense="true" Style="padding: 0">
+                            <MudList T="NotificationHistoryEntry" Dense="true" Class="pa-0">
                                 @foreach (var item in NotificationHistoryItems)
                                 {
                                     <MudListItem T="NotificationHistoryEntry" Style="@ResolveNotificationHistoryItemStyle(item)">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="width: 100%">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mud-width-full">
                                             <MudIcon Icon="@item.Icon"
                                                      Color="@ResolveNotificationHistoryIconColor(item)"
                                                      Size="Size.Medium"
-                                                     Style="margin-top: 0; flex-shrink: 0" />
-                                            <MudStack Spacing="0" Style="min-width: 0; overflow: hidden">
+                                                     Class="mt-0 flex-shrink-0" />
+                                            <MudStack Spacing="0" Class="overflow-hidden" Style="min-width: 0">
                                                 <MudText Typo="Typo.body2">@item.Message</MudText>
                                             </MudStack>
                                         </MudStack>
@@ -179,14 +179,13 @@
                         Analysis is not available for the selected player yet.
                     </MudAlert>
                 }
-            </div>
+            </MudStack>
         }
 
         @* ── Status strip: turn state center, zoom right ── *@
-        <div style="@StatusBarAnchorStyle">
-            <div style="display: flex; flex: 1; align-items: center; font-size: 0.85rem; min-height: 3.75rem; padding: 0.55rem 1rem">
-                <div style="display: flex; justify-content: center; align-items: center; width: 100%">
-                    <div style="display: inline-flex; justify-content: center; align-items: center; gap: 1rem; width: auto; max-width: 100%; margin: 0 auto">
+        <MudStack Row="true" Class="flex-shrink-0 align-center" Style="@StatusBarAnchorStyle">
+            <MudStack Row="true" Class="flex-grow-1 align-center justify-center" Style="font-size: 0.85rem; min-height: 3.75rem; padding: 0.55rem 1rem">
+                <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Style="gap: 1rem; max-width: 100%; margin: 0 auto">
                         @if (ShouldShowStatusControls)
                         {
                             @if (!ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
@@ -237,34 +236,33 @@
                             }
                             else if (ShouldShowCommitMoveAction)
                             {
-                                <div style="display: flex; justify-content: center; align-items: center; margin: 0 auto">
-                                    <MudPaper Style="display: flex; align-items: center; gap: 1rem; padding: 0.45rem 0.6rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)" Outlined="true">
+                                <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Style="margin: 0 auto">
+                                    <MudPaper Outlined="true" Class="d-flex align-center gap-4" Style="padding: 0.45rem 0.6rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)">
                                         <MovementStatusPanel State="@_turnViewState" UsePaper="false" />
                                         <MudButton Variant="Variant.Filled"
                                                    Color="MudBlazor.Color.Primary"
                                                    Disabled="@(!CanCommitMoveAction)"
                                                    OnClick="OnCommitMoveActionAsync"
-                                                   Style="flex: 0 0 auto; min-width: 9rem; white-space: nowrap">
+                                                   Class="flex-shrink-0 flex-grow-0" Style="min-width: 9rem; white-space: nowrap">
                                             @CommitMoveActionLabel
                                         </MudButton>
                                     </MudPaper>
-                                </div>
+                                </MudStack>
                             }
                         }
                         else
                         {
-                            <div style="display: flex; justify-content: center; align-items: center; margin: 0 auto">
-                                <MudPaper Style="display: flex; justify-content: center; align-items: center; padding: 0.45rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)" Outlined="true">
-                                    <MudText Typo="Typo.body2" Style="display: block; text-align: center; white-space: nowrap">@SpectatorStatusMessage</MudText>
+                            <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Style="margin: 0 auto">
+                                <MudPaper Outlined="true" Class="d-flex justify-center align-center" Style="padding: 0.45rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)">
+                                    <MudText Typo="Typo.body2" Style="text-align: center; white-space: nowrap">@SpectatorStatusMessage</MudText>
                                 </MudPaper>
-                            </div>
+                            </MudStack>
                         }
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+                </MudStack>
+            </MudStack>
+        </MudStack>
+    </MudStack>
+</MudStack>
 
 @code {
     private const int PresenceHeartbeatIntervalMilliseconds = 5000;
@@ -1883,11 +1881,17 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         ? "display: none"
         : "display: flex; flex: 1; flex-basis: 0; overflow: hidden; position: relative; min-height: 0; align-items: center; justify-content: center";
 
-    private string AnalysisAreaStyle => IsMapPurchaseTabActive
-        ? "display: none"
-        : "flex: 1; min-height: 0; overflow: auto; padding: 0.75rem; background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)";
+    private string AnalysisAreaClass => IsMapPurchaseTabActive
+        ? "d-none"
+        : IsAdvicePurchaseTabActive
+            ? "flex-grow-1 overflow-hidden pa-3"
+            : "flex-grow-1 overflow-auto pa-3";
 
-    private string StatusBarAnchorStyle => $"display: flex; flex-shrink: 0; color: var(--mud-palette-text-primary); border-top: 1px solid var(--mud-palette-divider); transition: background-color 120ms ease; {GetStatusBarColorStyle(_currentPlayerColor)}";
+    private string AnalysisAreaStyle => IsMapPurchaseTabActive
+        ? string.Empty
+        : "min-height: 0; background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)";
+
+    private string StatusBarAnchorStyle => $"border-top: 1px solid var(--mud-palette-divider); transition: background-color 120ms ease; {GetStatusBarColorStyle(_currentPlayerColor)}";
 
     private bool ShouldShowPurchaseAnalysisPanel => (IsRegionsPurchaseTabActive || IsCitiesPurchaseTabActive || IsRailroadsPurchaseTabActive)
         && CurrentMapAnalysisReport is not null;

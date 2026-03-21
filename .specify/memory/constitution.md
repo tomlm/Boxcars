@@ -255,7 +255,13 @@ exceptions.
      `Square`, `Rounded`, `FullWidth`, `Wrap`, `Justify`,
      `AlignItems`, and other built-in parameters.
   2. **MudBlazor utility classes** via `Class` — `pa-*`,
-     `ma-*`, `mb-*`, `mt-*`, `d-flex`, `flex-wrap`, etc.
+     `ma-*`, `mb-*`, `mt-*`, `d-flex`, `flex-column`,
+     `flex-grow-1`, `overflow-auto`, `flex-shrink-0`, and
+     all other MudBlazor CSS utilities for display, flex,
+     spacing, overflow, sizing, and positioning. Flex layout
+     MUST be expressed through these utility classes — not
+     inline `style` attributes — whenever a corresponding
+     utility class exists.
   3. **MudBlazor theming** — palette tokens
      (`var(--mud-palette-*)`) and theme provider configuration.
   4. **Inline `Style` attribute** — for CSS that cannot be

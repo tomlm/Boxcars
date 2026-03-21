@@ -1,7 +1,7 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudPaper Outlined="true">
+<MudStack Class="flex-grow-1 overflow-hidden" Style="max-width: 1000px">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
         <MudStack Spacing="0">
             <MudText Typo="Typo.h6">Casey Jones</MudText>
@@ -14,80 +14,57 @@
         }
     </MudStack>
 
-    @if (Conversation is not null)
-    {
-        @foreach (var message in Conversation.Messages)
+    <MudDivider />
+
+    <MudPaper Outlined="true" Class="flex-grow-1 overflow-y-auto pa-3">
+        @if (LatestAssistantMessage is not null)
         {
-            @if (message.IsAssistant && string.Equals(message.MessageId, LatestAssistantMessageId, StringComparison.Ordinal))
+            <MudMarkdown @rendermode="InteractiveServer" Value="@LatestAssistantMessage.Content" />
+            @if (LatestAssistantMessage.ContextTurnNumber.HasValue)
             {
-                <MudText Typo="Typo.overline" Color="Color.Info">Casey Jones</MudText>
-                <MudMarkdown @rendermode="InteractiveServer" Value="@message.Content" />
-                @if (message.ContextTurnNumber.HasValue)
-                {
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">Turn @message.ContextTurnNumber.Value</MudText>
-                }
-            }
-            else if (message.IsAssistant)
-            {
-                <MudText Typo="Typo.overline" Color="Color.Info">Casey Jones</MudText>
-                <MudMarkdown @rendermode="InteractiveServer" Value="@message.Content" />
-                @if (message.ContextTurnNumber.HasValue)
-                {
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">Turn @message.ContextTurnNumber.Value</MudText>
-                }
-            }
-            else
-            {
-                <MudText Typo="Typo.body2">@message.Content</MudText>
-                @if (message.ContextTurnNumber.HasValue)
-                {
-                    <MudText Typo="Typo.caption">Turn @message.ContextTurnNumber.Value</MudText>
-                }
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                    Turn @LatestAssistantMessage.ContextTurnNumber.Value
+                </MudText>
             }
         }
-    }
 
-    @if (EntryPoint.IsLoading)
-    {
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="MudBlazor.Color.Info" />
-            <MudText Typo="Typo.body2">Thinking about the current board...</MudText>
-        </MudStack>
-    }
+        @if (EntryPoint.IsLoading)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="MudBlazor.Color.Info" />
+                <MudText Typo="Typo.body2">Thinking about the current board...</MudText>
+            </MudStack>
+        }
 
-    @if (EntryPoint.HasAvailabilityError)
-    {
-        <MudStack Spacing="1">
-            <MudAlert Severity="Severity.Warning" Dense="true">
-                @EntryPoint.AvailabilityMessage
-            </MudAlert>
-            @if (RetryRequested.HasDelegate)
-            {
-                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Warning" Disabled="@EntryPoint.IsLoading"
-                           OnClick="RetryRequested">
-                    Retry last question
-                </MudButton>
-            }
-        </MudStack>
-    }
+        @if (EntryPoint.HasAvailabilityError)
+        {
+            <MudStack Spacing="1">
+                <MudAlert Severity="Severity.Warning" Dense="true">
+                    @EntryPoint.AvailabilityMessage
+                </MudAlert>
+                @if (RetryRequested.HasDelegate)
+                {
+                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Warning" Disabled="@EntryPoint.IsLoading"
+                               OnClick="RetryRequested">
+                        Retry last question
+                    </MudButton>
+                }
+            </MudStack>
+        }
+    </MudPaper>
 
-    <MudGrid Spacing="2">
-        <MudItem xs="12" md="9">
-            <MudTextField T="string" @key="ComposerResetVersion" Value="@DraftMessage"
-                          ValueChanged="DraftMessageChanged" Label="Ask about the current game"
-                          Placeholder="Example: Should I buy now or hold cash for fees?" Variant="Variant.Outlined" Lines="2"
-                          MaxLines="2" AutoGrow="true" TextUpdateSuppression="false" Immediate="true" FullWidth="true"
-                          Disabled="@EntryPoint.IsLoading" OnKeyDown="OnComposerKeyDownAsync" />
-        </MudItem>
-
-        <MudItem xs="12" md="3">
-            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Info" Disabled="@(!CanSend)" FullWidth="true"
-                       OnClick="SendRequested">
-                Ask Casey Jones
-            </MudButton>
-        </MudItem>
-    </MudGrid>
-</MudPaper>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-shrink-0">
+        <MudTextField T="string" @key="ComposerResetVersion" Value="@DraftMessage"
+                      ValueChanged="DraftMessageChanged" Placeholder="Ask about the current game…"
+                      Variant="Variant.Outlined" Lines="1" AutoGrow="true" MaxLines="3"
+                      TextUpdateSuppression="false" Immediate="true" FullWidth="true"
+                      Disabled="@EntryPoint.IsLoading" OnKeyDown="OnComposerKeyDownAsync" />
+        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Info" Disabled="@(!CanSend)"
+                   OnClick="SendRequested">
+            Ask
+        </MudButton>
+    </MudStack>
+</MudStack>
 
 @code {
     [Parameter, EditorRequired]
@@ -114,26 +91,9 @@
     [Parameter]
     public EventCallback CloseRequested { get; set; }
 
-    private string? _lastAutoScrolledAssistantMessageId;
-
     private bool CanSend => !EntryPoint.IsLoading && !string.IsNullOrWhiteSpace(DraftMessage);
 
-    private string? LatestAssistantMessageId => Conversation?.Messages.LastOrDefault(message =>
-message.IsAssistant)?.MessageId;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        await base.OnAfterRenderAsync(firstRender);
-
-        var latestAssistantMessageId = LatestAssistantMessageId;
-        if (string.IsNullOrWhiteSpace(latestAssistantMessageId)
-            || string.Equals(_lastAutoScrolledAssistantMessageId, latestAssistantMessageId, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _lastAutoScrolledAssistantMessageId = latestAssistantMessageId;
-    }
+    private AdvisorMessage? LatestAssistantMessage => Conversation?.Messages.LastOrDefault(m => m.IsAssistant);
 
     private Task OnComposerKeyDownAsync(KeyboardEventArgs args)
     {
