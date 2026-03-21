@@ -5,7 +5,7 @@
     <MudPaper Outlined="true" Class="flex-grow-1 overflow-y-auto pa-3" Style="min-height: 0">
         @if (LatestAssistantMessage is not null)
         {
-            <MudMarkdown @rendermode="InteractiveServer" Value="@LatestAssistantMessage.Content" />
+            <MudMarkdown @rendermode="InteractiveServer" Value="@LatestAssistantMessage.Content" Props="@MarkdownProps" />
             @if (LatestAssistantMessage.ContextTurnNumber.HasValue)
             {
                 <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
@@ -80,6 +80,23 @@
     private bool CanSend => !EntryPoint.IsLoading && !string.IsNullOrWhiteSpace(DraftMessage);
 
     private AdvisorMessage? LatestAssistantMessage => Conversation?.Messages.LastOrDefault(m => m.IsAssistant);
+
+    private static readonly MudMarkdownProps MarkdownProps = new()
+    {
+        Heading =
+        {
+            OverrideTypo = static typo => typo switch
+            {
+                Typo.h1 => Typo.h5,
+                Typo.h2 => Typo.h6,
+                Typo.h3 => Typo.subtitle1,
+                Typo.h4 => Typo.subtitle2,
+                Typo.h5 => Typo.body1,
+                Typo.h6 => Typo.body2,
+                _ => typo
+            }
+        }
+    };
 
     private Task OnComposerKeyDownAsync(KeyboardEventArgs args)
     {
