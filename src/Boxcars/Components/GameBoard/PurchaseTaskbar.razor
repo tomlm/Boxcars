@@ -22,13 +22,14 @@
                 }
             </MudSelect>
 
-            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy || IsBusy" OnClick="OnBuyRequestedAsync">
-                BUY
-            </MudButton>
-
-            <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline || IsBusy" OnClick="OnDeclineRequestedAsync">
-                DECLINE
-            </MudButton>
+            <MudButtonGroup OverrideStyles="false">
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy || IsBusy" OnClick="OnBuyRequestedAsync">
+                    BUY
+                </MudButton>
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline || IsBusy" OnClick="OnDeclineRequestedAsync">
+                    DECLINE
+                </MudButton>
+            </MudButtonGroup>
         </MudStack>
     </MudStack>
 

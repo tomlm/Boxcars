@@ -6,11 +6,13 @@
 @using MudBlazor
 @using Boxcars.Data
 @using Boxcars.Services
+@using Boxcars.Components.GameBoard
 @attribute [Authorize]
 @inject PlayerProfileService ProfileService
 @inject GameService GameService
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 @implements IAsyncDisposable
 
 <PageTitle>Dashboard - BoxCars</PageTitle>
@@ -160,41 +162,6 @@ else
     </MudStack>
 }
 
-@if (_dashboardState?.HasActiveGame == true && _showDeleteGameDialog)
-{
-    <MudOverlay Visible="true" DarkBackground="true" AutoClose="false" ZIndex="1300">
-        <MudPaper Class="pa-5" Style="width: min(32rem, 90vw); margin: 10vh auto 0; display: flex; flex-direction: column; gap: 0.75rem">
-            <MudText Typo="Typo.h5">Delete current game?</MudText>
-            <MudText Typo="Typo.body1" Class="mb-4">
-                This action cannot be undone here. Type "i am sure" to confirm.
-            </MudText>
-            <MudTextField Value="@_deleteConfirmationInput"
-                          T="string"
-                          ValueChanged="@(value => OnDeleteConfirmationChanged(value))"
-                          Label="Confirmation"
-                          Placeholder="i am sure"
-                          Variant="Variant.Outlined" />
-            @if (!string.IsNullOrWhiteSpace(_deleteGameError))
-            {
-                <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error">@_deleteGameError</MudText>
-            }
-            <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="3">
-                <MudButton Variant="Variant.Text"
-                           Color="MudBlazor.Color.Default"
-                           OnClick="CancelDeleteGameDialog"
-                           Disabled="_deleteGameInProgress">
-                    Cancel
-                </MudButton>
-                <MudButton Variant="Variant.Filled"
-                           Color="MudBlazor.Color.Error"
-                           OnClick="ConfirmDeleteGameAsync"
-                           Disabled="@(!CanConfirmDeleteGame || _deleteGameInProgress)">
-                    Delete Game
-                </MudButton>
-            </MudStack>
-        </MudPaper>
-    </MudOverlay>
-}
 
 @code {
     private bool _loading = true;
@@ -207,10 +174,6 @@ else
     private ApplicationUser? _profile;
     private DashboardState? _dashboardState;
     private HubConnection? _hubConnection;
-    private bool _showDeleteGameDialog;
-    private bool _deleteGameInProgress;
-    private string _deleteConfirmationInput = string.Empty;
-    private string? _deleteGameError;
 
     private string GetProfileInitials()
     {
@@ -226,11 +189,6 @@ else
     {
         return !string.IsNullOrWhiteSpace(_profile?.ThumbnailUrl);
     }
-
-    private bool CanConfirmDeleteGame => string.Equals(
-        _deleteConfirmationInput.Trim(),
-        "i am sure",
-        StringComparison.OrdinalIgnoreCase);
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -279,65 +237,36 @@ else
         }
     }
 
-    private void OpenDeleteGameDialog()
+    private async Task OpenDeleteGameDialog()
     {
-        _deleteConfirmationInput = string.Empty;
-        _deleteGameError = null;
-        _showDeleteGameDialog = true;
-    }
-
-    private void CancelDeleteGameDialog()
-    {
-        if (_deleteGameInProgress)
+        var parameters = new DialogParameters<DeleteGameDialog>
         {
-            return;
-        }
+            { x => x.OnDelete, async (ct) =>
+                {
+                    if (_currentUserId is null || string.IsNullOrWhiteSpace(_dashboardState?.ActiveGameId))
+                    {
+                        return (false, "Unable to identify the active game.");
+                    }
 
-        _showDeleteGameDialog = false;
-        _deleteConfirmationInput = string.Empty;
-        _deleteGameError = null;
-    }
-
-    private void OnDeleteConfirmationChanged(string? value)
-    {
-        _deleteConfirmationInput = value ?? string.Empty;
-        _deleteGameError = null;
-    }
-
-    private async Task ConfirmDeleteGameAsync()
-    {
-        if (!CanConfirmDeleteGame)
-        {
-            _deleteGameError = "Type 'i am sure' to delete this game.";
-            return;
-        }
-
-        if (_currentUserId is null || string.IsNullOrWhiteSpace(_dashboardState?.ActiveGameId))
-        {
-            _deleteGameError = "Unable to identify the active game.";
-            return;
-        }
-
-        _deleteGameInProgress = true;
-        _deleteGameError = null;
-
-        try
-        {
-            var result = await GameService.EndGameAsync(_currentUserId, _dashboardState.ActiveGameId, CancellationToken.None);
-            if (!result.Success)
-            {
-                _deleteGameError = result.Reason ?? "Failed to delete game.";
-                return;
+                    var result = await GameService.EndGameAsync(_currentUserId, _dashboardState.ActiveGameId, ct);
+                    return (result.Success, result.Reason);
+                }
             }
+        };
 
-            _showDeleteGameDialog = false;
-            _deleteConfirmationInput = string.Empty;
+        var dialog = await DialogService.ShowAsync<DeleteGameDialog>("Delete Game", parameters, new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = false
+        });
+
+        var dialogResult = await dialog.Result;
+        if (dialogResult is not null && !dialogResult.Canceled)
+        {
             await RefreshDashboardStateAsync();
             StateHasChanged();
-        }
-        finally
-        {
-            _deleteGameInProgress = false;
         }
     }
 

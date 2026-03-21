@@ -39,17 +39,17 @@
                                  Disabled="@IsBusy"
                                  Style="min-width: 9rem" />
 
-                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="@IsBusy" OnClick="OnBidRequestedAsync">
-                    Bid
-                </MudButton>
-
-                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="@IsBusy" OnClick="OnPassRequestedAsync">
-                    Pass
-                </MudButton>
-
-                <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" Disabled="@IsBusy" OnClick="OnDropOutRequestedAsync">
-                    Drop Out
-                </MudButton>
+                <MudButtonGroup OverrideStyles="false">
+                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="@IsBusy" OnClick="OnBidRequestedAsync">
+                        Bid
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="@IsBusy" OnClick="OnPassRequestedAsync">
+                        Pass
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" Disabled="@IsBusy" OnClick="OnDropOutRequestedAsync">
+                        Drop Out
+                    </MudButton>
+                </MudButtonGroup>
             </MudStack>
         }
     </MudStack>

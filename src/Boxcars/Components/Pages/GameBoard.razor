@@ -62,43 +62,17 @@
 
         @if (ShouldShowPurchaseExperienceTabs)
         {
-            <div style="display: flex; gap: 0.5rem; padding: 0.75rem 0.75rem 0; flex-shrink: 0">
-                <MudButton Variant="@(IsMapPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(IsMapPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Map)">
-                    Map
-                </MudButton>
-                <MudButton Variant="@(IsRegionsPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(IsRegionsPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Regions)">
-                    Regions
-                </MudButton>
-                <MudButton Variant="@(IsCitiesPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(IsCitiesPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Cities)">
-                    Cities
-                </MudButton>
-                <MudButton Variant="@(IsRailroadsPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(IsRailroadsPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Railroads)">
-                    Railroads
-                </MudButton>
-                <MudButton Variant="@(IsNetworkPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(IsNetworkPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Network)">
-                    Network
-                </MudButton>
-                <MudButton Variant="@(IsStatsPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(IsStatsPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Stats)">
-                    Stats
-                </MudButton>
-                <MudButton Variant="@(IsHistoryPurchaseTabActive ? Variant.Filled : Variant.Text)"
-                           Color="@(IsHistoryPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
-                           OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.History)">
-                    History
-                </MudButton>
-            </div>
+            <MudToggleGroup T="PurchaseExperienceTab" Value="_selectedPurchaseTab" ValueChanged="OnPurchaseTabSelected"
+                           Color="MudBlazor.Color.Primary" Size="Size.Small"
+                           Style="padding: 0.75rem 0.75rem 0; flex-shrink: 0">
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Map" Text="Map" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Regions" Text="Regions" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Cities" Text="Cities" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Railroads" Text="Railroads" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Network" Text="Network" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Stats" Text="Stats" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.History" Text="History" />
+            </MudToggleGroup>
         }
 
         <div style="@MapAreaStyle" @ref="_mapAreaElement">
@@ -162,10 +136,10 @@
                         }
                         else
                         {
-                            <div style="display: flex; flex-direction: column; gap: 0.5rem; min-height: 0" role="listbox" aria-label="Notification history">
+                            <MudList T="NotificationHistoryEntry" Dense="true" Style="padding: 0">
                                 @foreach (var item in NotificationHistoryItems)
                                 {
-                                    <div style="@ResolveNotificationHistoryItemStyle(item)" role="option" aria-selected="false">
+                                    <MudListItem T="NotificationHistoryEntry" Style="@ResolveNotificationHistoryItemStyle(item)">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="width: 100%">
                                             <MudIcon Icon="@item.Icon"
                                                      Color="@ResolveNotificationHistoryIconColor(item)"
@@ -175,9 +149,9 @@
                                                 <MudText Typo="Typo.body2">@item.Message</MudText>
                                             </MudStack>
                                         </MudStack>
-                                    </div>
+                                    </MudListItem>
                                 }
-                            </div>
+                            </MudList>
                         }
                     </MudPaper>
                 }

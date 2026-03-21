@@ -1,0 +1,102 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h5">Delete current game?</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body1">
+                This action cannot be undone here. Type "i am sure" to confirm.
+            </MudText>
+            <MudTextField Value="@_confirmationInput"
+                          T="string"
+                          ValueChanged="@OnConfirmationChanged"
+                          Label="Confirmation"
+                          Placeholder="i am sure"
+                          Variant="Variant.Outlined" />
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error">@_errorMessage</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text"
+                   Color="MudBlazor.Color.Default"
+                   OnClick="Cancel"
+                   Disabled="_busy">
+            Cancel
+        </MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="MudBlazor.Color.Error"
+                   OnClick="ConfirmAsync"
+                   Disabled="@(!CanConfirm || _busy)">
+            Delete Game
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public Func<CancellationToken, Task<(bool Success, string? Reason)>>? OnDelete { get; set; }
+
+    private string _confirmationInput = string.Empty;
+    private string? _errorMessage;
+    private bool _busy;
+
+    private bool CanConfirm => string.Equals(
+        _confirmationInput.Trim(),
+        "i am sure",
+        StringComparison.OrdinalIgnoreCase);
+
+    private void OnConfirmationChanged(string? value)
+    {
+        _confirmationInput = value ?? string.Empty;
+        _errorMessage = null;
+    }
+
+    private void Cancel()
+    {
+        if (_busy) return;
+        MudDialog.Cancel();
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (!CanConfirm)
+        {
+            _errorMessage = "Type 'i am sure' to delete this game.";
+            return;
+        }
+
+        if (OnDelete is null)
+        {
+            _errorMessage = "Unable to identify the active game.";
+            return;
+        }
+
+        _busy = true;
+        _errorMessage = null;
+
+        try
+        {
+            var (success, reason) = await OnDelete(CancellationToken.None);
+            if (success)
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                _errorMessage = reason ?? "Failed to delete game.";
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
