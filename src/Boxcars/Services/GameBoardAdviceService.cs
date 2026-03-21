@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Boxcars.Data;
 using Boxcars.Engine.Data.Maps;
@@ -13,6 +14,7 @@ public sealed class GameBoardAdviceService(
     IGameEngine gameEngine,
     GameBoardStateMapper gameBoardStateMapper,
     NetworkCoverageService networkCoverageService,
+    PlayerProfileService playerProfileService,
     OpenAiBotClient openAiBotClient,
     IWebHostEnvironment webHostEnvironment)
 {
@@ -46,7 +48,23 @@ public sealed class GameBoardAdviceService(
         var playerStates = await gameService.GetGamePlayerStatesAsync(gameId, cancellationToken);
         var gameState = await gameEngine.GetCurrentStateAsync(gameId, cancellationToken);
         var mapDefinition = await LoadMapDefinitionAsync(game.MapFileName, cancellationToken);
-        var snapshot = BuildContextSnapshot(gameId, currentUserId, preferredControlledPlayerIndex, game, conversation, gameState, playerStates, mapDefinition);
+
+        // Resolve the controlled player's strategy text from their profile
+        var controlledSeatIndex = ResolveControlledPlayerIndex(gameState,
+            gameBoardStateMapper.BuildTurnViewState(gameId, playerStates, gameState, currentUserId, mapDefinition),
+            preferredControlledPlayerIndex);
+        var safeIndex = controlledSeatIndex >= 0 && controlledSeatIndex < playerStates.Count
+            ? controlledSeatIndex
+            : 0;
+        var controlledUserId = playerStates.FirstOrDefault(ps => ps.SeatIndex == safeIndex)?.PlayerUserId;
+        var strategyText = string.Empty;
+        if (!string.IsNullOrWhiteSpace(controlledUserId))
+        {
+            var profile = await playerProfileService.GetProfileAsync(controlledUserId, cancellationToken);
+            strategyText = PlayerProfileService.ResolveStrategyTextOrDefault(profile?.StrategyText);
+        }
+
+        var snapshot = BuildContextSnapshot(gameId, currentUserId, preferredControlledPlayerIndex, game, conversation, gameState, playerStates, mapDefinition, strategyText);
 
         conversation.ControlledPlayerIndex = snapshot.ControlledPlayerIndex;
         conversation.LastContextRefreshUtc = DateTimeOffset.UtcNow;
@@ -76,7 +94,8 @@ public sealed class GameBoardAdviceService(
         AdvisorConversationSession conversation,
         RailBaronGameState gameState,
         IReadOnlyList<GamePlayerStateEntity> playerStates,
-        MapDefinition mapDefinition)
+        MapDefinition mapDefinition,
+        string strategyText)
     {
         var turnViewState = gameBoardStateMapper.BuildTurnViewState(gameId, playerStates, gameState, currentUserId, mapDefinition);
         var controlledPlayerIndex = ResolveControlledPlayerIndex(gameState, turnViewState, preferredControlledPlayerIndex);
@@ -104,14 +123,16 @@ public sealed class GameBoardAdviceService(
             SeedContextContent = conversation.SeedContextContent,
             AuthoritativePayloadJson = string.Empty,
             RecentConversation = conversation.Messages.TakeLast(6).ToList(),
-            MapContext = BuildMapContext(mapDefinition, railroadCityMap),
+            MapContext = BuildMapContext(mapDefinition, railroadCityMap, gameState),
             ControlledPlayerContext = BuildControlledPlayerContext(gameState, mapDefinition, safeControlledPlayerIndex, controlledPlayer),
             OpponentContexts = gameState.Players
                 .Select((player, idx) => new { player, idx })
                 .Where(x => x.idx != safeControlledPlayerIndex)
-                .Select(x => BuildOpponentContext(x.idx, x.player, mapDefinition))
+                .Select(x => BuildOpponentContext(x.idx, x.player, gameState, mapDefinition))
                 .ToList(),
-            AvailableRailroads = BuildAvailableRailroads(gameState, mapDefinition, controlledPlayer, railroadCityMap)
+            AvailableRailroads = BuildAvailableRailroads(gameState, mapDefinition, controlledPlayer, railroadCityMap),
+            HighValuePayouts = BuildHighValuePayouts(mapDefinition),
+            StrategyText = strategyText
         };
     }
 
@@ -252,7 +273,7 @@ public sealed class GameBoardAdviceService(
             kvp => kvp.Value.Order(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
-    private static AdvisorMapContext BuildMapContext(MapDefinition mapDefinition, Dictionary<int, List<string>> railroadCityMap)
+    private static AdvisorMapContext BuildMapContext(MapDefinition mapDefinition, Dictionary<int, List<string>> railroadCityMap, RailBaronGameState gameState)
     {
         var regions = mapDefinition.Regions.Select(r => new AdvisorRegionInfo
         {
@@ -261,18 +282,33 @@ public sealed class GameBoardAdviceService(
             Probability = r.Probability ?? 0,
             Cities = mapDefinition.Cities
                 .Where(c => string.Equals(c.RegionCode, r.Code, StringComparison.OrdinalIgnoreCase))
-                .Select(c => c.Name)
-                .Order(StringComparer.OrdinalIgnoreCase)
+                .Select(c => new AdvisorCityInfo
+                {
+                    Name = c.Name,
+                    Probability = c.Probability ?? 0
+                })
+                .OrderByDescending(c => c.Probability)
                 .ToList()
         }).ToList();
 
-        var railroads = mapDefinition.Railroads.Select(r => new AdvisorRailroadInfo
+        var railroads = mapDefinition.Railroads.Select(r =>
         {
-            Index = r.Index,
-            Name = r.ShortName ?? r.Name,
-            PurchasePrice = r.PurchasePrice ?? 0,
-            CityCount = railroadCityMap.TryGetValue(r.Index, out var cities) ? cities.Count : 0,
-            ConnectedCities = railroadCityMap.TryGetValue(r.Index, out var connCities) ? connCities : []
+            string? ownerName = null;
+            if (gameState.RailroadOwnership.TryGetValue(r.Index, out var ownerIndex) && ownerIndex is int idx
+                && idx >= 0 && idx < gameState.Players.Count)
+            {
+                ownerName = gameState.Players[idx].Name;
+            }
+
+            return new AdvisorRailroadInfo
+            {
+                Index = r.Index,
+                Name = r.ShortName ?? r.Name,
+                PurchasePrice = r.PurchasePrice ?? 0,
+                CityCount = railroadCityMap.TryGetValue(r.Index, out var cities) ? cities.Count : 0,
+                Owner = ownerName,
+                ConnectedCities = railroadCityMap.TryGetValue(r.Index, out var connCities) ? connCities : []
+            };
         }).ToList();
 
         return new AdvisorMapContext
@@ -281,6 +317,7 @@ public sealed class GameBoardAdviceService(
             RegionCount = mapDefinition.Regions.Count,
             CityCount = mapDefinition.Cities.Count,
             RailroadCount = mapDefinition.Railroads.Count,
+            AllRailroadsSold = gameState.AllRailroadsSold,
             Regions = regions,
             Railroads = railroads
         };
@@ -292,7 +329,12 @@ public sealed class GameBoardAdviceService(
         int controlledPlayerIndex,
         PlayerStateSnapshot controlledPlayer)
     {
-        var coverage = networkCoverageService.BuildSnapshot(mapDefinition, controlledPlayer.OwnedRailroadIndices);
+        var ownedCoverage = networkCoverageService.BuildSnapshot(mapDefinition, controlledPlayer.OwnedRailroadIndices);
+        var otherOwnedIndices = gameState.Players
+            .Where((_, idx) => idx != controlledPlayerIndex)
+            .SelectMany(p => p.OwnedRailroadIndices);
+        var effectiveCoverage = networkCoverageService.BuildSnapshotIncludingPublicRailroads(
+            mapDefinition, controlledPlayer.OwnedRailroadIndices, otherOwnedIndices);
         var tripPayout = CalculateTripPayoff(mapDefinition, controlledPlayer);
         var pendingFees = controlledPlayerIndex == gameState.ActivePlayerIndex ? gameState.Turn.PendingFeeAmount : 0;
         var ownedRailroadNames = controlledPlayer.OwnedRailroadIndices
@@ -301,6 +343,9 @@ public sealed class GameBoardAdviceService(
             .Select(r => r!.ShortName ?? r.Name)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        var effectiveRegionLookup = effectiveCoverage.RegionAccess
+            .ToDictionary(ra => ra.RegionCode, ra => ra.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
 
         return new AdvisorPlayerContext
         {
@@ -316,12 +361,15 @@ public sealed class GameBoardAdviceService(
             PendingFees = pendingFees,
             HasDeclared = controlledPlayer.HasDeclared,
             OwnedRailroads = ownedRailroadNames,
-            NetworkAccessPercent = coverage.AccessibleDestinationPercent,
-            MonopolyPercent = coverage.MonopolyDestinationPercent,
-            RegionCoverage = coverage.RegionAccess.Select(ra => new AdvisorRegionCoverage
+            NetworkAccessPercent = ownedCoverage.AccessibleDestinationPercent,
+            EffectiveAccessPercent = effectiveCoverage.AccessibleDestinationPercent,
+            MonopolyPercent = ownedCoverage.MonopolyDestinationPercent,
+            CashToWin = Math.Max(0, 200_000 - controlledPlayer.Cash),
+            RegionCoverage = ownedCoverage.RegionAccess.Select(ra => new AdvisorRegionCoverage
             {
                 RegionCode = ra.RegionCode,
                 AccessPercent = ra.AccessibleDestinationPercent,
+                EffectiveAccessPercent = effectiveRegionLookup.TryGetValue(ra.RegionCode, out var eff) ? eff : ra.AccessibleDestinationPercent,
                 MonopolyPercent = ra.MonopolyDestinationPercent
             }).ToList()
         };
@@ -330,9 +378,15 @@ public sealed class GameBoardAdviceService(
     private AdvisorOpponentContext BuildOpponentContext(
         int playerIndex,
         PlayerStateSnapshot player,
+        RailBaronGameState gameState,
         MapDefinition mapDefinition)
     {
-        var coverage = networkCoverageService.BuildSnapshot(mapDefinition, player.OwnedRailroadIndices);
+        var ownedCoverage = networkCoverageService.BuildSnapshot(mapDefinition, player.OwnedRailroadIndices);
+        var otherOwnedIndices = gameState.Players
+            .Where((_, idx) => idx != playerIndex)
+            .SelectMany(p => p.OwnedRailroadIndices);
+        var effectiveCoverage = networkCoverageService.BuildSnapshotIncludingPublicRailroads(
+            mapDefinition, player.OwnedRailroadIndices, otherOwnedIndices);
         var tripPayout = CalculateTripPayoff(mapDefinition, player);
         var ownedRailroadNames = player.OwnedRailroadIndices
             .Select(idx => mapDefinition.Railroads.FirstOrDefault(r => r.Index == idx))
@@ -340,6 +394,9 @@ public sealed class GameBoardAdviceService(
             .Select(r => r!.ShortName ?? r.Name)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        var effectiveRegionLookup = effectiveCoverage.RegionAccess
+            .ToDictionary(ra => ra.RegionCode, ra => ra.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
 
         return new AdvisorOpponentContext
         {
@@ -356,7 +413,16 @@ public sealed class GameBoardAdviceService(
             HasDeclared = player.HasDeclared,
             IsActive = player.IsActive,
             OwnedRailroads = ownedRailroadNames,
-            NetworkAccessPercent = coverage.AccessibleDestinationPercent
+            NetworkAccessPercent = ownedCoverage.AccessibleDestinationPercent,
+            EffectiveAccessPercent = effectiveCoverage.AccessibleDestinationPercent,
+            CashToWin = Math.Max(0, 200_000 - player.Cash),
+            RegionCoverage = ownedCoverage.RegionAccess.Select(ra => new AdvisorRegionCoverage
+            {
+                RegionCode = ra.RegionCode,
+                AccessPercent = ra.AccessibleDestinationPercent,
+                EffectiveAccessPercent = effectiveRegionLookup.TryGetValue(ra.RegionCode, out var eff) ? eff : ra.AccessibleDestinationPercent,
+                MonopolyPercent = ra.MonopolyDestinationPercent
+            }).ToList()
         };
     }
 
@@ -381,6 +447,7 @@ public sealed class GameBoardAdviceService(
                     Name = r.ShortName ?? r.Name,
                     Price = r.PurchasePrice ?? 0,
                     CityCount = railroadCityMap.TryGetValue(r.Index, out var cities) ? cities.Count : 0,
+                    CashAfterPurchase = controlledPlayer.Cash - (r.PurchasePrice ?? 0),
                     ProjectedAccessPercent = projected.AccessibleDestinationPercent,
                     ProjectedMonopolyPercent = projected.MonopolyDestinationPercent,
                     AccessGain = projected.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent,
@@ -388,6 +455,32 @@ public sealed class GameBoardAdviceService(
                 };
             })
             .OrderByDescending(r => r.AccessGain)
+            .ToList();
+    }
+
+    private static List<AdvisorPayoutEntry> BuildHighValuePayouts(MapDefinition mapDefinition)
+    {
+        var citiesWithPayout = mapDefinition.Cities
+            .Where(c => c.PayoutIndex.HasValue)
+            .ToList();
+
+        var entries = new List<AdvisorPayoutEntry>();
+        for (int i = 0; i < citiesWithPayout.Count; i++)
+        {
+            for (int j = i + 1; j < citiesWithPayout.Count; j++)
+            {
+                var from = citiesWithPayout[i];
+                var to = citiesWithPayout[j];
+                if (mapDefinition.TryGetPayout(from.PayoutIndex!.Value, to.PayoutIndex!.Value, out var payout) && payout > 0)
+                {
+                    entries.Add(new AdvisorPayoutEntry { FromCity = from.Name, ToCity = to.Name, Payout = payout });
+                }
+            }
+        }
+
+        return entries
+            .OrderByDescending(e => e.Payout)
+            .Take(30)
             .ToList();
     }
 
@@ -416,7 +509,8 @@ public sealed class GameBoardAdviceService(
             recentMessages.Insert(0, new OpenAiChatMessage("system", snapshot.SeedContextContent));
         }
 
-        recentMessages.Add(new OpenAiChatMessage("user", BuildContextPayload(snapshot, userQuestion)));
+        recentMessages.Add(new OpenAiChatMessage("system", BuildContextPayload(snapshot)));
+        recentMessages.Add(new OpenAiChatMessage("user", userQuestion));
         return recentMessages;
     }
 
@@ -424,36 +518,112 @@ public sealed class GameBoardAdviceService(
     {
         return string.Join(' ',
             "You are a concise in-game Rail Baron strategy advisor for Boxcars.",
-            "Each user message contains a JSON context payload with the full authoritative board state.",
-            "ControlledPlayer contains the asking player's exact cash, owned railroads, trip details, network coverage by region, and declaration status.",
-            "Opponents lists each opponent's cash, owned railroads, trip, coverage, and declaration status.",
-            "AvailableRailroads lists unowned railroads with price, connected city count, and projected coverage gain if purchased.",
-            "Map contains all regions with destination probabilities and city lists, plus all railroads with connected cities and pricing.",
+            "Each conversation includes a system message with the current board state in labeled markdown sections, each containing JSON data blocks.",
+
+            "CRITICAL RAIL BARON RULES YOU MUST UNDERSTAND:",
+            "- Any railroad that is NOT owned by another player is PUBLIC and can be ridden with minimum fee. Only railroads owned by an OPPONENT cost higher use-fees.",
+            "- EffectiveAccessPercent shows the player's real travel coverage: owned railroads PLUS all public (unowned) railroads. This is the number that matters for routing.",
+            "- NetworkAccessPercent shows only owned-railroad coverage. Early game, EffectiveAccessPercent is nearly 100% because most railroads are still public.",
+            "- The win condition requires accumulating $200,000 cash AND reaching your home city. CashToWin shows how far from the $200k threshold.",
+
+            "USE-FEE MECHANICS:",
+            "- Each opponent-owned railroad used during a move incurs exactly one fee per owner (not per segment).",
+            "- Fee rate: $1,000 for public RRs or user owned RRs. $5,000 per opponent railroad used. If AllRailroadsSold is true, the rate doubles to $10,000.",
+            "- Grandfathered railroads (already being used when purchased) cost only $1,000 that trip.",
+            "- If the player cannot pay fees, they must auction/sell railroads. If they still cannot pay, they are eliminated.",
+            "- A player with $5,000+ cash buffer is NOT at bankruptcy risk from normal fees early game when most railroads are public.",
+
+            "ENGINE TYPES AND UPGRADES:",
+            "- Freight (starting engine): Roll 1 white die for movement (1-6 spaces).",
+            "- Express ($4,000 upgrade): Roll 2 white dice for movement (2-12 spaces). On doubles, roll 1 bonus die for extra movement.",
+            "- Superchief ($40,000 upgrade): Roll 2 white dice + 1 red die for movement (3-18 spaces). If the red die isn't fully used, the remainder carries as a bonus move.",
+            "- Engine upgrades happen during the Purchase phase. Express→Superchief also costs $40,000.",
+
+            "CONTEXT FIELDS:",
+            "ControlledPlayer contains the asking player's exact cash, owned railroads, trip details, network coverage by region (owned and effective), declaration status, and CashToWin.",
+            "Opponents lists each opponent with cash, owned railroads, trip, CashToWin, EffectiveAccessPercent, and per-region coverage — use these to assess threats and fee exposure.",
+            "AvailableRailroads lists unowned railroads with price, connected city count, CashAfterPurchase, and projected OWNED coverage gain if purchased.",
+            "Map contains all regions with destination probabilities, cities with individual destination probabilities, and all railroads with connected cities, pricing, and current Owner.",
+            "HighValuePayouts lists the top 30 city-to-city payouts so you can evaluate trip value and destination desirability.",
+            "StrategyText contains the player's self-described strategic preferences. Tailor your advice to align with this strategy when possible.",
+
+            "STRATEGIC GUIDANCE:",
+            "- When recommending purchases, always check CashAfterPurchase. Warn about bankruptcy risk only if CashAfterPurchase is very low AND opponents own many railroads (creating fee exposure).",
+            "- Players need to maintain operating cash sufficient to be able to get to their next destination which is unknown. A safe cash buffer depends on the density of opponent-owned railroads on potential routes and the player's current location.",
+            "- Factor in opponent railroad ownership density: more opponent-owned railroads = higher fee exposure = need more cash cushion.",
+            "- Use city probabilities and payout data to evaluate which regions/cities are most valuable destination targets.",
+            "- Factor engine upgrades into purchase timing: Express is cheap and high-impact early; Superchief is expensive but dominant late.",
+            "- Consider the player's StrategyText preferences: if they favor monopoly, prioritize monopoly gains; if they favor access, prioritize coverage.",
+
             "Use these structured fields for precise analysis. Do not restate them verbatim unless the player asks.",
             "Advice is informational only: never claim to execute moves, buy railroads, roll dice, or resolve rules.",
             "If the context is insufficient, say what is missing.",
             "Prefer direct recommendations with concrete reasons tied to cash, fees, destination pressure, network coverage, railroad value, and turn phase.");
     }
 
-    private static string BuildContextPayload(AdvisorContextSnapshot snapshot, string userQuestion)
+    private static string BuildContextPayload(AdvisorContextSnapshot snapshot)
     {
-        return JsonSerializer.Serialize(new
+        var sb = new System.Text.StringBuilder();
+
+        sb.Append(CultureInfo.InvariantCulture, $"## Board State — Turn {snapshot.TurnNumber}, Phase: {snapshot.TurnPhase}");
+        sb.AppendLine();
+        sb.AppendLine(snapshot.BoardSituationSummary);
+        sb.AppendLine();
+
+        sb.Append(CultureInfo.InvariantCulture, $"## You: {snapshot.ControlledPlayerName}");
+        sb.AppendLine();
+        sb.AppendLine(snapshot.ControlledPlayerSummary);
+        sb.AppendLine("```json");
+        sb.AppendLine(JsonSerializer.Serialize(snapshot.ControlledPlayerContext, JsonOptions));
+        sb.AppendLine("```");
+        sb.AppendLine();
+
+        if (snapshot.OpponentContexts.Count > 0)
         {
-            snapshot.GameId,
-            snapshot.TurnNumber,
-            snapshot.TurnPhase,
-            snapshot.ActivePlayerIndex,
-            snapshot.ControlledPlayerIndex,
-            snapshot.ControlledPlayerName,
-            snapshot.ControlledPlayerSummary,
-            snapshot.OtherPlayerSummaries,
-            snapshot.BoardSituationSummary,
-            ControlledPlayer = snapshot.ControlledPlayerContext,
-            Opponents = snapshot.OpponentContexts,
-            AvailableRailroads = snapshot.AvailableRailroads,
-            Map = snapshot.MapContext,
-            PlayerQuestion = userQuestion
-        }, JsonOptions);
+            sb.AppendLine("## Opponents");
+            foreach (var (summary, opponent) in snapshot.OtherPlayerSummaries.Zip(snapshot.OpponentContexts))
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"### {opponent.Name}");
+                sb.AppendLine();
+                sb.AppendLine(summary);
+                sb.AppendLine("```json");
+                sb.AppendLine(JsonSerializer.Serialize(opponent, JsonOptions));
+                sb.AppendLine("```");
+            }
+            sb.AppendLine();
+        }
+
+        if (snapshot.AvailableRailroads.Count > 0)
+        {
+            sb.AppendLine("## Available Railroads For Purchase");
+            sb.AppendLine("```json");
+            sb.AppendLine(JsonSerializer.Serialize(snapshot.AvailableRailroads, JsonOptions));
+            sb.AppendLine("```");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("## Map Reference");
+        sb.AppendLine("```json");
+        sb.AppendLine(JsonSerializer.Serialize(snapshot.MapContext, JsonOptions));
+        sb.AppendLine("```");
+        sb.AppendLine();
+
+        if (snapshot.HighValuePayouts.Count > 0)
+        {
+            sb.AppendLine("## Top City-to-City Payouts");
+            sb.AppendLine("```json");
+            sb.AppendLine(JsonSerializer.Serialize(snapshot.HighValuePayouts, JsonOptions));
+            sb.AppendLine("```");
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(snapshot.StrategyText))
+        {
+            sb.AppendLine("## Player Strategy");
+            sb.AppendLine(snapshot.StrategyText);
+        }
+
+        return sb.ToString();
     }
 
     private async Task<MapDefinition> LoadMapDefinitionAsync(string? mapFileName, CancellationToken cancellationToken)

@@ -20,6 +20,8 @@ public sealed class AdvisorContextSnapshot
     public AdvisorPlayerContext? ControlledPlayerContext { get; init; }
     public IReadOnlyList<AdvisorOpponentContext> OpponentContexts { get; init; } = [];
     public IReadOnlyList<AdvisorPurchasableRailroad> AvailableRailroads { get; init; } = [];
+    public IReadOnlyList<AdvisorPayoutEntry> HighValuePayouts { get; init; } = [];
+    public string StrategyText { get; init; } = string.Empty;
 }
 
 public sealed class AdvisorMapContext
@@ -28,6 +30,7 @@ public sealed class AdvisorMapContext
     public int RegionCount { get; init; }
     public int CityCount { get; init; }
     public int RailroadCount { get; init; }
+    public bool AllRailroadsSold { get; init; }
     public IReadOnlyList<AdvisorRegionInfo> Regions { get; init; } = [];
     public IReadOnlyList<AdvisorRailroadInfo> Railroads { get; init; } = [];
 }
@@ -37,7 +40,13 @@ public sealed class AdvisorRegionInfo
     public string Code { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public double Probability { get; init; }
-    public IReadOnlyList<string> Cities { get; init; } = [];
+    public IReadOnlyList<AdvisorCityInfo> Cities { get; init; } = [];
+}
+
+public sealed class AdvisorCityInfo
+{
+    public string Name { get; init; } = string.Empty;
+    public double Probability { get; init; }
 }
 
 public sealed class AdvisorRailroadInfo
@@ -46,6 +55,7 @@ public sealed class AdvisorRailroadInfo
     public string Name { get; init; } = string.Empty;
     public int PurchasePrice { get; init; }
     public int CityCount { get; init; }
+    public string? Owner { get; init; }
     public IReadOnlyList<string> ConnectedCities { get; init; } = [];
 }
 
@@ -64,7 +74,9 @@ public sealed class AdvisorPlayerContext
     public bool HasDeclared { get; init; }
     public IReadOnlyList<string> OwnedRailroads { get; init; } = [];
     public decimal NetworkAccessPercent { get; init; }
+    public decimal EffectiveAccessPercent { get; init; }
     public decimal MonopolyPercent { get; init; }
+    public int CashToWin { get; init; }
     public IReadOnlyList<AdvisorRegionCoverage> RegionCoverage { get; init; } = [];
 }
 
@@ -84,12 +96,16 @@ public sealed class AdvisorOpponentContext
     public bool IsActive { get; init; }
     public IReadOnlyList<string> OwnedRailroads { get; init; } = [];
     public decimal NetworkAccessPercent { get; init; }
+    public decimal EffectiveAccessPercent { get; init; }
+    public int CashToWin { get; init; }
+    public IReadOnlyList<AdvisorRegionCoverage> RegionCoverage { get; init; } = [];
 }
 
 public sealed class AdvisorRegionCoverage
 {
     public string RegionCode { get; init; } = string.Empty;
     public decimal AccessPercent { get; init; }
+    public decimal EffectiveAccessPercent { get; init; }
     public decimal MonopolyPercent { get; init; }
 }
 
@@ -99,8 +115,16 @@ public sealed class AdvisorPurchasableRailroad
     public string Name { get; init; } = string.Empty;
     public int Price { get; init; }
     public int CityCount { get; init; }
+    public int CashAfterPurchase { get; init; }
     public decimal ProjectedAccessPercent { get; init; }
     public decimal ProjectedMonopolyPercent { get; init; }
     public decimal AccessGain { get; init; }
     public decimal MonopolyGain { get; init; }
+}
+
+public sealed class AdvisorPayoutEntry
+{
+    public string FromCity { get; init; } = string.Empty;
+    public string ToCity { get; init; } = string.Empty;
+    public int Payout { get; init; }
 }
