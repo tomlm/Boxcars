@@ -4,6 +4,7 @@
 @using MudBlazor
 @inject UserDirectoryService UserDirectoryService
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <MudStack Spacing="3" Class="dashboard-bot-library">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
@@ -212,6 +213,17 @@
 
     private async Task DeleteAsync(BotLibraryRowModel row)
     {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Delete bot?",
+            $"Are you sure you want to delete \"{row.Name}\"? This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
         var result = await UserDirectoryService.DeleteBotDefinitionAsync(row.BotDefinitionId, row.ETag, CancellationToken.None);
         switch (result)
         {

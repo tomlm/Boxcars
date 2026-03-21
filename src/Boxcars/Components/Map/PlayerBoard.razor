@@ -1,15 +1,14 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<div class="player-board-scope">
-    <MudStack Class="player-board" Spacing="2">
+<MudStack Style="width: 100%; padding: 0; box-sizing: border-box" Spacing="2">
         @foreach (var player in Players)
         {
             <MudTooltip Placement="Placement.Right" Arrow="true" Disabled="@(player.CoverageMetrics.Count == 0)">
                 <TooltipContent>
-                    <MudPaper Class="player-card-tooltip pa-3" Outlined="true" Elevation="2">
+                    <MudPaper Style="min-width: 16rem" Class="pa-3" Outlined="true" Elevation="2">
                         <MudText Typo="Typo.subtitle2">@player.Name Coverage</MudText>
-                        <MudTable T="RailroadOverlayMetricRow" Items="player.CoverageMetrics" Dense="true" Hover="true" Class="player-card-tooltip-table">
+                        <MudTable T="RailroadOverlayMetricRow" Items="player.CoverageMetrics" Dense="true" Hover="true">
                             <HeaderContent>
                                 <MudTh>Area</MudTh>
                                 <MudTh>Access</MudTh>
@@ -24,90 +23,89 @@
                     </MudPaper>
                 </TooltipContent>
                 <ChildContent>
-                    <MudPaper Class="@GetCardClass(player)">
-                        <MudStack Row="true" Class="player-card-portrait">
-                            <div class="player-avatar-shell">
+                    <MudPaper Style="@GetCardStyle(player)">
+                        <MudStack Row="true" Style="@GetPortraitStyle(player)">
+                            <div style="position: relative; display: inline-flex; flex-shrink: 0">
                                 <MudButton Variant="Variant.Text"
                                            Color="MudBlazor.Color.Inherit"
-                                           Class="player-avatar-button"
+                                           Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0"
                                            OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
                                            aria-label="@($"Focus map on {player.Name}")">
-                                    <MudAvatar Class="@GetAvatarClass(player)" Size="Size.Large">
-                                        @if (HasThumbnail(player))
-                                        {
-                                            <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Class="player-avatar-image" />
-                                        }
-                                        else
-                                        {
-                                            @GetInitial(player.Name)
-                                        }
-                                    </MudAvatar>
+                                    <MudBadge Visible="@(!player.IsBotPlayer)"
+                                              Color="@(player.IsConnected ? MudBlazor.Color.Success : MudBlazor.Color.Error)"
+                                              Dot="true"
+                                              Overlap="true"
+                                              Bordered="true"
+                                              Origin="Origin.BottomRight">
+                                        <MudAvatar Style="color: var(--player-color-fg, #fff); font-weight: 700; overflow: hidden; flex-shrink: 0; background-color: rgb(255 255 255 / 0.32)" Size="Size.Large">
+                                            @if (HasThumbnail(player))
+                                            {
+                                                <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Style="width: 100%; height: 100%; object-fit: cover" />
+                                            }
+                                            else
+                                            {
+                                                @GetInitial(player.Name)
+                                            }
+                                        </MudAvatar>
+                                    </MudBadge>
                                 </MudButton>
-                                    @if (!player.IsBotPlayer)
-                                    {
-                                        <MudTooltip Text="@(player.IsConnected ? "Connected" : "Disconnected")">
-                                            <MudIcon Class="@GetStatusIconClass(player)"
-                                                     Icon="@(player.IsConnected ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
-                                                     Size="Size.Small" />
-                                        </MudTooltip>
-                                    }
                             </div>
-                            <MudStack Class="player-card-heading" Spacing="0">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="player-card-name-row">
-                                    <MudText Typo="Typo.subtitle1" Class="player-card-name">@player.Name</MudText>
+                            <MudStack Style="min-width: 0; flex: 1 1 auto" Spacing="0">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="display: flex; width: 100%; min-width: 0">
+                                    <MudText Typo="Typo.subtitle1" Style="min-width: 0; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 8px rgb(0 0 0 / 0.28)">@player.Name</MudText>
                                     @if (player.IsBotPlayer)
                                     {
                                         <MudTooltip Text="AI player">
-                                            <MudText Typo="Typo.caption" Class="player-card-banner-ai">AI</MudText>
+                                            <MudText Typo="Typo.caption" Style="margin-left: auto; padding-left: 0.5rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 2px rgb(0 0 0 / 0.7)">AI</MudText>
                                         </MudTooltip>
                                     }
                                 </MudStack>
-                                <MudText Typo="Typo.caption" Class="player-card-subtitle">Home: @player.HomeCity</MudText>
+                                <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">Home: @player.HomeCity</MudText>
                             </MudStack>
                         </MudStack>
 
-                        <MudStack Class="player-card-info" Spacing="1">
-                            <MudText Typo="Typo.caption" Class="player-card-line">
+                        <MudStack Style="padding: 0.4rem 0.5rem 0.45rem; flex: 1 1 auto" Spacing="1">
+                            <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
                                 @if (player.IsAtDestination)
                                 {
-                                    <span class="player-card-label">At Destination:</span>
+                                    <span style="font-weight: 700">At Destination:</span>
                                     <span>@player.TripDestinationLabel</span>
                                 }
                                 else
                                 {
-                                    <span class="player-card-label">Trip:</span>
+                                    <span style="font-weight: 700">Trip:</span>
                                     <span>@player.TripStartLabel @("=>") @player.TripDestinationLabel</span>
                                 }
                             </MudText>
                             @if (!player.IsAtDestination)
                             {
-                                <MudText Typo="Typo.caption" Class="player-card-line">
-                                    <span class="player-card-label">Distance:</span> @player.DistanceToDestination <span class="player-card-label">Payout:</span> $@player.Payoff.ToString("N0")
+                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                                    <span style="font-weight: 700">Distance:</span> @player.DistanceToDestination <span style="font-weight: 700">Payout:</span> $@player.Payoff.ToString("N0")
                                 </MudText>
                             }
-                            <MudText Typo="Typo.caption" Class="player-card-line">
-                                <span class="player-card-label">Engine:</span> @player.LocomotiveLabel
+                            <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                                <span style="font-weight: 700">Engine:</span> @player.LocomotiveLabel
                             </MudText>
-                            <MudText Typo="Typo.caption" Class="player-card-line">
-                                <span class="player-card-label">Cash:</span> <span class="@GetCashValueClass(player)">@player.GetMoneyDisplay()</span>
+                            <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                                <span style="font-weight: 700">Cash:</span> <span style="@GetCashValueStyle(player)">@player.GetMoneyDisplay()</span>
                             </MudText>
                             @if (!string.IsNullOrWhiteSpace(player.DelegatedControllerDisplayName))
                             {
-                                <MudText Typo="Typo.caption" Class="player-card-line player-card-line-controlled-by">
-                                    <span class="player-card-label">Controlled by:</span>
-                                    <span class="player-card-controlled-by-value">@player.DelegatedControllerDisplayName</span>
+                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1; font-style: italic; color: var(--mud-palette-text-secondary)">
+                                    <span style="font-weight: 700; font-style: italic">Controlled by:</span>
+                                    <span style="font-style: italic; font-weight: 600">@player.DelegatedControllerDisplayName</span>
                                 </MudText>
                             }
                             @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
                             {
-                                <MudText Typo="Typo.caption" Class="player-card-line">
-                                    <span class="player-card-status-value player-card-status-value-bonus">@player.BonusPendingLabel</span>
+                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                                    <span style="display: inline-block; font-weight: 700; color: #1d4ed8">@player.BonusPendingLabel</span>
                                 </MudText>
                             }
                             @if (player.FeesOwed > 0)
                             {
-                                <MudText Typo="Typo.caption" Class="player-card-line">
-                                    <span class="player-card-label">Fees Due:</span> <span class="player-card-status-value player-card-status-value-fees">$@player.FeesOwed.ToString("N0")</span>
+                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                                    <span style="font-weight: 700">Fees Due:</span> <span style="display: inline-block; font-weight: 700; color: #ff3b30">$@player.FeesOwed.ToString("N0")</span>
                                 </MudText>
                             }
 
@@ -115,15 +113,14 @@
 
                         @if (player.ShowDisconnectedControlToggle)
                         {
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="player-card-action-row">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Style="margin-top: auto; padding: 0.35rem 0.5rem 0.5rem; border-top: 1px solid color-mix(in srgb, var(--mud-palette-divider) 72%, transparent)">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                     <MudText Typo="Typo.caption">AI</MudText>
                                     <MudSwitch T="bool"
                                                Value="@player.IsManualControlSelected"
                                                ValueChanged="@(isManual => OnDisconnectedSeatControlChangedAsync(player, isManual))"
                                                Color="MudBlazor.Color.Primary"
-                                               Disabled="@(!CanToggleDisconnectedSeatControl(player))"
-                                               Class="player-card-control-switch" />
+                                               Disabled="@(!CanToggleDisconnectedSeatControl(player))" />
                                     <MudText Typo="Typo.caption">Manual</MudText>
                                 </MudStack>
                             </MudStack>
@@ -133,7 +130,6 @@
             </MudTooltip>
         }
     </MudStack>
-</div>
 
 @code {
     [Parameter]
@@ -150,40 +146,32 @@
         return string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
     }
 
-    private static string GetCardClass(PlayerBoardModel player)
+    private static string GetCardStyle(PlayerBoardModel player)
     {
-        var classes = $"player-card {GetColorClass(player.Color)}";
+        var style = $"{GetColorStyle(player.Color)}; display: flex; flex-direction: column; min-height: 88px; overflow: hidden; border-radius: 0; border: 1px solid transparent; color: var(--mud-palette-text-primary); transition: box-shadow 140ms ease, border-color 140ms ease; margin: 0 0.2rem";
+
         if (player.IsActiveTurn)
         {
-            classes += " player-card-active";
+            style += "; border-color: color-mix(in srgb, var(--player-glow-color, var(--player-color, #888)) 42%, white 58%); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--player-glow-color, var(--player-color, #888)) 30%, white 70%), 0 0 10px 2px color-mix(in srgb, var(--player-glow-color, var(--player-color, #888)) 34%, white 18%), 0 0 18px 4px color-mix(in srgb, var(--player-glow-color, var(--player-color, #888)) 30%, transparent)";
         }
 
         if (player.IsEliminated)
         {
-            classes += " player-card-eliminated";
+            style += "; opacity: 0.45; filter: saturate(0.35)";
         }
 
-        return classes;
+        return style;
     }
 
-    private static string GetAvatarClass(PlayerBoardModel player)
+    private static string GetPortraitStyle(PlayerBoardModel player)
     {
-        return $"player-avatar {GetColorClass(player.Color)}";
+        var bg = player.IsEliminated
+            ? "background-color: color-mix(in srgb, var(--player-color, #888) 45%, #1b1b1b 55%)"
+            : "background-color: var(--player-color, #888)";
+        return $"padding: 0.4rem 0.5rem 0.25rem; {bg}; color: var(--player-color-fg, #fff)";
     }
 
-    private static bool HasThumbnail(PlayerBoardModel player)
-    {
-        return !string.IsNullOrWhiteSpace(player.ThumbnailUrl);
-    }
-
-    private static string GetStatusIconClass(PlayerBoardModel player)
-    {
-        return player.IsConnected
-            ? "player-status-connected player-avatar-status"
-            : "player-status-disconnected player-avatar-status";
-    }
-
-    private static string GetCashValueClass(PlayerBoardModel player)
+    private static string GetCashValueStyle(PlayerBoardModel player)
     {
         if (player.CanViewExactCash)
         {
@@ -191,8 +179,31 @@
         }
 
         return player.Cash >= Boxcars.Engine.Domain.GameEngine.GetRailroadPurchasePrice(0)
-            ? "player-card-cash-value player-card-cash-value-affordable"
-            : "player-card-cash-value player-card-cash-value-too-expensive";
+            ? "font-weight: 700; color: var(--mud-palette-success)"
+            : "font-weight: 700; color: var(--mud-palette-error)";
+    }
+
+    private static bool HasThumbnail(PlayerBoardModel player)
+    {
+        return !string.IsNullOrWhiteSpace(player.ThumbnailUrl);
+    }
+
+    private static string GetColorStyle(string color)
+    {
+        return PlayerColorOptions.NormalizeOrDefault(color) switch
+        {
+            "darkblue" => "--player-color: #0b3d91; --player-glow-color: #7ea7ff; --player-color-fg: #f8fbff",
+            "blue" => "--player-color: #2563eb; --player-color-fg: #f8fbff",
+            "cyan" => "--player-color: #06b6d4; --player-color-fg: #f8fbff",
+            "red" => "--player-color: #dc2626; --player-color-fg: #fff7f7",
+            "darkred" => "--player-color: #7f1d1d; --player-glow-color: #ff8a80; --player-color-fg: #fff7f7",
+            "orange" => "--player-color: #ea580c; --player-color-fg: #fff7ed",
+            "yellow" => "--player-color: #facc15; --player-color-fg: #1f2937",
+            "purple" => "--player-color: #9333ea; --player-color-fg: #faf5ff",
+            "green" => "--player-color: #16a34a; --player-color-fg: #f7fff9",
+            "darkgreen" => "--player-color: #166534; --player-glow-color: #8df5a6; --player-color-fg: #f7fff9",
+            _ => "--player-color: #888"
+        };
     }
 
     private static bool CanToggleDisconnectedSeatControl(PlayerBoardModel player)
@@ -214,21 +225,4 @@
         return $"{value:N1}%";
     }
 
-    private static string GetColorClass(string color)
-    {
-        return PlayerColorOptions.NormalizeOrDefault(color) switch
-        {
-            "darkblue" => "player-color-darkblue",
-            "blue" => "player-color-blue",
-            "cyan" => "player-color-cyan",
-            "red" => "player-color-red",
-            "darkred" => "player-color-darkred",
-            "orange" => "player-color-orange",
-            "yellow" => "player-color-yellow",
-            "purple" => "player-color-purple",
-            "green" => "player-color-green",
-            "darkgreen" => "player-color-darkgreen",
-            _ => "player-color-default"
-        };
-    }
 }

@@ -1,49 +1,45 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<div class="player-stats-table-scope">
-    @if (PlayerColumns.Count == 0)
-    {
-        <MudAlert Severity="Severity.Info" Dense="true">
-            Player statistics are not available yet.
-        </MudAlert>
-    }
-    else
-    {
-        <MudPaper Class="player-stats-table-panel" Outlined="true">
-            <MudStack Spacing="0" Class="player-stats-table-header">
-                <MudText Typo="Typo.h6">Stats</MudText>
-                <MudText Typo="Typo.caption">Players are shown in columns and tracked stats in rows.</MudText>
-            </MudStack>
+@if (PlayerColumns.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">
+        Player statistics are not available yet.
+    </MudAlert>
+}
+else
+{
+    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column" Style="min-height: 100%">
+        <MudStack Spacing="0" Class="mb-3">
+            <MudText Typo="Typo.h6">Stats</MudText>
+            <MudText Typo="Typo.caption">Players are shown in columns and tracked stats in rows.</MudText>
+        </MudStack>
 
-            <div class="player-stats-table-host">
-                <MudTable T="PlayerStatisticRow" Items="StatisticRows" Dense="true" Hover="true" Breakpoint="Breakpoint.None">
-                    <HeaderContent>
-                        <MudTh>Stat</MudTh>
-                        @foreach (var player in PlayerColumns)
-                        {
-                            <MudTh>
-                                <MudStack Spacing="0" Class="player-stats-column-heading">
-                                    <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
-                                    <MudText Typo="Typo.caption" Class="player-stats-column-subtitle">Seat @(player.SeatIndex + 1)</MudText>
-                                </MudStack>
-                            </MudTh>
-                        }
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Stat" Class="player-stats-row-label">@context.Label</MudTd>
-                        @foreach (var player in PlayerColumns)
-                        {
-                            <MudTd DataLabel="@player.DisplayName">
-                                @context.GetValue(player.PlayerState)
-                            </MudTd>
-                        }
-                    </RowTemplate>
-                </MudTable>
-            </div>
-        </MudPaper>
-    }
-</div>
+        <MudTable T="PlayerStatisticRow" Items="StatisticRows" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Style="overflow-x: auto">
+            <HeaderContent>
+                <MudTh>Stat</MudTh>
+                @foreach (var player in PlayerColumns)
+                {
+                    <MudTh>
+                        <MudStack Spacing="0" Style="min-width: 7.5rem">
+                            <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
+                            <MudText Typo="Typo.caption" Style="opacity: 0.72">Seat @(player.SeatIndex + 1)</MudText>
+                        </MudStack>
+                    </MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Stat" Style="white-space: nowrap; font-weight: 600">@context.Label</MudTd>
+                @foreach (var player in PlayerColumns)
+                {
+                    <MudTd DataLabel="@player.DisplayName">
+                        @context.GetValue(player.PlayerState)
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+}
 
 @code {
     [Parameter]

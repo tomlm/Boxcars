@@ -13,20 +13,20 @@
 
 <PageTitle>Delete Personal Data</PageTitle>
 
-<MudStack Class="manage-page-container">
+<MudStack Style="max-width: 37.5rem; margin: 0 auto" Spacing="6">
     <MudText Typo="Typo.h3">Delete Personal Data</MudText>
     <StatusMessage Message="@message" />
 
-    <MudPaper Class="manage-page-card">
-        <MudStack Class="manage-page-fields">
+    <MudPaper Class="pa-6">
+        <MudStack Spacing="4">
             <MudAlert Dense="true" Variant="Variant.Outlined" Severity="Severity.Warning">
                 Deleting this data will permanently remove your account, and this cannot be recovered.
             </MudAlert>
 
             <EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post">
                 <DataAnnotationsValidator />
-                <MudStack Class="manage-page-fields">
-                    <ValidationSummary class="auth-validation" role="alert" />
+                <MudStack Spacing="4">
+                    <ValidationSummary style="color: var(--mud-palette-error)" role="alert" />
 
                     @if (requirePassword)
                     {
@@ -35,7 +35,7 @@
                                       Placeholder="Enter your password"
                                       InputType="InputType.Password"
                                       Variant="Variant.Outlined"
-                                      Class="manage-page-field" />
+                                      FullWidth="true" />
                     }
 
                     <MudButton ButtonType="MudBlazor.ButtonType.Submit"

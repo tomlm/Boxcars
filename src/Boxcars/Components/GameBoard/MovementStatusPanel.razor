@@ -1,42 +1,10 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<div class="movement-status-panel-scope">
-    @if (UsePaper)
-    {
-        <MudPaper Class="movement-status-paper" Outlined="true">
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
-                @if (!IsPurchasePhase)
-                {
-                    @if (!string.IsNullOrWhiteSpace(PhaseStatusMessage))
-                    {
-                        <MudText Typo="Typo.body2">@PhaseStatusMessage</MudText>
-                    }
-                    else if (IsBonusMove)
-                    {
-                        <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
-                        <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
-                        <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
-                    }
-                }
-                @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
-                {
-                    <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
-                }
-                @if (!IsPurchasePhase && string.IsNullOrWhiteSpace(PhaseStatusMessage))
-                {
-                    <MudText Typo="Typo.body2" Class="@FeeTextClass">Fees: @FormatCurrency(State.PreviewFee)</MudText>
-                }
-            </MudStack>
-        </MudPaper>
-    }
-    else
-    {
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="movement-status-panel">
+@if (UsePaper)
+{
+    <MudPaper Outlined="true" Elevation="4" Class="pa-2 px-4" Style="border-radius: 0.9rem">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Style="font-family: Consolas, 'Courier New', monospace; font-size: 0.82rem; white-space: nowrap; min-height: 1.75rem">
             @if (!IsPurchasePhase)
             {
                 @if (!string.IsNullOrWhiteSpace(PhaseStatusMessage))
@@ -60,11 +28,41 @@
             }
             @if (!IsPurchasePhase && string.IsNullOrWhiteSpace(PhaseStatusMessage))
             {
-                <MudText Typo="Typo.body2" Class="@FeeTextClass">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+                <MudText Typo="Typo.body2" Color="@FeeColor" Style="@FeeStyle">Fees: @FormatCurrency(State.PreviewFee)</MudText>
             }
         </MudStack>
-    }
-</div>
+    </MudPaper>
+}
+else
+{
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Style="font-family: Consolas, 'Courier New', monospace; font-size: 0.82rem; white-space: nowrap; min-height: 1.75rem">
+        @if (!IsPurchasePhase)
+        {
+            @if (!string.IsNullOrWhiteSpace(PhaseStatusMessage))
+            {
+                <MudText Typo="Typo.body2">@PhaseStatusMessage</MudText>
+            }
+            else if (IsBonusMove)
+            {
+                <MudText Typo="Typo.body2">Bonus: @State.RedDie</MudText>
+                <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+                <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
+            }
+        }
+        @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
+        {
+            <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
+        }
+        @if (!IsPurchasePhase && string.IsNullOrWhiteSpace(PhaseStatusMessage))
+        {
+            <MudText Typo="Typo.body2" Color="@FeeColor" Style="@FeeStyle">Fees: @FormatCurrency(State.PreviewFee)</MudText>
+        }
+    </MudStack>
+}
 
 @code {
     [Parameter]
@@ -89,7 +87,8 @@
         (string.Equals(State.TurnPhase, "Roll", StringComparison.OrdinalIgnoreCase)
         || string.Equals(State.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
         && !HasResolvedRoll;
-    private string FeeTextClass => State.PreviewHasUnfriendlyFee ? "movement-status-fee movement-status-fee-unfriendly" : "movement-status-fee";
+    private Color FeeColor => State.PreviewHasUnfriendlyFee ? Color.Error : Color.Default;
+    private string FeeStyle => State.PreviewHasUnfriendlyFee ? "font-weight: 700" : "";
 
     private static string FormatCurrency(int value)
     {

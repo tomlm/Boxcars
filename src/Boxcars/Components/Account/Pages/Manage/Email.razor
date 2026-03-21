@@ -15,17 +15,17 @@
 
 <PageTitle>Email</PageTitle>
 
-<MudStack Class="manage-page-container">
+<MudStack Style="max-width: 37.5rem; margin: 0 auto" Spacing="6">
     <MudText Typo="Typo.h3">Email</MudText>
     <StatusMessage Message="@message" />
 
-    <MudPaper Class="manage-page-card">
+    <MudPaper Class="pa-6">
         <EditForm Model="Input" FormName="change-email" OnValidSubmit="OnValidSubmitAsync" method="post">
             <DataAnnotationsValidator />
-            <MudStack Class="manage-page-fields">
-                <ValidationSummary class="auth-validation" role="alert" />
+            <MudStack Spacing="4">
+                <ValidationSummary style="color: var(--mud-palette-error)" role="alert" />
 
-                <MudText Typo="Typo.body2" Class="manage-page-helper">
+                <MudText Typo="Typo.body2" Style="opacity: 0.75">
                     Update the email address associated with this account.
                 </MudText>
 
@@ -33,7 +33,7 @@
                               Label="Current email"
                               Variant="Variant.Outlined"
                               Disabled="true"
-                              Class="manage-page-field" />
+                              FullWidth="true" />
 
                 @if (!isEmailConfirmed)
                 {
@@ -48,9 +48,9 @@
                               Label="New email"
                               Placeholder="Enter your new email"
                               Variant="Variant.Outlined"
-                              Class="manage-page-field" />
+                              FullWidth="true" />
 
-                <MudStack Row="true" Class="manage-page-actions">
+                <MudStack Row="true" Spacing="4" Style="margin-top: 0.5rem">
                     <MudButton ButtonType="MudBlazor.ButtonType.Submit"
                                Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary">

@@ -1,0 +1,113 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<MudStack Class="flex-grow-1 overflow-hidden" Style="max-width: 1000px; min-height: 0">
+    <MudPaper Outlined="true" Class="flex-grow-1 overflow-y-auto pa-3" Style="min-height: 0">
+        @if (LatestAssistantMessage is not null)
+        {
+            <MudMarkdown @rendermode="InteractiveServer" Value="@LatestAssistantMessage.Content" Props="@MarkdownProps" />
+            @if (LatestAssistantMessage.ContextTurnNumber.HasValue)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                    Turn @LatestAssistantMessage.ContextTurnNumber.Value
+                </MudText>
+            }
+        }
+
+        @if (EntryPoint.IsLoading)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="MudBlazor.Color.Info" />
+                <MudText Typo="Typo.body2">Thinking about the current board...</MudText>
+            </MudStack>
+        }
+
+        @if (EntryPoint.HasAvailabilityError)
+        {
+            <MudStack Spacing="1">
+                <MudAlert Severity="Severity.Warning" Dense="true">
+                    @EntryPoint.AvailabilityMessage
+                </MudAlert>
+                @if (RetryRequested.HasDelegate)
+                {
+                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Warning" Disabled="@EntryPoint.IsLoading"
+                               OnClick="RetryRequested">
+                        Retry last question
+                    </MudButton>
+                }
+            </MudStack>
+        }
+    </MudPaper>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-shrink-0">
+        <MudTextField T="string" @key="ComposerResetVersion" Value="@DraftMessage"
+                      ValueChanged="DraftMessageChanged" Placeholder="Ask about the current game…"
+                      Variant="Variant.Outlined" Lines="1" AutoGrow="true" MaxLines="3"
+                      TextUpdateSuppression="false" Immediate="true" FullWidth="true"
+                      Disabled="@EntryPoint.IsLoading" OnKeyDown="OnComposerKeyDownAsync" />
+        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Info" Disabled="@(!CanSend)"
+                   OnClick="SendRequested">
+            Ask
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired]
+    public AdvisorEntryPointState EntryPoint { get; set; } = new();
+
+    [Parameter]
+    public AdvisorConversationSession? Conversation { get; set; }
+
+    [Parameter]
+    public string DraftMessage { get; set; } = string.Empty;
+
+    [Parameter]
+    public int ComposerResetVersion { get; set; }
+
+    [Parameter]
+    public EventCallback<string> DraftMessageChanged { get; set; }
+
+    [Parameter]
+    public EventCallback SendRequested { get; set; }
+
+    [Parameter]
+    public EventCallback RetryRequested { get; set; }
+
+    [Parameter]
+    public EventCallback CloseRequested { get; set; }
+
+    private bool CanSend => !EntryPoint.IsLoading && !string.IsNullOrWhiteSpace(DraftMessage);
+
+    private AdvisorMessage? LatestAssistantMessage => Conversation?.Messages.LastOrDefault(m => m.IsAssistant);
+
+    private static readonly MudMarkdownProps MarkdownProps = new()
+    {
+        Heading =
+        {
+            OverrideTypo = static typo => typo switch
+            {
+                Typo.h1 => Typo.h5,
+                Typo.h2 => Typo.h6,
+                Typo.h3 => Typo.subtitle1,
+                Typo.h4 => Typo.subtitle2,
+                Typo.h5 => Typo.body1,
+                Typo.h6 => Typo.body2,
+                _ => typo
+            }
+        }
+    };
+
+    private Task OnComposerKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.Ordinal)
+            && args.ShiftKey is not true
+            && SendRequested.HasDelegate
+            && CanSend)
+        {
+            return SendRequested.InvokeAsync();
+        }
+
+        return Task.CompletedTask;
+    }
+}

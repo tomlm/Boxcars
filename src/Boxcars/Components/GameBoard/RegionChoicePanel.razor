@@ -1,7 +1,7 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudPaper Class="region-choice-panel" Outlined="true">
+<MudPaper Outlined="true" Class="pa-4" Style="width: min(100%, 62rem); margin: 0 auto">
     <MudStack Spacing="2">
         <MudStack Spacing="0">
             <MudText Typo="Typo.h6">Choose Destination Region</MudText>
@@ -40,7 +40,7 @@
             </RowTemplate>
         </MudTable>
 
-        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="region-choice-panel-footer">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="4">
             <MudText Typo="Typo.caption">
                 Final destination city will be drawn using the selected region's existing weighted city probabilities. Rows start sorted by Access %.
             </MudText>

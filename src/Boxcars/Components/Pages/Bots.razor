@@ -8,11 +8,11 @@
 
 <PageTitle>Bots - BoxCars</PageTitle>
 
-<MudStack Class="bots-page-shell" Spacing="4">
-    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="bots-page-header">
+<MudStack Spacing="4">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="4">
         <MudStack Spacing="1">
             <MudText Typo="Typo.h3">Bots</MudText>
-            <MudText Typo="Typo.body1" Class="bots-page-helper">
+            <MudText Typo="Typo.body1" Style="max-width: 42rem; opacity: 0.78">
                 Bots are shared library definitions backed by strategy text. Add them here, then assign them to dedicated bot seats or ghost-mode seats in a game.
             </MudText>
         </MudStack>
@@ -23,7 +23,7 @@
         </MudButton>
     </MudStack>
 
-    <MudPaper Class="pa-6 bots-page-panel-shell">
+    <MudPaper Class="pa-6">
         <DashboardBotLibraryPanel CurrentUserId="@(_currentUserId ?? string.Empty)" />
     </MudPaper>
 </MudStack>

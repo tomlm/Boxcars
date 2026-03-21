@@ -4,70 +4,62 @@
 
 @if (Overlay is not null)
 {
-    <div class="railroad-purchase-overlay-scope" @onclick="OnDismissRequestedAsync">
-        <MudPaper Class="railroad-purchase-overlay pa-3" Outlined="true" Elevation="2">
-            <MudStack Spacing="1">
-                <MudText Typo="Typo.subtitle2">
-                    <span class="railroad-purchase-overlay-text">@Overlay.RailroadName</span>
-                </MudText>
-                @if (!string.IsNullOrWhiteSpace(Overlay.ContextLabel))
-                {
-                    <MudText Typo="Typo.body2">
-                        <span class="railroad-purchase-overlay-text">@Overlay.ContextLabel</span>
-                    </MudText>
-                }
-                <MudText Typo="Typo.body2">
-                    <span class="@OverlayPriceClass">@Overlay.ValueLabel: @FormatCurrency(Overlay.PurchasePrice)</span>
-                </MudText>
+    <MudPaper Elevation="2" Class="pa-3" Outlined="true"
+              Style="width: fit-content; min-width: 18rem; max-width: min(36rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto"
+              @onclick="OnDismissRequestedAsync">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.subtitle2">@Overlay.RailroadName</MudText>
+            @if (!string.IsNullOrWhiteSpace(Overlay.ContextLabel))
+            {
+                <MudText Typo="Typo.body2">@Overlay.ContextLabel</MudText>
+            }
+            <MudText Typo="Typo.body2" Color="@OverlayPriceColor" Style="@OverlayPriceStyle">@Overlay.ValueLabel: @FormatCurrency(Overlay.PurchasePrice)</MudText>
 
-                @if (VisibleMetricRows.Count > 0)
-                {
-                    <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true" Class="railroad-purchase-overlay-table">
-                        <HeaderContent>
-                            <MudTh><span class="railroad-purchase-overlay-header">Area</span></MudTh>
-                            <MudTh><span class="railroad-purchase-overlay-header">Access</span></MudTh>
-                            <MudTh><span class="railroad-purchase-overlay-header">Monopoly</span></MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd><span class="railroad-purchase-overlay-area">@context.Label</span></MudTd>
-                            <MudTd>
-                                @if (context.AccessDeltaPercent == 0m)
-                                {
-                                    <span>@FormatPercent(context.AccessPercent, showSign: false)</span>
-                                }
-                                else
-                                {
-                                    <span>@FormatPercent(context.AccessPercent, showSign: false)</span>
-                                    <span class="railroad-purchase-overlay-arrow"> =&gt; </span>
-                                    <span class="railroad-purchase-overlay-new-value @GetDeltaClass(context.AccessDeltaPercent)">@FormatPercent(context.ProjectedAccessPercent, showSign: false)</span>
-                                    <span class="@GetDeltaClass(context.AccessDeltaPercent)"> (@FormatPercent(context.AccessDeltaPercent, showSign: true))</span>
-                                }
-                            </MudTd>
-                            <MudTd>
-                                @if (context.MonopolyDeltaPercent == 0m)
-                                {
-                                    <span>@FormatPercent(context.MonopolyPercent, showSign: false)</span>
-                                }
-                                else
-                                {
-                                    <span>@FormatPercent(context.MonopolyPercent, showSign: false)</span>
-                                    <span class="railroad-purchase-overlay-arrow"> =&gt; </span>
-                                    <span class="railroad-purchase-overlay-new-value @GetDeltaClass(context.MonopolyDeltaPercent)">@FormatPercent(context.ProjectedMonopolyPercent, showSign: false)</span>
-                                    <span class="@GetDeltaClass(context.MonopolyDeltaPercent)"> (@FormatPercent(context.MonopolyDeltaPercent, showSign: true))</span>
-                                }
-                            </MudTd>
-                        </RowTemplate>
-                    </MudTable>
-                }
-                else if (Overlay?.MetricRows.Count > 0)
-                {
-                    <MudText Typo="Typo.body2">
-                        <span class="railroad-purchase-overlay-text">No change to your network.</span>
-                    </MudText>
-                }
-            </MudStack>
-        </MudPaper>
-    </div>
+            @if (VisibleMetricRows.Count > 0)
+            {
+                <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh><strong>Area</strong></MudTh>
+                        <MudTh><strong>Access</strong></MudTh>
+                        <MudTh><strong>Monopoly</strong></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd><MudText Typo="Typo.body2" Style="font-weight: 700">@context.Label</MudText></MudTd>
+                        <MudTd>
+                            @if (context.AccessDeltaPercent == 0m)
+                            {
+                                <MudText Typo="Typo.body2">@FormatPercent(context.AccessPercent, showSign: false)</MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Inline="true">@FormatPercent(context.AccessPercent, showSign: false)</MudText>
+                                <MudText Typo="Typo.body2" Inline="true" Color="Color.Secondary"> =&gt; </MudText>
+                                <MudText Typo="Typo.body2" Inline="true" Color="@GetDeltaColor(context.AccessDeltaPercent)" Style="font-weight: 700">@FormatPercent(context.ProjectedAccessPercent, showSign: false)</MudText>
+                                <MudText Typo="Typo.body2" Inline="true" Color="@GetDeltaColor(context.AccessDeltaPercent)"> (@FormatPercent(context.AccessDeltaPercent, showSign: true))</MudText>
+                            }
+                        </MudTd>
+                        <MudTd>
+                            @if (context.MonopolyDeltaPercent == 0m)
+                            {
+                                <MudText Typo="Typo.body2">@FormatPercent(context.MonopolyPercent, showSign: false)</MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Inline="true">@FormatPercent(context.MonopolyPercent, showSign: false)</MudText>
+                                <MudText Typo="Typo.body2" Inline="true" Color="Color.Secondary"> =&gt; </MudText>
+                                <MudText Typo="Typo.body2" Inline="true" Color="@GetDeltaColor(context.MonopolyDeltaPercent)" Style="font-weight: 700">@FormatPercent(context.ProjectedMonopolyPercent, showSign: false)</MudText>
+                                <MudText Typo="Typo.body2" Inline="true" Color="@GetDeltaColor(context.MonopolyDeltaPercent)"> (@FormatPercent(context.MonopolyDeltaPercent, showSign: true))</MudText>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+            else if (Overlay?.MetricRows.Count > 0)
+            {
+                <MudText Typo="Typo.body2">No change to your network.</MudText>
+            }
+        </MudStack>
+    </MudPaper>
 }
 
 @code {
@@ -82,14 +74,14 @@
         .ToArray()
         ?? [];
 
-    private string OverlayPriceClass => Overlay?.ValueKind switch
+    private Color OverlayPriceColor => Overlay?.ValueKind switch
     {
-        RailroadOverlayValueKind.TooExpensive => "railroad-purchase-overlay-text railroad-purchase-overlay-price-too-expensive",
-        RailroadOverlayValueKind.Sale => "railroad-purchase-overlay-text railroad-purchase-overlay-price-affordable",
-        _ => Overlay?.IsAffordable == false
-            ? "railroad-purchase-overlay-text railroad-purchase-overlay-price-too-expensive"
-            : "railroad-purchase-overlay-text railroad-purchase-overlay-price-affordable"
+        RailroadOverlayValueKind.TooExpensive => Color.Error,
+        RailroadOverlayValueKind.Sale => Color.Success,
+        _ => Overlay?.IsAffordable == false ? Color.Error : Color.Success
     };
+
+    private string OverlayPriceStyle => "font-weight: 700";
 
     private static string FormatCurrency(int value)
     {
@@ -102,19 +94,19 @@
         return showSign && value >= 0m ? $"+{formattedValue}%" : $"{formattedValue}%";
     }
 
-    private static string GetDeltaClass(decimal value)
+    private static Color GetDeltaColor(decimal value)
     {
         if (value > 0m)
         {
-            return "railroad-purchase-overlay-delta-positive";
+            return Color.Success;
         }
 
         if (value < 0m)
         {
-            return "railroad-purchase-overlay-delta-negative";
+            return Color.Error;
         }
 
-        return "railroad-purchase-overlay-delta-neutral";
+        return Color.Default;
     }
 
     private Task OnDismissRequestedAsync()

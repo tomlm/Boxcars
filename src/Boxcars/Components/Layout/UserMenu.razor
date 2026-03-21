@@ -11,11 +11,11 @@
                  AnchorOrigin="Origin.BottomRight"
                  TransformOrigin="Origin.TopRight">
             <ActivatorContent>
-                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Inherit" Class="user-menu-trigger">
-                    <MudAvatar Size="Size.Medium" Class="user-menu-avatar">
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Inherit" Style="min-width: auto; padding: 0">
+                    <MudAvatar Size="Size.Medium" Style="overflow: hidden">
                         @if (HasThumbnail)
                         {
-                            <MudImage Src="@_thumbnailUrl" Alt="@_fullName" Class="user-menu-avatar-image" />
+                            <MudImage Src="@_thumbnailUrl" Alt="@_fullName" Style="width: 100%; height: 100%; object-fit: cover" />
                         }
                         else
                         {

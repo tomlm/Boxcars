@@ -11,15 +11,15 @@
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="1" Class="app-bar">
-        <MudLink Href="/" Underline="Underline.None" Class="app-title-link">
+    <MudAppBar Elevation="1" Style="overflow: visible">
+        <MudLink Href="/" Underline="Underline.None" Style="color: inherit">
             <MudText Typo="Typo.h5">BoxCars</MudText>
         </MudLink>
         <MudSpacer />
         <UserMenu />
     </MudAppBar>
     <MudMainContent>
-        <div class="@(IsGameRoute ? "content-area content-area--full" : "content-area")">
+        <div style="@ContentAreaStyle">
             @Body
         </div>
     </MudMainContent>
@@ -43,6 +43,10 @@
     private bool IsAccountRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("Account", StringComparison.OrdinalIgnoreCase);
 
     private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
+
+    private string ContentAreaStyle => IsGameRoute
+        ? "padding: 0; max-width: none; margin: 0; overflow: hidden; min-height: calc(100dvh - var(--mud-appbar-height)); background-color: var(--mud-palette-background); color: var(--mud-palette-text-primary)"
+        : "padding: 1.5rem 2rem; max-width: 1200px; margin: 0 auto; min-height: calc(100dvh - var(--mud-appbar-height)); background-color: var(--mud-palette-background); color: var(--mud-palette-text-primary)";
 
     protected override async Task OnParametersSetAsync()
     {
