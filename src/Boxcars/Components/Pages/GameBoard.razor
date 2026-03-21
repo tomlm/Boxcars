@@ -51,13 +51,13 @@
     <div style="display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden">
         @if (_gameMap?.Errors.Count > 0)
         {
-            <MudStack Style="padding: 0.5rem 0.75rem; background: #3a0a0a; color: #faa; border-bottom: 1px solid #844">
-                <MudText Typo="Typo.h6">Unable to render map</MudText>
+            <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true" Style="border-radius: 0">
+                <MudText Typo="Typo.subtitle2" Style="font-weight: 700">Unable to render map</MudText>
                 @foreach (var error in _gameMap.Errors)
                 {
                     <MudText Typo="Typo.body2">@error</MudText>
                 }
-            </MudStack>
+            </MudAlert>
         }
 
         @if (ShouldShowPurchaseExperienceTabs)
