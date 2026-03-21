@@ -2,52 +2,50 @@
 @using MudBlazor
 @using System.Globalization
 
-<div class="sale-impact-panel-scope">
-    @if (Overlay is null)
-    {
-        <MudAlert Severity="Severity.Info" Dense="true">
-            Select one of your railroads on the map to preview the network damage before selling it.
-        </MudAlert>
-    }
-    else
-    {
-        <MudPaper Class="sale-impact-panel pa-3" Outlined="true">
-            <MudStack Spacing="2">
-                <MudStack Spacing="0">
-                    <MudText Typo="Typo.h6">Sale Impact</MudText>
-                    <MudText Typo="Typo.body2">@Overlay.RailroadName</MudText>
-                </MudStack>
-
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">Bank value: @FormatCurrency(BankSalePrice)</MudChip>
-                    @if (FeeShortfall > 0)
-                    {
-                        <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">Shortfall: @FormatCurrency(FeeShortfall)</MudChip>
-                    }
-                </MudStack>
-
-                <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true">
-                    <HeaderContent>
-                        <MudTh><strong>Area</strong></MudTh>
-                        <MudTh><strong>Access</strong></MudTh>
-                        <MudTh><strong>Monopoly</strong></MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd>@context.Label</MudTd>
-                        <MudTd>
-                            <MudText Typo="Typo.body2">@FormatPercent(context.AccessPercent, showSign: false) =&gt; @FormatPercent(context.ProjectedAccessPercent, showSign: false)</MudText>
-                            <MudText Typo="Typo.caption" Class="@GetDeltaClass(context.AccessDeltaPercent)">@FormatPercent(context.AccessDeltaPercent, showSign: true)</MudText>
-                        </MudTd>
-                        <MudTd>
-                            <MudText Typo="Typo.body2">@FormatPercent(context.MonopolyPercent, showSign: false) =&gt; @FormatPercent(context.ProjectedMonopolyPercent, showSign: false)</MudText>
-                            <MudText Typo="Typo.caption" Class="@GetDeltaClass(context.MonopolyDeltaPercent)">@FormatPercent(context.MonopolyDeltaPercent, showSign: true)</MudText>
-                        </MudTd>
-                    </RowTemplate>
-                </MudTable>
+@if (Overlay is null)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">
+        Select one of your railroads on the map to preview the network damage before selling it.
+    </MudAlert>
+}
+else
+{
+    <MudPaper Class="pa-3" Outlined="true">
+        <MudStack Spacing="2">
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.h6">Sale Impact</MudText>
+                <MudText Typo="Typo.body2">@Overlay.RailroadName</MudText>
             </MudStack>
-        </MudPaper>
-    }
-</div>
+
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">Bank value: @FormatCurrency(BankSalePrice)</MudChip>
+                @if (FeeShortfall > 0)
+                {
+                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">Shortfall: @FormatCurrency(FeeShortfall)</MudChip>
+                }
+            </MudStack>
+
+            <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true">
+                <HeaderContent>
+                    <MudTh><strong>Area</strong></MudTh>
+                    <MudTh><strong>Access</strong></MudTh>
+                    <MudTh><strong>Monopoly</strong></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Label</MudTd>
+                    <MudTd>
+                        <MudText Typo="Typo.body2">@FormatPercent(context.AccessPercent, showSign: false) =&gt; @FormatPercent(context.ProjectedAccessPercent, showSign: false)</MudText>
+                        <MudText Typo="Typo.caption" Color="@GetDeltaColor(context.AccessDeltaPercent)">@FormatPercent(context.AccessDeltaPercent, showSign: true)</MudText>
+                    </MudTd>
+                    <MudTd>
+                        <MudText Typo="Typo.body2">@FormatPercent(context.MonopolyPercent, showSign: false) =&gt; @FormatPercent(context.ProjectedMonopolyPercent, showSign: false)</MudText>
+                        <MudText Typo="Typo.caption" Color="@GetDeltaColor(context.MonopolyDeltaPercent)">@FormatPercent(context.MonopolyDeltaPercent, showSign: true)</MudText>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudStack>
+    </MudPaper>
+}
 
 @code {
     [Parameter]
@@ -76,18 +74,18 @@
         return showSign && value >= 0m ? $"+{formattedValue}%" : $"{formattedValue}%";
     }
 
-    private static string GetDeltaClass(decimal value)
+    private static Color GetDeltaColor(decimal value)
     {
         if (value > 0m)
         {
-            return "sale-impact-delta-positive";
+            return Color.Success;
         }
 
         if (value < 0m)
         {
-            return "sale-impact-delta-negative";
+            return Color.Error;
         }
 
-        return "sale-impact-delta-neutral";
+        return Color.Secondary;
     }
 }

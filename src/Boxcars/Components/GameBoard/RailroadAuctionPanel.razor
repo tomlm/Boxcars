@@ -1,60 +1,59 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<div class="railroad-auction-panel-scope">
-    <MudPaper Class="railroad-auction-panel pa-3" Outlined="true">
-        <MudStack Spacing="2">
-            <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                <MudText Typo="Typo.h3">@AuctionState.RailroadName auction</MudText>
-                <MudChip T="string" Color="@ResolveStatusColor()" Variant="Variant.Filled" Size="Size.Small">@AuctionState.Status</MudChip>
-            </MudStack>
+<MudPaper Class="pa-3" Outlined="true" Style="min-width: 22rem">
+    <MudStack Spacing="2">
+        <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.h3">@AuctionState.RailroadName auction</MudText>
+            <MudChip T="string" Color="@ResolveStatusColor()" Variant="Variant.Filled" Size="Size.Small">@AuctionState.Status</MudChip>
+        </MudStack>
 
-            <MudText Typo="Typo.body2">Seller: @AuctionState.SellerPlayerName</MudText>
-            <MudText Typo="Typo.body2">Current bid: @CurrentBidLabel</MudText>
-            <MudText Typo="Typo.body2">Awaiting: @(string.IsNullOrWhiteSpace(AuctionState.CurrentBidderPlayerName) ? "Auction resolution" : AuctionState.CurrentBidderPlayerName)</MudText>
+        <MudText Typo="Typo.body2">Seller: @AuctionState.SellerPlayerName</MudText>
+        <MudText Typo="Typo.body2">Current bid: @CurrentBidLabel</MudText>
+        <MudText Typo="Typo.body2">Awaiting: @(string.IsNullOrWhiteSpace(AuctionState.CurrentBidderPlayerName) ? "Auction resolution" : AuctionState.CurrentBidderPlayerName)</MudText>
 
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                @foreach (var participant in AuctionState.Participants)
-                {
-                    <MudChip T="string"
-                             Variant="Variant.Outlined"
-                             Size="Size.Small"
-                             Class="@GetParticipantChipClass(participant)">
-                        <span class="railroad-auction-participant-label">@participant.PlayerName</span>
-                        <span class="railroad-auction-participant-detail @GetParticipantDetailClass(participant)">@BuildParticipantStatusLabel(participant)</span>
-                    </MudChip>
-                }
-            </MudStack>
-
-            @if (CanCurrentUserAct)
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+            @foreach (var participant in AuctionState.Participants)
             {
-                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudNumericField T="int"
-                                     Value="BidAmount"
-                                     ValueChanged="OnBidAmountChangedAsync"
-                                     Min="@AuctionState.MinimumBid"
-                                     Step="@Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement"
-                                     Immediate="true"
-                                     Label="Bid amount"
-                                     Disabled="@IsBusy"
-                                     Class="railroad-auction-bid-input" />
-
-                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="@IsBusy" OnClick="OnBidRequestedAsync">
-                        Bid
-                    </MudButton>
-
-                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="@IsBusy" OnClick="OnPassRequestedAsync">
-                        Pass
-                    </MudButton>
-
-                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" Disabled="@IsBusy" OnClick="OnDropOutRequestedAsync">
-                        Drop Out
-                    </MudButton>
-                </MudStack>
+                <MudChip T="string"
+                         Variant="@(IsActiveParticipant(participant) ? Variant.Filled : Variant.Outlined)"
+                         Size="Size.Small"
+                         Color="@GetParticipantChipColor(participant)"
+                         Style="@GetParticipantChipStyle(participant)">
+                    <MudText Typo="Typo.body2" Inline="true">@participant.PlayerName</MudText>
+                    <MudText Typo="Typo.body2" Inline="true" Color="@GetParticipantDetailColor(participant)"> @BuildParticipantStatusLabel(participant)</MudText>
+                </MudChip>
             }
         </MudStack>
-    </MudPaper>
-</div>
+
+        @if (CanCurrentUserAct)
+        {
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+                <MudNumericField T="int"
+                                 Value="BidAmount"
+                                 ValueChanged="OnBidAmountChangedAsync"
+                                 Min="@AuctionState.MinimumBid"
+                                 Step="@Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement"
+                                 Immediate="true"
+                                 Label="Bid amount"
+                                 Disabled="@IsBusy"
+                                 Style="min-width: 9rem" />
+
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="@IsBusy" OnClick="OnBidRequestedAsync">
+                    Bid
+                </MudButton>
+
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="@IsBusy" OnClick="OnPassRequestedAsync">
+                    Pass
+                </MudButton>
+
+                <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" Disabled="@IsBusy" OnClick="OnDropOutRequestedAsync">
+                    Drop Out
+                </MudButton>
+            </MudStack>
+        }
+    </MudStack>
+</MudPaper>
 
 @code {
     [Parameter]
@@ -115,44 +114,49 @@
         };
     }
 
-    private string GetParticipantChipClass(AuctionParticipantModel participant)
+    private bool IsActiveParticipant(AuctionParticipantModel participant)
     {
-        var classes = new List<string>
-        {
-            "railroad-auction-participant-chip"
-        };
+        return participant.PlayerIndex == AuctionState.CurrentBidderPlayerIndex;
+    }
 
+    private Color GetParticipantChipColor(AuctionParticipantModel participant)
+    {
         if (participant.HasDroppedOut)
         {
-            classes.Add("auction-participant-chip--dropped");
+            return Color.Default;
+        }
+
+        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && participant.LastBidAmount.HasValue)
+        {
+            return Color.Success;
         }
 
         if (participant.PlayerIndex == AuctionState.CurrentBidderPlayerIndex)
         {
-            classes.Add("auction-participant-chip--active");
+            return Color.Info;
         }
 
-        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && participant.LastBidAmount.HasValue)
-        {
-            classes.Add("auction-participant-chip--leader");
-        }
-
-        return string.Join(" ", classes);
+        return Color.Default;
     }
 
-    private string GetParticipantDetailClass(AuctionParticipantModel participant)
+    private string GetParticipantChipStyle(AuctionParticipantModel participant)
     {
-        var classes = new List<string>
+        if (participant.HasDroppedOut)
         {
-            "railroad-auction-participant-detail"
-        };
-
-        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && participant.LastBidAmount.HasValue)
-        {
-            classes.Add("auction-participant-detail--leader");
+            return "opacity: 0.5";
         }
 
-        return string.Join(" ", classes);
+        return string.Empty;
+    }
+
+    private Color GetParticipantDetailColor(AuctionParticipantModel participant)
+    {
+        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && participant.LastBidAmount.HasValue)
+        {
+            return Color.Success;
+        }
+
+        return Color.Secondary;
     }
 
     private string BuildParticipantStatusLabel(AuctionParticipantModel participant)

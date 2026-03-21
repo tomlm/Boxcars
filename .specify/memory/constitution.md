@@ -1,14 +1,13 @@
 <!--
 Sync Impact Report
 ===================
-Version change: 1.11.0 → 1.12.0
+Version change: 1.12.0 → 1.13.0
 Modified principles:
-  - Blazor UI Conventions (expanded component naming guidance to require
-    concrete behavior-aligned names and reject speculative generic labels;
-    added guidance to prefer maintained Blazor renderer components over
-    custom JS or hand-rolled rich content rendering; strengthened
-    component-first layout/styling rules so MudBlazor and Blazor component
-    concepts are required before custom CSS)
+  - Blazor UI Conventions (rewrote styling rules to mandate MudBlazor-only
+    UI with inline styles as the sole fallback; eliminated CSS isolation
+    and custom CSS class references; removed CSS scope anchor guidance;
+    added explicit prohibition on .razor.css files and class attributes;
+    codified MudBlazor parameter hierarchy for styling)
 Added sections:
   - N/A
 Removed sections: N/A
@@ -222,50 +221,66 @@ exceptions.
 
 ## Blazor UI Conventions
 
-- **Component library**: Use MudBlazor components as the
-  primary UI toolkit. Follow MudBlazor best practices for
-  component usage, theming, and layout. When a MudBlazor
-  component already models the needed UI concept (for example,
-  drawers, panels, app bars, dialogs, tabs, grids, stacks,
-  papers, tooltips, or overlays), contributors MUST use that
-  component instead of recreating the concept with raw HTML and
-  custom CSS.
-- **No raw HTML**: Avoid raw HTML elements. Use MudBlazor
-  components for all UI rendering. Raw HTML is permitted
-  only when no suitable MudBlazor component exists and MUST be
-  justified in review.
-- **No inline CSS**: Styling MUST NOT be applied via inline
-  `style` attributes. Use CSS classes, CSS isolation
-  (`.razor.css` files), or MudBlazor theming/tokens instead.
-- **MudBlazor-first styling**: When customizing MudBlazor
-  components, contributors MUST prefer built-in MudBlazor
-  parameters, properties, variants, colors, spacing, and
-  theming options before falling back to custom CSS. Custom CSS
-  SHOULD be used only when MudBlazor does not provide an
-  appropriate built-in mechanism.
+- **Component library — MudBlazor only**: MudBlazor is the
+  exclusive UI toolkit. Every UI element MUST be expressed as a
+  MudBlazor component whenever one exists for the concept
+  (drawers, panels, app bars, dialogs, tabs, grids, stacks,
+  papers, tooltips, overlays, buttons, text, icons, tables,
+  chips, alerts, avatars, switches, selects, radio groups, etc.).
+  Contributors MUST NOT recreate these concepts with raw HTML
+  and custom CSS.
+- **No raw HTML**: Raw HTML elements (`<div>`, `<span>`, etc.)
+  are permitted ONLY as lightweight layout wrappers when no
+  MudBlazor layout component covers the need (e.g., a CSS grid
+  container, a fixed-position overlay anchor). Raw HTML elements
+  used for layout MUST use inline `style` attributes — never
+  CSS classes.
+- **SVG map exemption**: The SVG-based map components
+  (`MapComponent.razor`, `GameMapComponent.razor`) and their
+  companion `.razor.css` files are exempt from MudBlazor-only
+  rules because SVG rendering has no MudBlazor equivalent.
+- **No CSS files**: Contributors MUST NOT create or maintain
+  `.razor.css` scoped CSS files (except for the exempt SVG map
+  components above and `MainLayout.razor.css` which hosts the
+  framework `#blazor-error-ui` styles). Existing empty CSS files
+  MUST be deleted, not left as placeholders.
+- **No CSS classes**: Contributors MUST NOT use the `Class`
+  parameter on MudBlazor components to apply custom CSS class
+  names. The only permitted `Class` values are MudBlazor's
+  own utility classes (e.g., `pa-4`, `mb-3`, `d-flex`).
+- **Styling hierarchy**: When styling is needed, contributors
+  MUST follow this order of preference:
+  1. **MudBlazor component parameters** — `Color`, `Variant`,
+     `Size`, `Elevation`, `Spacing`, `Dense`, `Outlined`,
+     `Square`, `Rounded`, `FullWidth`, `Wrap`, `Justify`,
+     `AlignItems`, and other built-in parameters.
+  2. **MudBlazor utility classes** via `Class` — `pa-*`,
+     `ma-*`, `mb-*`, `mt-*`, `d-flex`, `flex-wrap`, etc.
+  3. **MudBlazor theming** — palette tokens
+     (`var(--mud-palette-*)`) and theme provider configuration.
+  4. **Inline `Style` attribute** — for CSS that cannot be
+     expressed through MudBlazor parameters, utility classes,
+     or theming. Inline styles are the approved fallback; they
+     are preferred over CSS files because they are co-located
+     with the component, survive refactoring, and avoid scoped
+     CSS pitfalls with MudBlazor's internal DOM.
+- **Computed styles**: When a component needs dynamic styling
+  (e.g., player colors, conditional visibility), contributors
+  MUST use C# properties or methods that return inline style
+  strings, not CSS class strings. Example:
+  `private string CardStyle => "background: #0b3d91; color: #fff";`
 - **Component-first layout and behavior**: Contributors MUST
   express layout, panel behavior, visibility, spacing, and
   interaction through MudBlazor components and normal Blazor
-  component composition before introducing bespoke CSS-driven UI
-  behavior. CSS is a fallback for visual refinement or gaps in
-  MudBlazor's component model, not the primary way to invent UI
-  structure or interaction.
-- **Renderer preference**: When the UI needs a new   
-  rich-content rendering, contributors MUST prefer a maintained
-  Blazor component package that fits the current stack before
+  component composition. Inline `style` is a fallback for
+  visual refinement or gaps in MudBlazor's component model,
+  not the primary way to invent UI structure or interaction.
+- **Renderer preference**: When the UI needs new rich-content
+  rendering, contributors MUST prefer a maintained Blazor
+  component package that fits the current stack before
   introducing custom JavaScript, ad hoc DOM manipulation, or
   hand-rolled HTML rendering. Any exception MUST be justified in
   review.
-- **CSS isolation scope anchors**: Blazor scoped CSS
-  (`.razor.css`) only applies to elements rendered directly by
-  the component — MudBlazor components render their own internal
-  DOM that lacks the parent's scope attribute. When scoped styles
-  need to target a MudBlazor component or its internals,
-  contributors MUST wrap it in a plain HTML element (`<div>`,
-  `<span>`) that carries the CSS class. Use `::deep` from that
-  scope anchor to reach into MudBlazor internals. Placing
-  `Class="..."` directly on a MudBlazor component will NOT work
-  with scoped CSS.
 - **Component decomposition**: Pages MUST NOT be monolithic.
   Major UI sections (e.g., map, player panel, dice controls,
   railroad list, chat) MUST be extracted into dedicated Blazor
@@ -356,4 +371,4 @@ architectural decisions MUST align with these principles.
   takes precedence. If Principle I is not involved, prefer
   Simplicity (Principle III).
 
-**Version**: 1.10.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-13
+**Version**: 1.13.0 | **Ratified**: 2026-02-26 | **Last Amended**: 2026-03-20

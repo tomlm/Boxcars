@@ -1,9 +1,8 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<div class="forced-sale-panel-scope">
-    <MudPaper Class="forced-sale-panel pa-3" Outlined="true">
-        <MudStack Spacing="1">
+<MudPaper Class="pa-3" Outlined="true" Style="min-width: 22rem">
+    <MudStack Spacing="1">
             <MudText Typo="Typo.h3">Forced sale required</MudText>
             <MudText Typo="Typo.body2">@SummaryLine</MudText>
             <MudText Typo="Typo.body2">Shortfall: @FormatCurrency(Phase.FeeShortfall)</MudText>
@@ -32,9 +31,8 @@
                     Auction
                 </MudButton>
             </MudStack>
-        </MudStack>
-    </MudPaper>
-</div>
+    </MudStack>
+</MudPaper>
 
 @code {
     [Parameter]

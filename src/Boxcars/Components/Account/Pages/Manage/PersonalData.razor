@@ -5,12 +5,12 @@
 
 <PageTitle>Personal Data</PageTitle>
 
-<MudStack Class="manage-page-container">
+<MudStack Style="max-width: 37.5rem; margin: 0 auto" Spacing="6">
     <MudText Typo="Typo.h3">Personal Data</MudText>
     <StatusMessage />
 
-    <MudPaper Class="manage-page-card">
-        <MudStack Class="manage-page-fields">
+    <MudPaper Class="pa-6">
+        <MudStack Spacing="4">
             <MudText Typo="Typo.body1">
                 Your account contains personal data that you have given us. This page allows you to permanently delete that data by closing your account.
             </MudText>
@@ -19,7 +19,7 @@
                 Deleting this data will permanently remove your account, and this cannot be recovered.
             </MudAlert>
 
-            <MudStack Row="true" Class="manage-page-actions">
+            <MudStack Row="true" Spacing="4" Style="margin-top: 0.5rem">
                 <MudButton Href="Account/Manage/DeletePersonalData"
                            Variant="Variant.Filled"
                            Color="MudBlazor.Color.Error">

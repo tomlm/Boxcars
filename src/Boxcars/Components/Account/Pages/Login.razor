@@ -16,10 +16,10 @@
 
 <PageTitle>Log in</PageTitle>
 
-<MudText Typo="Typo.h4" Class="auth-title">Log in</MudText>
-<MudGrid Class="auth-grid">
+<MudText Typo="Typo.h4" Class="mb-3">Log in</MudText>
+<MudGrid Class="mt-1">
     <MudItem xs="12" md="5">
-        <MudPaper Class="auth-card" Outlined="true">
+        <MudPaper Class="pa-4" Outlined="true">
             <StatusMessage Message="@errorMessage" />
             @if (showRegistrationPrompt)
             {
@@ -31,28 +31,30 @@
             <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
                 <DataAnnotationsValidator />
                 <MudText Typo="Typo.h6">Use a local account to log in.</MudText>
-                <ValidationSummary class="auth-validation" role="alert" />
-                <MudStack Class="auth-form-fields">
+                <ValidationSummary style="color: var(--mud-palette-error)" role="alert" />
+                <MudStack Spacing="3">
                     <InputText @bind-Value="Input.Email"
                                type="email"
                                name="Input.Email"
-                               class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end auth-native-input"
+                               class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end"
+                               style="width: 100%; min-height: 56px; padding: 16.5px 14px; color: var(--mud-palette-text-primary); background-color: transparent; border: 1px solid var(--mud-palette-lines-inputs); border-radius: var(--mud-default-borderradius)"
                                autocomplete="username"
                                aria-required="true"
                                placeholder="name@example.com" />
-                    <ValidationMessage For="() => Input.Email" class="auth-validation" />
+                    <ValidationMessage For="() => Input.Email" style="color: var(--mud-palette-error)" />
 
                     <InputText @bind-Value="Input.Password"
                                type="password"
                                name="Input.Password"
-                               class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end auth-native-input"
+                               class="mud-input-slot mud-input-root mud-input-root-outlined mud-input-root-adorned-end"
+                               style="width: 100%; min-height: 56px; padding: 16.5px 14px; color: var(--mud-palette-text-primary); background-color: transparent; border: 1px solid var(--mud-palette-lines-inputs); border-radius: var(--mud-default-borderradius)"
                                autocomplete="current-password"
                                aria-required="true"
                                placeholder="password" />
-                    <ValidationMessage For="() => Input.Password" class="auth-validation" />
+                    <ValidationMessage For="() => Input.Password" style="color: var(--mud-palette-error)" />
 
-                    <label class="auth-checkbox-row">
-                        <InputCheckbox @bind-Value="Input.RememberMe" name="Input.RememberMe" class="auth-checkbox" />
+                    <label style="display: inline-flex; align-items: center; gap: 0.5rem">
+                        <InputCheckbox @bind-Value="Input.RememberMe" name="Input.RememberMe" style="width: 1rem; height: 1rem" />
                         <span>Remember me</span>
                     </label>
 
@@ -66,7 +68,7 @@
         </MudPaper>
     </MudItem>
     <MudItem xs="12" md="7">
-        <MudPaper Class="auth-card" Outlined="true">
+        <MudPaper Class="pa-4" Outlined="true">
             <MudText Typo="Typo.h6">Use another service to log in.</MudText>
             <ExternalLoginPicker />
         </MudPaper>

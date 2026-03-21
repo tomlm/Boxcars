@@ -1,40 +1,38 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<div class="purchase-taskbar-scope">
-    <MudPaper Class="@TaskbarClass" Outlined="true">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h4">Purchase Opportunity</MudText>
-            @if (!string.IsNullOrWhiteSpace(DelegatedControlLabel))
-            {
-                <MudText Typo="Typo.subtitle2" Class="purchase-taskbar-delegated-control">
-                    @DelegatedControlLabel
-                </MudText>
-            }
+<MudPaper Class="pa-3" Outlined="true" Style="width: 100%">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h4">Purchase Opportunity</MudText>
+        @if (!string.IsNullOrWhiteSpace(DelegatedControlLabel))
+        {
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary" Style="font-style: italic; font-weight: 600">
+                @DelegatedControlLabel
+            </MudText>
+        }
 
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-                <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Class="purchase-taskbar-select" Disabled="TaskbarState.Options.Count == 0 || IsBusy">
-                    @foreach (var option in TaskbarState.Options)
-                    {
-                        <MudSelectItem T="string" Value="@option.OptionKey">
-                            <span class="purchase-taskbar-option-label">@option.DisplayName</span>
-                            <span class="@GetOptionPriceClass(option)"> (@FormatCurrency(option.PurchasePrice))</span>
-                        </MudSelectItem>
-                    }
-                </MudSelect>
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+            <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Style="min-width: 18rem" Disabled="TaskbarState.Options.Count == 0 || IsBusy">
+                @foreach (var option in TaskbarState.Options)
+                {
+                    <MudSelectItem T="string" Value="@option.OptionKey">
+                        @option.DisplayName
+                        <MudText Typo="Typo.body2" Inline="true" Color="@GetOptionPriceColor(option)" Style="font-weight: 700"> (@FormatCurrency(option.PurchasePrice))</MudText>
+                    </MudSelectItem>
+                }
+            </MudSelect>
 
-                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy || IsBusy" OnClick="OnBuyRequestedAsync">
-                    BUY
-                </MudButton>
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy || IsBusy" OnClick="OnBuyRequestedAsync">
+                BUY
+            </MudButton>
 
-                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline || IsBusy" OnClick="OnDeclineRequestedAsync">
-                    DECLINE
-                </MudButton>
-            </MudStack>
+            <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline || IsBusy" OnClick="OnDeclineRequestedAsync">
+                DECLINE
+            </MudButton>
         </MudStack>
+    </MudStack>
 
-    </MudPaper>
-</div>
+</MudPaper>
 
 @code {
     [Parameter]
@@ -67,8 +65,6 @@
     [Parameter]
     public string DelegatedControlLabel { get; set; } = string.Empty;
 
-    private string TaskbarClass => "purchase-taskbar pa-3";
-
     private async Task OnSelectedOptionChangedAsync(string? optionKey)
     {
         await SelectedOptionKeyChanged.InvokeAsync(optionKey);
@@ -89,11 +85,9 @@
         return $"${Math.Max(0, value):N0}";
     }
 
-    private static string GetOptionPriceClass(PurchaseOptionModel option)
+    private static Color GetOptionPriceColor(PurchaseOptionModel option)
     {
-        return option.IsAffordable
-            ? "purchase-taskbar-option-price purchase-taskbar-option-price-affordable"
-            : "purchase-taskbar-option-price purchase-taskbar-option-price-too-expensive";
+        return option.IsAffordable ? Color.Success : Color.Error;
     }
 
     private static string FormatPercent(decimal? value)

@@ -17,47 +17,47 @@
 
 @if (_loading)
 {
-    <MudStack Class="profile-loading" Justify="Justify.Center" AlignItems="AlignItems.Center">
+    <MudStack Style="min-height: 12rem" Justify="Justify.Center" AlignItems="AlignItems.Center">
         <MudProgressCircular Indeterminate="true" Size="Size.Large" Color="MudBlazor.Color.Primary" />
     </MudStack>
 }
 else if (_profile == null)
 {
-    <MudPaper Class="profile-error">
+    <MudPaper Style="max-width: 37.5rem; margin: 2rem auto; text-align: center; padding: 2rem">
         <MudText Typo="Typo.h4">Unable to load profile</MudText>
         @if (!string.IsNullOrWhiteSpace(message))
         {
-            <MudAlert Class="manage-status-message" Dense="true" Variant="Variant.Outlined" Severity="@messageSeverity">
+            <MudAlert Style="margin-bottom: 1rem" Dense="true" Variant="Variant.Outlined" Severity="@messageSeverity">
                 @message
             </MudAlert>
         }
         <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadProfileAsync"
-                   Class="profile-retry">Retry</MudButton>
+                   Style="margin-top: 1rem">Retry</MudButton>
     </MudPaper>
 }
 else
 {
-    <MudStack Class="profile-container">
+    <MudStack Style="max-width: 37.5rem; margin: 0 auto" Spacing="6">
         <MudText Typo="Typo.h3">Preferences</MudText>
 
         @if (!string.IsNullOrWhiteSpace(message))
         {
-            <MudAlert Class="manage-status-message" Dense="true" Variant="Variant.Outlined" Severity="@messageSeverity">
+            <MudAlert Style="margin-bottom: 1rem" Dense="true" Variant="Variant.Outlined" Severity="@messageSeverity">
                 @message
             </MudAlert>
         }
 
-        <MudPaper Class="profile-card">
+        <MudPaper Class="pa-6">
             <EditForm Model="CurrentInput" OnValidSubmit="OnValidSubmitAsync">
                 <DataAnnotationsValidator />
-                <MudStack Class="profile-fields">
-                    <ValidationSummary class="auth-validation" role="alert" />
+                <MudStack Spacing="4">
+                    <ValidationSummary style="color: var(--mud-palette-error)" role="alert" />
 
                     <MudTextField @bind-Value="CurrentInput.Nickname" Label="Nickname" Placeholder="Enter your display name"
-                                  Variant="Variant.Outlined" Class="profile-field" />
+                                  Variant="Variant.Outlined" FullWidth="true" />
 
                     <MudTextField @bind-Value="CurrentInput.ThumbnailUrl" Label="Thumbnail URL"
-                                  Placeholder="https://example.com/avatar.png" Variant="Variant.Outlined" Class="profile-field" />
+                                  Placeholder="https://example.com/avatar.png" Variant="Variant.Outlined" FullWidth="true" />
 
                     <MudTextField @bind-Value="CurrentInput.StrategyText"
                                   Label="Strategy"
@@ -67,26 +67,24 @@ else
                                   Required="true"
                                   RequiredError="Strategy is required."
                                   Placeholder="@PlayerProfileService.DefaultStrategyText"
-                                  Class="profile-field" />
+                                  FullWidth="true" />
 
-                    <MudText Typo="Typo.body2" Class="manage-page-helper">
+                    <MudText Typo="Typo.body2" Style="opacity: 0.75">
                         Choose your preferred color:
                     </MudText>
 
-                    <div class="profile-color-options">
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
                         <MudRadioGroup T="string" @bind-Value="CurrentInput.PreferredColor">
                             @foreach (var color in PlayerColorOptions.Colors)
                             {
-                                <span class="@GetColorOptionClass(color)">
-                                    <MudRadio T="string" Value="@color" Class="profile-color-radio">
-                                        @PlayerColorOptions.ToLabel(color)
-                                    </MudRadio>
-                                </span>
+                                <MudRadio T="string" Value="@color" Style="@GetColorPillStyle(color)">
+                                    @PlayerColorOptions.ToLabel(color)
+                                </MudRadio>
                             }
                         </MudRadioGroup>
-                    </div>
+                    </MudStack>
 
-                    <MudStack Row="true" Class="profile-actions">
+                    <MudStack Row="true" Spacing="4" Style="margin-top: 0.5rem">
                         <MudButton ButtonType="MudBlazor.ButtonType.Submit" Variant="Variant.Filled"
                                    Color="MudBlazor.Color.Primary" Disabled="@_saving">
                             Save Changes
@@ -341,6 +339,22 @@ CancellationToken.None);
         return "/dashboard";
     }
 
-    private static string GetColorOptionClass(string color) =>
-        $"profile-color-pill profile-color-pill--{PlayerColorOptions.NormalizeOrDefault(color)}";
+    private static string GetColorPillStyle(string color)
+    {
+        var (bg, fg) = PlayerColorOptions.NormalizeOrDefault(color) switch
+        {
+            "darkblue" => ("#0b3d91", "#f8fbff"),
+            "blue" => ("#2563eb", "#f8fbff"),
+            "cyan" => ("#06b6d4", "#f8fbff"),
+            "red" => ("#dc2626", "#fff7f7"),
+            "darkred" => ("#7f1d1d", "#fff7f7"),
+            "orange" => ("#ea580c", "#fff7ed"),
+            "yellow" => ("#facc15", "#1f2937"),
+            "purple" => ("#9333ea", "#faf5ff"),
+            "green" => ("#16a34a", "#f7fff9"),
+            "darkgreen" => ("#166534", "#f7fff9"),
+            _ => ("#4b5563", "#fff")
+        };
+        return $"display: inline-flex; align-items: center; min-width: 160px; min-height: 2.25rem; padding: 0.25rem 1rem; border-radius: 999px; background: {bg}; color: {fg}; font-weight: 700; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 10px rgb(0 0 0 / 0.35)";
+    }
 }

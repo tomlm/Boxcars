@@ -17,23 +17,23 @@
 
 @if (_loading)
 {
-    <MudStack Class="dashboard-loading" Justify="Justify.Center" AlignItems="AlignItems.Center">
+    <MudStack Style="min-height: 12rem" Justify="Justify.Center" AlignItems="AlignItems.Center">
         <MudProgressLinear Indeterminate="true" Color="MudBlazor.Color.Primary" />
     </MudStack>
 }
 else if (_loadError)
 {
-    <MudPaper Class="dashboard-error pa-8">
+    <MudPaper Class="pa-8" Style="max-width: 37.5rem; margin: 2rem auto; text-align: center">
         <MudText Typo="Typo.h4">Something went wrong</MudText>
-        <MudText Typo="Typo.body1" Class="dashboard-error-message">Unable to load your dashboard. Please try again.</MudText>
+        <MudText Typo="Typo.body1" Style="margin: 1rem 0">Unable to load your dashboard. Please try again.</MudText>
         <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadDataAsync">Retry</MudButton>
     </MudPaper>
 }
 else if (_needsNickname)
 {
-    <MudPaper Class="dashboard-nickname pa-8">
-        <MudText Typo="Typo.h4" Class="dashboard-section-title">Choose Your Nickname</MudText>
-        <MudText Typo="Typo.body1" Class="dashboard-helper">
+    <MudPaper Class="pa-8" Style="max-width: 31.25rem; margin: 2rem auto">
+        <MudText Typo="Typo.h4" Class="mb-3">Choose Your Nickname</MudText>
+        <MudText Typo="Typo.body1" Class="mb-4">
             Your nickname couldn't be auto-set during registration. Please choose one to continue.
         </MudText>
         <MudTextField @bind-Value="_newNickname"
@@ -41,10 +41,10 @@ else if (_needsNickname)
                       Placeholder="Enter a unique nickname"
                       Variant="Variant.Outlined"
                       FullWidth="true"
-                      Class="dashboard-field" />
+                      Class="mb-4" />
         @if (!string.IsNullOrEmpty(_nicknameError))
         {
-            <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error" Class="dashboard-helper">@_nicknameError</MudText>
+            <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error" Class="mb-4">@_nicknameError</MudText>
         }
         <MudButton Variant="Variant.Filled"
                    Color="MudBlazor.Color.Primary"
@@ -62,7 +62,7 @@ else
                 <MudAvatar Size="Size.Large">
                     @if (HasProfileThumbnail())
                     {
-                        <MudImage Src="@_profile!.ThumbnailUrl" Alt="@_profile.Nickname" Class="dashboard-avatar-image" />
+                        <MudImage Src="@_profile!.ThumbnailUrl" Alt="@_profile.Nickname" Style="width: 100%; height: 100%; object-fit: cover" />
                     }
                     else
                     {
@@ -71,23 +71,23 @@ else
                 </MudAvatar>
                 <MudStack>
                     <MudText Typo="Typo.h5">@_profile!.Nickname</MudText>
-                    <MudText Typo="Typo.body2" Class="dashboard-muted">@_profile!.Email</MudText>
+                    <MudText Typo="Typo.body2" Style="opacity: 0.7">@_profile!.Email</MudText>
                 </MudStack>
             </MudStack>
         </MudPaper>
 
         <MudPaper Class="pa-6">
-            <MudText Typo="Typo.h5" Class="dashboard-section-title">Your Stats</MudText>
-            <MudText Typo="Typo.body2" Class="dashboard-muted">
+            <MudText Typo="Typo.h5" Class="mb-3">Your Stats</MudText>
+            <MudText Typo="Typo.body2" Style="opacity: 0.7">
                 Welcome to BoxCars! Start your first game to begin tracking your stats.
             </MudText>
         </MudPaper>
 
-        <MudPaper Class="pa-6 dashboard-feature-link-shell">
+        <MudPaper Class="pa-6">
             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="3">
                 <MudStack Spacing="1">
-                    <MudText Typo="Typo.h5" Class="dashboard-section-title">Bots</MudText>
-                    <MudText Typo="Typo.body2" Class="dashboard-muted">
+                    <MudText Typo="Typo.h5" Class="mb-3">Bots</MudText>
+                    <MudText Typo="Typo.body2" Style="opacity: 0.7">
                         Manage bot players and their strategies from the dedicated bots page.
                     </MudText>
                 </MudStack>
@@ -100,11 +100,11 @@ else
         </MudPaper>
 
         <MudPaper Class="pa-6">
-            <MudText Typo="Typo.h5" Class="dashboard-section-title">Games</MudText>
+            <MudText Typo="Typo.h5" Class="mb-3">Games</MudText>
 
             @if (_dashboardState!.HasActiveGame)
             {
-                <MudText Typo="Typo.body1" Class="dashboard-helper">You have an active game.</MudText>
+                <MudText Typo="Typo.body1" Class="mb-4">You have an active game.</MudText>
                 <MudStack Row="true" Spacing="3">
                     <MudButton Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary"
@@ -122,8 +122,8 @@ else
             {
                 @if (_dashboardState.JoinableGames.Any())
                 {
-                    <MudText Typo="Typo.body1" Class="dashboard-helper">Available games to join:</MudText>
-                    <MudStack Class="dashboard-games-list" Spacing="3">
+                    <MudText Typo="Typo.body1" Class="mb-4">Available games to join:</MudText>
+                    <MudStack Class="mb-6" Spacing="3">
                         @foreach (var game in _dashboardState.JoinableGames)
                         {
                             <MudPaper Class="pa-4">
@@ -132,7 +132,7 @@ else
                                         <MudText Typo="Typo.body1">
                                             Game @game.RowKey[..8]...
                                         </MudText>
-                                        <MudText Typo="Typo.caption" Class="dashboard-muted">
+                                        <MudText Typo="Typo.caption" Style="opacity: 0.7">
                                             @game.CurrentPlayerCount / @game.MaxPlayers players
                                         </MudText>
                                     </MudStack>
@@ -147,7 +147,7 @@ else
                     </MudStack>
                 }
 
-                <MudText Typo="Typo.h6" Class="dashboard-section-title">Create a New Game</MudText>
+                <MudText Typo="Typo.h6" Class="mb-3">Create a New Game</MudText>
                 <MudStack Row="true" Spacing="3">
                     <MudButton Variant="Variant.Filled"
                                Color="MudBlazor.Color.Primary"
@@ -163,9 +163,9 @@ else
 @if (_dashboardState?.HasActiveGame == true && _showDeleteGameDialog)
 {
     <MudOverlay Visible="true" DarkBackground="true" AutoClose="false" ZIndex="1300">
-        <MudPaper Class="dashboard-delete-dialog pa-5">
+        <MudPaper Class="pa-5" Style="width: min(32rem, 90vw); margin: 10vh auto 0; display: flex; flex-direction: column; gap: 0.75rem">
             <MudText Typo="Typo.h5">Delete current game?</MudText>
-            <MudText Typo="Typo.body1" Class="dashboard-helper">
+            <MudText Typo="Typo.body1" Class="mb-4">
                 This action cannot be undone here. Type "i am sure" to confirm.
             </MudText>
             <MudTextField Value="@_deleteConfirmationInput"

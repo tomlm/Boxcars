@@ -40,18 +40,18 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
-<div class="map-board-shell">
-    <div class="map-board-sidebar">
+<div style="display: flex; flex-direction: row; height: calc(100dvh - 64px); width: 100%; overflow: hidden">
+    <div style="width: 270px; flex-shrink: 0; overflow-y: auto; background: #000; border-right: 1px solid #ccc; padding: 0.5rem 0.4rem 0.75rem; box-sizing: border-box">
         <PlayerBoard Players="_players"
                  OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
                  OnFocusPlayer="OnFocusPlayerAsync"
                  />
     </div>
 
-    <div class="map-board-main">
+    <div style="display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden">
         @if (_gameMap?.Errors.Count > 0)
         {
-            <MudStack Class="map-board-message map-board-error">
+            <MudStack Style="padding: 0.5rem 0.75rem; background: #3a0a0a; color: #faa; border-bottom: 1px solid #844">
                 <MudText Typo="Typo.h6">Unable to render map</MudText>
                 @foreach (var error in _gameMap.Errors)
                 {
@@ -62,7 +62,7 @@
 
         @if (ShouldShowPurchaseExperienceTabs)
         {
-            <div class="map-board-purchase-tab-strip">
+            <div style="display: flex; gap: 0.5rem; padding: 0.75rem 0.75rem 0; flex-shrink: 0">
                 <MudButton Variant="@(IsMapPurchaseTabActive ? Variant.Filled : Variant.Text)"
                            Color="@(IsMapPurchaseTabActive ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
                            OnClick="() => OnPurchaseTabSelected(PurchaseExperienceTab.Map)">
@@ -101,7 +101,7 @@
             </div>
         }
 
-        <div class="@MapAreaClass" @ref="_mapAreaElement">
+        <div style="@MapAreaStyle" @ref="_mapAreaElement">
             <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
@@ -122,7 +122,7 @@
 
             @if (SelectedRailroadOverlay is not null && IsMapPurchaseTabActive && _selectionMode == MapSelectionMode.Rail)
             {
-                <div class="map-board-purchase-overlay" style="@SelectedRailroadOverlayStyle">
+                <div style="position: fixed; z-index: 30; max-width: min(36rem, calc(100vw - 2rem)); pointer-events: auto; @SelectedRailroadOverlayStyle">
                     <RailroadPurchaseOverlay Overlay="SelectedRailroadOverlay"
                                              DismissRequested="DismissSelectedRailroadOverlayAsync" />
                 </div>
@@ -131,7 +131,7 @@
 
         @if (ShouldShowPurchaseExperienceTabs)
         {
-            <div class="@AnalysisAreaClass">
+            <div style="@AnalysisAreaStyle">
                 @if (IsNetworkPurchaseTabActive)
                 {
                     <MudStack Spacing="2">
@@ -150,8 +150,8 @@
                 }
                 else if (IsHistoryPurchaseTabActive)
                 {
-                    <MudPaper Class="map-board-history-panel" Outlined="true">
-                        <MudStack Spacing="0" Class="map-board-history-header">
+                    <MudPaper Style="display: flex; flex-direction: column; min-height: 100%; padding: 0.85rem; background: color-mix(in srgb, var(--mud-palette-surface) 90%, black 10%)" Outlined="true">
+                        <MudStack Spacing="0" Style="margin-bottom: 0.75rem">
                             <MudText Typo="Typo.h6">History</MudText>
                             <MudText Typo="Typo.caption">@NotificationHistorySummary</MudText>
                         </MudStack>
@@ -162,16 +162,16 @@
                         }
                         else
                         {
-                            <div class="map-board-history-list" role="listbox" aria-label="Notification history">
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem; min-height: 0" role="listbox" aria-label="Notification history">
                                 @foreach (var item in NotificationHistoryItems)
                                 {
-                                    <div class="@ResolveNotificationHistoryItemClass(item)" role="option" aria-selected="false">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="map-board-history-row-content">
+                                    <div style="@ResolveNotificationHistoryItemStyle(item)" role="option" aria-selected="false">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="width: 100%">
                                             <MudIcon Icon="@item.Icon"
                                                      Color="@ResolveNotificationHistoryIconColor(item)"
                                                      Size="Size.Medium"
-                                                     Class="map-board-history-icon" />
-                                            <MudStack Spacing="0" Class="map-board-history-copy">
+                                                     Style="margin-top: 0; flex-shrink: 0" />
+                                            <MudStack Spacing="0" Style="min-width: 0; overflow: hidden">
                                                 <MudText Typo="Typo.body2">@item.Message</MudText>
                                             </MudStack>
                                         </MudStack>
@@ -197,10 +197,10 @@
         }
 
         @* ── Status strip: turn state center, zoom right ── *@
-        <div class="@StatusBarAnchorClass">
-            <div class="map-board-status-bar">
-                <div class="map-board-status-action-anchor">
-                    <div class="map-board-status-action-slot">
+        <div style="@StatusBarAnchorStyle">
+            <div style="display: flex; flex: 1; align-items: center; font-size: 0.85rem; min-height: 3.75rem; padding: 0.55rem 1rem">
+                <div style="display: flex; justify-content: center; align-items: center; width: 100%">
+                    <div style="display: inline-flex; justify-content: center; align-items: center; gap: 1rem; width: auto; max-width: 100%; margin: 0 auto">
                         @if (ShouldShowStatusControls)
                         {
                             @if (!ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
@@ -251,14 +251,14 @@
                             }
                             else if (ShouldShowCommitMoveAction)
                             {
-                                <div class="map-board-turn-action-shell">
-                                    <MudPaper Class="map-board-turn-action-paper" Outlined="true">
+                                <div style="display: flex; justify-content: center; align-items: center; margin: 0 auto">
+                                    <MudPaper Style="display: flex; align-items: center; gap: 1rem; padding: 0.45rem 0.6rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)" Outlined="true">
                                         <MovementStatusPanel State="@_turnViewState" UsePaper="false" />
                                         <MudButton Variant="Variant.Filled"
                                                    Color="MudBlazor.Color.Primary"
                                                    Disabled="@(!CanCommitMoveAction)"
                                                    OnClick="OnCommitMoveActionAsync"
-                                                   Class="map-board-primary-action">
+                                                   Style="flex: 0 0 auto; min-width: 9rem; white-space: nowrap">
                                             @CommitMoveActionLabel
                                         </MudButton>
                                     </MudPaper>
@@ -267,9 +267,9 @@
                         }
                         else
                         {
-                            <div class="map-board-primary-action-shell">
-                                <MudPaper Class="map-board-primary-action-paper" Outlined="true">
-                                    <MudText Typo="Typo.body2" Class="status-bar-text">@SpectatorStatusMessage</MudText>
+                            <div style="display: flex; justify-content: center; align-items: center; margin: 0 auto">
+                                <MudPaper Style="display: flex; justify-content: center; align-items: center; padding: 0.45rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)" Outlined="true">
+                                    <MudText Typo="Typo.body2" Style="display: block; text-align: center; white-space: nowrap">@SpectatorStatusMessage</MudText>
                                 </MudPaper>
                             </div>
                         }
@@ -1800,15 +1800,15 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool IsHistoryPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.History;
 
-    private string MapAreaClass => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
-        ? "map-board-map-area map-board-panel-hidden"
-        : "map-board-map-area";
+    private string MapAreaStyle => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
+        ? "display: none"
+        : "display: flex; flex: 1; flex-basis: 0; overflow: hidden; position: relative; min-height: 0; align-items: center; justify-content: center";
 
-    private string AnalysisAreaClass => IsMapPurchaseTabActive
-        ? "map-board-analysis-area map-board-panel-hidden"
-        : "map-board-analysis-area";
+    private string AnalysisAreaStyle => IsMapPurchaseTabActive
+        ? "display: none"
+        : "flex: 1; min-height: 0; overflow: auto; padding: 0.75rem; background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)";
 
-    private string StatusBarAnchorClass => $"map-board-status-bar-anchor {GetStatusBarColorClass(_currentPlayerColor)}";
+    private string StatusBarAnchorStyle => $"display: flex; flex-shrink: 0; color: var(--mud-palette-text-primary); border-top: 1px solid var(--mud-palette-divider); transition: background-color 120ms ease; {GetStatusBarColorStyle(_currentPlayerColor)}";
 
     private bool ShouldShowPurchaseAnalysisPanel => (IsRegionsPurchaseTabActive || IsCitiesPurchaseTabActive || IsRailroadsPurchaseTabActive)
         && CurrentMapAnalysisReport is not null;
@@ -3241,11 +3241,42 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         _ => string.Format(CultureInfo.InvariantCulture, "{0:N0} notifications recorded.", _notificationHistory.Count)
     };
 
-    private string ResolveNotificationHistoryItemClass(NotificationHistoryEntry item)
+    private string ResolveNotificationHistoryItemStyle(NotificationHistoryEntry item)
     {
-        return string.IsNullOrWhiteSpace(item.AccentClass)
-            ? "map-board-history-row"
-            : $"map-board-history-row {item.AccentClass}";
+        if (string.IsNullOrWhiteSpace(item.AccentClass))
+        {
+            return "border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); border-radius: 0.85rem; padding: 0.7rem 0.85rem; background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)";
+        }
+
+        var colorHex = ResolveSnackbarAccentHexColor(item.AccentClass);
+        return $"border-radius: 0.85rem; padding: 0.7rem 0.85rem; border: 1px solid color-mix(in srgb, {colorHex} 78%, black 22%); background: color-mix(in srgb, {colorHex} 72%, rgb(15 18 24) 28%); color: #fff";
+    }
+
+    private static string ResolveSnackbarAccentHexColor(string accentClass)
+    {
+        const string prefix = "player-snackbar-";
+        var idx = accentClass.LastIndexOf(prefix, StringComparison.Ordinal);
+        if (idx < 0) return "#888";
+        var colorName = accentClass[(idx + prefix.Length)..];
+        return GetPlayerHexColor(colorName);
+    }
+
+    private static string GetPlayerHexColor(string color)
+    {
+        return color switch
+        {
+            "darkblue" => "#0b3d91",
+            "blue" => "#2563eb",
+            "cyan" => "#06b6d4",
+            "red" => "#dc2626",
+            "darkred" => "#7f1d1d",
+            "orange" => "#ea580c",
+            "yellow" => "#facc15",
+            "purple" => "#9333ea",
+            "green" => "#16a34a",
+            "darkgreen" => "#166534",
+            _ => "#888"
+        };
     }
 
     private static MudBlazor.Color ResolveNotificationHistoryIconColor(NotificationHistoryEntry item)
@@ -3427,21 +3458,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return matchingPlayer?.Name ?? userId;
     }
 
-    private static string GetStatusBarColorClass(string color)
+    private static string GetStatusBarColorStyle(string color)
     {
         return PlayerColorOptions.NormalizeOrDefault(color) switch
         {
-            "darkblue" => "map-board-status-bar-darkblue",
-            "blue" => "map-board-status-bar-blue",
-            "cyan" => "map-board-status-bar-cyan",
-            "red" => "map-board-status-bar-red",
-            "darkred" => "map-board-status-bar-darkred",
-            "orange" => "map-board-status-bar-orange",
-            "yellow" => "map-board-status-bar-yellow",
-            "purple" => "map-board-status-bar-purple",
-            "green" => "map-board-status-bar-green",
-            "darkgreen" => "map-board-status-bar-darkgreen",
-            _ => "map-board-status-bar-default"
+            "darkblue" => "background: #0b3d91",
+            "blue" => "background: #2563eb",
+            "cyan" => "background: #06b6d4",
+            "red" => "background: #dc2626",
+            "darkred" => "background: #7f1d1d",
+            "orange" => "background: #ea580c",
+            "yellow" => "background: #facc15; color: #1f2937",
+            "purple" => "background: #9333ea",
+            "green" => "background: #16a34a",
+            "darkgreen" => "background: #166534",
+            _ => "background: color-mix(in srgb, var(--mud-palette-surface) 70%, black 30%)"
         };
     }
 

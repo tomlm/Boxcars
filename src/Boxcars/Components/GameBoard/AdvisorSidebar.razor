@@ -1,0 +1,150 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<MudPaper Outlined="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
+        <MudStack Spacing="0">
+            <MudText Typo="Typo.h6">Casey Jones</MudText>
+            <MudText Typo="Typo.caption">Advisory only. Server rules still decide outcomes.</MudText>
+        </MudStack>
+        @if (CloseRequested.HasDelegate)
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="MudBlazor.Color.Default" OnClick="CloseRequested"
+                           aria-label="Close Casey Jones panel" />
+        }
+    </MudStack>
+
+    @if (Conversation is not null)
+    {
+        @foreach (var message in Conversation.Messages)
+        {
+            @if (message.IsAssistant && string.Equals(message.MessageId, LatestAssistantMessageId, StringComparison.Ordinal))
+            {
+                <MudText Typo="Typo.overline" Color="Color.Info">Casey Jones</MudText>
+                <MudMarkdown @rendermode="InteractiveServer" Value="@message.Content" />
+                @if (message.ContextTurnNumber.HasValue)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Turn @message.ContextTurnNumber.Value</MudText>
+                }
+            }
+            else if (message.IsAssistant)
+            {
+                <MudText Typo="Typo.overline" Color="Color.Info">Casey Jones</MudText>
+                <MudMarkdown @rendermode="InteractiveServer" Value="@message.Content" />
+                @if (message.ContextTurnNumber.HasValue)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Turn @message.ContextTurnNumber.Value</MudText>
+                }
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">@message.Content</MudText>
+                @if (message.ContextTurnNumber.HasValue)
+                {
+                    <MudText Typo="Typo.caption">Turn @message.ContextTurnNumber.Value</MudText>
+                }
+            }
+        }
+    }
+
+    @if (EntryPoint.IsLoading)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="MudBlazor.Color.Info" />
+            <MudText Typo="Typo.body2">Thinking about the current board...</MudText>
+        </MudStack>
+    }
+
+    @if (EntryPoint.HasAvailabilityError)
+    {
+        <MudStack Spacing="1">
+            <MudAlert Severity="Severity.Warning" Dense="true">
+                @EntryPoint.AvailabilityMessage
+            </MudAlert>
+            @if (RetryRequested.HasDelegate)
+            {
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Warning" Disabled="@EntryPoint.IsLoading"
+                           OnClick="RetryRequested">
+                    Retry last question
+                </MudButton>
+            }
+        </MudStack>
+    }
+
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="9">
+            <MudTextField T="string" @key="ComposerResetVersion" Value="@DraftMessage"
+                          ValueChanged="DraftMessageChanged" Label="Ask about the current game"
+                          Placeholder="Example: Should I buy now or hold cash for fees?" Variant="Variant.Outlined" Lines="2"
+                          MaxLines="2" AutoGrow="true" TextUpdateSuppression="false" Immediate="true" FullWidth="true"
+                          Disabled="@EntryPoint.IsLoading" OnKeyDown="OnComposerKeyDownAsync" />
+        </MudItem>
+
+        <MudItem xs="12" md="3">
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Info" Disabled="@(!CanSend)" FullWidth="true"
+                       OnClick="SendRequested">
+                Ask Casey Jones
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public AdvisorEntryPointState EntryPoint { get; set; } = new();
+
+    [Parameter]
+    public AdvisorConversationSession? Conversation { get; set; }
+
+    [Parameter]
+    public string DraftMessage { get; set; } = string.Empty;
+
+    [Parameter]
+    public int ComposerResetVersion { get; set; }
+
+    [Parameter]
+    public EventCallback<string> DraftMessageChanged { get; set; }
+
+    [Parameter]
+    public EventCallback SendRequested { get; set; }
+
+    [Parameter]
+    public EventCallback RetryRequested { get; set; }
+
+    [Parameter]
+    public EventCallback CloseRequested { get; set; }
+
+    private string? _lastAutoScrolledAssistantMessageId;
+
+    private bool CanSend => !EntryPoint.IsLoading && !string.IsNullOrWhiteSpace(DraftMessage);
+
+    private string? LatestAssistantMessageId => Conversation?.Messages.LastOrDefault(message =>
+message.IsAssistant)?.MessageId;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        var latestAssistantMessageId = LatestAssistantMessageId;
+        if (string.IsNullOrWhiteSpace(latestAssistantMessageId)
+            || string.Equals(_lastAutoScrolledAssistantMessageId, latestAssistantMessageId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastAutoScrolledAssistantMessageId = latestAssistantMessageId;
+    }
+
+    private Task OnComposerKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.Ordinal)
+            && args.ShiftKey is not true
+            && SendRequested.HasDelegate
+            && CanSend)
+        {
+            return SendRequested.InvokeAsync();
+        }
+
+        return Task.CompletedTask;
+    }
+}
