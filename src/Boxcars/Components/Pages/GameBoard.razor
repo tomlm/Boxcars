@@ -37,6 +37,7 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JavaScriptRuntime
 @inject IWebHostEnvironment WebHostEnvironment
+@inject GameBoardAdviceService GameBoardAdviceService
 
 <PageTitle>Game - BoxCars</PageTitle>
 
@@ -72,6 +73,7 @@
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Network" Text="Network" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Stats" Text="Stats" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.History" Text="History" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Advice" Text="Advice" />
             </MudToggleGroup>
         }
 
@@ -154,6 +156,16 @@
                             </MudList>
                         }
                     </MudPaper>
+                }
+                else if (IsAdvicePurchaseTabActive)
+                {
+                    <AdvisorSidebar EntryPoint="_advisorEntryPoint"
+                                    Conversation="_advisorConversation"
+                                    DraftMessage="@_advisorDraftMessage"
+                                    ComposerResetVersion="_advisorComposerResetVersion"
+                                    DraftMessageChanged="OnAdvisorDraftMessageChanged"
+                                    SendRequested="OnAdvisorSendRequestedAsync"
+                                    RetryRequested="OnAdvisorRetryRequestedAsync" />
                 }
                 else if (ShouldShowPurchaseAnalysisPanel)
                 {
@@ -288,6 +300,11 @@
     private ElementReference _mapAreaElement;
     private PurchaseExperienceTab _selectedPurchaseTab = PurchaseExperienceTab.Map;
     private bool _wasPurchasePhaseActive;
+    private AdvisorEntryPointState _advisorEntryPoint = new();
+    private AdvisorConversationSession? _advisorConversation;
+    private string _advisorDraftMessage = string.Empty;
+    private int _advisorComposerResetVersion;
+    private string? _lastAdvisorUserQuestion;
     private bool _awaitingAuthoritativeUpdate;
     private bool _autoZoomEnabled;
     private int _auctionBidAmount;
@@ -459,7 +476,93 @@
             await RefreshPlayerStatesAsync();
         }
 
+        if (tab == PurchaseExperienceTab.Advice)
+        {
+            EnsureAdvisorSession();
+        }
+
         await InvokeAsync(StateHasChanged);
+    }
+
+    private void EnsureAdvisorSession()
+    {
+        if (_advisorConversation is not null
+            && string.Equals(_advisorConversation.GameId, GameId, StringComparison.Ordinal)
+            && string.Equals(_advisorConversation.CurrentUserId, _currentUserId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _advisorConversation = new AdvisorConversationSession
+        {
+            GameId = GameId,
+            CurrentUserId = _currentUserId ?? string.Empty
+        };
+        _advisorConversation.EnsureGreeting();
+        _advisorEntryPoint = new AdvisorEntryPointState { GameId = GameId };
+        _advisorDraftMessage = string.Empty;
+        _advisorComposerResetVersion++;
+        _lastAdvisorUserQuestion = null;
+    }
+
+    private Task OnAdvisorDraftMessageChanged(string value)
+    {
+        _advisorDraftMessage = value;
+        return Task.CompletedTask;
+    }
+
+    private async Task OnAdvisorSendRequestedAsync()
+    {
+        var question = _advisorDraftMessage?.Trim();
+        if (string.IsNullOrWhiteSpace(question) || _advisorEntryPoint.IsLoading)
+        {
+            return;
+        }
+
+        EnsureAdvisorSession();
+
+        _lastAdvisorUserQuestion = question;
+        _advisorConversation!.AddUserMessage(question);
+        _advisorDraftMessage = string.Empty;
+        _advisorComposerResetVersion++;
+        _advisorEntryPoint.IsLoading = true;
+        _advisorEntryPoint.HasAvailabilityError = false;
+        _advisorEntryPoint.AvailabilityMessage = string.Empty;
+        await InvokeAsync(StateHasChanged);
+
+        var response = await GameBoardAdviceService.GenerateAdviceAsync(
+            GameId,
+            _currentUserId,
+            _currentUserPlayerIndex >= 0 ? _currentUserPlayerIndex : null,
+            _advisorConversation,
+            question,
+            CancellationToken.None);
+
+        _advisorEntryPoint.IsLoading = false;
+
+        if (response.Succeeded)
+        {
+            _advisorConversation.AddAssistantMessage(response.AssistantText ?? string.Empty, response.ContextTurnNumber);
+        }
+        else
+        {
+            _advisorEntryPoint.HasAvailabilityError = true;
+            _advisorEntryPoint.AvailabilityMessage = response.FailureReason ?? "The advisor is unavailable right now.";
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnAdvisorRetryRequestedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_lastAdvisorUserQuestion) || _advisorEntryPoint.IsLoading)
+        {
+            return;
+        }
+
+        _advisorDraftMessage = _lastAdvisorUserQuestion;
+        _advisorComposerResetVersion++;
+        await OnAdvisorSendRequestedAsync();
     }
 
     private async Task OnRailroadSelectedAsync(RailroadSelectionEvent selectionEvent)
@@ -1773,6 +1876,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool IsStatsPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Stats;
 
     private bool IsHistoryPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.History;
+
+    private bool IsAdvicePurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Advice;
 
     private string MapAreaStyle => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
         ? "display: none"
