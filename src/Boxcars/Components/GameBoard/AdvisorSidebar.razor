@@ -1,22 +1,8 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Class="flex-grow-1 overflow-hidden" Style="max-width: 1000px">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
-        <MudStack Spacing="0">
-            <MudText Typo="Typo.h6">Casey Jones</MudText>
-            <MudText Typo="Typo.caption">Advisory only. Server rules still decide outcomes.</MudText>
-        </MudStack>
-        @if (CloseRequested.HasDelegate)
-        {
-            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="MudBlazor.Color.Default" OnClick="CloseRequested"
-                           aria-label="Close Casey Jones panel" />
-        }
-    </MudStack>
-
-    <MudDivider />
-
-    <MudPaper Outlined="true" Class="flex-grow-1 overflow-y-auto pa-3">
+<MudStack Class="flex-grow-1 overflow-hidden" Style="max-width: 1000px; min-height: 0">
+    <MudPaper Outlined="true" Class="flex-grow-1 overflow-y-auto pa-3" Style="min-height: 0">
         @if (LatestAssistantMessage is not null)
         {
             <MudMarkdown @rendermode="InteractiveServer" Value="@LatestAssistantMessage.Content" />
