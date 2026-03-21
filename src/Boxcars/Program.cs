@@ -80,6 +80,7 @@ public class Program
             config.SnackbarConfiguration.PreventDuplicates = true;
             config.SnackbarConfiguration.VisibleStateDuration = 8000;
         });
+        builder.Services.AddMudMarkdownServices();
 
         // Identity (custom table storage stores, no EF Core)
         builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = false)
@@ -115,6 +116,7 @@ public class Program
         builder.Services.AddSingleton<OpenAiBotClient>();
         builder.Services.AddSingleton<BotTurnService>();
         builder.Services.AddScoped<GameBoardStateMapper>();
+        builder.Services.AddScoped<GameBoardAdviceService>();
         builder.Services.AddSingleton<NetworkCoverageService>();
         builder.Services.AddScoped<MapAnalysisService>();
         builder.Services.AddScoped<PurchaseRecommendationService>();

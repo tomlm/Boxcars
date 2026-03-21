@@ -8,7 +8,8 @@ public enum PurchaseExperienceTab
     Railroads,
     Network,
     Stats,
-    History
+    History,
+    Advice
 }
 
 public sealed class PurchasePhaseModel

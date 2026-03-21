@@ -1,10 +1,14 @@
 <!--
 Sync Impact Report
 ===================
-Version change: 1.9.0 → 1.10.0
+Version change: 1.11.0 → 1.12.0
 Modified principles:
   - Blazor UI Conventions (expanded component naming guidance to require
-    concrete behavior-aligned names and reject speculative generic labels)
+    concrete behavior-aligned names and reject speculative generic labels;
+    added guidance to prefer maintained Blazor renderer components over
+    custom JS or hand-rolled rich content rendering; strengthened
+    component-first layout/styling rules so MudBlazor and Blazor component
+    concepts are required before custom CSS)
 Added sections:
   - N/A
 Removed sections: N/A
@@ -220,7 +224,12 @@ exceptions.
 
 - **Component library**: Use MudBlazor components as the
   primary UI toolkit. Follow MudBlazor best practices for
-  component usage, theming, and layout.
+  component usage, theming, and layout. When a MudBlazor
+  component already models the needed UI concept (for example,
+  drawers, panels, app bars, dialogs, tabs, grids, stacks,
+  papers, tooltips, or overlays), contributors MUST use that
+  component instead of recreating the concept with raw HTML and
+  custom CSS.
 - **No raw HTML**: Avoid raw HTML elements. Use MudBlazor
   components for all UI rendering. Raw HTML is permitted
   only when no suitable MudBlazor component exists and MUST be
@@ -234,6 +243,19 @@ exceptions.
   theming options before falling back to custom CSS. Custom CSS
   SHOULD be used only when MudBlazor does not provide an
   appropriate built-in mechanism.
+- **Component-first layout and behavior**: Contributors MUST
+  express layout, panel behavior, visibility, spacing, and
+  interaction through MudBlazor components and normal Blazor
+  component composition before introducing bespoke CSS-driven UI
+  behavior. CSS is a fallback for visual refinement or gaps in
+  MudBlazor's component model, not the primary way to invent UI
+  structure or interaction.
+- **Renderer preference**: When the UI needs a new   
+  rich-content rendering, contributors MUST prefer a maintained
+  Blazor component package that fits the current stack before
+  introducing custom JavaScript, ad hoc DOM manipulation, or
+  hand-rolled HTML rendering. Any exception MUST be justified in
+  review.
 - **CSS isolation scope anchors**: Blazor scoped CSS
   (`.razor.css`) only applies to elements rendered directly by
   the component — MudBlazor components render their own internal
