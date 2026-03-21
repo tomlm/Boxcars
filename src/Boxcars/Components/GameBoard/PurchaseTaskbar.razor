@@ -12,12 +12,12 @@
         }
 
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-            <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Style="min-width: 18rem" Disabled="TaskbarState.Options.Count == 0 || IsBusy">
+            <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Style="min-width: 18rem; white-space: nowrap" Disabled="TaskbarState.Options.Count == 0 || IsBusy">
                 @foreach (var option in TaskbarState.Options)
                 {
                     <MudSelectItem T="string" Value="@option.OptionKey">
-                        @option.DisplayName
-                        <MudText Typo="Typo.body2" Inline="true" Color="@GetOptionPriceColor(option)" Style="font-weight: 700"> (@FormatCurrency(option.PurchasePrice))</MudText>
+                        <MudText Typo="Typo.body1" Inline="true" Style="white-space: nowrap">@option.DisplayName</MudText>
+                        <MudText Typo="Typo.body2" Inline="true" Color="@GetOptionPriceColor(option)" Style="font-weight: 700; white-space: nowrap"> (@FormatCurrency(option.PurchasePrice))</MudText>
                     </MudSelectItem>
                 }
             </MudSelect>
