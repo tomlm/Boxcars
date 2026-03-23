@@ -49,8 +49,6 @@
                      OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
                      OnFocusPlayer="OnFocusPlayerAsync"
                      />
-
-            <GameSettingsPanel Summary="_gameSettingsSummary" />
         </MudStack>
     </MudPaper>
 
@@ -79,6 +77,7 @@
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Stats" Text="Stats" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.History" Text="History" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Advice" Text="Advice" />
+                <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Settings" Text="Settings" />
             </MudToggleGroup>
         }
 
@@ -171,6 +170,10 @@
                                     DraftMessageChanged="OnAdvisorDraftMessageChanged"
                                     SendRequested="OnAdvisorSendRequestedAsync"
                                     RetryRequested="OnAdvisorRetryRequestedAsync" />
+                }
+                else if (IsSettingsPurchaseTabActive)
+                {
+                    <GameSettingsPanel Summary="_gameSettingsSummary" />
                 }
                 else if (ShouldShowPurchaseAnalysisPanel)
                 {
@@ -1965,6 +1968,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool IsHistoryPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.History;
 
     private bool IsAdvicePurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Advice;
+
+    private bool IsSettingsPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Settings;
 
     private string MapAreaStyle => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
         ? "display: none"

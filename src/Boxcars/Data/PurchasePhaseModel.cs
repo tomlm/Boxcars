@@ -9,7 +9,8 @@ public enum PurchaseExperienceTab
     Network,
     Stats,
     History,
-    Advice
+    Advice,
+    Settings
 }
 
 public sealed class PurchasePhaseModel
