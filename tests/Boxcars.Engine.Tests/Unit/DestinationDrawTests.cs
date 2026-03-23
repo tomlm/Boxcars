@@ -117,12 +117,17 @@ public class DestinationDrawTests
     {
         var map = GameEngineFixture.CreateTestMap();
         var random = new FixedRandomProvider();
+        var settings = global::Boxcars.Engine.Persistence.GameSettings.Default with
+        {
+            HomeCityChoice = false,
+            HomeSwapping = false
+        };
 
         // Queue home city draws for 2 players
         random.QueueWeightedDraw(0); random.QueueWeightedDraw(0); // Player 1: NE, New York
         random.QueueWeightedDraw(1); random.QueueWeightedDraw(0); // Player 2: SE, Miami
 
-        var engine = new GE(map, new[] { "Alice", "Bob" }, random);
+        var engine = new GE(map, new[] { "Alice", "Bob" }, random, settings);
 
         // Queue destination draw
         random.QueueWeightedDraw(1); // SE region

@@ -1,3 +1,5 @@
+using Boxcars.Engine.Persistence;
+
 namespace Boxcars.Data;
 
 /// <summary>
@@ -93,7 +95,16 @@ public sealed class PlayerBoardModel
     public bool IsBotPlayer { get; init; }
 
     /// <summary>True when the current viewer should see the exact cash amount instead of the coarse public indicator.</summary>
-    public bool CanViewExactCash => IsCurrentUser || (IsDelegatedToCurrentUser && !HasActiveBotControl);
+    public bool CanViewExactCash => IsCurrentUser
+        || (IsDelegatedToCurrentUser && !HasActiveBotControl)
+        || !KeepCashSecret
+        || Cash >= AnnouncingCashThreshold;
+
+    /// <summary>True when opponents should see concealed cash below the announcing threshold.</summary>
+    public bool KeepCashSecret { get; init; } = GameSettings.Default.KeepCashSecret;
+
+    /// <summary>The cash threshold at or above which exact cash becomes public.</summary>
+    public int AnnouncingCashThreshold { get; init; } = GameSettings.Default.AnnouncingCash;
 
     /// <summary>Assigned bot definition id when available.</summary>
     public string AssignedBotDefinitionId { get; init; } = string.Empty;
@@ -119,7 +130,7 @@ public sealed class PlayerBoardModel
     /// <summary>
     /// Returns a money display string.
     /// For the current user, returns the exact formatted amount.
-    /// For opponents, returns $ symbols where each $ represents $50k.
+    /// For concealed opponents, returns a coarse threshold-based cash indicator.
     /// </summary>
     public string GetMoneyDisplay()
     {
@@ -128,16 +139,8 @@ public sealed class PlayerBoardModel
             return $"${Cash:N0}";
         }
 
-        // Each $ represents $50,000
-        int dollarSigns = Cash switch
-        {
-            < 50_000 => 1,
-            < 100_000 => 2,
-            < 150_000 => 3,
-            < 200_000 => 4,
-            < 250_000 => 5,
-            _ => 6
-        };
+        var threshold = Math.Max(1, AnnouncingCashThreshold);
+        var dollarSigns = Math.Clamp((int)Math.Ceiling((double)(Cash * 5) / threshold), 1, 5);
 
         return new string('$', dollarSigns);
     }

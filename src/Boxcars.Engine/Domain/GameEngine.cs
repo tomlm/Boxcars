@@ -20,12 +20,12 @@ public sealed class GameEngine : ObservableBase
     private Player? _winner;
 
     // Map infrastructure
-    private readonly IRandomProvider _randomProvider;
-    private readonly Dictionary<string, TrainDot> _dotLookup;
-    private readonly Dictionary<string, List<RouteGraphEdge>> _adjacency;
-    private readonly Dictionary<string, CityDefinition> _cityByNodeId;
-    private readonly Dictionary<string, CityDefinition> _cityByName;
-    private readonly int _superchiefPrice;
+    private IRandomProvider _randomProvider = null!;
+    private Dictionary<string, TrainDot> _dotLookup = null!;
+    private Dictionary<string, List<RouteGraphEdge>> _adjacency = null!;
+    private Dictionary<string, CityDefinition> _cityByNodeId = null!;
+    private Dictionary<string, CityDefinition> _cityByName = null!;
+    private GameSettings _settings = null!;
 
     // Railroad purchase prices (based on official Rail Baron rules)
     private static readonly int[] RailroadPrices = new int[]
@@ -79,7 +79,9 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>Reference to the loaded map definition.</summary>
-    public MapDefinition MapDefinition { get; }
+    public MapDefinition MapDefinition { get; private set; } = null!;
+
+    public GameSettings Settings => _settings;
 
     #endregion
 
@@ -103,10 +105,23 @@ public sealed class GameEngine : ObservableBase
     /// Creates a new game with the given map, players, and random provider.
     /// </summary>
     public GameEngine(MapDefinition mapDefinition, IReadOnlyList<string> playerNames, IRandomProvider randomProvider, int superchiefPrice = 40_000)
+        : this(mapDefinition, playerNames, randomProvider, GameSettings.Default with { SuperchiefPrice = superchiefPrice })
+    {
+    }
+
+    public GameEngine(MapDefinition mapDefinition, IReadOnlyList<string> playerNames, IRandomProvider randomProvider, GameSettings settings)
     {
         ArgumentNullException.ThrowIfNull(mapDefinition);
         ArgumentNullException.ThrowIfNull(playerNames);
         ArgumentNullException.ThrowIfNull(randomProvider);
+        ArgumentNullException.ThrowIfNull(settings);
+
+        Initialize(mapDefinition, playerNames, randomProvider, settings);
+    }
+
+    private void Initialize(MapDefinition mapDefinition, IReadOnlyList<string> playerNames, IRandomProvider randomProvider, GameSettings settings)
+    {
+        var normalizedSettings = settings;
 
         if (playerNames.Count < 2)
             throw new ArgumentException("At least 2 players are required.", nameof(playerNames));
@@ -124,9 +139,7 @@ public sealed class GameEngine : ObservableBase
 
         MapDefinition = mapDefinition;
         _randomProvider = randomProvider;
-        _superchiefPrice = superchiefPrice > 0
-            ? superchiefPrice
-            : throw new ArgumentOutOfRangeException(nameof(superchiefPrice), "Superchief price must be greater than zero.");
+        _settings = normalizedSettings;
 
         // Build map graph
         _dotLookup = mapDefinition.TrainDots.ToDictionary(
@@ -163,7 +176,7 @@ public sealed class GameEngine : ObservableBase
         // Initialize players with random home cities
         for (int i = 0; i < playerNames.Count; i++)
         {
-            var player = new Player(playerNames[i], i);
+            var player = new Player(playerNames[i], i, _settings);
             var homeCity = DrawRandomCity();
             player.HomeCity = homeCity;
             player.CurrentCity = homeCity;
@@ -185,23 +198,19 @@ public sealed class GameEngine : ObservableBase
         _currentTurn = new Turn
         {
             ActivePlayer = Players[0],
-            TurnNumber = 1,
-            Phase = TurnPhase.DrawDestination
+            TurnNumber = 1
         };
+
+        PrepareTurnForActivePlayer(Players[0]);
 
         GameStatus = GameStatus.InProgress;
     }
 
-    /// <summary>
-    /// Private constructor for snapshot restoration.
-    /// </summary>
-    private GameEngine(MapDefinition mapDefinition, IRandomProvider randomProvider, int superchiefPrice)
+    private GameEngine(MapDefinition mapDefinition, IRandomProvider randomProvider, GameSettings settings)
     {
         MapDefinition = mapDefinition;
         _randomProvider = randomProvider;
-        _superchiefPrice = superchiefPrice > 0
-            ? superchiefPrice
-            : throw new ArgumentOutOfRangeException(nameof(superchiefPrice), "Superchief price must be greater than zero.");
+        _settings = settings;
 
         _dotLookup = mapDefinition.TrainDots.ToDictionary(
             d => NodeKey(d.RegionIndex, d.DotIndex),
@@ -226,6 +235,14 @@ public sealed class GameEngine : ObservableBase
         }
     }
 
+    /// <summary>
+    /// Private constructor for snapshot restoration.
+    /// </summary>
+    private GameEngine(MapDefinition mapDefinition, IRandomProvider randomProvider, int superchiefPrice)
+        : this(mapDefinition, randomProvider, GameSettings.Default with { SuperchiefPrice = superchiefPrice })
+    {
+    }
+
     #endregion
 
     #region Action Methods
@@ -246,7 +263,7 @@ public sealed class GameEngine : ObservableBase
         var city = DrawRandomCity();
         if (string.Equals(city.RegionCode, player.CurrentCity.RegionCode, StringComparison.OrdinalIgnoreCase))
         {
-            var pendingRegionChoice = BuildPendingRegionChoice(player, city.RegionCode);
+            var pendingRegionChoice = BuildPendingRegionChoice(player, city.RegionCode, PendingDestinationAssignmentKind.NormalDestination);
             if (pendingRegionChoice is not null)
             {
                 CurrentTurn.PendingRegionChoice = pendingRegionChoice;
@@ -255,8 +272,110 @@ public sealed class GameEngine : ObservableBase
             }
         }
 
-        FinalizeDestinationAssignment(player, city);
+        FinalizeDestinationAssignment(player, city, PendingDestinationAssignmentKind.NormalDestination);
         return city;
+    }
+
+    public CityDefinition ChooseHomeCity(string cityName)
+    {
+        EnsureInProgress();
+
+        if (CurrentTurn.Phase != TurnPhase.HomeCityChoice)
+            throw new InvalidOperationException("Not in HomeCityChoice phase.");
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(cityName);
+
+        var player = CurrentTurn.ActivePlayer;
+        var pendingHomeCityChoice = CurrentTurn.PendingHomeCityChoice
+            ?? throw new InvalidOperationException("No pending home-city choice exists.");
+
+        if (!pendingHomeCityChoice.EligibleCityNames.Contains(cityName, StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"City '{cityName}' is not an eligible home-city choice.");
+
+        var city = MapDefinition.Cities.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, cityName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(candidate.RegionCode, pendingHomeCityChoice.RegionCode, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Home city '{cityName}' was not found in region '{pendingHomeCityChoice.RegionCode}'.");
+
+        SetPlayerHomeCity(player, city);
+        player.HasResolvedHomeCityChoice = true;
+        CurrentTurn.PendingHomeCityChoice = null;
+        CurrentTurn.Phase = player.Destination is not null
+            ? TurnPhase.Roll
+            : TurnPhase.DrawDestination;
+
+        return city;
+    }
+
+    public void ResolveHomeSwap(bool swapHomeAndDestination)
+    {
+        EnsureInProgress();
+
+        if (CurrentTurn.Phase != TurnPhase.HomeSwap)
+            throw new InvalidOperationException("Not in HomeSwap phase.");
+
+        var player = CurrentTurn.ActivePlayer;
+        _ = CurrentTurn.PendingHomeSwap
+            ?? throw new InvalidOperationException("No pending home swap exists.");
+
+        if (swapHomeAndDestination)
+        {
+            var originalHome = player.HomeCity;
+            var firstDestination = player.Destination
+                ?? throw new InvalidOperationException("A destination is required to perform a home swap.");
+
+            SetPlayerHomeCity(player, firstDestination);
+            player.Destination = originalHome;
+            player.TripOriginCity = player.HomeCity;
+            player.ActiveRoute = null;
+            player.RouteProgressIndex = 0;
+        }
+
+        player.HasResolvedHomeSwap = true;
+        CurrentTurn.PendingHomeSwap = null;
+        CurrentTurn.Phase = HasPreparedBonusMove()
+            ? TurnPhase.Move
+            : TurnPhase.Roll;
+    }
+
+    public void Declare()
+    {
+        EnsureInProgress();
+
+        var player = CurrentTurn.ActivePlayer;
+        if (CurrentTurn.Phase != TurnPhase.DrawDestination)
+            throw new InvalidOperationException("Not in DrawDestination phase.");
+        if (player.Destination != null)
+            throw new InvalidOperationException("Player already has a destination.");
+        if (player.Cash < _settings.WinningCash)
+            throw new InvalidOperationException("Player does not have enough cash to declare.");
+
+        if (string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            Winner = player;
+            GameStatus = GameStatus.Completed;
+            GameOver?.Invoke(this, new GameOverEventArgs(player));
+            return;
+        }
+
+        player.HasDeclared = true;
+        player.TripOriginCity = player.CurrentCity;
+        player.ActiveRoute = null;
+        player.RouteProgressIndex = 0;
+
+        var city = DrawRandomCity();
+        if (string.Equals(city.RegionCode, player.CurrentCity.RegionCode, StringComparison.OrdinalIgnoreCase))
+        {
+            var pendingRegionChoice = BuildPendingRegionChoice(player, city.RegionCode, PendingDestinationAssignmentKind.DeclaredAlternateDestination);
+            if (pendingRegionChoice is not null)
+            {
+                CurrentTurn.PendingRegionChoice = pendingRegionChoice;
+                CurrentTurn.Phase = TurnPhase.RegionChoice;
+                return;
+            }
+        }
+
+        FinalizeDestinationAssignment(player, city, PendingDestinationAssignmentKind.DeclaredAlternateDestination);
     }
 
     public CityDefinition ChooseDestinationRegion(string regionCode)
@@ -278,8 +397,9 @@ public sealed class GameEngine : ObservableBase
         }
 
         var city = DrawRandomCityFromRegion(regionCode);
+        var assignmentKind = pendingRegionChoice.AssignmentKind;
         CurrentTurn.PendingRegionChoice = null;
-        FinalizeDestinationAssignment(player, city);
+        FinalizeDestinationAssignment(player, city, assignmentKind);
         return city;
     }
 
@@ -354,6 +474,7 @@ public sealed class GameEngine : ObservableBase
 
         var route = player.ActiveRoute;
         int currentIndex = player.RouteProgressIndex;
+        var traversedNodeIds = new List<string>();
 
         // Validate we have enough nodes to move
         int targetIndex = currentIndex + steps;
@@ -376,6 +497,7 @@ public sealed class GameEngine : ObservableBase
             CurrentTurn.RailroadsRiddenThisTurn.Add(segment.RailroadIndex);
             TrackRailroadFeeRate(player, segment.RailroadIndex);
             UpdateGrandfatheredRailroadAccess(player, segment.RailroadIndex);
+            traversedNodeIds.Add(route.NodeIds[i + 1]);
         }
 
         // Update position
@@ -390,6 +512,7 @@ public sealed class GameEngine : ObservableBase
         }
 
         CurrentTurn.MovementRemaining -= actualSteps;
+    TryResolveRovers(player, traversedNodeIds);
 
         // Check if arrived at destination.
         // Use the destination's canonical node id first, then fall back to city-name resolution.
@@ -522,7 +645,7 @@ public sealed class GameEngine : ObservableBase
 
         var player = CurrentTurn.ActivePlayer;
 
-        int cost = GetUpgradeCost(player.LocomotiveType, target, _superchiefPrice);
+        int cost = GetUpgradeCost(player.LocomotiveType, target, _settings);
         if (cost < 0)
             throw new InvalidOperationException("Invalid upgrade path.");
         if (player.Cash < cost)
@@ -894,6 +1017,8 @@ public sealed class GameEngine : ObservableBase
         CurrentTurn.MovementRemaining = 0;
         CurrentTurn.BonusRollAvailable = false;
         CurrentTurn.ArrivalResolution = null;
+        CurrentTurn.PendingHomeCityChoice = null;
+        CurrentTurn.PendingHomeSwap = null;
         ClearForcedSaleContext();
 
         // Find next active player
@@ -915,10 +1040,7 @@ public sealed class GameEngine : ObservableBase
         CurrentTurn.ActivePlayer = nextPlayer;
         CurrentTurn.TurnNumber++;
 
-        // Set phase based on whether player already has a destination
-        CurrentTurn.Phase = nextPlayer.Destination != null
-            ? TurnPhase.Roll
-            : TurnPhase.DrawDestination;
+        PrepareTurnForActivePlayer(nextPlayer);
 
         TurnStarted?.Invoke(this, new TurnStartedEventArgs(nextPlayer, CurrentTurn.TurnNumber));
     }
@@ -1008,11 +1130,30 @@ public sealed class GameEngine : ObservableBase
                         CurrentCityName = CurrentTurn.PendingRegionChoice.CurrentCityName,
                         CurrentRegionCode = CurrentTurn.PendingRegionChoice.CurrentRegionCode,
                         TriggeredByInitialRegionCode = CurrentTurn.PendingRegionChoice.TriggeredByInitialRegionCode,
+                        AssignmentKind = CurrentTurn.PendingRegionChoice.AssignmentKind.ToString(),
                         EligibleRegionCodes = CurrentTurn.PendingRegionChoice.EligibleRegionCodes.ToList(),
                         EligibleCityCountsByRegion = CurrentTurn.PendingRegionChoice.EligibleCityCountsByRegion.ToDictionary(
                             entry => entry.Key,
                             entry => entry.Value,
                             StringComparer.OrdinalIgnoreCase)
+                    },
+                PendingHomeCityChoice = CurrentTurn.PendingHomeCityChoice is null
+                    ? null
+                    : new PendingHomeCityChoiceTurnState
+                    {
+                        PlayerIndex = CurrentTurn.PendingHomeCityChoice.PlayerIndex,
+                        RegionCode = CurrentTurn.PendingHomeCityChoice.RegionCode,
+                        RegionName = CurrentTurn.PendingHomeCityChoice.RegionName,
+                        CurrentHomeCityName = CurrentTurn.PendingHomeCityChoice.CurrentHomeCityName,
+                        EligibleCityNames = CurrentTurn.PendingHomeCityChoice.EligibleCityNames.ToList()
+                    },
+                PendingHomeSwap = CurrentTurn.PendingHomeSwap is null
+                    ? null
+                    : new PendingHomeSwapTurnState
+                    {
+                        PlayerIndex = CurrentTurn.PendingHomeSwap.PlayerIndex,
+                        CurrentHomeCityName = CurrentTurn.PendingHomeSwap.CurrentHomeCityName,
+                        FirstDestinationCityName = CurrentTurn.PendingHomeSwap.FirstDestinationCityName
                     },
                 DiceResult = CurrentTurn.DiceResult != null
                     ? new DiceResultState
@@ -1034,10 +1175,14 @@ public sealed class GameEngine : ObservableBase
                 CurrentCityName = player.CurrentCity.Name,
                 TripStartCityName = player.TripOriginCity?.Name,
                 DestinationCityName = player.Destination?.Name,
+                AlternateDestinationCityName = player.AlternateDestination?.Name,
                 LocomotiveType = player.LocomotiveType.ToString(),
                 IsActive = player.IsActive,
                 IsBankrupt = player.IsBankrupt,
                 HasDeclared = player.HasDeclared,
+                HasResolvedHomeCityChoice = player.HasResolvedHomeCityChoice,
+                HasResolvedHomeSwap = player.HasResolvedHomeSwap,
+                PendingImmediateArrival = player.PendingImmediateArrival,
                 OwnedRailroadIndices = player.OwnedRailroads.Select(r => r.Index).ToList(),
                 GrandfatheredRailroadIndices = player.GrandfatheredRailroadIndices.OrderBy(index => index).ToList(),
                 CurrentNodeId = player.CurrentNodeId,
@@ -1086,13 +1231,14 @@ public sealed class GameEngine : ObservableBase
     /// <summary>
     /// Restores a fully functional GameEngine from a snapshot.
     /// </summary>
-    public static GameEngine FromSnapshot(GameState snapshot, MapDefinition mapDefinition, IRandomProvider randomProvider, int superchiefPrice = 40_000)
+    public static GameEngine FromSnapshot(GameState snapshot, MapDefinition mapDefinition, IRandomProvider randomProvider, GameSettings settings)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(mapDefinition);
         ArgumentNullException.ThrowIfNull(randomProvider);
+        ArgumentNullException.ThrowIfNull(settings);
 
-        var engine = new GameEngine(mapDefinition, randomProvider, superchiefPrice);
+        var engine = new GameEngine(mapDefinition, randomProvider, settings);
 
         // Restore railroads
         foreach (var rd in mapDefinition.Railroads)
@@ -1105,13 +1251,16 @@ public sealed class GameEngine : ObservableBase
         // Restore players
         foreach (var ps in snapshot.Players)
         {
-            var player = new Player(ps.Name, engine.Players.Count)
+            var player = new Player(ps.Name, engine.Players.Count, engine._settings)
             {
                 Cash = ps.Cash,
                 LocomotiveType = Enum.Parse<LocomotiveType>(ps.LocomotiveType),
                 IsActive = ps.IsActive,
                 IsBankrupt = ps.IsBankrupt,
                 HasDeclared = ps.HasDeclared,
+                HasResolvedHomeCityChoice = ps.HasResolvedHomeCityChoice,
+                HasResolvedHomeSwap = ps.HasResolvedHomeSwap,
+                PendingImmediateArrival = ps.PendingImmediateArrival,
                 CurrentNodeId = ps.CurrentNodeId,
                 RouteProgressIndex = ps.RouteProgressIndex
             };
@@ -1125,11 +1274,11 @@ public sealed class GameEngine : ObservableBase
                 player.TripOriginCity = tripStartCity;
             if (ps.DestinationCityName != null && engine._cityByName.TryGetValue(ps.DestinationCityName, out var destCity))
                 player.Destination = destCity;
+            if (ps.AlternateDestinationCityName != null && engine._cityByName.TryGetValue(ps.AlternateDestinationCityName, out var alternateDestinationCity))
+                player.AlternateDestination = alternateDestinationCity;
 
-            // Restore used segments
             foreach (var segStr in ps.UsedSegments)
             {
-                // New format: "NodeA-NodeB:RR" — old format: "NodeA-NodeB"
                 var colonIndex = segStr.IndexOf(':');
                 if (colonIndex >= 0)
                 {
@@ -1141,7 +1290,6 @@ public sealed class GameEngine : ObservableBase
                 }
                 else
                 {
-                    // Legacy format without railroad index — treat as railroad -1
                     var parts = segStr.Split('-');
                     if (parts.Length == 2)
                         player.UsedSegments.Add(new SegmentKey(parts[0], parts[1], -1));
@@ -1153,7 +1301,6 @@ public sealed class GameEngine : ObservableBase
                 player.GrandfatheredRailroadIndices.Add(railroadIndex);
             }
 
-            // Restore active route
             if (ps.ActiveRoute != null)
             {
                 var segments = ps.ActiveRoute.Segments.Select(s => new RouteSegment
@@ -1169,7 +1316,6 @@ public sealed class GameEngine : ObservableBase
             engine.Players.Add(player);
         }
 
-        // Restore railroad ownership
         foreach (var kvp in snapshot.RailroadOwnership)
         {
             var rr = engine.Railroads.FirstOrDefault(r => r.Index == kvp.Key);
@@ -1182,7 +1328,6 @@ public sealed class GameEngine : ObservableBase
             }
         }
 
-        // Restore turn
         engine._currentTurn = new Turn
         {
             ActivePlayer = engine.Players[snapshot.ActivePlayerIndex],
@@ -1256,8 +1401,29 @@ public sealed class GameEngine : ObservableBase
                     CurrentCityName = snapshot.Turn.PendingRegionChoice.CurrentCityName,
                     CurrentRegionCode = snapshot.Turn.PendingRegionChoice.CurrentRegionCode,
                     TriggeredByInitialRegionCode = snapshot.Turn.PendingRegionChoice.TriggeredByInitialRegionCode,
+                    AssignmentKind = Enum.TryParse<PendingDestinationAssignmentKind>(snapshot.Turn.PendingRegionChoice.AssignmentKind, out var assignmentKind)
+                        ? assignmentKind
+                        : PendingDestinationAssignmentKind.NormalDestination,
                     EligibleRegionCodes = snapshot.Turn.PendingRegionChoice.EligibleRegionCodes,
                     EligibleCityCountsByRegion = snapshot.Turn.PendingRegionChoice.EligibleCityCountsByRegion
+                },
+            PendingHomeCityChoice = snapshot.Turn.PendingHomeCityChoice is null
+                ? null
+                : new PendingHomeCityChoice
+                {
+                    PlayerIndex = snapshot.Turn.PendingHomeCityChoice.PlayerIndex,
+                    RegionCode = snapshot.Turn.PendingHomeCityChoice.RegionCode,
+                    RegionName = snapshot.Turn.PendingHomeCityChoice.RegionName,
+                    CurrentHomeCityName = snapshot.Turn.PendingHomeCityChoice.CurrentHomeCityName,
+                    EligibleCityNames = snapshot.Turn.PendingHomeCityChoice.EligibleCityNames
+                },
+            PendingHomeSwap = snapshot.Turn.PendingHomeSwap is null
+                ? null
+                : new PendingHomeSwap
+                {
+                    PlayerIndex = snapshot.Turn.PendingHomeSwap.PlayerIndex,
+                    CurrentHomeCityName = snapshot.Turn.PendingHomeSwap.CurrentHomeCityName,
+                    FirstDestinationCityName = snapshot.Turn.PendingHomeSwap.FirstDestinationCityName
                 }
         };
 
@@ -1274,7 +1440,6 @@ public sealed class GameEngine : ObservableBase
         foreach (var rrIdx in snapshot.Turn.RailroadsRequiringFullOwnerRateThisTurn)
             engine._currentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(rrIdx);
 
-        // Restore game status
         engine._gameStatus = Enum.Parse<GameStatus>(snapshot.GameStatus);
         engine._allRailroadsSold = snapshot.AllRailroadsSold;
 
@@ -1282,6 +1447,11 @@ public sealed class GameEngine : ObservableBase
             engine._winner = engine.Players[snapshot.WinnerIndex.Value];
 
         return engine;
+    }
+
+    public static GameEngine FromSnapshot(GameState snapshot, MapDefinition mapDefinition, IRandomProvider randomProvider, int superchiefPrice = 40_000)
+    {
+        return FromSnapshot(snapshot, mapDefinition, randomProvider, GameSettings.Default with { SuperchiefPrice = superchiefPrice });
     }
 
     private static string SerializeSelectedRouteSegment(string fromNodeId, string toNodeId, int railroadIndex)
@@ -1304,15 +1474,46 @@ public sealed class GameEngine : ObservableBase
         return 10_000;
     }
 
-    public static int GetUpgradeCost(LocomotiveType currentEngineType, LocomotiveType targetEngineType, int superchiefPrice)
+    public static int GetUpgradeCost(LocomotiveType currentEngineType, LocomotiveType targetEngineType, GameSettings settings)
     {
+        ArgumentNullException.ThrowIfNull(settings);
+
         return (currentEngineType, targetEngineType) switch
         {
-            (LocomotiveType.Freight, LocomotiveType.Express) => 4_000,
-            (LocomotiveType.Freight, LocomotiveType.Superchief) => superchiefPrice,
-            (LocomotiveType.Express, LocomotiveType.Superchief) => superchiefPrice,
+            (LocomotiveType.Freight, LocomotiveType.Express) => settings.ExpressPrice,
+            (LocomotiveType.Freight, LocomotiveType.Superchief) => settings.SuperchiefPrice,
+            (LocomotiveType.Express, LocomotiveType.Superchief) => settings.SuperchiefPrice,
             _ => -1
         };
+    }
+
+    public static int GetUpgradeCost(LocomotiveType currentEngineType, LocomotiveType targetEngineType, int superchiefPrice)
+    {
+        return GetUpgradeCost(
+            currentEngineType,
+            targetEngineType,
+            GameSettings.Default with { SuperchiefPrice = superchiefPrice });
+    }
+
+    public static int GetPublicFee(GameSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return settings.PublicFee;
+    }
+
+    public static int GetPrivateFee(GameSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return settings.PrivateFee;
+    }
+
+    public static int GetUnfriendlyFee(GameSettings settings, bool allRailroadsSold)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return allRailroadsSold ? settings.UnfriendlyFee2 : settings.UnfriendlyFee1;
     }
 
     #endregion
@@ -1377,7 +1578,7 @@ public sealed class GameEngine : ObservableBase
         return citiesInRegion[cityIndex];
     }
 
-    private PendingRegionChoice? BuildPendingRegionChoice(Player player, string triggeredRegionCode)
+    private PendingRegionChoice? BuildPendingRegionChoice(Player player, string triggeredRegionCode, PendingDestinationAssignmentKind assignmentKind)
     {
         var currentRegionCode = player.CurrentCity.RegionCode;
         var eligibleRegions = MapDefinition.Regions
@@ -1402,6 +1603,7 @@ public sealed class GameEngine : ObservableBase
             CurrentCityName = player.CurrentCity.Name,
             CurrentRegionCode = currentRegionCode,
             TriggeredByInitialRegionCode = triggeredRegionCode,
+            AssignmentKind = assignmentKind,
             EligibleRegionCodes = eligibleRegions.Select(region => region.Code).ToList(),
             EligibleCityCountsByRegion = eligibleRegions.ToDictionary(
                 region => region.Code,
@@ -1410,8 +1612,14 @@ public sealed class GameEngine : ObservableBase
         };
     }
 
-    private void FinalizeDestinationAssignment(Player player, CityDefinition city)
+    private void FinalizeDestinationAssignment(Player player, CityDefinition city, PendingDestinationAssignmentKind assignmentKind)
     {
+        if (assignmentKind == PendingDestinationAssignmentKind.DeclaredAlternateDestination)
+        {
+            FinalizeDeclaredAlternateDestinationAssignment(player, city);
+            return;
+        }
+
         if (string.Equals(city.RegionCode, player.CurrentCity.RegionCode, StringComparison.OrdinalIgnoreCase)
             && string.Equals(city.Name, player.CurrentCity.Name, StringComparison.OrdinalIgnoreCase))
         {
@@ -1427,6 +1635,18 @@ public sealed class GameEngine : ObservableBase
         player.RouteProgressIndex = 0;
         player.UsedSegments.Clear();
         DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
+
+        if (_settings.HomeSwapping && !player.HasResolvedHomeSwap)
+        {
+            CurrentTurn.PendingHomeSwap = new PendingHomeSwap
+            {
+                PlayerIndex = player.Index,
+                CurrentHomeCityName = player.HomeCity.Name,
+                FirstDestinationCityName = city.Name
+            };
+            CurrentTurn.Phase = TurnPhase.HomeSwap;
+            return;
+        }
 
         CurrentTurn.Phase = HasPreparedBonusMove()
             ? TurnPhase.Move
@@ -1447,7 +1667,14 @@ public sealed class GameEngine : ObservableBase
         // Calculate payout
         int payout = 0;
         var tripOriginCity = player.TripOriginCity ?? player.CurrentCity;
-        if (player.Destination != null && tripOriginCity.PayoutIndex.HasValue && player.Destination.PayoutIndex.HasValue)
+        var arrivingHomeWhileDeclared = player.HasDeclared
+            && string.Equals(player.Destination?.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase);
+        var shouldAwardPayout = !arrivingHomeWhileDeclared
+            || string.Equals(player.AlternateDestination?.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase);
+        if (shouldAwardPayout
+            && player.Destination != null
+            && tripOriginCity.PayoutIndex.HasValue
+            && player.Destination.PayoutIndex.HasValue)
         {
             var originPayoutIndex = tripOriginCity.PayoutIndex.Value;
             var destinationPayoutIndex = player.Destination.PayoutIndex.Value;
@@ -1467,18 +1694,19 @@ public sealed class GameEngine : ObservableBase
             DestinationCityName = destination.Name,
             PayoutAmount = payout,
             CashAfterPayout = player.Cash,
-            PurchaseOpportunityAvailable = true,
-            Message = $"{player.Name} reached {destination.Name}, collected ${payout:N0}, and has ${pendingFees:N0} in fees due."
+            PurchaseOpportunityAvailable = !arrivingHomeWhileDeclared,
+            Message = arrivingHomeWhileDeclared
+                ? $"{player.Name} reached home, collected ${payout:N0}, and has ${pendingFees:N0} in fees due before victory is confirmed."
+                : $"{player.Name} reached {destination.Name}, collected ${payout:N0}, and has ${pendingFees:N0} in fees due."
         };
         player.Destination = null;
-        player.TripOriginCity = null;
         player.ActiveRoute = null;
         player.UsedSegments.Clear();
 
-        DestinationReached?.Invoke(this, new DestinationReachedEventArgs(player, destination, payout, player.Cash, purchaseOpportunityAvailable: true));
+        DestinationReached?.Invoke(this, new DestinationReachedEventArgs(player, destination, payout, player.Cash, purchaseOpportunityAvailable: !arrivingHomeWhileDeclared));
 
-        // Check win condition: $200,000+ and at home city
-        if (player.Cash >= 200_000 &&
+        if (!player.HasDeclared
+            && player.Cash >= _settings.WinningCash &&
             string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
         {
             Winner = player;
@@ -1487,7 +1715,15 @@ public sealed class GameEngine : ObservableBase
             return;
         }
 
-        // Move to Purchase phase
+        if (arrivingHomeWhileDeclared)
+        {
+            player.TripOriginCity = null;
+            CurrentTurn.Phase = TurnPhase.UseFees;
+            ResolveUseFees();
+            return;
+        }
+
+        player.TripOriginCity = null;
         CurrentTurn.Phase = TurnPhase.Purchase;
     }
 
@@ -1550,12 +1786,13 @@ public sealed class GameEngine : ObservableBase
     private void ResolveUseFees()
     {
         var player = CurrentTurn.ActivePlayer;
-        var feeBuckets = BuildFeeBuckets(player, CurrentTurn.RailroadsRiddenThisTurn);
+        var feeCalculation = BuildFeeCalculation(player, CurrentTurn.RailroadsRiddenThisTurn);
         var pendingFeeAmount = CalculatePendingFeeAmount(player);
         CurrentTurn.PendingFeeAmount = pendingFeeAmount;
 
-        if (feeBuckets.Count == 0 || pendingFeeAmount <= 0)
+        if (!feeCalculation.HasCharges || pendingFeeAmount <= 0)
         {
+            ResolvePostFeeState(player);
             ClearForcedSaleContext();
             CurrentTurn.Phase = TurnPhase.EndTurn;
             return;
@@ -1567,12 +1804,24 @@ public sealed class GameEngine : ObservableBase
             return;
         }
 
-        int opponentRate = AllRailroadsSold ? 10000 : 5000;
-        foreach (var feeBucket in feeBuckets.Values.OrderBy(bucket => bucket.Owner?.Index ?? -1))
+        if (feeCalculation.UsesPublicFee)
         {
-            int fee = feeBucket.Owner is null
-                ? 1000
-                : feeBucket.RequiresFullOwnerRate ? opponentRate : 1000;
+            var fee = GetPublicFee(_settings);
+            player.Cash -= fee;
+            UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, null, fee, []));
+        }
+
+        if (feeCalculation.UsesPrivateFee)
+        {
+            var fee = GetPrivateFee(_settings);
+            player.Cash -= fee;
+            UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, null, fee, []));
+        }
+
+        var opponentRate = GetUnfriendlyFee(_settings, AllRailroadsSold);
+        foreach (var feeBucket in feeCalculation.OpponentBuckets.Values.OrderBy(bucket => bucket.Owner?.Index ?? -1))
+        {
+            var fee = feeBucket.RequiresFullOwnerRate ? opponentRate : GetPrivateFee(_settings);
 
             player.Cash -= fee;
             if (feeBucket.Owner is not null)
@@ -1583,8 +1832,162 @@ public sealed class GameEngine : ObservableBase
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, feeBucket.Owner, fee, feeBucket.Railroads));
         }
 
+        ResolvePostFeeState(player);
         ClearForcedSaleContext();
         CurrentTurn.Phase = TurnPhase.EndTurn;
+    }
+
+    private void ResolvePostFeeState(Player player)
+    {
+        if (player.HasDeclared && player.Cash < _settings.WinningCash)
+        {
+            UndeclarePlayer(player, payRoverFeeTo: null);
+            return;
+        }
+
+        if (player.HasDeclared
+            && string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase)
+            && player.Cash >= _settings.WinningCash)
+        {
+            Winner = player;
+            GameStatus = GameStatus.Completed;
+            GameOver?.Invoke(this, new GameOverEventArgs(player));
+        }
+    }
+
+    private void PrepareTurnForActivePlayer(Player player)
+    {
+        CurrentTurn.PendingRegionChoice = null;
+        CurrentTurn.PendingHomeCityChoice = null;
+        CurrentTurn.PendingHomeSwap = null;
+
+        if (player.PendingImmediateArrival && player.Destination is not null)
+        {
+            player.PendingImmediateArrival = false;
+            HandleArrival(player, 0);
+            return;
+        }
+
+        if (_settings.HomeCityChoice && !player.HasResolvedHomeCityChoice)
+        {
+            CurrentTurn.PendingHomeCityChoice = BuildPendingHomeCityChoice(player);
+            if (CurrentTurn.PendingHomeCityChoice is null)
+            {
+                player.HasResolvedHomeCityChoice = true;
+                CurrentTurn.Phase = player.Destination is not null
+                    ? TurnPhase.Roll
+                    : TurnPhase.DrawDestination;
+                return;
+            }
+
+            CurrentTurn.Phase = TurnPhase.HomeCityChoice;
+            return;
+        }
+
+        CurrentTurn.Phase = player.Destination != null
+            ? TurnPhase.Roll
+            : TurnPhase.DrawDestination;
+    }
+
+    private PendingHomeCityChoice? BuildPendingHomeCityChoice(Player player)
+    {
+        var regionCode = player.HomeCity.RegionCode;
+        var regionName = MapDefinition.Regions.FirstOrDefault(region => string.Equals(region.Code, regionCode, StringComparison.OrdinalIgnoreCase))?.Name
+            ?? regionCode;
+        var claimedHomeCities = Players
+            .Where(otherPlayer => otherPlayer != player)
+            .Select(otherPlayer => otherPlayer.HomeCity.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var eligibleCityNames = MapDefinition.Cities
+            .Where(city => string.Equals(city.RegionCode, regionCode, StringComparison.OrdinalIgnoreCase))
+            .Select(city => city.Name)
+            .Where(cityName => !claimedHomeCities.Contains(cityName) || string.Equals(cityName, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(cityName => cityName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return eligibleCityNames.Count == 0
+            ? null
+            : new PendingHomeCityChoice
+            {
+                PlayerIndex = player.Index,
+                RegionCode = regionCode,
+                RegionName = regionName,
+                CurrentHomeCityName = player.HomeCity.Name,
+                EligibleCityNames = eligibleCityNames
+            };
+    }
+
+    private void FinalizeDeclaredAlternateDestinationAssignment(Player player, CityDefinition city)
+    {
+        player.AlternateDestination = city;
+        player.Destination = player.HomeCity;
+        player.ActiveRoute = null;
+        player.RouteProgressIndex = 0;
+
+        DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
+
+        CurrentTurn.Phase = string.Equals(city.Name, player.CurrentCity.Name, StringComparison.OrdinalIgnoreCase)
+            ? TurnPhase.EndTurn
+            : HasPreparedBonusMove()
+                ? TurnPhase.Move
+                : TurnPhase.Roll;
+    }
+
+    private void TryResolveRovers(Player movingPlayer, List<string> traversedNodeIds)
+    {
+        if (traversedNodeIds.Count == 0)
+        {
+            return;
+        }
+
+        var traversedNodeSet = traversedNodeIds
+            .Where(nodeId => !string.IsNullOrWhiteSpace(nodeId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var declaredPlayer in Players.Where(candidate =>
+                     candidate != movingPlayer
+                     && candidate.HasDeclared
+                     && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId)
+                     && traversedNodeSet.Contains(candidate.CurrentNodeId!)))
+        {
+            UndeclarePlayer(declaredPlayer, movingPlayer);
+        }
+    }
+
+    private void UndeclarePlayer(Player player, Player? payRoverFeeTo)
+    {
+        if (!player.HasDeclared)
+        {
+            return;
+        }
+
+        player.HasDeclared = false;
+
+        if (payRoverFeeTo is not null)
+        {
+            player.Cash -= _settings.RoverCash;
+            payRoverFeeTo.Cash += _settings.RoverCash;
+        }
+
+        player.Destination = player.AlternateDestination;
+        player.AlternateDestination = null;
+        player.ActiveRoute = null;
+        player.RouteProgressIndex = 0;
+
+        if (player.Destination is not null
+            && string.Equals(player.CurrentCity.Name, player.Destination.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            player.PendingImmediateArrival = true;
+        }
+    }
+
+    private void SetPlayerHomeCity(Player player, CityDefinition homeCity)
+    {
+        player.HomeCity = homeCity;
+        player.CurrentCity = homeCity;
+        player.CurrentNodeId = FindCityNodeId(homeCity)
+            ?? throw new InvalidOperationException($"Unable to resolve a node for home city '{homeCity.Name}'.");
     }
 
     private void BeginForcedSale(Player player, int amountOwed)
@@ -1843,21 +2246,36 @@ public sealed class GameEngine : ObservableBase
 
     private int CalculatePendingFeeAmount(Player player)
     {
-        var feeBuckets = BuildFeeBuckets(player, CurrentTurn.RailroadsRiddenThisTurn);
-        if (feeBuckets.Count == 0)
+        var feeCalculation = BuildFeeCalculation(player, CurrentTurn.RailroadsRiddenThisTurn);
+        if (!feeCalculation.HasCharges)
         {
             return 0;
         }
 
-        var opponentRate = AllRailroadsSold ? 10000 : 5000;
-        return feeBuckets.Values.Sum(feeBucket => feeBucket.Owner is null
-            ? 1000
-            : feeBucket.RequiresFullOwnerRate ? opponentRate : 1000);
+        var amount = 0;
+
+        if (feeCalculation.UsesPublicFee)
+        {
+            amount += GetPublicFee(_settings);
+        }
+
+        if (feeCalculation.UsesPrivateFee)
+        {
+            amount += GetPrivateFee(_settings);
+        }
+
+        var opponentRate = GetUnfriendlyFee(_settings, AllRailroadsSold);
+        amount += feeCalculation.OpponentBuckets.Values.Sum(feeBucket => feeBucket.RequiresFullOwnerRate ? opponentRate : GetPrivateFee(_settings));
+
+        return amount;
     }
 
-    private Dictionary<int, FeeBucket> BuildFeeBuckets(Player rider, IEnumerable<int> railroadIndices)
+    private FeeCalculation BuildFeeCalculation(Player rider, IEnumerable<int> railroadIndices)
     {
-        var feeBuckets = new Dictionary<int, FeeBucket>();
+        var opponentBuckets = new Dictionary<int, FeeBucket>();
+        var usesPublicFee = false;
+        var usesPrivateFee = false;
+
         foreach (var rrIdx in railroadIndices)
         {
             var railroad = Railroads.FirstOrDefault(r => r.Index == rrIdx);
@@ -1866,10 +2284,22 @@ public sealed class GameEngine : ObservableBase
                 continue;
             }
 
-            AddRailroadToFeeBucket(feeBuckets, rider, railroad, CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn);
+            if (railroad.Owner is null)
+            {
+                usesPublicFee = true;
+                continue;
+            }
+
+            if (railroad.Owner == rider)
+            {
+                usesPrivateFee = true;
+                continue;
+            }
+
+            AddRailroadToFeeBucket(opponentBuckets, railroad, CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn);
         }
 
-        return feeBuckets;
+        return new FeeCalculation(usesPublicFee, usesPrivateFee, opponentBuckets);
     }
 
     private static void UpdateGrandfatheredRailroadAccess(Player player, int railroadIndex)
@@ -1935,20 +2365,18 @@ public sealed class GameEngine : ObservableBase
 
     private static void AddRailroadToFeeBucket(
         Dictionary<int, FeeBucket> feeBuckets,
-        Player rider,
         Railroad railroad,
         HashSet<int> railroadsRequiringFullOwnerRate)
     {
-        var usesBaseRate = railroad.Owner is null || railroad.Owner == rider;
-        int ownerKey = usesBaseRate ? -1 : railroad.Owner!.Index;
+        var ownerKey = railroad.Owner!.Index;
         if (!feeBuckets.TryGetValue(ownerKey, out var bucket))
         {
-            bucket = new FeeBucket(usesBaseRate ? null : railroad.Owner);
+            bucket = new FeeBucket(railroad.Owner);
             feeBuckets[ownerKey] = bucket;
         }
 
         bucket.Railroads.Add(railroad.Index);
-        if (!usesBaseRate && railroadsRequiringFullOwnerRate.Contains(railroad.Index))
+        if (railroadsRequiringFullOwnerRate.Contains(railroad.Index))
         {
             bucket.RequiresFullOwnerRate = true;
         }
@@ -2047,13 +2475,16 @@ public sealed class GameEngine : ObservableBase
                 if (player.UsedSegments.Contains(segKey))
                     continue;
 
-                // Calculate edge cost based on railroad ownership
-                int edgeCost = 1; // Base cost per segment (milepost)
+                int edgeCost = 1;
                 var railroad = Railroads.FirstOrDefault(r => r.Index == edge.RailroadIndex);
-                if (railroad != null && railroad.Owner != player)
+                if (railroad != null)
                 {
-                    // Add use fee penalty for opponent/bank railroads
-                    edgeCost += railroad.Owner == null ? 1 : 5;
+                    edgeCost += railroad.Owner switch
+                    {
+                        null => GetPublicFee(_settings),
+                        _ when railroad.Owner == player => GetPrivateFee(_settings),
+                        _ => GetUnfriendlyFee(_settings, AllRailroadsSold)
+                    };
                 }
 
                 int newDist = dist[current] + edgeCost;
@@ -2094,15 +2525,21 @@ public sealed class GameEngine : ObservableBase
         nodeIds.Reverse();
         segments.Reverse();
 
-        // Calculate total cost
-        int totalCost = 0;
-        foreach (var seg in segments)
+        var totalCost = 0;
+        foreach (var railroadIndex in segments.Select(segment => segment.RailroadIndex).Distinct())
         {
-            var rr = Railroads.FirstOrDefault(r => r.Index == seg.RailroadIndex);
-            if (rr != null && rr.Owner != player)
+            var rr = Railroads.FirstOrDefault(r => r.Index == railroadIndex);
+            if (rr is null)
             {
-                totalCost += rr.Owner == null ? 1000 : (AllRailroadsSold ? 10000 : 5000);
+                continue;
             }
+
+            totalCost += rr.Owner switch
+            {
+                null => GetPublicFee(_settings),
+                _ when rr.Owner == player => GetPrivateFee(_settings),
+                _ => GetUnfriendlyFee(_settings, AllRailroadsSold)
+            };
         }
 
         return new Route(nodeIds, segments, totalCost);
@@ -2133,4 +2570,12 @@ internal sealed class FeeBucket(Player? owner)
     public Player? Owner { get; } = owner;
     public List<int> Railroads { get; } = new();
     public bool RequiresFullOwnerRate { get; set; }
+}
+
+internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Dictionary<int, FeeBucket> opponentBuckets)
+{
+    public bool UsesPublicFee { get; } = usesPublicFee;
+    public bool UsesPrivateFee { get; } = usesPrivateFee;
+    public Dictionary<int, FeeBucket> OpponentBuckets { get; } = opponentBuckets;
+    public bool HasCharges => UsesPublicFee || UsesPrivateFee || OpponentBuckets.Count > 0;
 }

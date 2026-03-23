@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Boxcars.Engine.Persistence;
 
 namespace Boxcars.Data;
 
@@ -14,6 +15,7 @@ public sealed record CreateGameRequest
     public string CreatorUserId { get; init; } = string.Empty;
     public string MapFileName { get; init; } = "U21MAP.RB3";
     public IReadOnlyList<GamePlayerSelection> Players { get; init; } = [];
+    public GameSettings Settings { get; init; } = GameSettings.Default;
 
     public int MaxPlayers => Players.Count;
 }

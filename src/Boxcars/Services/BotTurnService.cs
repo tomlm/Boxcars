@@ -28,7 +28,6 @@ public sealed class BotTurnService
     private readonly GamePresenceService _gamePresenceService;
     private readonly NetworkCoverageService _networkCoverageService;
     private readonly BotOptions _botOptions;
-    private readonly PurchaseRulesOptions _purchaseRulesOptions;
     private readonly ILogger<BotTurnService> _logger;
 
     public BotTurnService(
@@ -38,7 +37,6 @@ public sealed class BotTurnService
         GamePresenceService gamePresenceService,
         NetworkCoverageService networkCoverageService,
         IOptions<BotOptions> botOptions,
-        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
         ILogger<BotTurnService> logger)
     {
         _userDirectoryService = userDirectoryService;
@@ -47,7 +45,6 @@ public sealed class BotTurnService
         _gamePresenceService = gamePresenceService;
         _networkCoverageService = networkCoverageService;
         _botOptions = botOptions.Value;
-        _purchaseRulesOptions = purchaseRulesOptions.Value;
         _logger = logger;
     }
 
@@ -257,12 +254,72 @@ public sealed class BotTurnService
 
         return gameEngine.CurrentTurn.Phase switch
         {
+            TurnPhase.HomeCityChoice => await CreateHomeCityChoiceActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, cancellationToken),
+            TurnPhase.HomeSwap => await CreateHomeSwapActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, cancellationToken),
             TurnPhase.RegionChoice => await CreateRegionChoiceActionAsync(gameId, playerStates, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
             TurnPhase.Move => await CreateMoveActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, cancellationToken),
             TurnPhase.Purchase => await CreatePurchaseActionAsync(gameId, playerStates, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
             TurnPhase.UseFees => await CreateForcedSaleActionAsync(gameId, playerStates, gameEngine, mapDefinition, playerSelections, cancellationToken),
             _ => null
         };
+    }
+
+    private Task<PlayerAction?> CreateHomeCityChoiceActionAsync(
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        RailBaronGameEngine gameEngine,
+        global::Boxcars.Engine.Persistence.GameState snapshot,
+        IReadOnlyList<GamePlayerSelection> playerSelections,
+        CancellationToken cancellationToken)
+    {
+        _ = gameId;
+        _ = playerStates;
+        _ = cancellationToken;
+
+        var pendingHomeCityChoice = snapshot.Turn.PendingHomeCityChoice;
+        if (pendingHomeCityChoice is null || pendingHomeCityChoice.EligibleCityNames.Count == 0)
+        {
+            return Task.FromResult<PlayerAction?>(null);
+        }
+
+        var selectedCityName = pendingHomeCityChoice.EligibleCityNames
+            .OrderBy(cityName => cityName, StringComparer.OrdinalIgnoreCase)
+            .First();
+        var playerIndex = gameEngine.CurrentTurn.ActivePlayer.Index;
+
+        return Task.FromResult<PlayerAction?>(new ChooseHomeCityAction
+        {
+            PlayerId = gameEngine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = playerIndex,
+            ActorUserId = ResolveBotActorUserId(),
+            SelectedCityName = selectedCityName,
+            BotMetadata = CreateCollectiveAuctionMetadata()
+        });
+    }
+
+    private Task<PlayerAction?> CreateHomeSwapActionAsync(
+        string gameId,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        RailBaronGameEngine gameEngine,
+        global::Boxcars.Engine.Persistence.GameState snapshot,
+        IReadOnlyList<GamePlayerSelection> playerSelections,
+        CancellationToken cancellationToken)
+    {
+        _ = gameId;
+        _ = playerStates;
+        _ = snapshot;
+        _ = playerSelections;
+        _ = cancellationToken;
+
+        var playerIndex = gameEngine.CurrentTurn.ActivePlayer.Index;
+        return Task.FromResult<PlayerAction?>(new ResolveHomeSwapAction
+        {
+            PlayerId = gameEngine.CurrentTurn.ActivePlayer.Name,
+            PlayerIndex = playerIndex,
+            ActorUserId = ResolveBotActorUserId(),
+            SwapHomeAndDestination = false,
+            BotMetadata = CreateCollectiveAuctionMetadata()
+        });
     }
 
     public async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
@@ -563,7 +620,7 @@ public sealed class BotTurnService
         var currentEngineType = player.LocomotiveType;
         foreach (var engineType in Enum.GetValues<LocomotiveType>().Where(candidate => candidate > currentEngineType))
         {
-            var amountPaid = RailBaronGameEngine.GetUpgradeCost(currentEngineType, engineType, _purchaseRulesOptions.SuperchiefPrice);
+            var amountPaid = RailBaronGameEngine.GetUpgradeCost(currentEngineType, engineType, gameEngine.Settings);
             if (amountPaid <= 0 || amountPaid > player.Cash)
             {
                 continue;
@@ -1196,7 +1253,7 @@ public sealed class BotTurnService
                 .Where(candidate => candidate > player.LocomotiveType)
                 .Select(engineType =>
                 {
-                    var upgradeCost = RailBaronGameEngine.GetUpgradeCost(player.LocomotiveType, engineType, _purchaseRulesOptions.SuperchiefPrice);
+                    var upgradeCost = RailBaronGameEngine.GetUpgradeCost(player.LocomotiveType, engineType, gameEngine.Settings);
                     var cashAfterPurchase = player.Cash - upgradeCost;
                     var feeShortfall = Math.Max(0, pendingFeeAmount - cashAfterPurchase);
                     var reserveShortfall = Math.Max(0, purchaseReserve.RecommendedOperatingReserveCash - cashAfterPurchase);

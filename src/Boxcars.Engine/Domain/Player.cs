@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Boxcars.Engine.Data.Maps;
+using Boxcars.Engine.Persistence;
 
 namespace Boxcars.Engine.Domain;
 
@@ -13,10 +14,14 @@ public sealed class Player : ObservableBase
     private CityDefinition? _destination;
     private CityDefinition? _tripOriginCity;
     private Route? _activeRoute;
+    private CityDefinition? _alternateDestination;
     private LocomotiveType _locomotiveType;
     private bool _isActive;
     private bool _isBankrupt;
     private bool _hasDeclared;
+    private bool _hasResolvedHomeCityChoice;
+    private bool _hasResolvedHomeSwap;
+    private bool _pendingImmediateArrival;
 
     /// <summary>Player display name (immutable).</summary>
     public string Name { get; }
@@ -62,6 +67,12 @@ public sealed class Player : ObservableBase
         internal set => SetField(ref _activeRoute, value);
     }
 
+    public CityDefinition? AlternateDestination
+    {
+        get => _alternateDestination;
+        internal set => SetField(ref _alternateDestination, value);
+    }
+
     /// <summary>Railroads owned by this player.</summary>
     public ObservableCollection<Railroad> OwnedRailroads { get; } = new();
 
@@ -93,6 +104,24 @@ public sealed class Player : ObservableBase
         internal set => SetField(ref _hasDeclared, value);
     }
 
+    public bool HasResolvedHomeCityChoice
+    {
+        get => _hasResolvedHomeCityChoice;
+        internal set => SetField(ref _hasResolvedHomeCityChoice, value);
+    }
+
+    public bool HasResolvedHomeSwap
+    {
+        get => _hasResolvedHomeSwap;
+        internal set => SetField(ref _hasResolvedHomeSwap, value);
+    }
+
+    public bool PendingImmediateArrival
+    {
+        get => _pendingImmediateArrival;
+        internal set => SetField(ref _pendingImmediateArrival, value);
+    }
+
     /// <summary>Track segments used since last destination arrival (non-reuse rule).</summary>
     internal HashSet<SegmentKey> UsedSegments { get; } = new();
 
@@ -106,13 +135,23 @@ public sealed class Player : ObservableBase
     internal int RouteProgressIndex { get; set; }
 
     public Player(string name, int index)
+        : this(name, index, GameSettings.Default)
     {
+    }
+
+    public Player(string name, int index, GameSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
         Name = name;
         Index = index;
-        _cash = 20_000;
-        _locomotiveType = LocomotiveType.Freight;
+        _cash = settings.StartingCash;
+        _locomotiveType = settings.StartEngine;
         _isActive = true;
         _isBankrupt = false;
         _hasDeclared = false;
+        _hasResolvedHomeCityChoice = !settings.HomeCityChoice;
+        _hasResolvedHomeSwap = !settings.HomeSwapping;
+        _pendingImmediateArrival = false;
     }
 }

@@ -322,7 +322,21 @@ public class GameServiceTests
             MaxPlayers = entity.MaxPlayers,
             CurrentPlayerCount = entity.CurrentPlayerCount,
             CreatedAt = entity.CreatedAt,
-            SettingsJson = entity.SettingsJson
+            StartingCash = entity.StartingCash,
+            AnnouncingCash = entity.AnnouncingCash,
+            WinningCash = entity.WinningCash,
+            RoverCash = entity.RoverCash,
+            PublicFee = entity.PublicFee,
+            PrivateFee = entity.PrivateFee,
+            UnfriendlyFee1 = entity.UnfriendlyFee1,
+            UnfriendlyFee2 = entity.UnfriendlyFee2,
+            HomeSwapping = entity.HomeSwapping,
+            HomeCityChoice = entity.HomeCityChoice,
+            KeepCashSecret = entity.KeepCashSecret,
+            StartEngine = entity.StartEngine,
+            SuperchiefPrice = entity.SuperchiefPrice,
+            ExpressPrice = entity.ExpressPrice,
+            SettingsSchemaVersion = entity.SettingsSchemaVersion
         };
     }
 

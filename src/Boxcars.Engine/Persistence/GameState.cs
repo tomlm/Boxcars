@@ -26,10 +26,14 @@ public sealed class PlayerState
     public string CurrentCityName { get; set; } = string.Empty;
     public string? TripStartCityName { get; set; }
     public string? DestinationCityName { get; set; }
+    public string? AlternateDestinationCityName { get; set; }
     public string LocomotiveType { get; set; } = "Freight";
     public bool IsActive { get; set; }
     public bool IsBankrupt { get; set; }
     public bool HasDeclared { get; set; }
+    public bool HasResolvedHomeCityChoice { get; set; }
+    public bool HasResolvedHomeSwap { get; set; }
+    public bool PendingImmediateArrival { get; set; }
     public List<int> OwnedRailroadIndices { get; set; } = new();
     public RouteState? ActiveRoute { get; set; }
     public List<string> SelectedRouteNodeIds { get; set; } = new();
@@ -69,6 +73,8 @@ public sealed class TurnState
     public ForcedSaleTurnState? ForcedSale { get; set; }
     public AuctionTurnState? Auction { get; set; }
     public PendingRegionChoiceTurnState? PendingRegionChoice { get; set; }
+    public PendingHomeCityChoiceTurnState? PendingHomeCityChoice { get; set; }
+    public PendingHomeSwapTurnState? PendingHomeSwap { get; set; }
 }
 
 public sealed class PendingRegionChoiceTurnState
@@ -77,8 +83,25 @@ public sealed class PendingRegionChoiceTurnState
     public string CurrentCityName { get; set; } = string.Empty;
     public string CurrentRegionCode { get; set; } = string.Empty;
     public string TriggeredByInitialRegionCode { get; set; } = string.Empty;
+    public string AssignmentKind { get; set; } = nameof(global::Boxcars.Engine.Domain.PendingDestinationAssignmentKind.NormalDestination);
     public List<string> EligibleRegionCodes { get; set; } = new();
     public Dictionary<string, int> EligibleCityCountsByRegion { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class PendingHomeCityChoiceTurnState
+{
+    public int PlayerIndex { get; set; } = -1;
+    public string RegionCode { get; set; } = string.Empty;
+    public string RegionName { get; set; } = string.Empty;
+    public string CurrentHomeCityName { get; set; } = string.Empty;
+    public List<string> EligibleCityNames { get; set; } = new();
+}
+
+public sealed class PendingHomeSwapTurnState
+{
+    public int PlayerIndex { get; set; } = -1;
+    public string CurrentHomeCityName { get; set; } = string.Empty;
+    public string FirstDestinationCityName { get; set; } = string.Empty;
 }
 
 public sealed class ForcedSaleTurnState

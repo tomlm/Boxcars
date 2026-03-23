@@ -65,7 +65,6 @@ internal static class BotTurnServiceTestHarness
             presenceService,
             new NetworkCoverageService(),
             botOptions,
-            Options.Create(new PurchaseRulesOptions()),
             NullLogger<BotTurnService>.Instance);
     }
 

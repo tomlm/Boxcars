@@ -1,0 +1,54 @@
+@using Boxcars.Data
+@using MudBlazor
+
+@if (Summary.HasContent)
+{
+    <MudPaper Outlined="true" Class="pa-3 mx-1 mb-1" Style="background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)">
+        <MudStack Spacing="2">
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.h6">@Summary.Title</MudText>
+                @if (!string.IsNullOrWhiteSpace(Summary.SourceDescription))
+                {
+                    <MudText Typo="Typo.caption">@Summary.SourceDescription</MudText>
+                }
+            </MudStack>
+
+            @if (Summary.Warnings.Count > 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Outlined">
+                    @foreach (var warning in Summary.Warnings)
+                    {
+                        <MudText Typo="Typo.caption">@warning</MudText>
+                    }
+                </MudAlert>
+            }
+
+            @for (var index = 0; index < Summary.Sections.Count; index++)
+            {
+                var settingsSection = Summary.Sections[index];
+
+                if (index > 0)
+                {
+                    <MudDivider />
+                }
+
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">@settingsSection.Title</MudText>
+
+                    @foreach (var item in settingsSection.Items)
+                    {
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Spacing="1">
+                            <MudText Typo="Typo.body2">@item.Label</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Right" Class="text-end">@item.Value</MudText>
+                        </MudStack>
+                    }
+                </MudStack>
+            }
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    [Parameter]
+    public GameSettingsSummaryModel Summary { get; set; } = GameSettingsSummaryModel.Empty;
+}

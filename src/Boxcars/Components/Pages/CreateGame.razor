@@ -3,6 +3,8 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Boxcars.Data
+@using Boxcars.Engine.Domain
+@using Boxcars.Engine.Persistence
 @using MudBlazor
 @using Boxcars.Services
 @attribute [Authorize]
@@ -16,11 +18,67 @@
 <MudStack Spacing="6">
     <MudText Typo="Typo.h3">Create Game</MudText>
 
-    <MudPaper Class="pa-6" Style="max-width: 32rem">
+    <MudPaper Class="pa-6" >
         <MudStack Spacing="4">
             <MudText Typo="Typo.body1">
                 Configure the players, their colors, and the starting turn order before entering the board.
             </MudText>
+
+            <MudDivider />
+
+
+            <MudExpansionPanels>
+                <MudExpansionPanel Text="Game Settings" Expanded="false">
+                    <MudGrid>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Starting Cash" Value="@_settings.StartingCash" ValueChanged="@(value => UpdateSettings(_settings with { StartingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Announcing Cash" Value="@_settings.AnnouncingCash" ValueChanged="@(value => UpdateSettings(_settings with { AnnouncingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Winning Cash" Value="@_settings.WinningCash" ValueChanged="@(value => UpdateSettings(_settings with { WinningCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Rover Cash" Value="@_settings.RoverCash" ValueChanged="@(value => UpdateSettings(_settings with { RoverCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Public Fee" Value="@_settings.PublicFee" ValueChanged="@(value => UpdateSettings(_settings with { PublicFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Private Fee" Value="@_settings.PrivateFee" ValueChanged="@(value => UpdateSettings(_settings with { PrivateFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Unfriendly Fee 1" Value="@_settings.UnfriendlyFee1" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee1 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Unfriendly Fee 2" Value="@_settings.UnfriendlyFee2" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee2 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudSelect T="LocomotiveType" Label="Starting Engine" Value="@_settings.StartEngine" ValueChanged="@(value => UpdateSettings(_settings with { StartEngine = value }))" Variant="Variant.Outlined" Disabled="@_creating" FullWidth="true">
+                                <MudSelectItem Value="@LocomotiveType.Freight">Freight</MudSelectItem>
+                                <MudSelectItem Value="@LocomotiveType.Express">Express</MudSelectItem>
+                                <MudSelectItem Value="@LocomotiveType.Superchief">Superchief</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Express Price" Value="@_settings.ExpressPrice" ValueChanged="@(value => UpdateSettings(_settings with { ExpressPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" Label="Superchief Price" Value="@_settings.SuperchiefPrice" ValueChanged="@(value => UpdateSettings(_settings with { SuperchiefPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudSwitch T="bool" Label="Keep Cash Secret" Value="@_settings.KeepCashSecret" ValueChanged="@(value => UpdateSettings(_settings with { KeepCashSecret = value }))" Disabled="@_creating" Color="Color.Primary" />
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudSwitch T="bool" Label="Home Swapping" Value="@_settings.HomeSwapping" ValueChanged="@(value => UpdateSettings(_settings with { HomeSwapping = value }))" Disabled="@_creating" Color="Color.Primary" />
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudSwitch T="bool" Label="Home City Choice" Value="@_settings.HomeCityChoice" ValueChanged="@(value => UpdateSettings(_settings with { HomeCityChoice = value }))" Disabled="@_creating" Color="Color.Primary" />
+                        </MudItem>
+                    </MudGrid>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
 
             <MudSelect T="int"
                        Label="Player Count"
@@ -123,6 +181,7 @@
     private int _playerCount = 4;
     private bool _creating;
     private string? _validationMessage;
+    private GameSettings _settings = GameSettings.Default;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -290,6 +349,7 @@
             {
                 CreatorUserId = _currentUserId,
                 MapFileName = GameService.DefaultMapFileName,
+                Settings = _settings,
                 Players = _playerSlots.Select(slot => new GamePlayerSelection
                 {
                     UserId = slot.UserId,
@@ -345,7 +405,32 @@
             return "Each player must have a unique color.";
         }
 
+        if (_settings.WinningCash < _settings.AnnouncingCash)
+        {
+            return "Winning cash must be greater than or equal to announcing cash.";
+        }
+
+        if (_settings.StartingCash <= 0
+            || _settings.AnnouncingCash <= 0
+            || _settings.WinningCash <= 0
+            || _settings.RoverCash <= 0
+            || _settings.PublicFee <= 0
+            || _settings.PrivateFee <= 0
+            || _settings.UnfriendlyFee1 <= 0
+            || _settings.UnfriendlyFee2 <= 0
+            || _settings.ExpressPrice <= 0
+            || _settings.SuperchiefPrice <= 0)
+        {
+            return "All numeric settings must be greater than zero.";
+        }
+
         return null;
+    }
+
+    private void UpdateSettings(GameSettings settings)
+    {
+        _settings = settings;
+        _validationMessage = null;
     }
 
     private string ResolveDefaultColor(ApplicationUser? profile, HashSet<string> usedColors)

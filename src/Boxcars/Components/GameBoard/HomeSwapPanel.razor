@@ -1,0 +1,47 @@
+@using Boxcars.Data
+@using MudBlazor
+
+<MudPaper Outlined="true" Class="pa-4" Style="width: min(100%, 40rem); margin: 0 auto">
+    <MudStack Spacing="2">
+        <MudStack Spacing="0">
+            <MudText Typo="Typo.h6">Home Swap</MudText>
+            <MudText Typo="Typo.body2">
+                @Phase.PlayerName may swap the initial home city and first destination before any movement.
+            </MudText>
+        </MudStack>
+
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.body2">Current home: @Phase.CurrentHomeCityName</MudText>
+            <MudText Typo="Typo.body2">First destination: @Phase.FirstDestinationCityName</MudText>
+        </MudStack>
+
+        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+            <MudButton Variant="Variant.Outlined"
+                       Color="MudBlazor.Color.Default"
+                       Disabled="@IsBusy"
+                       OnClick="KeepRequested">
+                Keep Home
+            </MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="MudBlazor.Color.Primary"
+                       Disabled="@(IsBusy || !Phase.CanConfirm)"
+                       OnClick="SwapRequested">
+                Swap Home and Destination
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public HomeSwapPhaseModel Phase { get; set; } = new();
+
+    [Parameter]
+    public EventCallback KeepRequested { get; set; }
+
+    [Parameter]
+    public EventCallback SwapRequested { get; set; }
+
+    [Parameter]
+    public bool IsBusy { get; set; }
+}

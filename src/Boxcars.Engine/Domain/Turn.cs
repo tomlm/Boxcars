@@ -18,6 +18,8 @@ public sealed class Turn : ObservableBase
     private ForcedSaleState? _forcedSaleState;
     private AuctionState? _auctionState;
     private PendingRegionChoice? _pendingRegionChoice;
+    private PendingHomeCityChoice? _pendingHomeCityChoice;
+    private PendingHomeSwap? _pendingHomeSwap;
 
     /// <summary>Whose turn it is.</summary>
     public Player ActivePlayer
@@ -110,6 +112,18 @@ public sealed class Turn : ObservableBase
         internal set => SetField(ref _pendingRegionChoice, value);
     }
 
+    public PendingHomeCityChoice? PendingHomeCityChoice
+    {
+        get => _pendingHomeCityChoice;
+        internal set => SetField(ref _pendingHomeCityChoice, value);
+    }
+
+    public PendingHomeSwap? PendingHomeSwap
+    {
+        get => _pendingHomeSwap;
+        internal set => SetField(ref _pendingHomeSwap, value);
+    }
+
     /// <summary>Railroad indices used this turn (for use fee calculation).</summary>
     internal HashSet<int> RailroadsRiddenThisTurn { get; } = new();
 
@@ -119,7 +133,7 @@ public sealed class Turn : ObservableBase
     public Turn()
     {
         _turnNumber = 1;
-        _phase = TurnPhase.DrawDestination;
+        _phase = TurnPhase.HomeCityChoice;
     }
 }
 

@@ -32,7 +32,10 @@ public static class GameEventSerialization
         {
             return NormalizeEventKind(eventKind) switch
             {
+                "ChooseHomeCity" => JsonSerializer.Deserialize<ChooseHomeCityAction>(payload),
+                "ResolveHomeSwap" => JsonSerializer.Deserialize<ResolveHomeSwapAction>(payload),
                 "PickDestination" => JsonSerializer.Deserialize<PickDestinationAction>(payload),
+                "Declare" => JsonSerializer.Deserialize<DeclareAction>(payload),
                 "ChooseDestinationRegion" => JsonSerializer.Deserialize<ChooseDestinationRegionAction>(payload),
                 "RollDice" => JsonSerializer.Deserialize<RollDiceAction>(payload),
                 "ChooseRoute" => JsonSerializer.Deserialize<ChooseRouteAction>(payload),

@@ -28,6 +28,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-26
 - Azure Table storage (`GamesTable`, `BotsTable`, existing event/game entities) (001-ai-player)
 - C# / .NET 10.0 + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure.Data.Tables, existing `HttpClient`-based OpenAI integration, existing `GameBoardStateMapper`/board projection services (001-ai-advice-chat)
 - Azure Table storage for authoritative game and player-state rows; no new durable chat storage for MVP, session-scoped conversation state only (001-ai-advice-chat)
+- C# / .NET 10 + Blazor Server, MudBlazor, Azure.Data.Tables, ASP.NET Core SignalR (001-game-settings)
+- Azure Table Storage via `GamesTable` (`GameEntity.SettingsJson`) plus existing event snapshot persistence (001-game-settings)
 
 ## Project Structure
 
@@ -46,9 +48,8 @@ tests/
 C# on .NET 10 (SDK installed: 10.0.102): Follow standard conventions
 
 ## Recent Changes
+- 001-game-settings: Added C# / .NET 10 + Blazor Server, MudBlazor, Azure.Data.Tables, ASP.NET Core SignalR
 - 001-ai-advice-chat: Added C# / .NET 10.0 + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure.Data.Tables, existing `HttpClient`-based OpenAI integration, existing `GameBoardStateMapper`/board projection services
-- 001-ai-player: Added C# / .NET 10.0 + ASP.NET Core Blazor Server, SignalR, MudBlazor, Azure.Data.Tables, built-in `HttpClient`-based OpenAI client
-- 001-ai-player: Added C# / .NET 10 for the web app, .NET 8 xUnit test projects + ASP.NET Core Blazor Server, MudBlazor, SignalR, Azure.Data.Tables, ASP.NET Core Identity, `HttpClient` for OpenAI API access
 
 
 <!-- MANUAL ADDITIONS START -->
