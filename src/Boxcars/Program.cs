@@ -76,9 +76,9 @@ public class Program
         {
             config.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
             config.SnackbarConfiguration.NewestOnTop = false;
-            config.SnackbarConfiguration.MaxDisplayedSnackbars = 4;
+            config.SnackbarConfiguration.MaxDisplayedSnackbars = 12;
             config.SnackbarConfiguration.PreventDuplicates = true;
-            config.SnackbarConfiguration.VisibleStateDuration = 8000;
+            config.SnackbarConfiguration.VisibleStateDuration = 7000;
         });
         builder.Services.AddMudMarkdownServices();
 
