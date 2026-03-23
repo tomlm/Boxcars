@@ -360,6 +360,10 @@ public class GameService
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, string? lastSeenEventRowKey, CancellationToken cancellationToken)
     {
+        var game = await GetGameAsync(gameId, cancellationToken);
+        var announcingCash = game is null
+            ? GameSettings.Default.AnnouncingCash
+            : _gameSettingsResolver.Resolve(game).Settings.AnnouncingCash;
         var orderedEvents = new List<GameEventEntity>();
         var normalizedLastSeenEventRowKey = string.IsNullOrWhiteSpace(lastSeenEventRowKey)
             ? null
@@ -383,7 +387,7 @@ public class GameService
         GameEventEntity? previousGameEvent = null;
         foreach (var gameEvent in orderedEvents)
         {
-            events.AddRange(BuildTimelineItems(gameEvent, previousGameEvent));
+            events.AddRange(BuildTimelineItems(gameEvent, previousGameEvent, announcingCash));
             previousGameEvent = gameEvent;
         }
 
@@ -406,6 +410,11 @@ public class GameService
     }
 
     internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
+    {
+        return BuildTimelineItems(gameEvent, previousGameEvent, GameSettings.Default.AnnouncingCash);
+    }
+
+    internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent, int announcingCash)
     {
         if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute"))
         {
@@ -460,6 +469,17 @@ public class GameService
                         ? string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
                             ? $"{actingPlayerName} chose a replacement destination region."
                             : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"
+                        : gameEvent.ChangeSummary,
+                    playerAction));
+                break;
+
+            case "Declare":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:declare",
+                    EventTimelineKind.NewDestination,
+                    string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
+                        ? $"{actingPlayerName} declared for home."
                         : gameEvent.ChangeSummary,
                     playerAction));
                 break;
@@ -606,6 +626,9 @@ public class GameService
                 break;
         }
 
+        var roverItems = BuildRoverTimelineItems(gameEvent, snapshot, previousSnapshot, playerAction);
+        var cashAnnouncementItems = BuildCashAnnouncementTimelineItems(gameEvent, snapshot, previousSnapshot, announcingCash, playerAction);
+
         if (timelineItems.Count == 0)
         {
             timelineItems.Add(CreateTimelineItem(
@@ -616,6 +639,8 @@ public class GameService
                 playerAction));
         }
 
+        timelineItems.AddRange(roverItems);
+        timelineItems.AddRange(cashAnnouncementItems);
         return timelineItems;
     }
 
@@ -641,7 +666,8 @@ public class GameService
         string eventId,
         EventTimelineKind eventKind,
         string? description,
-        PlayerAction? playerAction = null)
+        PlayerAction? playerAction = null,
+        int? actingPlayerIndexOverride = null)
     {
         return new EventTimelineItem
         {
@@ -651,7 +677,7 @@ public class GameService
                 ? gameEvent.EventKind
                 : description,
             OccurredUtc = gameEvent.OccurredUtc,
-            ActingPlayerIndex = gameEvent.ActingPlayerIndex,
+            ActingPlayerIndex = actingPlayerIndexOverride ?? gameEvent.ActingPlayerIndex,
             ActingUserId = playerAction?.ActorUserId ?? gameEvent.ActingUserId,
             IsAiAction = playerAction?.IsServerAuthoredAiAction == true,
             IsBotPlayer = playerAction?.BotMetadata?.IsBotPlayer == true,
@@ -669,6 +695,7 @@ public class GameService
         {
             "PickDestination" => EventTimelineKind.NewDestination,
             "ChooseDestinationRegion" => EventTimelineKind.NewDestination,
+            "Declare" => EventTimelineKind.NewDestination,
             "RollDice" => EventTimelineKind.DiceRoll,
             "Move" => EventTimelineKind.Move,
             "EndTurn" => EventTimelineKind.PayFees,
@@ -683,6 +710,125 @@ public class GameService
             "DeclinePurchase" => EventTimelineKind.DeclinedPurchase,
             _ => EventTimelineKind.Other
         };
+    }
+
+    private static List<EventTimelineItem> BuildCashAnnouncementTimelineItems(
+        GameEventEntity gameEvent,
+        GameState snapshot,
+        GameState? previousSnapshot,
+        int announcingCash,
+        PlayerAction? playerAction)
+    {
+        if (previousSnapshot is null)
+        {
+            return [];
+        }
+
+        var threshold = Math.Max(1, announcingCash);
+        var playerCount = Math.Min(snapshot.Players.Count, previousSnapshot.Players.Count);
+        var timelineItems = new List<EventTimelineItem>();
+
+        for (var playerIndex = 0; playerIndex < playerCount; playerIndex++)
+        {
+            var previousPlayer = previousSnapshot.Players[playerIndex];
+            var currentPlayer = snapshot.Players[playerIndex];
+            if (previousPlayer.Cash >= threshold || currentPlayer.Cash < threshold)
+            {
+                continue;
+            }
+
+            var playerName = !string.IsNullOrWhiteSpace(currentPlayer.Name)
+                ? currentPlayer.Name
+                : ResolvePlayerName(snapshot, playerIndex);
+            timelineItems.Add(CreateTimelineItem(
+                gameEvent,
+                $"{gameEvent.RowKey}:cash-announcement:{playerIndex}",
+                EventTimelineKind.CashAnnouncement,
+                $"Player {playerName} announces they have ${currentPlayer.Cash:N0}.",
+                playerAction,
+                playerIndex));
+        }
+
+        return timelineItems;
+    }
+
+    private static List<EventTimelineItem> BuildRoverTimelineItems(
+        GameEventEntity gameEvent,
+        GameState snapshot,
+        GameState? previousSnapshot,
+        PlayerAction? playerAction)
+    {
+        if (previousSnapshot is null)
+        {
+            return [];
+        }
+
+        var playerCount = Math.Min(snapshot.Players.Count, previousSnapshot.Players.Count);
+        var timelineItems = new List<EventTimelineItem>();
+
+        for (var playerIndex = 0; playerIndex < playerCount; playerIndex++)
+        {
+            var previousPlayer = previousSnapshot.Players[playerIndex];
+            var currentPlayer = snapshot.Players[playerIndex];
+            if (!previousPlayer.HasDeclared || currentPlayer.HasDeclared)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(previousPlayer.AlternateDestinationCityName)
+                && string.Equals(currentPlayer.DestinationCityName, previousPlayer.AlternateDestinationCityName, StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(currentPlayer.AlternateDestinationCityName))
+            {
+                var roverAmount = previousPlayer.Cash - currentPlayer.Cash;
+                var roveredPlayerName = !string.IsNullOrWhiteSpace(currentPlayer.Name)
+                    ? currentPlayer.Name
+                    : ResolvePlayerName(snapshot, playerIndex);
+                var roveringPlayerIndex = -1;
+                if (roverAmount > 0)
+                {
+                    for (var candidateIndex = 0; candidateIndex < playerCount; candidateIndex++)
+                    {
+                        if (candidateIndex == playerIndex)
+                        {
+                            continue;
+                        }
+
+                        var previousCandidate = previousSnapshot.Players[candidateIndex];
+                        var currentCandidate = snapshot.Players[candidateIndex];
+                        if (currentCandidate.Cash - previousCandidate.Cash == roverAmount)
+                        {
+                            roveringPlayerIndex = candidateIndex;
+                            break;
+                        }
+                    }
+                }
+
+                var roveringPlayerName = roveringPlayerIndex >= 0
+                    ? ResolvePlayerName(snapshot, roveringPlayerIndex)
+                    : ResolveActingPlayerName(gameEvent, ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex));
+
+                if (roverAmount > 0)
+                {
+                    timelineItems.Add(CreateTimelineItem(
+                        gameEvent,
+                        $"{gameEvent.RowKey}:rover:{playerIndex}",
+                        EventTimelineKind.PayFees,
+                        $"{roveringPlayerName} rovered {roveredPlayerName} for ${roverAmount:N0}.",
+                        playerAction,
+                        roveringPlayerIndex >= 0 ? roveringPlayerIndex : gameEvent.ActingPlayerIndex));
+                }
+
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:rover-alternate:{playerIndex}",
+                    EventTimelineKind.NewDestination,
+                    $"{roveredPlayerName} must go to to alternate destination {currentPlayer.DestinationCityName}.",
+                    playerAction,
+                    playerIndex));
+            }
+        }
+
+        return timelineItems;
     }
 
     private static GameState? TryDeserializeSnapshot(string serializedGameState)

@@ -515,6 +515,11 @@ public sealed class BotTurnService
         }
 
         var snapshotPlayer = snapshot.Players[player.Index];
+        if (player.Destination is null || string.IsNullOrWhiteSpace(snapshotPlayer.DestinationCityName))
+        {
+            return null;
+        }
+
         var route = player.ActiveRoute;
         var routeProgressIndex = route is null
             ? 0

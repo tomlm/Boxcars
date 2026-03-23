@@ -65,6 +65,95 @@ public class GameEngineSettingsThresholdTests
     }
 
     [Fact]
+    public void DeclaredArrivalAtHome_DoesNotAwardHomePayout()
+    {
+        var settings = GameSettings.Default with { WinningCash = 325_000 };
+        var (engine, _) = GameEngineFixture.CreateTestEngine(settings);
+        var player = engine.CurrentTurn.ActivePlayer;
+        var homeCity = player.HomeCity;
+        var startCity = engine.MapDefinition.Cities.First(city => !string.Equals(city.Name, homeCity.Name, StringComparison.Ordinal));
+        var alternateDestination = engine.MapDefinition.Cities.First(city =>
+            !string.Equals(city.Name, homeCity.Name, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(city.Name, startCity.Name, StringComparison.OrdinalIgnoreCase));
+
+        player.CurrentCity = startCity;
+        player.CurrentNodeId = ResolveNodeId(startCity.Name);
+        player.HasDeclared = true;
+        player.Destination = homeCity;
+        player.AlternateDestination = alternateDestination;
+        player.TripOriginCity = startCity;
+        player.ActiveRoute = engine.SuggestRoute();
+        player.RouteProgressIndex = 0;
+        player.Cash = settings.WinningCash;
+        var cashBeforeArrival = player.Cash;
+
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = player.ActiveRoute.NodeIds.Count - 1;
+        engine.CurrentTurn.MovementRemaining = player.ActiveRoute.NodeIds.Count - 1;
+
+        engine.MoveAlongRoute(player.ActiveRoute.NodeIds.Count - 1);
+
+        Assert.Equal(cashBeforeArrival, player.Cash);
+        Assert.Equal(GameStatus.Completed, engine.GameStatus);
+        Assert.Same(player, engine.Winner);
+    }
+
+    [Fact]
+    public void DeclaredArrivalAtHome_DroppingBelowWinningCash_RoutesToAlternateAndPaysOriginalTripOnArrival()
+    {
+        var settings = GameSettings.Default with
+        {
+            WinningCash = 325_000,
+            PublicFee = 1_000
+        };
+        var (engine, _) = GameEngineFixture.CreateTestEngine(settings);
+        var player = engine.CurrentTurn.ActivePlayer;
+        var homeCity = player.HomeCity;
+        var startCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Miami", StringComparison.OrdinalIgnoreCase));
+        var alternateDestination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Atlanta", StringComparison.OrdinalIgnoreCase));
+
+        player.CurrentCity = startCity;
+        player.CurrentNodeId = ResolveNodeId(startCity.Name);
+        player.HasDeclared = true;
+        player.Destination = homeCity;
+        player.AlternateDestination = alternateDestination;
+        player.TripOriginCity = startCity;
+        player.ActiveRoute = engine.SuggestRoute();
+        player.RouteProgressIndex = 0;
+        player.Cash = settings.WinningCash;
+
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = player.ActiveRoute.NodeIds.Count - 1;
+        engine.CurrentTurn.MovementRemaining = player.ActiveRoute.NodeIds.Count - 1;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(0);
+
+        engine.MoveAlongRoute(player.ActiveRoute.NodeIds.Count - 1);
+
+        Assert.False(player.HasDeclared);
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+        Assert.NotNull(player.Destination);
+        Assert.Equal("Atlanta", player.Destination!.Name);
+        Assert.Equal(startCity.Name, player.TripOriginCity?.Name);
+        Assert.Equal(settings.WinningCash - settings.PublicFee, player.Cash);
+
+        var cashBeforeAlternateArrival = player.Cash;
+        var expectedAlternatePayout = ResolveTripPayoff(engine, startCity.Name, alternateDestination.Name);
+
+        player.ActiveRoute = engine.SuggestRoute();
+        player.RouteProgressIndex = 0;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = player.ActiveRoute.NodeIds.Count - 1;
+        engine.CurrentTurn.MovementRemaining = player.ActiveRoute.NodeIds.Count - 1;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+
+        engine.MoveAlongRoute(player.ActiveRoute.NodeIds.Count - 1);
+
+        Assert.Equal(cashBeforeAlternateArrival + expectedAlternatePayout, player.Cash);
+        Assert.Null(player.TripOriginCity);
+        Assert.Equal(GameStatus.InProgress, engine.GameStatus);
+    }
+
+    [Fact]
     public void Resolve_LegacyGame_UsesDefaultRoverCash()
     {
         var resolver = new GameSettingsResolver();

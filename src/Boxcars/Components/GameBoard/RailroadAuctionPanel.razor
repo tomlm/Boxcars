@@ -20,38 +20,34 @@
                          Size="Size.Small"
                          Color="@GetParticipantChipColor(participant)"
                          Style="@GetParticipantChipStyle(participant)">
-                    <MudText Typo="Typo.body2" Inline="true">@participant.PlayerName</MudText>
-                    <MudText Typo="Typo.body2" Inline="true" Color="@GetParticipantDetailColor(participant)"> @BuildParticipantStatusLabel(participant)</MudText>
+                    <MudText Typo="Typo.body2" Inline="true" Color="@GetParticipantDetailColor(participant)">@BuildParticipantLabel(participant)</MudText>
                 </MudChip>
             }
         </MudStack>
 
-        @if (CanCurrentUserAct)
-        {
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-                <MudNumericField T="int"
-                                 Value="BidAmount"
-                                 ValueChanged="OnBidAmountChangedAsync"
-                                 Min="@AuctionState.MinimumBid"
-                                 Step="@Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement"
-                                 Immediate="true"
-                                 Label="Bid amount"
-                                 Disabled="@IsBusy"
-                                 Style="min-width: 9rem" />
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+            <MudNumericField T="int"
+                             Value="BidAmount"
+                             ValueChanged="OnBidAmountChangedAsync"
+                             Min="@AuctionState.MinimumBid"
+                             Step="@Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement"
+                             Immediate="true"
+                             Label="Bid amount"
+                             Disabled="@(!CanCurrentUserAct || IsBusy)"
+                             Style="min-width: 9rem" />
 
-                <MudButtonGroup OverrideStyles="false">
-                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="@IsBusy" OnClick="OnBidRequestedAsync">
-                        Bid
-                    </MudButton>
-                    <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="@IsBusy" OnClick="OnPassRequestedAsync">
-                        Pass
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" Disabled="@IsBusy" OnClick="OnDropOutRequestedAsync">
-                        Drop Out
-                    </MudButton>
-                </MudButtonGroup>
-            </MudStack>
-        }
+            <MudButtonGroup OverrideStyles="false">
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="@(!CanCurrentUserAct || IsBusy)" OnClick="OnBidRequestedAsync">
+                    Bid
+                </MudButton>
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="@(!CanCurrentUserAct || IsBusy)" OnClick="OnPassRequestedAsync">
+                    Pass
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Warning" Disabled="@(!CanCurrentUserAct || IsBusy)" OnClick="OnDropOutRequestedAsync">
+                    Drop Out
+                </MudButton>
+            </MudButtonGroup>
+        </MudStack>
     </MudStack>
 </MudPaper>
 
@@ -156,19 +152,21 @@
             return Color.Success;
         }
 
-        return Color.Secondary;
+        return Color.Default;
+    }
+
+    private string BuildParticipantLabel(AuctionParticipantModel participant)
+    {
+        return $"{participant.PlayerName} {BuildParticipantStatusLabel(participant)}";
     }
 
     private string BuildParticipantStatusLabel(AuctionParticipantModel participant)
     {
-        if (participant.HasDroppedOut)
+        if (participant.LastAction == AuctionParticipantActionModel.DropOut
+            || participant.LastAction == AuctionParticipantActionModel.AutoDropOut
+            || participant.HasDroppedOut)
         {
-            return "(out)";
-        }
-
-        if (participant.LastAction == AuctionParticipantActionModel.Pass)
-        {
-            return "(Pass)";
+            return "(Out)";
         }
 
         if (participant.LastBidAmount.HasValue)
@@ -176,21 +174,12 @@
             return $"({FormatCurrency(participant.LastBidAmount.Value)})";
         }
 
-        if (participant.PlayerIndex == AuctionState.LastBidderPlayerIndex && AuctionState.CurrentBid > 0)
+        if (participant.LastAction == AuctionParticipantActionModel.Pass || participant.HasPassedThisRound)
         {
-            return $"({FormatCurrency(AuctionState.CurrentBid)})";
+            return "(Pass)";
         }
 
-        var status = participant.LastAction switch
-            {
-                AuctionParticipantActionModel.Bid => "bid",
-                AuctionParticipantActionModel.Pass => "pass",
-                AuctionParticipantActionModel.DropOut => "out",
-                AuctionParticipantActionModel.AutoDropOut => "auto-out",
-                _ => "ready"
-            };
-
-        return $"({char.ToUpperInvariant(status[0])}{status[1..]})";
+        return "(Waiting)";
     }
 
     private static string FormatCurrency(int amount)

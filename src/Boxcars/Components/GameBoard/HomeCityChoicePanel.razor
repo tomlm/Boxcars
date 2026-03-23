@@ -1,7 +1,7 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudPaper Outlined="true" Class="pa-4" Style="width: min(100%, 42rem); margin: 0 auto">
+<MudPaper Outlined="true" Class="pa-4" Style="width: min(100%, 54rem); margin: 0 auto">
     <MudStack Spacing="2">
         <MudStack Spacing="0">
             <MudText Typo="Typo.h6">Choose Home City</MudText>
@@ -10,25 +10,27 @@
             </MudText>
         </MudStack>
 
-        <MudTable T="HomeCityOption" Items="Phase.Options" Dense="true" Hover="true" Bordered="true" Breakpoint="Breakpoint.Sm">
-            <HeaderContent>
-                <MudTh><strong>City</strong></MudTh>
-                <MudTh><strong>Current</strong></MudTh>
-                <MudTh></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="City">@context.CityName</MudTd>
-                <MudTd DataLabel="Current">@(context.IsCurrentSelection ? "Current" : string.Empty)</MudTd>
-                <MudTd DataLabel="Select">
-                    <MudButton Variant="@(IsSelected(context.CityName) ? Variant.Filled : Variant.Outlined)"
-                               Color="MudBlazor.Color.Primary"
-                               Disabled="@IsBusy"
-                               OnClick="() => OnCitySelectedAsync(context.CityName)">
-                        @(IsSelected(context.CityName) ? "Selected" : "Select")
-                    </MudButton>
-                </MudTd>
-            </RowTemplate>
-        </MudTable>
+        <MudChipSet T="string"
+                    SelectedValue="@SelectedCityName"
+                    SelectedValueChanged="SelectedCityNameChanged"
+                    SelectionMode="SelectionMode.SingleSelection"
+                    CheckMark
+                    Color="Color.Primary"
+                    Variant="Variant.Filled"
+                    Class="d-flex flex-wrap"
+                    Style="gap: 0.75rem">
+            @foreach (var option in Phase.Options)
+            {
+                <MudChip T="string"
+                         Value="@option.CityName"
+                         Disabled="@IsBusy"
+                         Color="MudBlazor.Color.Primary"
+                         SelectedColor="MudBlazor.Color.Primary"
+                         Style="min-width: 10rem; justify-content: center">
+                    @option.CityName
+                </MudChip>
+            }
+        </MudChipSet>
 
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="4">
             <MudText Typo="Typo.caption">
@@ -62,13 +64,4 @@
 
     private bool CanConfirm => Phase.CanConfirm && !string.IsNullOrWhiteSpace(SelectedCityName);
 
-    private bool IsSelected(string cityName)
-    {
-        return string.Equals(cityName, SelectedCityName, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private Task OnCitySelectedAsync(string cityName)
-    {
-        return SelectedCityNameChanged.InvokeAsync(cityName);
-    }
 }

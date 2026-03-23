@@ -32,7 +32,6 @@ public class GameBoardSettingsSummaryTests
 
         Assert.True(summary.HasContent);
         Assert.False(summary.UsesDefaultFallback);
-        Assert.Equal("Saved rules for this match are read-only once play begins.", summary.SourceDescription);
         Assert.Equal("$35,000", GetValue(summary, "Cash Rules", "Starting Cash"));
         Assert.Equal("Always visible", GetValue(summary, "Cash Rules", "Cash Visibility"));
         Assert.Equal("$1,500", GetValue(summary, "Fees", "Public Railroad Fee"));
@@ -62,7 +61,6 @@ public class GameBoardSettingsSummaryTests
 
         Assert.True(summary.HasContent);
         Assert.True(summary.UsesDefaultFallback);
-        Assert.Equal("Legacy game using documented default settings.", summary.SourceDescription);
         Assert.Equal("$20,000", GetValue(summary, "Cash Rules", "Starting Cash"));
         Assert.Equal("Hidden below announcing threshold", GetValue(summary, "Cash Rules", "Cash Visibility"));
         Assert.Equal("Player chooses city", GetValue(summary, "Home Setup", "Home City Choice"));

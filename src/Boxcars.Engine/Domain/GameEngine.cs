@@ -1717,7 +1717,6 @@ public sealed class GameEngine : ObservableBase
 
         if (arrivingHomeWhileDeclared)
         {
-            player.TripOriginCity = null;
             CurrentTurn.Phase = TurnPhase.UseFees;
             ResolveUseFees();
             return;
@@ -1849,6 +1848,7 @@ public sealed class GameEngine : ObservableBase
             && string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase)
             && player.Cash >= _settings.WinningCash)
         {
+            player.TripOriginCity = null;
             Winner = player;
             GameStatus = GameStatus.Completed;
             GameOver?.Invoke(this, new GameOverEventArgs(player));
@@ -2139,6 +2139,7 @@ public sealed class GameEngine : ObservableBase
                     PlayerIndex = participant.PlayerIndex,
                     PlayerName = participant.PlayerName,
                     CashOnHand = cashOnHand,
+                    LastBidAmount = participant.LastBidAmount,
                     IsEligible = participant.IsEligible && !shouldMarkAutoDrop,
                     HasDroppedOut = participant.HasDroppedOut || shouldMarkAutoDrop,
                     HasPassedThisRound = participant.HasPassedThisRound || shouldMarkAutoDrop,

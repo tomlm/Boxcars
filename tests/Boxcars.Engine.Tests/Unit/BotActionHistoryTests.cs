@@ -209,6 +209,83 @@ public class BotActionHistoryTests
     }
 
     [Fact]
+    public void BuildTimelineItems_CashAnnouncement_FiresOnceUntilPlayerDropsBelowThreshold()
+    {
+        var firstCrossingEvent = CreateTimelineEvent(
+            "Event_0000000001",
+            CreateSnapshot(240_000),
+            CreateSnapshot(250_000));
+        var repeatWhileAboveEvent = CreateTimelineEvent(
+            "Event_0000000002",
+            CreateSnapshot(250_000),
+            CreateSnapshot(265_000));
+        var recrossingEvent = CreateTimelineEvent(
+            "Event_0000000003",
+            CreateSnapshot(245_000),
+            CreateSnapshot(255_000));
+
+        var firstCrossingItems = InvokeBuildTimelineItems(firstCrossingEvent.currentEvent, firstCrossingEvent.previousEvent);
+        var repeatItems = InvokeBuildTimelineItems(repeatWhileAboveEvent.currentEvent, repeatWhileAboveEvent.previousEvent);
+        var recrossingItems = InvokeBuildTimelineItems(recrossingEvent.currentEvent, recrossingEvent.previousEvent);
+
+        Assert.Contains(firstCrossingItems, item => item.EventKind == EventTimelineKind.CashAnnouncement && item.Description == "Player Alice announces they have $250,000.");
+        Assert.DoesNotContain(repeatItems, item => item.EventKind == EventTimelineKind.CashAnnouncement);
+        Assert.Contains(recrossingItems, item => item.EventKind == EventTimelineKind.CashAnnouncement && item.Description == "Player Alice announces they have $255,000.");
+    }
+
+    [Fact]
+    public void BuildTimelineItems_CashAnnouncement_UsesConfiguredAnnouncementThreshold()
+    {
+        const int announcingCash = 300_000;
+        var belowThresholdEvent = CreateTimelineEvent(
+            "Event_0000000001",
+            CreateSnapshot(250_000),
+            CreateSnapshot(275_000));
+        var crossingEvent = CreateTimelineEvent(
+            "Event_0000000002",
+            CreateSnapshot(295_000),
+            CreateSnapshot(300_000));
+
+        var belowThresholdItems = InvokeBuildTimelineItems(
+            belowThresholdEvent.currentEvent,
+            belowThresholdEvent.previousEvent,
+            announcingCash);
+        var crossingItems = InvokeBuildTimelineItems(
+            crossingEvent.currentEvent,
+            crossingEvent.previousEvent,
+            announcingCash);
+
+        Assert.DoesNotContain(belowThresholdItems, item => item.EventKind == EventTimelineKind.CashAnnouncement);
+        Assert.Contains(crossingItems, item => item.EventKind == EventTimelineKind.CashAnnouncement && item.Description == "Player Alice announces they have $300,000.");
+    }
+
+    [Fact]
+    public void BuildTimelineItems_RoverEvent_AddsRoverAndAlternateDestinationNotifications()
+    {
+        var previousSnapshot = CreateSnapshot(300_000);
+        previousSnapshot.Players[0].HasDeclared = true;
+        previousSnapshot.Players[0].DestinationCityName = "New York";
+        previousSnapshot.Players[0].AlternateDestinationCityName = "Atlanta";
+        previousSnapshot.Players[1].Cash = 50_000;
+
+        var currentSnapshot = CreateSnapshot(250_000);
+        currentSnapshot.Players[0].HasDeclared = false;
+        currentSnapshot.Players[0].DestinationCityName = "Atlanta";
+        currentSnapshot.Players[0].AlternateDestinationCityName = null;
+        currentSnapshot.Players[1].Cash = 100_000;
+
+        var roverEvent = CreateTimelineEvent(
+            "Event_0000000004",
+            previousSnapshot,
+            currentSnapshot);
+
+        var timelineItems = InvokeBuildTimelineItems(roverEvent.currentEvent, roverEvent.previousEvent);
+
+        Assert.Contains(timelineItems, item => item.Description == "Bob rovered Alice for $50,000.");
+        Assert.Contains(timelineItems, item => item.Description == "Alice must go to to alternate destination Atlanta.");
+    }
+
+    [Fact]
     public void BuildLatestBotControlStates_PrefersLatestControlStatusPerPlayer()
     {
         var mapper = new GameBoardStateMapper(
@@ -334,10 +411,81 @@ public class BotActionHistoryTests
 
     private static IReadOnlyList<EventTimelineItem> InvokeBuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
     {
-        var method = typeof(GameService).GetMethod("BuildTimelineItems", BindingFlags.NonPublic | BindingFlags.Static)
+        return InvokeBuildTimelineItems(gameEvent, previousGameEvent, null);
+    }
+
+    private static IReadOnlyList<EventTimelineItem> InvokeBuildTimelineItems(
+        GameEventEntity gameEvent,
+        GameEventEntity? previousGameEvent,
+        int? announcingCash)
+    {
+        var method = typeof(GameService).GetMethod(
+            "BuildTimelineItems",
+            BindingFlags.NonPublic | BindingFlags.Static,
+            binder: null,
+            announcingCash.HasValue
+                ? [typeof(GameEventEntity), typeof(GameEventEntity), typeof(int)]
+                : [typeof(GameEventEntity), typeof(GameEventEntity)],
+            modifiers: null)
             ?? throw new InvalidOperationException("BuildTimelineItems was not found.");
 
-        return (IReadOnlyList<EventTimelineItem>)(method.Invoke(null, [gameEvent, previousGameEvent])
+        var arguments = announcingCash.HasValue
+            ? new object?[] { gameEvent, previousGameEvent, announcingCash.Value }
+            : [gameEvent, previousGameEvent];
+
+        return (IReadOnlyList<EventTimelineItem>)(method.Invoke(null, arguments)
             ?? throw new InvalidOperationException("BuildTimelineItems returned null."));
+    }
+
+    private static (GameEventEntity currentEvent, GameEventEntity previousEvent) CreateTimelineEvent(
+        string rowKey,
+        global::Boxcars.Engine.Persistence.GameState previousSnapshot,
+        global::Boxcars.Engine.Persistence.GameState currentSnapshot)
+    {
+        return (
+            new GameEventEntity
+            {
+                PartitionKey = "game-1",
+                RowKey = rowKey,
+                GameId = "game-1",
+                EventKind = "Move",
+                ChangeSummary = "Alice moved.",
+                SerializedGameState = JsonSerializer.Serialize(currentSnapshot),
+                OccurredUtc = DateTimeOffset.UtcNow,
+                ActingPlayerIndex = 0,
+                CreatedBy = "alice@example.com"
+            },
+            new GameEventEntity
+            {
+                PartitionKey = "game-1",
+                RowKey = $"{rowKey}-previous",
+                GameId = "game-1",
+                EventKind = "RollDice",
+                SerializedGameState = JsonSerializer.Serialize(previousSnapshot),
+                OccurredUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+                ActingPlayerIndex = 0,
+                CreatedBy = "alice@example.com"
+            });
+    }
+
+    private static global::Boxcars.Engine.Persistence.GameState CreateSnapshot(int cash)
+    {
+        return new global::Boxcars.Engine.Persistence.GameState
+        {
+            ActivePlayerIndex = 0,
+            Players =
+            [
+                new global::Boxcars.Engine.Persistence.PlayerState
+                {
+                    Name = "Alice",
+                    Cash = cash
+                },
+                new global::Boxcars.Engine.Persistence.PlayerState
+                {
+                    Name = "Bob",
+                    Cash = 50_000
+                }
+            ]
+        };
     }
 }

@@ -26,6 +26,12 @@
                     <MudPaper Style="@GetCardStyle(player)">
                         <MudStack Row="true" Style="@GetPortraitStyle(player)">
                             <div style="position: relative; display: inline-flex; flex-shrink: 0">
+                                @if (player.IsWinner)
+                                {
+                                    <div style="position: absolute; top: -0.2rem; left: -0.2rem; z-index: 2; background: linear-gradient(135deg, #facc15, #f59e0b); color: #1f2937; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.08em; padding: 0.15rem 0.45rem; border-radius: 0.35rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.35)">
+                                        WINNER
+                                    </div>
+                                }
                                 <MudButton Variant="Variant.Text"
                                            Color="MudBlazor.Color.Inherit"
                                            Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0"
@@ -89,6 +95,18 @@
                             <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
                                 <span style="font-weight: 700">Cash:</span> <span style="@GetCashValueStyle(player)">@player.GetMoneyDisplay()</span>
                             </MudText>
+                            @if (player.HasDeclared)
+                            {
+                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                                    <span style="font-weight: 700">Declared: @player.HomeCity</span>
+                                </MudText>
+                                @if (!string.IsNullOrWhiteSpace(player.AlternateCity))
+                                {
+                                    <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                                        <span style="font-weight: 700">Alternate City:</span> @player.AlternateCity
+                                    </MudText>
+                                }
+                            }
                             @if (!string.IsNullOrWhiteSpace(player.DelegatedControllerDisplayName))
                             {
                                 <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1; font-style: italic; color: var(--mud-palette-text-secondary)">

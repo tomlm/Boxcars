@@ -321,7 +321,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         PublishStateChanged(
             gameId,
             restoredSnapshot,
-            GameService.BuildTimelineItems(persistedUndoEvent, previousGameEvent: null));
+            GameService.BuildTimelineItems(persistedUndoEvent, previousGameEvent: null, resolvedSettings.Settings.AnnouncingCash));
         return true;
     }
 
@@ -341,6 +341,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     gameEngine = await GetOrCreateGameEngineAsync(queuedAction.GameId, stoppingToken);
                     var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
                         ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
+                    var announcingCash = _gameSettingsResolver.Resolve(gameEntity).Settings.AnnouncingCash;
                     var playerStates = await GetGamePlayerStatesAsync(queuedAction.GameId, stoppingToken);
 
                     var snapshotBeforeAction = gameEngine.ToSnapshot();
@@ -361,7 +362,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     PublishStateChanged(
                         queuedAction.GameId,
                         snapshot,
-                        BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeAction));
+                        BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeAction, announcingCash));
 
                     await AdvanceAutomaticTurnFlowAsync(gameEntity, queuedAction.GameId, gameEngine, stoppingToken);
                 }
@@ -768,6 +769,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         await _botTurnService.EnsureBotSeatControlStatesAsync(gameId, playerStates, gameEntity.CreatorId, cancellationToken);
 
         var snapshot = gameEngine.ToSnapshot();
+        var announcingCash = _gameSettingsResolver.Resolve(gameEntity).Settings.AnnouncingCash;
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
@@ -788,7 +790,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
                 await UpdatePlayerStateStatisticsAsync(gameId, snapshotBeforeResolution, snapshot, cancellationToken);
 
-                PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution));
+                PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, announcingCash));
                 continue;
             }
 
@@ -821,7 +823,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
             await UpdatePlayerStateStatisticsAsync(gameId, snapshotBeforeAction, snapshot, cancellationToken);
 
-            PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction));
+            PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction, announcingCash));
 
             if (automaticAction.BotMetadata is not null && _botOptions.AutomaticActionDelayMilliseconds > 0)
             {
@@ -1838,7 +1840,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         OnStateChanged?.Invoke(gameId, new GameStateUpdate(state, timelineItems ?? []));
     }
 
-    private static List<EventTimelineItem> BuildLiveTimelineItems(GameEventEntity gameEvent, RailBaronGameState? previousSnapshot)
+    private static List<EventTimelineItem> BuildLiveTimelineItems(GameEventEntity gameEvent, RailBaronGameState? previousSnapshot, int announcingCash)
     {
         var previousGameEvent = previousSnapshot is null
             ? null
@@ -1847,7 +1849,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 SerializedGameState = GameEventSerialization.SerializeSnapshot(previousSnapshot)
             };
 
-        return GameService.BuildTimelineItems(gameEvent, previousGameEvent);
+        return GameService.BuildTimelineItems(gameEvent, previousGameEvent, announcingCash);
     }
 
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
@@ -2319,6 +2321,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static PlayerAction? CreateAutomaticTurnAction(RailBaronGameEngine gameEngine)
     {
+        if (gameEngine.GameStatus != Boxcars.Engine.Domain.GameStatus.InProgress)
+        {
+            return null;
+        }
+
         var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
         var playerIndex = activePlayer.Index;
 

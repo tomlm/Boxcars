@@ -474,7 +474,12 @@ public class GameEngineServiceAiHistoryTests
 
     private static IReadOnlyList<EventTimelineItem> InvokeBuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
     {
-        var method = typeof(GameService).GetMethod("BuildTimelineItems", BindingFlags.NonPublic | BindingFlags.Static)
+        var method = typeof(GameService).GetMethod(
+            "BuildTimelineItems",
+            BindingFlags.NonPublic | BindingFlags.Static,
+            binder: null,
+            [typeof(GameEventEntity), typeof(GameEventEntity)],
+            modifiers: null)
             ?? throw new InvalidOperationException("BuildTimelineItems was not found.");
 
         return (IReadOnlyList<EventTimelineItem>)(method.Invoke(null, [gameEvent, previousGameEvent])

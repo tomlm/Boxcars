@@ -1,5 +1,7 @@
+using System.Text;
 using System.Text.Json;
 using Boxcars.Engine.Persistence;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace Boxcars.Data;
 
@@ -20,10 +22,18 @@ public sealed record CreateGameRequest
     public int MaxPlayers => Players.Count;
 }
 
+public sealed record ReplayGamePreset
+{
+    public string MapFileName { get; init; } = "U21MAP.RB3";
+    public IReadOnlyList<GamePlayerSelection> Players { get; init; } = [];
+    public GameSettings Settings { get; init; } = GameSettings.Default;
+}
+
 public enum EventTimelineKind
 {
     Other,
     NewDestination,
+    CashAnnouncement,
     DiceRoll,
     Move,
     Arrival,
@@ -60,5 +70,34 @@ public static class GamePlayerSelectionSerialization
     public static IReadOnlyList<GamePlayerSelection> Deserialize(string payload)
     {
         return JsonSerializer.Deserialize<List<GamePlayerSelection>>(payload) ?? [];
+    }
+}
+
+public static class ReplayGamePresetSerialization
+{
+    public static string Serialize(ReplayGamePreset preset)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+
+        var json = JsonSerializer.Serialize(preset);
+        return WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(json));
+    }
+
+    public static ReplayGamePreset? Deserialize(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(payload));
+            return JsonSerializer.Deserialize<ReplayGamePreset>(json);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

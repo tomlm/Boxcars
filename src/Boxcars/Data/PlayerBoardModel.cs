@@ -52,8 +52,17 @@ public sealed class PlayerBoardModel
     /// <summary>Home city name.</summary>
     public string HomeCity { get; init; } = string.Empty;
 
+    /// <summary>True when the player has declared an attempt to return home and win.</summary>
+    public bool HasDeclared { get; init; }
+
+    /// <summary>Alternate destination used if the declared player falls below the winning threshold.</summary>
+    public string AlternateCity { get; init; } = string.Empty;
+
     /// <summary>True if the player's turn is active.</summary>
     public bool IsActiveTurn { get; init; }
+
+    /// <summary>True when this player won the game.</summary>
+    public bool IsWinner { get; init; }
 
     /// <summary>True when the player has been eliminated and is out of the game.</summary>
     public bool IsEliminated { get; init; }
@@ -97,7 +106,6 @@ public sealed class PlayerBoardModel
     /// <summary>True when the current viewer should see the exact cash amount instead of the coarse public indicator.</summary>
     public bool CanViewExactCash => IsCurrentUser
         || (IsDelegatedToCurrentUser && !HasActiveBotControl)
-        || !KeepCashSecret
         || Cash >= AnnouncingCashThreshold;
 
     /// <summary>True when opponents should see concealed cash below the announcing threshold.</summary>

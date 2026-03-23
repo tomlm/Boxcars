@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components
 @using Boxcars.Data
 @using Boxcars.Engine.Domain
 @using Boxcars.Engine.Persistence
@@ -152,7 +153,7 @@
             </MudStack>
 
             <MudText Typo="Typo.body2" Style="opacity: 0.75">
-                Map: @GameService.DefaultMapFileName
+                Map: @_mapFileName
             </MudText>
 
             <MudStack Row="true" Spacing="3">
@@ -182,9 +183,14 @@
     private bool _creating;
     private string? _validationMessage;
     private GameSettings _settings = GameSettings.Default;
+    private string _mapFileName = GameService.DefaultMapFileName;
+    private string? _appliedPresetPayload;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromQuery(Name = "preset")]
+    private string? Preset { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -209,6 +215,7 @@
 
         _playerCount = Math.Min(4, _playerCountOptions[^1]);
         InitializePlayerSlots();
+        ApplyReplayPreset();
     }
 
     private void InitializePlayerSlots()
@@ -348,7 +355,7 @@
             var request = new CreateGameRequest
             {
                 CreatorUserId = _currentUserId,
-                MapFileName = GameService.DefaultMapFileName,
+                MapFileName = _mapFileName,
                 Settings = _settings,
                 Players = _playerSlots.Select(slot => new GamePlayerSelection
                 {
@@ -431,6 +438,62 @@
     {
         _settings = settings;
         _validationMessage = null;
+    }
+
+    private void ApplyReplayPreset()
+    {
+        if (string.IsNullOrWhiteSpace(Preset)
+            || string.Equals(Preset, _appliedPresetPayload, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var replayPreset = ReplayGamePresetSerialization.Deserialize(Preset);
+        if (replayPreset is null)
+        {
+            _validationMessage = "Unable to load the replay setup.";
+            return;
+        }
+
+        var presetPlayers = replayPreset.Players
+            .Where(player => !string.IsNullOrWhiteSpace(player.UserId))
+            .Take(Math.Max(2, Math.Min(6, replayPreset.Players.Count)))
+            .ToList();
+
+        if (presetPlayers.Count < 2)
+        {
+            _validationMessage = "Replay setup must include at least two players.";
+            return;
+        }
+
+        var currentUserIndex = presetPlayers.FindIndex(player =>
+            string.Equals(player.UserId, _currentUserId, StringComparison.Ordinal));
+        if (currentUserIndex < 0)
+        {
+            _validationMessage = "Replay setup must include your player seat.";
+            return;
+        }
+
+        _playerCount = presetPlayers.Count;
+        _settings = replayPreset.Settings;
+        _mapFileName = string.IsNullOrWhiteSpace(replayPreset.MapFileName)
+            ? GameService.DefaultMapFileName
+            : replayPreset.MapFileName;
+        _playerSlots.Clear();
+
+        for (var index = 0; index < presetPlayers.Count; index++)
+        {
+            var player = presetPlayers[index];
+            _playerSlots.Add(new PlayerSlot
+            {
+                UserId = player.UserId,
+                AssignedColor = PlayerColorOptions.NormalizeOrDefault(player.Color),
+                IsCreatorSeat = index == currentUserIndex
+            });
+        }
+
+        _validationMessage = null;
+        _appliedPresetPayload = Preset;
     }
 
     private string ResolveDefaultColor(ApplicationUser? profile, HashSet<string> usedColors)
