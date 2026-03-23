@@ -20,22 +20,35 @@ public class GameService
     private readonly TableClient _usersTable;
     private readonly IHubContext<DashboardHub> _hubContext;
     private readonly IGameEngine _gameEngine;
+    private readonly GameSettingsResolver _gameSettingsResolver;
 
-    public GameService(TableServiceClient tableServiceClient, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
+    public GameService(TableServiceClient tableServiceClient, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine, GameSettingsResolver gameSettingsResolver)
         : this(
             tableServiceClient.GetTableClient(TableNames.GamesTable),
             tableServiceClient.GetTableClient(TableNames.UsersTable),
             hubContext,
-            gameEngine)
+            gameEngine,
+            gameSettingsResolver)
     {
     }
 
-    public GameService(TableClient gamesTable, TableClient usersTable, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
+    public GameService(TableServiceClient tableServiceClient, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
+        : this(tableServiceClient, hubContext, gameEngine, new GameSettingsResolver())
+    {
+    }
+
+    public GameService(TableClient gamesTable, TableClient usersTable, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine, GameSettingsResolver gameSettingsResolver)
     {
         _gamesTable = gamesTable;
         _usersTable = usersTable;
         _hubContext = hubContext;
         _gameEngine = gameEngine;
+        _gameSettingsResolver = gameSettingsResolver;
+    }
+
+    public GameService(TableClient gamesTable, TableClient usersTable, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine)
+        : this(gamesTable, usersTable, hubContext, gameEngine, new GameSettingsResolver())
+    {
     }
 
     public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
@@ -73,9 +86,21 @@ public class GameService
 
     public async Task<GameActionResult> CreateGameAsync(CreateGameRequest request, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         if (request.Players.Count < 2)
         {
             return new GameActionResult { Success = false, Reason = "At least two player slots are required." };
+        }
+
+        GameSettings normalizedSettings;
+        try
+        {
+            normalizedSettings = _gameSettingsResolver.Normalize(request.Settings);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return new GameActionResult { Success = false, Reason = exception.Message };
         }
 
         var duplicateUser = request.Players
@@ -100,7 +125,7 @@ public class GameService
 
         try
         {
-            var createdGameId = await _gameEngine.CreateGameAsync(request with { CreatorUserId = request.CreatorUserId },
+            var createdGameId = await _gameEngine.CreateGameAsync(request with { CreatorUserId = request.CreatorUserId, Settings = normalizedSettings },
                 new GameCreationOptions { PreferredGameId = gameId },
                 cancellationToken);
 
@@ -177,6 +202,12 @@ public class GameService
 
         try
         {
+            var persistedGame = await GetGameAsync(gameId, cancellationToken);
+            if (persistedGame is null)
+            {
+                return GameUpdateResult.Failed("Game is no longer active.");
+            }
+
             var persistedPlayerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
             if (persistedPlayerStates.Count == 0)
             {
@@ -238,9 +269,17 @@ public class GameService
 
             var updatedGame = await GetGameAsync(gameId, cancellationToken);
             var updatedPlayerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
-            return updatedGame is null
-                ? GameUpdateResult.Failed("Game is no longer active.")
-                : GameUpdateResult.Success(updatedGame, updatedPlayerStates);
+            if (updatedGame is null)
+            {
+                return GameUpdateResult.Failed("Game is no longer active.");
+            }
+
+            if (!AreImmutableGameSettingsEqual(persistedGame, updatedGame))
+            {
+                return GameUpdateResult.Conflict("Game settings changed during a post-start update. Refresh and try again.");
+            }
+
+            return GameUpdateResult.Success(updatedGame, updatedPlayerStates);
         }
         catch (RequestFailedException ex) when (ex.Status == 412)
         {
@@ -252,6 +291,25 @@ public class GameService
     {
         return AreBotControlColumnsEqual(left, right)
             && AreStatisticsColumnsEqual(left, right);
+    }
+
+    private static bool AreImmutableGameSettingsEqual(GameEntity left, GameEntity right)
+    {
+        return left.StartingCash == right.StartingCash
+            && left.AnnouncingCash == right.AnnouncingCash
+            && left.WinningCash == right.WinningCash
+            && left.RoverCash == right.RoverCash
+            && left.PublicFee == right.PublicFee
+            && left.PrivateFee == right.PrivateFee
+            && left.UnfriendlyFee1 == right.UnfriendlyFee1
+            && left.UnfriendlyFee2 == right.UnfriendlyFee2
+            && left.HomeSwapping == right.HomeSwapping
+            && left.HomeCityChoice == right.HomeCityChoice
+            && left.KeepCashSecret == right.KeepCashSecret
+            && string.Equals(left.StartEngine, right.StartEngine, StringComparison.Ordinal)
+            && left.SuperchiefPrice == right.SuperchiefPrice
+            && left.ExpressPrice == right.ExpressPrice
+            && left.SettingsSchemaVersion == right.SettingsSchemaVersion;
     }
 
     private static bool AreBotControlColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)

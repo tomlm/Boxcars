@@ -1,5 +1,6 @@
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
+using Boxcars.Engine.Persistence;
 using Boxcars.Engine.Tests.TestDoubles;
 using GE = Boxcars.Engine.Domain.GameEngine;
 
@@ -10,6 +11,12 @@ namespace Boxcars.Engine.Tests.Fixtures;
 /// </summary>
 public static class GameEngineFixture
 {
+    private static readonly GameSettings LegacyFlowSettings = GameSettings.Default with
+    {
+        HomeCityChoice = false,
+        HomeSwapping = false
+    };
+
     /// <summary>Default player names for tests.</summary>
     public static readonly string[] DefaultPlayerNames = ["Alice", "Bob"];
 
@@ -128,7 +135,24 @@ public static class GameEngineFixture
         var count = playerCount ?? names.Length;
         var map = CreateTestMap();
         var random = CreateDeterministicRandom(count);
-        var engine = new GE(map, names, random);
+        var engine = new GE(map, names, random, LegacyFlowSettings);
+        return (engine, random);
+    }
+
+    public static (GE Engine, FixedRandomProvider Random) CreateTestEngine(
+        GameSettings settings,
+        string[]? playerNames = null,
+        int? playerCount = null)
+    {
+        var names = playerNames ?? DefaultPlayerNames;
+        var count = playerCount ?? names.Length;
+        var map = CreateTestMap();
+        var random = CreateDeterministicRandom(count);
+        var engine = new GE(map, names, random, settings with
+        {
+            HomeCityChoice = false,
+            HomeSwapping = false
+        });
         return (engine, random);
     }
 

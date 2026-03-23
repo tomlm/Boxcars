@@ -16,5 +16,19 @@ public class GameEntity : ITableEntity
     public int MaxPlayers { get; set; } = 6;
     public int CurrentPlayerCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
-    public string SettingsJson { get; set; } = string.Empty;
+    public int? StartingCash { get; set; }
+    public int? AnnouncingCash { get; set; }
+    public int? WinningCash { get; set; }
+    public int? RoverCash { get; set; }
+    public int? PublicFee { get; set; }
+    public int? PrivateFee { get; set; }
+    public int? UnfriendlyFee1 { get; set; }
+    public int? UnfriendlyFee2 { get; set; }
+    public bool? HomeSwapping { get; set; }
+    public bool? HomeCityChoice { get; set; }
+    public bool? KeepCashSecret { get; set; }
+    public string? StartEngine { get; set; }
+    public int? SuperchiefPrice { get; set; }
+    public int? ExpressPrice { get; set; }
+    public int? SettingsSchemaVersion { get; set; }
 }

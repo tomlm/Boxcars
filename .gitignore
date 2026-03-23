@@ -57,3 +57,4 @@ __blobstorage__/
 __queuestorage__/
 
 artifacts
+.dotnet

@@ -21,8 +21,7 @@ public class RegionChoiceStateMapperTests
         var mapper = new GameBoardStateMapper(
             new NetworkCoverageService(),
             new MapAnalysisService(new MapRouteService()),
-            new PurchaseRecommendationService(),
-            Options.Create(new PurchaseRulesOptions()));
+            new PurchaseRecommendationService());
 
         var playerStates = BotTurnServiceTestHarness.CreatePlayerStates(
         [
@@ -58,8 +57,7 @@ public class RegionChoiceStateMapperTests
         var mapper = new GameBoardStateMapper(
             new NetworkCoverageService(),
             new MapAnalysisService(new MapRouteService()),
-            new PurchaseRecommendationService(),
-            Options.Create(new PurchaseRulesOptions()));
+            new PurchaseRecommendationService());
 
         var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
         [

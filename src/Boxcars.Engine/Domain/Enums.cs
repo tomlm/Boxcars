@@ -9,6 +9,8 @@ public enum GameStatus
 
 public enum TurnPhase
 {
+    HomeCityChoice,
+    HomeSwap,
     DrawDestination,
     RegionChoice,
     Roll,
@@ -24,4 +26,10 @@ public enum LocomotiveType
     Freight,
     Express,
     Superchief
+}
+
+public enum PendingDestinationAssignmentKind
+{
+    NormalDestination,
+    DeclaredAlternateDestination
 }

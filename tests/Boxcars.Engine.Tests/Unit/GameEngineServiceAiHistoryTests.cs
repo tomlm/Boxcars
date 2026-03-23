@@ -234,7 +234,6 @@ public class GameEngineServiceAiHistoryTests
             new GamePresenceService(),
             null!,
             Options.Create(new BotOptions()),
-            Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
 
         await InvokePersistPlayerStateControlChangesAsync(service, [staleOriginal], [updatedPlayerState]);
@@ -265,7 +264,6 @@ public class GameEngineServiceAiHistoryTests
             new GamePresenceService(),
             null!,
             Options.Create(new BotOptions()),
-            Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
 
         var (engine, random) = GameEngineFixture.CreateTestEngine();
@@ -301,7 +299,6 @@ public class GameEngineServiceAiHistoryTests
             new GamePresenceService(),
             null!,
             Options.Create(new BotOptions()),
-            Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
         SetMapDefinition(service, GameEngineFixture.CreateTestMap());
 
@@ -420,7 +417,6 @@ public class GameEngineServiceAiHistoryTests
             new GamePresenceService(),
             null!,
             Options.Create(new BotOptions()),
-            Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
 
         var snapshotBeforeAction = new global::Boxcars.Engine.Persistence.GameState
@@ -550,7 +546,6 @@ public class GameEngineServiceAiHistoryTests
             new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
             presenceService,
             Options.Create(new BotOptions()),
-            Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
     }
 

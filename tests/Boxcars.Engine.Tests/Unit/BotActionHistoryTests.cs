@@ -214,8 +214,7 @@ public class BotActionHistoryTests
         var mapper = new GameBoardStateMapper(
             new NetworkCoverageService(),
             new MapAnalysisService(new MapRouteService()),
-            new PurchaseRecommendationService(),
-            Options.Create(new PurchaseRulesOptions()));
+            new PurchaseRecommendationService());
 
         var controlStates = mapper.BuildLatestBotControlStates(
         [
@@ -256,8 +255,7 @@ public class BotActionHistoryTests
         var mapper = new GameBoardStateMapper(
             new NetworkCoverageService(),
             new MapAnalysisService(new MapRouteService()),
-            new PurchaseRecommendationService(),
-            Options.Create(new PurchaseRulesOptions()));
+            new PurchaseRecommendationService());
 
         var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
         [
@@ -321,7 +319,6 @@ public class BotActionHistoryTests
             new TableServiceClient(new Uri("https://example.com"), new TableSharedKeyCredential("devstoreaccount1", Convert.ToBase64String(new byte[32]))),
             presenceService,
             Options.Create(new BotOptions()),
-            Options.Create(new PurchaseRulesOptions()),
             NullLogger<GameEngineService>.Instance);
     }
 

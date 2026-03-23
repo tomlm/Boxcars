@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Boxcars.Data;
 using Boxcars.Engine.Data.Maps;
+using Boxcars.Engine.Persistence;
 using Boxcars.GameEngine;
 using Microsoft.AspNetCore.Hosting;
 using RailBaronGameState = Boxcars.Engine.Persistence.GameState;
@@ -48,10 +49,11 @@ public sealed class GameBoardAdviceService(
         var playerStates = await gameService.GetGamePlayerStatesAsync(gameId, cancellationToken);
         var gameState = await gameEngine.GetCurrentStateAsync(gameId, cancellationToken);
         var mapDefinition = await LoadMapDefinitionAsync(game.MapFileName, cancellationToken);
+        var settings = new GameSettingsResolver().Resolve(game).Settings;
 
         // Resolve the controlled player's strategy text from their profile
         var controlledSeatIndex = ResolveControlledPlayerIndex(gameState,
-            gameBoardStateMapper.BuildTurnViewState(gameId, playerStates, gameState, currentUserId, mapDefinition),
+            gameBoardStateMapper.BuildTurnViewState(gameId, playerStates, gameState, currentUserId, mapDefinition, gameEntity: game),
             preferredControlledPlayerIndex);
         var safeIndex = controlledSeatIndex >= 0 && controlledSeatIndex < playerStates.Count
             ? controlledSeatIndex
@@ -64,7 +66,7 @@ public sealed class GameBoardAdviceService(
             strategyText = PlayerProfileService.ResolveStrategyTextOrDefault(profile?.StrategyText);
         }
 
-        var snapshot = BuildContextSnapshot(gameId, currentUserId, preferredControlledPlayerIndex, game, conversation, gameState, playerStates, mapDefinition, strategyText);
+        var snapshot = BuildContextSnapshot(gameId, currentUserId, preferredControlledPlayerIndex, game, conversation, gameState, playerStates, mapDefinition, strategyText, settings);
 
         conversation.ControlledPlayerIndex = snapshot.ControlledPlayerIndex;
         conversation.LastContextRefreshUtc = DateTimeOffset.UtcNow;
@@ -95,9 +97,10 @@ public sealed class GameBoardAdviceService(
         RailBaronGameState gameState,
         IReadOnlyList<GamePlayerStateEntity> playerStates,
         MapDefinition mapDefinition,
-        string strategyText)
+        string strategyText,
+        GameSettings settings)
     {
-        var turnViewState = gameBoardStateMapper.BuildTurnViewState(gameId, playerStates, gameState, currentUserId, mapDefinition);
+        var turnViewState = gameBoardStateMapper.BuildTurnViewState(gameId, playerStates, gameState, currentUserId, mapDefinition, gameEntity: game);
         var controlledPlayerIndex = ResolveControlledPlayerIndex(gameState, turnViewState, preferredControlledPlayerIndex);
         var safeControlledPlayerIndex = controlledPlayerIndex >= 0 && controlledPlayerIndex < gameState.Players.Count
             ? controlledPlayerIndex
@@ -117,18 +120,18 @@ public sealed class GameBoardAdviceService(
             OtherPlayerSummaries = gameState.Players
                 .Select((player, playerIndex) => new { player, playerIndex })
                 .Where(entry => entry.playerIndex != safeControlledPlayerIndex)
-                .Select(entry => BuildOpponentSummary(entry.playerIndex, entry.player, mapDefinition))
+                .Select(entry => BuildOpponentSummary(entry.playerIndex, entry.player, mapDefinition, settings))
                 .ToList(),
             BoardSituationSummary = BuildBoardSituationSummary(gameState),
             SeedContextContent = conversation.SeedContextContent,
             AuthoritativePayloadJson = string.Empty,
             RecentConversation = conversation.Messages.TakeLast(6).ToList(),
             MapContext = BuildMapContext(mapDefinition, railroadCityMap, gameState),
-            ControlledPlayerContext = BuildControlledPlayerContext(gameState, mapDefinition, safeControlledPlayerIndex, controlledPlayer),
+            ControlledPlayerContext = BuildControlledPlayerContext(gameState, mapDefinition, safeControlledPlayerIndex, controlledPlayer, settings),
             OpponentContexts = gameState.Players
                 .Select((player, idx) => new { player, idx })
                 .Where(x => x.idx != safeControlledPlayerIndex)
-                .Select(x => BuildOpponentContext(x.idx, x.player, gameState, mapDefinition))
+                .Select(x => BuildOpponentContext(x.idx, x.player, gameState, mapDefinition, settings))
                 .ToList(),
             AvailableRailroads = BuildAvailableRailroads(gameState, mapDefinition, controlledPlayer, railroadCityMap),
             HighValuePayouts = BuildHighValuePayouts(mapDefinition),
@@ -194,7 +197,7 @@ public sealed class GameBoardAdviceService(
             $"Their owned network currently reaches {coverage.AccessibleDestinationPercent:N1}% of destinations with {coverage.MonopolyDestinationPercent:N1}% monopoly coverage.");
     }
 
-    private static string BuildOpponentSummary(int playerIndex, PlayerStateSnapshot player, MapDefinition mapDefinition)
+    private static string BuildOpponentSummary(int playerIndex, PlayerStateSnapshot player, MapDefinition mapDefinition, GameSettings settings)
     {
         var ownedRailroadNames = player.OwnedRailroadIndices
             .Select(idx => mapDefinition.Railroads.FirstOrDefault(r => r.Index == idx)?.ShortName)
@@ -202,11 +205,12 @@ public sealed class GameBoardAdviceService(
             .Cast<string>()
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var visibleCash = FormatVisibleCash(player.Cash, settings);
 
         return string.Join(" ",
             $"P{playerIndex + 1} {player.Name}",
             player.IsActive ? "is active in the game." : "has been eliminated.",
-            $"Cash: ${player.Cash:N0}.",
+            $"Cash: {visibleCash}.",
             $"Engine: {player.LocomotiveType}.",
             string.IsNullOrWhiteSpace(player.DestinationCityName)
                 ? "No known destination is currently assigned."
@@ -327,7 +331,8 @@ public sealed class GameBoardAdviceService(
         RailBaronGameState gameState,
         MapDefinition mapDefinition,
         int controlledPlayerIndex,
-        PlayerStateSnapshot controlledPlayer)
+        PlayerStateSnapshot controlledPlayer,
+        GameSettings settings)
     {
         var ownedCoverage = networkCoverageService.BuildSnapshot(mapDefinition, controlledPlayer.OwnedRailroadIndices);
         var otherOwnedIndices = gameState.Players
@@ -364,7 +369,7 @@ public sealed class GameBoardAdviceService(
             NetworkAccessPercent = ownedCoverage.AccessibleDestinationPercent,
             EffectiveAccessPercent = effectiveCoverage.AccessibleDestinationPercent,
             MonopolyPercent = ownedCoverage.MonopolyDestinationPercent,
-            CashToWin = Math.Max(0, 200_000 - controlledPlayer.Cash),
+            CashToWin = Math.Max(0, settings.WinningCash - controlledPlayer.Cash),
             RegionCoverage = ownedCoverage.RegionAccess.Select(ra => new AdvisorRegionCoverage
             {
                 RegionCode = ra.RegionCode,
@@ -379,7 +384,8 @@ public sealed class GameBoardAdviceService(
         int playerIndex,
         PlayerStateSnapshot player,
         RailBaronGameState gameState,
-        MapDefinition mapDefinition)
+        MapDefinition mapDefinition,
+        GameSettings settings)
     {
         var ownedCoverage = networkCoverageService.BuildSnapshot(mapDefinition, player.OwnedRailroadIndices);
         var otherOwnedIndices = gameState.Players
@@ -415,7 +421,7 @@ public sealed class GameBoardAdviceService(
             OwnedRailroads = ownedRailroadNames,
             NetworkAccessPercent = ownedCoverage.AccessibleDestinationPercent,
             EffectiveAccessPercent = effectiveCoverage.AccessibleDestinationPercent,
-            CashToWin = Math.Max(0, 200_000 - player.Cash),
+            CashToWin = Math.Max(0, settings.WinningCash - player.Cash),
             RegionCoverage = ownedCoverage.RegionAccess.Select(ra => new AdvisorRegionCoverage
             {
                 RegionCode = ra.RegionCode,
@@ -484,6 +490,18 @@ public sealed class GameBoardAdviceService(
             .ToList();
     }
 
+    private static string FormatVisibleCash(int cash, GameSettings settings)
+    {
+        if (!settings.KeepCashSecret || cash >= settings.AnnouncingCash)
+        {
+            return $"${cash:N0}";
+        }
+
+        var threshold = Math.Max(1, settings.AnnouncingCash);
+        var dollarSigns = Math.Clamp((int)Math.Ceiling((double)(cash * 5) / threshold), 1, 5);
+        return new string('$', dollarSigns);
+    }
+
     private static List<OpenAiChatMessage> BuildPromptMessages(AdvisorContextSnapshot snapshot, string userQuestion)
     {
         var recentConversation = snapshot.RecentConversation
@@ -524,20 +542,20 @@ public sealed class GameBoardAdviceService(
             "- Any railroad that is NOT owned by another player is PUBLIC and can be ridden with minimum fee. Only railroads owned by an OPPONENT cost higher use-fees.",
             "- EffectiveAccessPercent shows the player's real travel coverage: owned railroads PLUS all public (unowned) railroads. This is the number that matters for routing.",
             "- NetworkAccessPercent shows only owned-railroad coverage. Early game, EffectiveAccessPercent is nearly 100% because most railroads are still public.",
-            "- The win condition requires accumulating $200,000 cash AND reaching your home city. CashToWin shows how far from the $200k threshold.",
+            "- The win condition requires accumulating the match's configured winning-cash threshold AND reaching your home city. CashToWin shows how far from that threshold.",
 
             "USE-FEE MECHANICS:",
             "- Each opponent-owned railroad used during a move incurs exactly one fee per owner (not per segment).",
-            "- Fee rate: $1,000 for public RRs or user owned RRs. $5,000 per opponent railroad used. If AllRailroadsSold is true, the rate doubles to $10,000.",
+            "- Fee rates are game-specific. Public and user-owned railroads use their configured public/private fees. Opponent-owned railroads use the game's configured unfriendly fee, which can change after all railroads are sold.",
             "- Grandfathered railroads (already being used when purchased) cost only $1,000 that trip.",
             "- If the player cannot pay fees, they must auction/sell railroads. If they still cannot pay, they are eliminated.",
-            "- A player with $5,000+ cash buffer is NOT at bankruptcy risk from normal fees early game when most railroads are public.",
+            "- A safe cash buffer depends on the configured fee schedule and the density of opponent-owned railroads on likely routes.",
 
             "ENGINE TYPES AND UPGRADES:",
             "- Freight (starting engine): Roll 1 white die for movement (1-6 spaces).",
-            "- Express ($4,000 upgrade): Roll 2 white dice for movement (2-12 spaces). On doubles, roll 1 bonus die for extra movement.",
-            "- Superchief ($40,000 upgrade): Roll 2 white dice + 1 red die for movement (3-18 spaces). If the red die isn't fully used, the remainder carries as a bonus move.",
-            "- Engine upgrades happen during the Purchase phase. Express→Superchief also costs $40,000.",
+            "- Express uses 2 white dice for movement (2-12 spaces). On doubles, roll 1 bonus die for extra movement.",
+            "- Superchief uses 2 white dice + 1 red die for movement (3-18 spaces). If the red die isn't fully used, the remainder carries as a bonus move.",
+            "- Engine upgrades happen during the Purchase phase, using the game's configured upgrade prices.",
 
             "CONTEXT FIELDS:",
             "ControlledPlayer contains the asking player's exact cash, owned railroads, trip details, network coverage by region (owned and effective), declaration status, and CashToWin.",

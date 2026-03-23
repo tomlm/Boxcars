@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Text.Json;
 using System.Threading.Channels;
 using Azure;
 using Azure.Data.Tables;
@@ -41,8 +40,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly ConcurrentDictionary<string, byte> _busyGames = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _pendingAutomaticFlowResumes = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly PurchaseRulesOptions _purchaseRulesOptions;
     private readonly BotOptions _botOptions;
+    private readonly GameSettingsResolver _gameSettingsResolver;
     private readonly GamePresenceService _gamePresenceService;
     private readonly BotTurnService _botTurnService;
     private readonly ILogger<GameEngineService> _logger;
@@ -54,16 +53,34 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         TableServiceClient tableServiceClient,
         GamePresenceService gamePresenceService,
         BotTurnService botTurnService,
+        GameSettingsResolver gameSettingsResolver,
         IOptions<BotOptions> botOptions,
-        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
         ILogger<GameEngineService> logger)
         : this(
             webHostEnvironment,
             tableServiceClient.GetTableClient(TableNames.GamesTable),
             gamePresenceService,
             botTurnService,
+            gameSettingsResolver,
             botOptions,
-            purchaseRulesOptions,
+            logger)
+    {
+    }
+
+    public GameEngineService(
+        IWebHostEnvironment webHostEnvironment,
+        TableServiceClient tableServiceClient,
+        GamePresenceService gamePresenceService,
+        BotTurnService botTurnService,
+        IOptions<BotOptions> botOptions,
+        ILogger<GameEngineService> logger)
+        : this(
+            webHostEnvironment,
+            tableServiceClient,
+            gamePresenceService,
+            botTurnService,
+            new GameSettingsResolver(),
+            botOptions,
             logger)
     {
     }
@@ -73,8 +90,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         TableClient gamesTable,
         GamePresenceService gamePresenceService,
         BotTurnService botTurnService,
+        GameSettingsResolver gameSettingsResolver,
         IOptions<BotOptions> botOptions,
-        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
         ILogger<GameEngineService> logger)
     {
         _webHostEnvironment = webHostEnvironment;
@@ -82,9 +99,45 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         _gamePresenceService = gamePresenceService;
         _botTurnService = botTurnService;
         _botOptions = botOptions.Value;
-        _purchaseRulesOptions = purchaseRulesOptions.Value;
+        _gameSettingsResolver = gameSettingsResolver;
         _logger = logger;
         _gamePresenceService.PresenceChanged += OnPresenceChanged;
+    }
+
+    public GameEngineService(
+        IWebHostEnvironment webHostEnvironment,
+        TableClient gamesTable,
+        GamePresenceService gamePresenceService,
+        BotTurnService botTurnService,
+        IOptions<BotOptions> botOptions,
+        ILogger<GameEngineService> logger)
+        : this(
+            webHostEnvironment,
+            gamesTable,
+            gamePresenceService,
+            botTurnService,
+            new GameSettingsResolver(),
+            botOptions,
+            logger)
+    {
+    }
+
+    public GameEngineService(
+        IWebHostEnvironment webHostEnvironment,
+        TableServiceClient tableServiceClient,
+        GamePresenceService gamePresenceService,
+        GameSettingsResolver gameSettingsResolver,
+        IOptions<BotOptions> botOptions,
+        ILogger<GameEngineService> logger)
+        : this(
+            webHostEnvironment,
+            tableServiceClient,
+            gamePresenceService,
+            CreateFallbackBotTurnService(tableServiceClient, gamePresenceService),
+            gameSettingsResolver,
+            botOptions,
+            logger)
+    {
     }
 
     public GameEngineService(
@@ -92,15 +145,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         TableServiceClient tableServiceClient,
         GamePresenceService gamePresenceService,
         IOptions<BotOptions> botOptions,
-        IOptions<PurchaseRulesOptions> purchaseRulesOptions,
         ILogger<GameEngineService> logger)
         : this(
             webHostEnvironment,
             tableServiceClient,
             gamePresenceService,
-            CreateFallbackBotTurnService(tableServiceClient, gamePresenceService, purchaseRulesOptions),
+            new GameSettingsResolver(),
             botOptions,
-            purchaseRulesOptions,
             logger)
     {
     }
@@ -134,8 +185,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         var players = request.Players
             .Select(player => string.IsNullOrWhiteSpace(player.DisplayName) ? player.UserId : player.DisplayName)
             .ToList();
+        var normalizedSettings = _gameSettingsResolver.Normalize(request.Settings);
 
-        var createdGameEngine = CreateGameEngine(players);
+        var createdGameEngine = CreateGameEngine(players, normalizedSettings);
         if (!_gameEngines.TryAdd(gameId, createdGameEngine))
         {
             throw new InvalidOperationException($"A game with id '{gameId}' already exists.");
@@ -150,13 +202,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             MapFileName = request.MapFileName,
             MaxPlayers = request.MaxPlayers,
             CurrentPlayerCount = request.MaxPlayers,
-            CreatedAt = DateTimeOffset.UtcNow,
-            SettingsJson = JsonSerializer.Serialize(new
-            {
-                request.MapFileName,
-                request.MaxPlayers
-            })
+            CreatedAt = DateTimeOffset.UtcNow
         };
+        _gameSettingsResolver.Apply(gameEntity, normalizedSettings);
 
         var playerStates = request.Players
             .Select((player, seatIndex) => GamePlayerStateEntity.Create(gameId, seatIndex, player))
@@ -200,7 +248,17 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         ArgumentNullException.ThrowIfNull(state);
 
         await _mapReady.Task.WaitAsync(cancellationToken);
-        _gameEngines[gameId] = RestoreGameEngine(state);
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+        var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
+
+        if (_gameEngines.TryGetValue(gameId, out var existingGameEngine)
+            && existingGameEngine.Settings != resolvedSettings.Settings)
+        {
+            throw new InvalidOperationException("Game settings are immutable and no longer match the persisted game record.");
+        }
+
+        _gameEngines[gameId] = RestoreGameEngine(state, resolvedSettings.Settings);
     }
 
     public bool IsGameBusy(string gameId)
@@ -242,7 +300,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         var previousEvent = events[^2];
         var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(previousEvent.SerializedGameState);
-        var restoredEngine = RestoreGameEngine(restoredSnapshot);
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+        var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
+        var restoredEngine = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
 
         _gameEngines[gameId] = restoredEngine;
 
@@ -395,8 +456,20 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         switch (action)
         {
+            case ChooseHomeCityAction chooseHomeCityAction:
+                gameEngine.ChooseHomeCity(chooseHomeCityAction.SelectedCityName);
+                break;
+
+            case ResolveHomeSwapAction resolveHomeSwapAction:
+                gameEngine.ResolveHomeSwap(resolveHomeSwapAction.SwapHomeAndDestination);
+                break;
+
             case PickDestinationAction:
                 gameEngine.DrawDestination();
+                break;
+
+            case DeclareAction:
+                gameEngine.Declare();
                 break;
 
             case ChooseDestinationRegionAction chooseDestinationRegionAction:
@@ -480,7 +553,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 var expectedEnginePrice = RailBaronGameEngine.GetUpgradeCost(
                     gameEngine.CurrentTurn.ActivePlayer.LocomotiveType,
                     buyEngineAction.EngineType,
-                    _purchaseRulesOptions.SuperchiefPrice);
+                    gameEngine.Settings);
                 if (expectedEnginePrice < 0)
                 {
                     throw new InvalidOperationException($"Cannot upgrade from {gameEngine.CurrentTurn.ActivePlayer.LocomotiveType} to {buyEngineAction.EngineType}.");
@@ -582,17 +655,24 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             .OrderBy(playerState => playerState.SeatIndex)
             .Select(playerState => string.IsNullOrWhiteSpace(playerState.DisplayName) ? playerState.PlayerUserId : playerState.DisplayName)
             .ToList();
+        var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
 
-        var initializedGameEngine = CreateGameEngine(players);
+        var initializedGameEngine = CreateGameEngine(players, resolvedSettings.Settings);
 
         var persistedEvent = await GetLatestEventAsync(gameId, cancellationToken);
         if (persistedEvent is not null && !string.IsNullOrWhiteSpace(persistedEvent.SerializedGameState))
         {
             var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(persistedEvent.SerializedGameState);
-            initializedGameEngine = RestoreGameEngine(restoredSnapshot);
+            initializedGameEngine = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
         }
 
-        return _gameEngines.GetOrAdd(gameId, initializedGameEngine);
+        var loadedGameEngine = _gameEngines.GetOrAdd(gameId, initializedGameEngine);
+        if (loadedGameEngine.Settings != resolvedSettings.Settings)
+        {
+            throw new InvalidOperationException("Game settings are immutable and no longer match the persisted game record.");
+        }
+
+        return loadedGameEngine;
     }
 
     private async Task<GameEntity?> GetGameEntityAsync(string gameId, CancellationToken cancellationToken)
@@ -608,7 +688,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
     }
 
-    private RailBaronGameEngine CreateGameEngine(IReadOnlyList<string> players)
+    private RailBaronGameEngine CreateGameEngine(IReadOnlyList<string> players, Engine.Persistence.GameSettings settings)
     {
         if (_mapDefinition is null)
         {
@@ -626,17 +706,17 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             normalizedPlayers.Add($"Open Seat {normalizedPlayers.Count + 1}");
         }
 
-        return new RailBaronGameEngine(_mapDefinition, normalizedPlayers, new DefaultRandomProvider(), _purchaseRulesOptions.SuperchiefPrice);
+        return new RailBaronGameEngine(_mapDefinition, normalizedPlayers, new DefaultRandomProvider(), settings);
     }
 
-    private RailBaronGameEngine RestoreGameEngine(RailBaronGameState snapshot)
+    private RailBaronGameEngine RestoreGameEngine(RailBaronGameState snapshot, Engine.Persistence.GameSettings settings)
     {
         if (_mapDefinition is null)
         {
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
-        return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider(), _purchaseRulesOptions.SuperchiefPrice);
+        return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider(), settings);
     }
 
     private async Task<GameEventEntity> PersistEventAsync(
@@ -998,6 +1078,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return;
         }
 
+        var settings = _gameEngines.TryGetValue(gameId, out var gameEngine)
+            ? gameEngine.Settings
+            : Boxcars.Engine.Persistence.GameSettings.Default;
+
         var updatedPlayerStates = playerStates
             .Select(GamePlayerStateProjection.Clone)
             .ToList();
@@ -1005,6 +1089,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         ApplyStatisticsDelta(
             updatedPlayerStates.ToDictionary(playerState => playerState.SeatIndex),
             _mapDefinition,
+            settings,
             snapshotBeforeAction,
             snapshotAfterAction);
         await PersistPlayerStatisticsAsync(playerStates, updatedPlayerStates, cancellationToken);
@@ -1025,6 +1110,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             .Select(GamePlayerStateProjection.ResetStatistics)
             .ToList();
         var rebuiltPlayerStatesBySeatIndex = rebuiltPlayerStates.ToDictionary(playerState => playerState.SeatIndex);
+        var settings = await ResolveStatisticsSettingsAsync(gameId, cancellationToken);
 
         RailBaronGameState? previousSnapshot = null;
         foreach (var gameEvent in sourceEvents)
@@ -1037,7 +1123,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             var currentSnapshot = GameEventSerialization.DeserializeSnapshot(gameEvent.SerializedGameState);
             if (previousSnapshot is not null)
             {
-                ApplyStatisticsDelta(rebuiltPlayerStatesBySeatIndex, _mapDefinition, previousSnapshot, currentSnapshot);
+                ApplyStatisticsDelta(rebuiltPlayerStatesBySeatIndex, _mapDefinition, settings, previousSnapshot, currentSnapshot);
             }
 
             previousSnapshot = currentSnapshot;
@@ -1065,6 +1151,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private static void ApplyStatisticsDelta(
         Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex,
         MapDefinition? mapDefinition,
+        Boxcars.Engine.Persistence.GameSettings settings,
         RailBaronGameState snapshotBeforeAction,
         RailBaronGameState snapshotAfterAction)
     {
@@ -1091,7 +1178,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && snapshotAfterAction.Turn.PendingFeeAmount == 0
             && snapshotAfterAction.Turn.ForcedSale?.EliminationTriggered != true)
         {
-            var feeTransfers = ResolveFeeTransfers(snapshotBeforeAction);
+            var feeTransfers = ResolveFeeTransfers(snapshotBeforeAction, settings);
 
             AddToPlayerStatistic(playerStatesBySeatIndex, snapshotBeforeAction.ActivePlayerIndex, state =>
             {
@@ -1423,7 +1510,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         {
             affectedPlayerIndices.Add(snapshotBeforeAction.ActivePlayerIndex);
 
-            foreach (var feeTransfer in ResolveFeeTransfers(snapshotBeforeAction))
+            foreach (var feeTransfer in ResolveFeeTransfers(snapshotBeforeAction, Boxcars.Engine.Persistence.GameSettings.Default))
             {
                 if (feeTransfer.RecipientPlayerIndex.HasValue)
                 {
@@ -1574,7 +1661,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 && string.Equals(left.DestinationLog, right.DestinationLog, StringComparison.Ordinal);
     }
 
-    private static List<FeeTransferStatistic> ResolveFeeTransfers(RailBaronGameState snapshotBeforeAction)
+    private static List<FeeTransferStatistic> ResolveFeeTransfers(RailBaronGameState snapshotBeforeAction, Boxcars.Engine.Persistence.GameSettings settings)
     {
         if (snapshotBeforeAction.ActivePlayerIndex < 0
             || snapshotBeforeAction.ActivePlayerIndex >= snapshotBeforeAction.Players.Count)
@@ -1583,34 +1670,59 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var rider = snapshotBeforeAction.Players[snapshotBeforeAction.ActivePlayerIndex];
-        var opponentRate = snapshotBeforeAction.AllRailroadsSold ? 10000 : 5000;
+        var opponentRate = RailBaronGameEngine.GetUnfriendlyFee(settings, snapshotBeforeAction.AllRailroadsSold);
         var feeBuckets = new Dictionary<int, FeeBucketStatistic>();
+        var usesPublicFee = false;
+        var usesPrivateFee = false;
 
         foreach (var railroadIndex in snapshotBeforeAction.Turn.RailroadsRiddenThisTurn)
         {
             var ownerIndex = snapshotBeforeAction.RailroadOwnership.GetValueOrDefault(railroadIndex);
-            var usesBaseRate = !ownerIndex.HasValue || ownerIndex.Value == snapshotBeforeAction.ActivePlayerIndex;
-            var ownerKey = usesBaseRate ? -1 : ownerIndex!.Value;
+            if (!ownerIndex.HasValue)
+            {
+                usesPublicFee = true;
+                continue;
+            }
+
+            if (ownerIndex.Value == snapshotBeforeAction.ActivePlayerIndex)
+            {
+                usesPrivateFee = true;
+                continue;
+            }
+
+            var ownerKey = ownerIndex.Value;
 
             if (!feeBuckets.TryGetValue(ownerKey, out var bucket))
             {
-                bucket = new FeeBucketStatistic(usesBaseRate ? null : ownerIndex, requiresFullOwnerRate: false);
+                bucket = new FeeBucketStatistic(ownerIndex, requiresFullOwnerRate: false);
                 feeBuckets[ownerKey] = bucket;
             }
 
-            if (!usesBaseRate && snapshotBeforeAction.Turn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroadIndex))
+            if (snapshotBeforeAction.Turn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroadIndex))
             {
                 bucket.RequiresFullOwnerRate = true;
             }
         }
 
-        return feeBuckets.Values
+        var transfers = feeBuckets.Values
             .Select(bucket => new FeeTransferStatistic(
                 rider.Name,
                 bucket.OwnerPlayerIndex,
-                bucket.OwnerPlayerIndex is null ? 1000 : bucket.RequiresFullOwnerRate ? opponentRate : 1000))
+                bucket.RequiresFullOwnerRate ? opponentRate : RailBaronGameEngine.GetPrivateFee(settings)))
             .Where(transfer => transfer.Amount > 0)
             .ToList();
+
+        if (usesPublicFee)
+        {
+            transfers.Add(new FeeTransferStatistic(rider.Name, null, RailBaronGameEngine.GetPublicFee(settings)));
+        }
+
+        if (usesPrivateFee)
+        {
+            transfers.Add(new FeeTransferStatistic(rider.Name, null, RailBaronGameEngine.GetPrivateFee(settings)));
+        }
+
+        return transfers;
     }
 
     private sealed class FeeBucketStatistic
@@ -1688,6 +1800,21 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
             return null;
+        }
+    }
+
+    private async Task<Boxcars.Engine.Persistence.GameSettings> ResolveStatisticsSettingsAsync(string gameId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var gameEntity = await GetGameEntityAsync(gameId, cancellationToken);
+            return gameEntity is null
+                ? Boxcars.Engine.Persistence.GameSettings.Default
+                : _gameSettingsResolver.Resolve(gameEntity).Settings;
+        }
+        catch (NotSupportedException)
+        {
+            return Boxcars.Engine.Persistence.GameSettings.Default;
         }
     }
 
@@ -1769,7 +1896,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         var description = action switch
         {
+            ChooseHomeCityAction chooseHomeCityAction => $"{actorName} chose {chooseHomeCityAction.SelectedCityName} as the home city",
+            ResolveHomeSwapAction resolveHomeSwapAction => resolveHomeSwapAction.SwapHomeAndDestination
+                ? $"{actorName} swapped the initial home and first destination"
+                : $"{actorName} kept the initial home city",
             PickDestinationAction => DescribeDestinationPick(actorName, action, snapshotAfterAction),
+            DeclareAction => DescribeDeclaration(actorName, action, snapshotAfterAction),
             ChooseDestinationRegionAction chooseDestinationRegionAction => DescribeDestinationRegionChoice(actorName, chooseDestinationRegionAction, snapshotAfterAction),
             RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshotAfterAction.Turn.DiceResult, snapshotAfterAction.Turn.BonusRollAvailable, action as RollDiceAction)}",
             ChooseRouteAction => string.Empty,
@@ -1961,6 +2093,19 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         return $"{actorName} chose {action.SelectedRegionCode} as the replacement destination region and received {destinationName}.";
+    }
+
+    private static string DescribeDeclaration(string actorName, PlayerAction action, RailBaronGameState snapshot)
+    {
+        var playerState = TryGetPlayerState(action, snapshot);
+        if (playerState is null)
+        {
+            return $"{actorName} declared for home.";
+        }
+
+        return string.IsNullOrWhiteSpace(playerState.AlternateDestinationCityName)
+            ? $"{actorName} declared for home."
+            : $"{actorName} declared for home and set aside alternate destination {playerState.AlternateDestinationCityName}.";
     }
 
     private static string DescribeMove(string actorName, MoveAction action, RailBaronGameState snapshot)
@@ -2179,12 +2324,19 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         return gameEngine.CurrentTurn.Phase switch
         {
-            TurnPhase.DrawDestination => new PickDestinationAction
-            {
-                PlayerId = activePlayer.Name,
-                PlayerIndex = playerIndex,
-                ActorUserId = string.Empty
-            },
+            TurnPhase.DrawDestination => activePlayer.Cash >= gameEngine.Settings.WinningCash
+                ? new DeclareAction
+                {
+                    PlayerId = activePlayer.Name,
+                    PlayerIndex = playerIndex,
+                    ActorUserId = string.Empty
+                }
+                : new PickDestinationAction
+                {
+                    PlayerId = activePlayer.Name,
+                    PlayerIndex = playerIndex,
+                    ActorUserId = string.Empty
+                },
             TurnPhase.Roll => new RollDiceAction
             {
                 PlayerId = activePlayer.Name,
@@ -2207,6 +2359,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     {
         switch (action)
         {
+            case DeclareAction:
+                gameEngine.Declare();
+                break;
+
             case PickDestinationAction:
                 gameEngine.DrawDestination();
                 break;
@@ -2271,19 +2427,17 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static BotTurnService CreateFallbackBotTurnService(
         TableServiceClient tableServiceClient,
-        GamePresenceService gamePresenceService,
-        IOptions<PurchaseRulesOptions> purchaseRulesOptions)
+        GamePresenceService gamePresenceService)
     {
         var botOptions = Options.Create(new BotOptions());
         return new BotTurnService(
             new UserDirectoryService(tableServiceClient),
             new BotDecisionPromptBuilder(),
-                new OpenAiBotClient(new NoOpHttpClientFactory(), botOptions, NullLogger<OpenAiBotClient>.Instance),
+            new OpenAiBotClient(new NoOpHttpClientFactory(), botOptions, NullLogger<OpenAiBotClient>.Instance),
             gamePresenceService,
             new NetworkCoverageService(),
             botOptions,
-                purchaseRulesOptions,
-                NullLogger<BotTurnService>.Instance);
+            NullLogger<BotTurnService>.Instance);
     }
 
     private sealed class NoOpHttpClientFactory : IHttpClientFactory

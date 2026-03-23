@@ -2,8 +2,9 @@ using Boxcars.Data;
 using Boxcars.Data.Maps;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
+using Boxcars.Engine.Persistence;
 using Boxcars.Services.Maps;
-using Microsoft.Extensions.Options;
+using RailBaronGameEngine = Boxcars.Engine.Domain.GameEngine;
 using RailBaronGameState = Boxcars.Engine.Persistence.GameState;
 using PlayerStateSnapshot = Boxcars.Engine.Persistence.PlayerState;
 
@@ -13,9 +14,83 @@ public sealed class GameBoardStateMapper(
     NetworkCoverageService networkCoverageService,
     MapAnalysisService mapAnalysisService,
     PurchaseRecommendationService purchaseRecommendationService,
-    IOptions<PurchaseRulesOptions> purchaseRulesOptions,
+    GameSettingsResolver? gameSettingsResolver = null,
     GamePresenceService? gamePresenceService = null)
 {
+    public GameSettingsSummaryModel BuildGameSettingsSummary(GameEntity? gameEntity)
+    {
+        if (gameEntity is null)
+        {
+            return GameSettingsSummaryModel.Empty;
+        }
+
+        var resolvedSettings = (gameSettingsResolver ?? new GameSettingsResolver()).Resolve(gameEntity);
+        var settings = resolvedSettings.Settings;
+
+        return new GameSettingsSummaryModel
+        {
+            UsesDefaultFallback = !string.Equals(resolvedSettings.Source, "Persisted", StringComparison.OrdinalIgnoreCase),
+            Warnings = resolvedSettings.Warnings,
+            Sections =
+            [
+                new GameSettingsSummarySectionModel
+                {
+                    Title = "Cash Rules",
+                    Items =
+                    [
+                        new GameSettingsSummaryItemModel { Label = "Starting Cash", Value = FormatMoney(settings.StartingCash) },
+                        new GameSettingsSummaryItemModel { Label = "Announcing Cash", Value = FormatMoney(settings.AnnouncingCash) },
+                        new GameSettingsSummaryItemModel { Label = "Winning Cash", Value = FormatMoney(settings.WinningCash) },
+                        new GameSettingsSummaryItemModel { Label = "Rover Cash", Value = FormatMoney(settings.RoverCash) },
+                        new GameSettingsSummaryItemModel
+                        {
+                            Label = "Cash Visibility",
+                            Value = settings.KeepCashSecret ? "Hidden below announcing threshold" : "Always visible"
+                        }
+                    ]
+                },
+                new GameSettingsSummarySectionModel
+                {
+                    Title = "Fees",
+                    Items =
+                    [
+                        new GameSettingsSummaryItemModel { Label = "Public Railroad Fee", Value = FormatMoney(settings.PublicFee) },
+                        new GameSettingsSummaryItemModel { Label = "Private Railroad Fee", Value = FormatMoney(settings.PrivateFee) },
+                        new GameSettingsSummaryItemModel { Label = "Unfriendly Fee (1 railroad)", Value = FormatMoney(settings.UnfriendlyFee1) },
+                        new GameSettingsSummaryItemModel { Label = "Unfriendly Fee (2+ railroads)", Value = FormatMoney(settings.UnfriendlyFee2) }
+                    ]
+                },
+                new GameSettingsSummarySectionModel
+                {
+                    Title = "Home Setup",
+                    Items =
+                    [
+                        new GameSettingsSummaryItemModel
+                        {
+                            Label = "Home City Choice",
+                            Value = settings.HomeCityChoice ? "Player chooses city" : "Random city assigned"
+                        },
+                        new GameSettingsSummaryItemModel
+                        {
+                            Label = "Home Swapping",
+                            Value = settings.HomeSwapping ? "Allowed" : "Disabled"
+                        }
+                    ]
+                },
+                new GameSettingsSummarySectionModel
+                {
+                    Title = "Engines",
+                    Items =
+                    [
+                        new GameSettingsSummaryItemModel { Label = "Starting Engine", Value = settings.StartEngine.ToString() },
+                        new GameSettingsSummaryItemModel { Label = "Express Price", Value = FormatMoney(settings.ExpressPrice) },
+                        new GameSettingsSummaryItemModel { Label = "Superchief Price", Value = FormatMoney(settings.SuperchiefPrice) }
+                    ]
+                }
+            ]
+        };
+    }
+
     public IReadOnlyList<GamePlayerSelection> GetPlayerSelections(IReadOnlyList<GamePlayerStateEntity>? playerStates)
     {
         return playerStates is null || playerStates.Count == 0
@@ -85,7 +160,8 @@ public sealed class GameBoardStateMapper(
         string? currentUserId,
         MapDefinition? mapDefinition = null,
         TurnMovementPreview? preview = null,
-        ArrivalResolutionModel? arrivalResolution = null)
+        ArrivalResolutionModel? arrivalResolution = null,
+        GameEntity? gameEntity = null)
     {
         if (state is null || state.Players.Count == 0)
         {
@@ -106,15 +182,18 @@ public sealed class GameBoardStateMapper(
         var activeBinding = activePlayerIndex >= 0 && activePlayerIndex < bindings.Count
             ? bindings[activePlayerIndex]
             : null;
+        var resolvedSettings = ResolveGameSettings(gameEntity);
 
-        var selectedRoutePreview = NormalizePreview(activePlayerIndex, state, preview ?? BuildSelectedRoutePreview(activePlayer, state));
+        var selectedRoutePreview = NormalizePreview(activePlayerIndex, state, preview ?? BuildSelectedRoutePreview(activePlayer, state, gameEntity), resolvedSettings);
         var movementAllowance = state.Turn.MovementAllowance > 0
             ? state.Turn.MovementAllowance
             : CalculateRollTotal(state);
         var movementRemaining = Math.Max(0, state.Turn.MovementRemaining - selectedRoutePreview.MoveCount);
 
-        var resolvedArrival = arrivalResolution ?? BuildArrivalResolution(state, mapDefinition, activePlayerIndex, activePlayer);
+        var resolvedArrival = arrivalResolution ?? BuildArrivalResolution(state, mapDefinition, activePlayerIndex, activePlayer, gameEntity);
         var forcedSalePhase = BuildForcedSalePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer, bindings, currentUserId);
+        var homeCityChoicePhase = BuildHomeCityChoicePhaseModel(state, activePlayer);
+        var homeSwapPhase = BuildHomeSwapPhaseModel(state, activePlayer);
         var regionChoicePhase = BuildRegionChoicePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer);
 
         return new BoardTurnViewState
@@ -147,6 +226,8 @@ public sealed class GameBoardStateMapper(
             ArrivalResolution = resolvedArrival,
             PurchasePhase = resolvedArrival?.PurchasePhase,
             ForcedSalePhase = forcedSalePhase,
+            HomeCityChoicePhase = homeCityChoicePhase,
+            HomeSwapPhase = homeSwapPhase,
             RegionChoicePhase = regionChoicePhase
         };
     }
@@ -225,7 +306,7 @@ public sealed class GameBoardStateMapper(
             .ToList();
     }
 
-    public TurnMovementPreview BuildSelectedRoutePreview(PlayerStateSnapshot? playerState, RailBaronGameState? state)
+    public TurnMovementPreview BuildSelectedRoutePreview(PlayerStateSnapshot? playerState, RailBaronGameState? state, GameEntity? gameEntity = null)
     {
         if (playerState is null)
         {
@@ -244,7 +325,7 @@ public sealed class GameBoardStateMapper(
         var movementRemaining = Math.Max(0, state?.Turn.MovementRemaining ?? 0);
         var feeSummary = state is null
             ? new PreviewFeeSummary(0, false)
-            : CalculatePreviewFeeSummary(state, state.ActivePlayerIndex, segmentKeys);
+            : CalculatePreviewFeeSummary(state, state.ActivePlayerIndex, segmentKeys, ResolveGameSettings(gameEntity));
 
         return new TurnMovementPreview
         {
@@ -257,11 +338,11 @@ public sealed class GameBoardStateMapper(
         };
     }
 
-    private static TurnMovementPreview NormalizePreview(int activePlayerIndex, RailBaronGameState state, TurnMovementPreview preview)
+    private static TurnMovementPreview NormalizePreview(int activePlayerIndex, RailBaronGameState state, TurnMovementPreview preview, GameSettings settings)
     {
         var moveCount = Math.Max(0, preview.SegmentKeys.Count);
         var movementRemaining = Math.Max(0, state.Turn.MovementRemaining);
-        var feeSummary = CalculatePreviewFeeSummary(state, activePlayerIndex, preview.SegmentKeys);
+        var feeSummary = CalculatePreviewFeeSummary(state, activePlayerIndex, preview.SegmentKeys, settings);
 
         return new TurnMovementPreview
         {
@@ -274,7 +355,7 @@ public sealed class GameBoardStateMapper(
         };
     }
 
-    private static PreviewFeeSummary CalculatePreviewFeeSummary(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> segmentKeys)
+    private static PreviewFeeSummary CalculatePreviewFeeSummary(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> segmentKeys, GameSettings settings)
     {
         var railroadIndices = new HashSet<int>(state.Turn.RailroadsRiddenThisTurn);
 
@@ -293,20 +374,21 @@ public sealed class GameBoardStateMapper(
             state.Turn.RailroadsRequiringFullOwnerRateThisTurn,
             state.RailroadOwnership,
             segmentKeys);
-        var usesBaseRateRailroad = false;
+        var usesPublicFee = false;
+        var usesPrivateFee = false;
         var ownerBuckets = new Dictionary<int, bool>();
 
         foreach (var railroadIndex in railroadIndices)
         {
             if (!state.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
             {
-                usesBaseRateRailroad = true;
+                usesPublicFee = true;
                 continue;
             }
 
             if (ownerIndex.Value == activePlayerIndex)
             {
-                usesBaseRateRailroad = true;
+                usesPrivateFee = true;
                 continue;
             }
 
@@ -324,11 +406,19 @@ public sealed class GameBoardStateMapper(
             }
         }
 
-        var bankFee = usesBaseRateRailroad ? 1000 : 0;
-        var opponentRate = state.AllRailroadsSold ? 10000 : 5000;
+        var publicFee = usesPublicFee ? RailBaronGameEngine.GetPublicFee(settings) : 0;
+        var privateFee = usesPrivateFee ? RailBaronGameEngine.GetPrivateFee(settings) : 0;
+        var opponentRate = RailBaronGameEngine.GetUnfriendlyFee(settings, state.AllRailroadsSold);
         return new PreviewFeeSummary(
-            bankFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : 1000),
+            publicFee + privateFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : RailBaronGameEngine.GetPrivateFee(settings)),
             ownerBuckets.Count > 0);
+    }
+
+    private static GameSettings ResolveGameSettings(GameEntity? gameEntity)
+    {
+        return gameEntity is null
+            ? GameSettings.Default
+            : (new GameSettingsResolver()).Resolve(gameEntity).Settings;
     }
 
     private readonly record struct PreviewFeeSummary(int FeeEstimate, bool HasUnfriendlyFee);
@@ -445,14 +535,15 @@ public sealed class GameBoardStateMapper(
         RailBaronGameState state,
         MapDefinition? mapDefinition,
         int activePlayerIndex,
-        PlayerStateSnapshot activePlayer)
+        PlayerStateSnapshot activePlayer,
+        GameEntity? gameEntity)
     {
         if (state.Turn.ArrivalResolution is null)
         {
             return null;
         }
 
-        var purchasePhase = BuildPurchasePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer);
+        var purchasePhase = BuildPurchasePhaseModel(state, mapDefinition, activePlayerIndex, activePlayer, gameEntity);
 
         return new ArrivalResolutionModel
         {
@@ -473,7 +564,8 @@ public sealed class GameBoardStateMapper(
         RailBaronGameState state,
         MapDefinition? mapDefinition,
         int activePlayerIndex,
-        PlayerStateSnapshot activePlayer)
+        PlayerStateSnapshot activePlayer,
+        GameEntity? gameEntity)
     {
         if (!string.Equals(state.Turn.Phase, TurnPhase.Purchase.ToString(), StringComparison.OrdinalIgnoreCase))
         {
@@ -483,7 +575,7 @@ public sealed class GameBoardStateMapper(
         var currentCoverage = mapDefinition is null
             ? null
             : networkCoverageService.BuildSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices);
-        var engineOptions = BuildEligibleEngineOptions(activePlayer);
+        var engineOptions = BuildEligibleEngineOptions(activePlayer, gameEntity);
         var affordableRailroadOptions = mapDefinition is null
             ? []
             : BuildAffordableRailroadOptions(state, mapDefinition, activePlayer.Cash);
@@ -606,14 +698,17 @@ public sealed class GameBoardStateMapper(
             .ToList();
     }
 
-    private List<EngineUpgradeOption> BuildEligibleEngineOptions(PlayerStateSnapshot activePlayer)
+    private List<EngineUpgradeOption> BuildEligibleEngineOptions(PlayerStateSnapshot activePlayer, GameEntity? gameEntity)
     {
         var currentEngineType = ParseLocomotiveType(activePlayer.LocomotiveType);
+        var settings = gameEntity is null
+            ? GameSettings.Default
+            : (gameSettingsResolver ?? new GameSettingsResolver()).Resolve(gameEntity).Settings;
 
         return GetEligibleUpgradeTargets(currentEngineType)
             .Select(targetEngineType =>
             {
-                var price = Boxcars.Engine.Domain.GameEngine.GetUpgradeCost(currentEngineType, targetEngineType, purchaseRulesOptions.Value.SuperchiefPrice);
+                var price = Boxcars.Engine.Domain.GameEngine.GetUpgradeCost(currentEngineType, targetEngineType, settings);
                 return new EngineUpgradeOption
                 {
                     EngineType = targetEngineType,
@@ -642,9 +737,66 @@ public sealed class GameBoardStateMapper(
             : LocomotiveType.Freight;
     }
 
+    private static string FormatMoney(int value)
+    {
+        return $"${value:N0}";
+    }
+
     private static string BuildRailroadOptionKey(int railroadIndex)
     {
         return $"railroad:{railroadIndex}";
+    }
+
+    private static HomeCityChoicePhaseModel? BuildHomeCityChoicePhaseModel(
+        RailBaronGameState state,
+        PlayerStateSnapshot activePlayer)
+    {
+        if (!string.Equals(state.Turn.Phase, TurnPhase.HomeCityChoice.ToString(), StringComparison.OrdinalIgnoreCase)
+            || state.Turn.PendingHomeCityChoice is null)
+        {
+            return null;
+        }
+
+        var pendingHomeCityChoice = state.Turn.PendingHomeCityChoice;
+        var options = pendingHomeCityChoice.EligibleCityNames
+            .Select(cityName => new HomeCityOption
+            {
+                CityName = cityName,
+                IsCurrentSelection = string.Equals(cityName, pendingHomeCityChoice.CurrentHomeCityName, StringComparison.OrdinalIgnoreCase)
+            })
+            .OrderBy(option => option.CityName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new HomeCityChoicePhaseModel
+        {
+            PlayerIndex = pendingHomeCityChoice.PlayerIndex,
+            PlayerName = activePlayer.Name,
+            RegionCode = pendingHomeCityChoice.RegionCode,
+            RegionName = pendingHomeCityChoice.RegionName,
+            CurrentHomeCityName = pendingHomeCityChoice.CurrentHomeCityName,
+            Options = options,
+            CanConfirm = options.Count > 0
+        };
+    }
+
+    private static HomeSwapPhaseModel? BuildHomeSwapPhaseModel(
+        RailBaronGameState state,
+        PlayerStateSnapshot activePlayer)
+    {
+        if (!string.Equals(state.Turn.Phase, TurnPhase.HomeSwap.ToString(), StringComparison.OrdinalIgnoreCase)
+            || state.Turn.PendingHomeSwap is null)
+        {
+            return null;
+        }
+
+        return new HomeSwapPhaseModel
+        {
+            PlayerIndex = state.Turn.PendingHomeSwap.PlayerIndex,
+            PlayerName = activePlayer.Name,
+            CurrentHomeCityName = state.Turn.PendingHomeSwap.CurrentHomeCityName,
+            FirstDestinationCityName = state.Turn.PendingHomeSwap.FirstDestinationCityName,
+            CanConfirm = true
+        };
     }
 
     private RegionChoicePhaseModel? BuildRegionChoicePhaseModel(

@@ -101,12 +101,9 @@ public class Program
         builder.Services.AddHostedService<GameStateBroadcastService>();
 
         // Application services
-        builder.Services.AddOptions<PurchaseRulesOptions>()
-            .Bind(builder.Configuration.GetSection(PurchaseRulesOptions.SectionName))
-            .Validate(static options => options.SuperchiefPrice > 0, "PurchaseRules:SuperchiefPrice must be greater than zero.")
-            .ValidateOnStart();
         builder.Services.AddScoped<PlayerProfileService>();
         builder.Services.AddScoped<GameService>();
+        builder.Services.AddSingleton<GameSettingsResolver>();
         builder.Services.AddScoped<GameCircuitPresenceTracker>();
         builder.Services.AddScoped<CircuitHandler, GamePresenceCircuitHandler>();
         builder.Services.AddSingleton<GamePresenceService>(serviceProvider =>
