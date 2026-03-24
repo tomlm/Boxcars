@@ -1123,26 +1123,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             });
         }
 
-        if (snapshotBeforeAction.Turn.PendingFeeAmount > 0
-            && snapshotAfterAction.Turn.PendingFeeAmount == 0
-            && snapshotAfterAction.Turn.ForcedSale?.EliminationTriggered != true)
-        {
-            var feeTransfers = ResolveFeeTransfers(snapshotBeforeAction, settings);
-
-            AddToPlayerStatistic(playersBySeatIndex, snapshotBeforeAction.ActivePlayerIndex, state =>
-            {
-                state.TotalFeesPaid += feeTransfers.Sum(transfer => transfer.Amount);
-            });
-
-            foreach (var feeTransfer in feeTransfers.Where(transfer => transfer.RecipientPlayerIndex.HasValue))
-            {
-                AddToPlayerStatistic(playersBySeatIndex, feeTransfer.RecipientPlayerIndex!.Value, state =>
-                {
-                    state.TotalFeesCollected += feeTransfer.Amount;
-                });
-            }
-        }
-
         if (snapshotBeforeAction.Turn.Auction is null && snapshotAfterAction.Turn.Auction is not null)
         {
             AddToPlayerStatistic(playersBySeatIndex, snapshotAfterAction.Turn.Auction.SellerPlayerIndex, state =>
@@ -1166,7 +1146,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         ApplyRailroadOwnershipChanges(playersBySeatIndex, snapshotBeforeAction, snapshotAfterAction);
     }
-
     private static void ApplyDestinationAssignmentChanges(
         Dictionary<int, Player> playerStatesBySeatIndex,
         MapDefinition? mapDefinition,

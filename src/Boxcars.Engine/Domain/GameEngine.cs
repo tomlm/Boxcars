@@ -1858,6 +1858,7 @@ public sealed class GameEngine : ObservableBase
         {
             var fee = GetPublicFee(_settings);
             player.Cash -= fee;
+            player.TotalFeesPaid += fee;
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, null, fee, []));
         }
 
@@ -1865,6 +1866,7 @@ public sealed class GameEngine : ObservableBase
         {
             var fee = GetPrivateFee(_settings);
             player.Cash -= fee;
+            player.TotalFeesPaid += fee;
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, null, fee, []));
         }
 
@@ -1874,9 +1876,11 @@ public sealed class GameEngine : ObservableBase
             var fee = feeBucket.RequiresFullOwnerRate ? opponentRate : GetPrivateFee(_settings);
 
             player.Cash -= fee;
+            player.TotalFeesPaid += fee;
             if (feeBucket.Owner is not null)
             {
                 feeBucket.Owner.Cash += fee;
+                feeBucket.Owner.TotalFeesCollected += fee;
             }
 
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, feeBucket.Owner, fee, feeBucket.Railroads));
