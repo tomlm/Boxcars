@@ -39,6 +39,7 @@
 @inject IWebHostEnvironment WebHostEnvironment
 @inject GameBoardAdviceService GameBoardAdviceService
 @inject GameSettingsResolver GameSettingsResolver
+@inject MapRouteService RouteService
 
 <PageTitle>Game - BoxCars</PageTitle>
 
@@ -3991,9 +3992,13 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         {
             if (activePlayer.Cash >= winningCash && !_pendingDrawDestinationShouldDeclare.HasValue)
             {
+                var homeDistance = CalculateDistanceToHome(activePlayer);
+                var distanceText = homeDistance.HasValue
+                    ? homeDistance.Value.ToString(CultureInfo.InvariantCulture)
+                    : "an unknown distance";
                 var result = await DialogService.ShowMessageBox(
                     "Declare Attempt",
-                    $"You have ${activePlayer.Cash:N0}. Do you want to declare an attempt to go to your home city {activePlayer.HomeCityName}?",
+                    $"You are {distanceText} away from {activePlayer.HomeCityName} and you have ${activePlayer.Cash:N0}. Do you want to declare you are going home?",
                     yesText: "Yes",
                     noText: "No");
 
@@ -4047,6 +4052,40 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         _pendingDrawDestinationDecisionKey = null;
         _pendingDrawDestinationShouldDeclare = null;
+    }
+
+    private int? CalculateDistanceToHome(Boxcars.Engine.Persistence.PlayerState activePlayer)
+    {
+        if (_playerBoardMapDefinition is null || string.IsNullOrWhiteSpace(activePlayer.CurrentNodeId))
+        {
+            return null;
+        }
+
+        var homeCity = _playerBoardMapDefinition.Cities.FirstOrDefault(city =>
+            string.Equals(city.Name, activePlayer.HomeCityName, StringComparison.OrdinalIgnoreCase));
+        if (homeCity?.MapDotIndex is not int homeDotIndex)
+        {
+            return null;
+        }
+
+        var regionIndex = _playerBoardMapDefinition.Regions
+            .FirstOrDefault(region => string.Equals(region.Code, homeCity.RegionCode, StringComparison.OrdinalIgnoreCase))
+            ?.Index;
+        if (!regionIndex.HasValue)
+        {
+            return null;
+        }
+
+        var homeNodeId = MapRouteService.NodeKey(regionIndex.Value, homeDotIndex);
+        if (string.Equals(activePlayer.CurrentNodeId, homeNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        var routeContext = RouteService.BuildContext(_playerBoardMapDefinition);
+        return routeContext.Adjacency.ContainsKey(homeNodeId)
+            ? RouteService.FindShortestSelection(routeContext, activePlayer.CurrentNodeId, homeNodeId)?.Segments.Count
+            : null;
     }
 
     private void NotifyGameCompleted(RailBaronGameState? previousState, RailBaronGameState currentState)

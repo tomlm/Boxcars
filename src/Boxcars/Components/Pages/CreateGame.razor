@@ -28,59 +28,6 @@
             <MudDivider />
 
 
-            <MudExpansionPanels>
-                <MudExpansionPanel Text="Game Settings" Expanded="false">
-                    <MudGrid>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Starting Cash" Value="@_settings.StartingCash" ValueChanged="@(value => UpdateSettings(_settings with { StartingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Announcing Cash" Value="@_settings.AnnouncingCash" ValueChanged="@(value => UpdateSettings(_settings with { AnnouncingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Winning Cash" Value="@_settings.WinningCash" ValueChanged="@(value => UpdateSettings(_settings with { WinningCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Rover Cash" Value="@_settings.RoverCash" ValueChanged="@(value => UpdateSettings(_settings with { RoverCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Public Fee" Value="@_settings.PublicFee" ValueChanged="@(value => UpdateSettings(_settings with { PublicFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Private Fee" Value="@_settings.PrivateFee" ValueChanged="@(value => UpdateSettings(_settings with { PrivateFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Unfriendly Fee 1" Value="@_settings.UnfriendlyFee1" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee1 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Unfriendly Fee 2" Value="@_settings.UnfriendlyFee2" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee2 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudSelect T="LocomotiveType" Label="Starting Engine" Value="@_settings.StartEngine" ValueChanged="@(value => UpdateSettings(_settings with { StartEngine = value }))" Variant="Variant.Outlined" Disabled="@_creating" FullWidth="true">
-                                <MudSelectItem Value="@LocomotiveType.Freight">Freight</MudSelectItem>
-                                <MudSelectItem Value="@LocomotiveType.Express">Express</MudSelectItem>
-                                <MudSelectItem Value="@LocomotiveType.Superchief">Superchief</MudSelectItem>
-                            </MudSelect>
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Express Price" Value="@_settings.ExpressPrice" ValueChanged="@(value => UpdateSettings(_settings with { ExpressPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="6">
-                            <MudNumericField T="int" Label="Superchief Price" Value="@_settings.SuperchiefPrice" ValueChanged="@(value => UpdateSettings(_settings with { SuperchiefPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
-                        </MudItem>
-                        <MudItem xs="12" md="4">
-                            <MudSwitch T="bool" Label="Keep Cash Secret" Value="@_settings.KeepCashSecret" ValueChanged="@(value => UpdateSettings(_settings with { KeepCashSecret = value }))" Disabled="@_creating" Color="Color.Primary" />
-                        </MudItem>
-                        <MudItem xs="12" md="4">
-                            <MudSwitch T="bool" Label="Home Swapping" Value="@_settings.HomeSwapping" ValueChanged="@(value => UpdateSettings(_settings with { HomeSwapping = value }))" Disabled="@_creating" Color="Color.Primary" />
-                        </MudItem>
-                        <MudItem xs="12" md="4">
-                            <MudSwitch T="bool" Label="Home City Choice" Value="@_settings.HomeCityChoice" ValueChanged="@(value => UpdateSettings(_settings with { HomeCityChoice = value }))" Disabled="@_creating" Color="Color.Primary" />
-                        </MudItem>
-                    </MudGrid>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
-
             <MudSelect T="int"
                        Label="Player Count"
                        Value="@_playerCount"
@@ -151,6 +98,65 @@
                     </MudPaper>
                 }
             </MudStack>
+
+            <MudExpansionPanels>
+                <MudExpansionPanel Expanded="false">
+                    <TitleContent>
+                        <MudText Typo="Typo.h5">Game Settings</MudText>
+                    </TitleContent>
+                    <ChildContent>
+                        <MudGrid>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Starting Cash" Value="@_settings.StartingCash" ValueChanged="@(value => UpdateSettings(_settings with { StartingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Announcing Cash" Value="@_settings.AnnouncingCash" ValueChanged="@(value => UpdateSettings(_settings with { AnnouncingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Winning Cash" Value="@_settings.WinningCash" ValueChanged="@(value => UpdateSettings(_settings with { WinningCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Rover Cash" Value="@_settings.RoverCash" ValueChanged="@(value => UpdateSettings(_settings with { RoverCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Public Fee" Value="@_settings.PublicFee" ValueChanged="@(value => UpdateSettings(_settings with { PublicFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Private Fee" Value="@_settings.PrivateFee" ValueChanged="@(value => UpdateSettings(_settings with { PrivateFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Unfriendly Fee 1" Value="@_settings.UnfriendlyFee1" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee1 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Unfriendly Fee 2" Value="@_settings.UnfriendlyFee2" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee2 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudSelect T="LocomotiveType" Label="Starting Engine" Value="@_settings.StartEngine" ValueChanged="@(value => UpdateSettings(_settings with { StartEngine = value }))" Variant="Variant.Outlined" Disabled="@_creating" FullWidth="true">
+                                    <MudSelectItem Value="@LocomotiveType.Freight">Freight</MudSelectItem>
+                                    <MudSelectItem Value="@LocomotiveType.Express">Express</MudSelectItem>
+                                    <MudSelectItem Value="@LocomotiveType.Superchief">Superchief</MudSelectItem>
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Express Price" Value="@_settings.ExpressPrice" ValueChanged="@(value => UpdateSettings(_settings with { ExpressPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Superchief Price" Value="@_settings.SuperchiefPrice" ValueChanged="@(value => UpdateSettings(_settings with { SuperchiefPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="4">
+                                <MudSwitch T="bool" Label="Keep Cash Secret" Value="@_settings.KeepCashSecret" ValueChanged="@(value => UpdateSettings(_settings with { KeepCashSecret = value }))" Disabled="@_creating" Color="Color.Primary" />
+                            </MudItem>
+                            <MudItem xs="12" md="4">
+                                <MudSwitch T="bool" Label="Home Swapping" Value="@_settings.HomeSwapping" ValueChanged="@(value => UpdateSettings(_settings with { HomeSwapping = value }))" Disabled="@_creating" Color="Color.Primary" />
+                            </MudItem>
+                            <MudItem xs="12" md="4">
+                                <MudSwitch T="bool" Label="Home City Choice" Value="@_settings.HomeCityChoice" ValueChanged="@(value => UpdateSettings(_settings with { HomeCityChoice = value }))" Disabled="@_creating" Color="Color.Primary" />
+                            </MudItem>
+                        </MudGrid>
+                    </ChildContent>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+
 
             <MudText Typo="Typo.body2" Style="opacity: 0.75">
                 Map: @_mapFileName

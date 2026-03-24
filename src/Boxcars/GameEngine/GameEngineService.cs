@@ -5,10 +5,12 @@ using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Engine;
+using Boxcars.Data.Maps;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
 using Boxcars.Identity;
 using Boxcars.Services;
+using Boxcars.Services.Maps;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Hosting;
@@ -876,6 +878,28 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         if (!HasConnectedTableUser(gameEntity.GameId, playerStates))
         {
             return null;
+        }
+
+        if (gameEngine.CurrentTurn.Phase == TurnPhase.DrawDestination)
+        {
+            if (gameEngine.CurrentTurn.ActivePlayer.Cash < gameEngine.Settings.WinningCash)
+            {
+                return CreatePickDestinationAction(gameEngine.CurrentTurn.ActivePlayer);
+            }
+
+            if (!IsAiControlledSeatTurn(gameEntity, playerStates, gameEngine))
+            {
+                return null;
+            }
+
+            if (_mapDefinition is null)
+            {
+                throw new InvalidOperationException("The game map definition has not been initialized yet.");
+            }
+
+            return ShouldAiDeclareForHome(gameEngine, _mapDefinition, gameEngine.CurrentTurn.ActivePlayer)
+                ? CreateDeclareAction(gameEngine.CurrentTurn.ActivePlayer)
+                : CreatePickDestinationAction(gameEngine.CurrentTurn.ActivePlayer);
         }
 
         var builtInAction = CreateAutomaticTurnAction(gameEngine);
@@ -2149,27 +2173,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var activePlayer = gameEngine.CurrentTurn.ActivePlayer;
-        var playerIndex = activePlayer.Index;
 
         return gameEngine.CurrentTurn.Phase switch
         {
-            TurnPhase.DrawDestination => activePlayer.Cash >= gameEngine.Settings.WinningCash
-                ? new DeclareAction
-                {
-                    PlayerId = activePlayer.Name,
-                    PlayerIndex = playerIndex,
-                    ActorUserId = string.Empty
-                }
-                : new PickDestinationAction
-                {
-                    PlayerId = activePlayer.Name,
-                    PlayerIndex = playerIndex,
-                    ActorUserId = string.Empty
-                },
+            TurnPhase.DrawDestination => activePlayer.Cash < gameEngine.Settings.WinningCash
+                ? CreatePickDestinationAction(activePlayer)
+                : null,
             TurnPhase.Roll => new RollDiceAction
             {
                 PlayerId = activePlayer.Name,
-                PlayerIndex = playerIndex,
+                PlayerIndex = activePlayer.Index,
                 ActorUserId = string.Empty,
                 WhiteDieOne = 0,
                 WhiteDieTwo = 0
@@ -2177,11 +2190,106 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             TurnPhase.EndTurn => new EndTurnAction
             {
                 PlayerId = activePlayer.Name,
-                PlayerIndex = playerIndex,
+                PlayerIndex = activePlayer.Index,
                 ActorUserId = string.Empty
             },
             _ => null
         };
+    }
+
+    private static DeclareAction CreateDeclareAction(Player activePlayer)
+    {
+        return new DeclareAction
+        {
+            PlayerId = activePlayer.Name,
+            PlayerIndex = activePlayer.Index,
+            ActorUserId = string.Empty
+        };
+    }
+
+    private static PickDestinationAction CreatePickDestinationAction(Player activePlayer)
+    {
+        return new PickDestinationAction
+        {
+            PlayerId = activePlayer.Name,
+            PlayerIndex = activePlayer.Index,
+            ActorUserId = string.Empty
+        };
+    }
+
+    private static bool ShouldAiDeclareForHome(RailBaronGameEngine gameEngine, MapDefinition mapDefinition, Player activePlayer)
+    {
+        if (activePlayer.Cash < gameEngine.Settings.WinningCash)
+        {
+            return false;
+        }
+
+        var currentNodeId = TryGetCityNodeId(mapDefinition, activePlayer.CurrentCity);
+        if (string.IsNullOrWhiteSpace(currentNodeId))
+        {
+            return false;
+        }
+
+        var homeNodeId = TryGetCityNodeId(mapDefinition, activePlayer.HomeCity);
+        if (string.IsNullOrWhiteSpace(homeNodeId))
+        {
+            return false;
+        }
+
+        var routeService = new MapRouteService();
+        var routeContext = routeService.BuildContext(mapDefinition);
+        var shortestRoute = routeService.FindShortestSelection(routeContext, currentNodeId, homeNodeId);
+        if (shortestRoute is null || shortestRoute.Segments.Count > 15)
+        {
+            return false;
+        }
+
+        var cheapestRoute = routeService.FindCheapestSuggestion(
+            routeContext,
+            new RouteSuggestionRequest
+            {
+                PlayerId = activePlayer.Name,
+                StartNodeId = currentNodeId,
+                DestinationNodeId = homeNodeId,
+                MovementType = activePlayer.LocomotiveType == LocomotiveType.Superchief ? PlayerMovementType.ThreeDie : PlayerMovementType.TwoDie,
+                MovementCapacity = activePlayer.LocomotiveType == LocomotiveType.Superchief ? 3 : 2,
+                PlayerColor = string.Empty,
+                ResolveRailroadOwnership = railroadIndex => ResolveRailroadOwnershipCategory(gameEngine, activePlayer, railroadIndex)
+            });
+
+        return cheapestRoute.Status == RouteSuggestionStatus.Success
+            && activePlayer.Cash - cheapestRoute.TotalCost >= gameEngine.Settings.WinningCash;
+    }
+
+    private static RailroadOwnershipCategory ResolveRailroadOwnershipCategory(
+        RailBaronGameEngine gameEngine,
+        Player activePlayer,
+        int railroadIndex)
+    {
+        var railroad = gameEngine.Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
+        if (railroad?.Owner is null)
+        {
+            return RailroadOwnershipCategory.Public;
+        }
+
+        return railroad.Owner == activePlayer
+            ? RailroadOwnershipCategory.Friendly
+            : RailroadOwnershipCategory.Unfriendly;
+    }
+
+    private static string? TryGetCityNodeId(MapDefinition mapDefinition, CityDefinition city)
+    {
+        if (!city.MapDotIndex.HasValue)
+        {
+            return null;
+        }
+
+        var region = mapDefinition.Regions.FirstOrDefault(candidate =>
+            string.Equals(candidate.Code, city.RegionCode, StringComparison.OrdinalIgnoreCase));
+
+        return region is null
+            ? null
+            : MapRouteService.NodeKey(region.Index, city.MapDotIndex.Value);
     }
 
     private static void ProcessAutomaticTurnAction(RailBaronGameEngine gameEngine, PlayerAction action)

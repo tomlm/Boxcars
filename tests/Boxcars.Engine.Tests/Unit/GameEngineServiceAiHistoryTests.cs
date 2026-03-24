@@ -98,6 +98,114 @@ public class GameEngineServiceAiHistoryTests
     }
 
     [Fact]
+    public async Task CreateAutomaticTurnActionAsync_ManualDrawDestinationWithWinningCash_ReturnsNullForBoardPrompt()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: true);
+
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.DrawDestination;
+        engine.CurrentTurn.ActivePlayer.Cash = engine.Settings.WinningCash;
+        SetMapDefinition(service, engine.MapDefinition);
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1"
+        };
+        var playerStates = BotTurnServiceTestHarness.CreatePlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                BotTurnServiceTestHarness.ActivePlayerUserId,
+                BotTurnServiceTestHarness.OtherPlayerUserId));
+
+        var action = await InvokeCreateAutomaticTurnActionAsync(service, gameEntity, playerStates, engine);
+
+        Assert.Null(action);
+    }
+
+    [Fact]
+    public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationWithinRangeAndBuffer_Declares()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.OtherPlayerUserId, isConnected: true);
+
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.DrawDestination;
+
+        var activePlayer = engine.CurrentTurn.ActivePlayer;
+        activePlayer.Cash = engine.Settings.WinningCash + 5_000;
+        activePlayer.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Boston", StringComparison.Ordinal));
+        activePlayer.CurrentNodeId = "0:1";
+
+        var homeRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        homeRailroad.Owner = engine.Players[1];
+        engine.Players[1].OwnedRailroads.Add(homeRailroad);
+
+        SetMapDefinition(service, engine.MapDefinition);
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1"
+        };
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                BotTurnServiceTestHarness.ActivePlayerUserId,
+                BotTurnServiceTestHarness.OtherPlayerUserId),
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            "bot-1");
+
+        var action = await InvokeCreateAutomaticTurnActionAsync(service, gameEntity, playerStates, engine);
+
+        Assert.IsType<DeclareAction>(action);
+    }
+
+    [Fact]
+    public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationWithoutBuffer_PicksDestination()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.OtherPlayerUserId, isConnected: true);
+
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.DrawDestination;
+
+        var activePlayer = engine.CurrentTurn.ActivePlayer;
+        activePlayer.Cash = engine.Settings.WinningCash;
+        activePlayer.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Boston", StringComparison.Ordinal));
+        activePlayer.CurrentNodeId = "0:1";
+
+        var homeRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        homeRailroad.Owner = engine.Players[1];
+        engine.Players[1].OwnedRailroads.Add(homeRailroad);
+
+        SetMapDefinition(service, engine.MapDefinition);
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1"
+        };
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                BotTurnServiceTestHarness.ActivePlayerUserId,
+                BotTurnServiceTestHarness.OtherPlayerUserId),
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            "bot-1");
+
+        var action = await InvokeCreateAutomaticTurnActionAsync(service, gameEntity, playerStates, engine);
+
+        Assert.IsType<PickDestinationAction>(action);
+    }
+
+    [Fact]
     public void ResolveIfMatchETag_EmptyGameEntityEtag_UsesWildcard()
     {
         var gameEntity = new GameEntity
