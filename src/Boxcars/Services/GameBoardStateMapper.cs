@@ -625,13 +625,15 @@ public sealed class GameBoardStateMapper(
                 railroad => networkCoverageService.BuildProjectedSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices, railroad.Index));
 
         var allEligibleEngineTypes = GetEligibleUpgradeTargets(ParseLocomotiveType(activePlayer.LocomotiveType)).ToList();
-        var hasUpgradeableEngine = allEligibleEngineTypes.Count > 0;
-        var hasUnownedRailroads = mapDefinition is not null && mapDefinition.Railroads.Any(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null);
-        var hasPurchaseOptions = taskbarOptions.Count > 0;
-        var noPurchaseNotification = !hasPurchaseOptions && (hasUnownedRailroads || hasUpgradeableEngine)
-            ? $"{activePlayer.Name} does not have enough money to purchase anything."
+        var hasAvailableEngineUpgrades = engineOptions.Count > 0;
+        var hasUnownedRailroads = railroadOptions.Count > 0;
+        var hasAvailablePurchases = hasUnownedRailroads || hasAvailableEngineUpgrades;
+        var canAffordAnyPurchase = railroadOptions.Any(option => option.IsAffordable)
+            || engineOptions.Any(option => option.IsEligible);
+        var noPurchaseNotification = hasAvailablePurchases && !canAffordAnyPurchase
+            ? $"{activePlayer.Name} can't afford to purchase anything"
             : null;
-        var hasActivePurchaseControls = hasPurchaseOptions || !string.IsNullOrWhiteSpace(noPurchaseNotification);
+        var hasActivePurchaseControls = canAffordAnyPurchase;
 
         return new PurchasePhaseModel
         {

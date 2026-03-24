@@ -977,11 +977,30 @@
             && string.Equals(selectedNodeIds[^1], destinationNodeId, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task DeclinePurchaseAsync()
+    private Task DeclinePurchaseAsync()
+    {
+        return DeclinePurchaseCoreAsync(requireConfirmation: true);
+    }
+
+    private async Task DeclinePurchaseCoreAsync(bool requireConfirmation)
     {
         if (_gameState is null)
         {
             return;
+        }
+
+        if (requireConfirmation)
+        {
+            var confirmed = await DialogService.ShowMessageBox(
+                "Decline Purchase",
+                "Are you sure you want to decline purchasing anything?",
+                yesText: "YES",
+                noText: "NO");
+
+            if (confirmed != true)
+            {
+                return;
+            }
         }
 
         MarkAuthoritativeUpdatePending();
@@ -3918,7 +3937,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             ShowNotification(CurrentPurchasePhase.NoPurchaseNotification, Severity.Warning);
         }
 
-        await DeclinePurchaseAsync();
+        await DeclinePurchaseCoreAsync(requireConfirmation: false);
     }
 
     private async Task ResolveDrawDestinationPhaseAsync()

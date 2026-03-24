@@ -26,7 +26,7 @@
                 <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" Disabled="!TaskbarState.CanBuy || IsBusy" OnClick="OnBuyRequestedAsync">
                     BUY
                 </MudButton>
-                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="!TaskbarState.CanDecline || IsBusy" OnClick="OnDeclineRequestedAsync">
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" Disabled="IsBusy" OnClick="OnDeclineRequestedAsync">
                     DECLINE
                 </MudButton>
             </MudButtonGroup>
