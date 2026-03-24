@@ -69,9 +69,7 @@
                               x2="@railroadSegment.X2"
                               y2="@railroadSegment.Y2"
                               class="game-map-railroad-hitbox"
-                              data-mapboard-pan-ignore="true"
-                              @onmousedown:stopPropagation="true"
-                                                            @onclick="@((MouseEventArgs args) => OnRailroadSegmentClicked(railroadSegment.RailroadIndex, args))"
+                              @onclick="@((MouseEventArgs args) => OnRailroadSegmentClicked(railroadSegment.RailroadIndex, args))"
                                 @onclick:stopPropagation="@(SelectionMode == MapSelectionMode.Rail)" />
                     }
                 </g>
