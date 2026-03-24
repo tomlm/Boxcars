@@ -40,6 +40,7 @@ public sealed class FeeStatisticsTests
         Assert.Equal(ownerCashBefore + 5_000, owner.Cash);
         Assert.Equal(7_000, rider.TotalFeesPaid);
         Assert.Equal(0, rider.TotalFeesCollected);
+        Assert.Equal(5_000, rider.FeesPaidToPlayers[owner.Index]);
         Assert.Equal(0, owner.TotalFeesPaid);
         Assert.Equal(5_000, owner.TotalFeesCollected);
     }
@@ -69,6 +70,7 @@ public sealed class FeeStatisticsTests
         Assert.Equal(aliceCashBefore - 5_000, alice.Cash);
         Assert.Equal(bobCashBefore + 5_000, bob.Cash);
         Assert.Equal(5_000, alice.TotalFeesPaid);
+        Assert.Equal(5_000, alice.FeesPaidToPlayers[bob.Index]);
         Assert.Equal(5_000, bob.TotalFeesCollected);
 
         engine.EndTurn();
@@ -84,7 +86,40 @@ public sealed class FeeStatisticsTests
         Assert.Equal(5_000, alice.TotalFeesPaid);
         Assert.Equal(5_000, alice.TotalFeesCollected);
         Assert.Equal(5_000, bob.TotalFeesPaid);
+        Assert.Equal(5_000, bob.FeesPaidToPlayers[alice.Index]);
         Assert.Equal(5_000, bob.TotalFeesCollected);
+    }
+
+    [Fact]
+    public void FeesPaidToPlayers_TracksSeparateTotalsPerOpponent()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, playerCount: 3);
+        var rider = engine.Players[0];
+        var bob = engine.Players[1];
+        var charlie = engine.Players[2];
+        var bobRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var charlieRailroad = new Railroad(
+            new RailroadDefinition { Index = 99, Name = "Western Link", ShortName = "WL" },
+            purchasePrice: 4_000,
+            isPublic: false);
+
+        engine.Railroads.Add(charlieRailroad);
+
+        bobRailroad.Owner = bob;
+        charlieRailroad.Owner = charlie;
+        bob.OwnedRailroads.Add(bobRailroad);
+        charlie.OwnedRailroads.Add(charlieRailroad);
+        rider.Cash = 100_000;
+
+        PreparePurchaseTurn(engine, rider, [bobRailroad.Index, charlieRailroad.Index], [bobRailroad.Index, charlieRailroad.Index]);
+
+        engine.DeclinePurchase();
+
+        Assert.Equal(10_000, rider.TotalFeesPaid);
+        Assert.Equal(2, rider.FeesPaidToPlayers.Count);
+        Assert.Equal(5_000, rider.FeesPaidToPlayers[bob.Index]);
+        Assert.Equal(5_000, rider.FeesPaidToPlayers[charlie.Index]);
+        Assert.DoesNotContain(rider.Index, rider.FeesPaidToPlayers.Keys);
     }
 
     private static void PreparePurchaseTurn(

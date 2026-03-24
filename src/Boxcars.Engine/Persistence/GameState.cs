@@ -34,6 +34,7 @@ public sealed class PlayerState
     public int BonusRollTotal { get; set; }
     public int TotalPayoffsCollected { get; set; }
     public int TotalFeesPaid { get; set; }
+    public List<FeePaidToPlayerState> FeesPaidToPlayers { get; set; } = new();
     public int TotalFeesCollected { get; set; }
     public int TotalRailroadFaceValuePurchased { get; set; }
     public int TotalRailroadAmountPaid { get; set; }
@@ -65,6 +66,12 @@ public sealed class PlayerState
     public List<int> GrandfatheredRailroadIndices { get; set; } = new();
     public string? CurrentNodeId { get; set; }
     public int RouteProgressIndex { get; set; }
+}
+
+public sealed class FeePaidToPlayerState
+{
+    public int PlayerIndex { get; set; }
+    public int Amount { get; set; }
 }
 
 public sealed class PlayerControlState

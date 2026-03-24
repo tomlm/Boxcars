@@ -188,6 +188,22 @@ public class SerializationTests
     }
 
     [Fact]
+    public void Snapshot_RoundTrip_PreservesFeesPaidToPlayers()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.Players[0].FeesPaidToPlayers[1] = 5_000;
+
+        var snapshot = engine.ToSnapshot();
+        var feeEntry = Assert.Single(snapshot.Players[0].FeesPaidToPlayers);
+        Assert.Equal(1, feeEntry.PlayerIndex);
+        Assert.Equal(5_000, feeEntry.Amount);
+
+        var restored = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal(5_000, restored.Players[0].FeesPaidToPlayers[1]);
+    }
+
+    [Fact]
     public void Snapshot_RoundTrip_PreservesArrivalResolutionAndPayout()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

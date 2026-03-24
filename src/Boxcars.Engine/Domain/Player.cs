@@ -133,6 +133,7 @@ public sealed class Player : ObservableBase
     public int BonusRollTotal { get; set; }
     public int TotalPayoffsCollected { get; set; }
     public int TotalFeesPaid { get; set; }
+    public Dictionary<int, int> FeesPaidToPlayers { get; } = new();
     public int TotalFeesCollected { get; set; }
     public int TotalRailroadFaceValuePurchased { get; set; }
     public int TotalRailroadAmountPaid { get; set; }

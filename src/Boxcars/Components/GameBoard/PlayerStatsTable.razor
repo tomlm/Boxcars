@@ -13,32 +13,55 @@ else
     <MudPaper Outlined="true" Class="pa-3 d-flex flex-column" Style="min-height: 100%">
         <MudStack Spacing="0" Class="mb-3">
             <MudText Typo="Typo.h6">Stats</MudText>
-            <MudText Typo="Typo.caption">Players are shown in columns and tracked stats in rows.</MudText>
+            <MudText Typo="Typo.caption">Players are shown in columns and tracked stats in grouped sections.</MudText>
         </MudStack>
 
-        <MudTable T="PlayerStatisticRow" Items="StatisticRows" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Style="overflow-x: auto">
-            <HeaderContent>
-                <MudTh>Stat</MudTh>
+        <MudDataGrid T="PlayerStatisticRow"
+                     Items="StatisticRows"
+                     Dense="true"
+                     Hover="true"
+                     ReadOnly="true"
+                     Filterable="false"
+                     SortMode="SortMode.None"
+                     Groupable="true"
+                     GroupExpanded="true"
+                     Bordered="false"
+                     Striped="false">
+            <Columns>
+                <PropertyColumn Property="x => x.GroupLabel"
+                                Title="Group"
+                                Hidden="true"
+                                Grouping="true"
+                                Groupable="true"
+                                Sortable="false"
+                                Filterable="false">
+                    <GroupTemplate>
+                        <MudText Typo="Typo.subtitle2">@context.Grouping.Key</MudText>
+                    </GroupTemplate>
+                </PropertyColumn>
+
+                <TemplateColumn Title="Stat" Sortable="false" Filterable="false" Groupable="false">
+                    <CellTemplate>
+                        <span style="@BuildLabelStyle(context.Item)">@context.Item.Label</span>
+                    </CellTemplate>
+                </TemplateColumn>
+
                 @foreach (var player in PlayerColumns)
                 {
-                    <MudTh>
-                        <MudStack Spacing="0" Style="min-width: 7.5rem">
-                            <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
-                            <MudText Typo="Typo.caption" Style="opacity: 0.72">Seat @(player.SeatIndex + 1)</MudText>
-                        </MudStack>
-                    </MudTh>
+                    <TemplateColumn Title="@player.DisplayName" Sortable="false" Filterable="false" Groupable="false">
+                        <HeaderTemplate>
+                            <MudStack Spacing="0" Style="min-width: 7.5rem">
+                                <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
+                                <MudText Typo="Typo.caption" Style="opacity: 0.72">Seat @(player.SeatIndex + 1)</MudText>
+                            </MudStack>
+                        </HeaderTemplate>
+                        <CellTemplate>
+                            @context.Item.GetValue(player.PlayerState, player.SeatIndex)
+                        </CellTemplate>
+                    </TemplateColumn>
                 }
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Stat" Style="white-space: nowrap; font-weight: 600">@context.Label</MudTd>
-                @foreach (var player in PlayerColumns)
-                {
-                    <MudTd DataLabel="@player.DisplayName">
-                        @context.GetValue(player.PlayerState)
-                    </MudTd>
-                }
-            </RowTemplate>
-        </MudTable>
+            </Columns>
+        </MudDataGrid>
     </MudPaper>
 }
 
@@ -65,26 +88,34 @@ else
         })
         .ToArray();
 
-    private static IReadOnlyList<PlayerStatisticRow> StatisticRows { get; } =
+    private IReadOnlyList<PlayerStatisticRow> StatisticRows =>
     [
-        new("Turns Taken", state => FormatCount(state.TurnsTaken)),
-        new("Avg Freight", state => FormatAverage(state.FreightRollTotal, state.FreightTurnCount)),
-        new("Avg Express", state => FormatAverage(state.ExpressRollTotal, state.ExpressTurnCount)),
-        new("Avg Superchief", state => FormatAverage(state.SuperchiefRollTotal, state.SuperchiefTurnCount)),
-        new("Bonus Rolls", state => FormatCount(state.BonusRollCount)),
-        new("Bonus Roll Total", state => FormatCount(state.BonusRollTotal)),
-        new("Payoffs Collected", state => FormatCurrency(state.TotalPayoffsCollected)),
-        new("Fees Paid", state => FormatCurrency(state.TotalFeesPaid)),
-        new("Fees Collected", state => FormatCurrency(state.TotalFeesCollected)),
-        new("Railroad Face Value Bought", state => FormatCurrency(state.TotalRailroadFaceValuePurchased)),
-        new("Railroad Amount Paid", state => FormatCurrency(state.TotalRailroadAmountPaid)),
-        new("Auction Wins", state => FormatCount(state.AuctionWins)),
-        new("Auction Bids", state => FormatCount(state.AuctionBidsPlaced)),
-        new("Railroads Purchased", state => FormatCount(state.RailroadsPurchasedCount)),
-        new("Railroads Auctioned", state => FormatCount(state.RailroadsAuctionedCount)),
-        new("Railroads Sold To Bank", state => FormatCount(state.RailroadsSoldToBankCount)),
-        new("Destinations", state => FormatDestinationLog(state)),
-        new("% Unfriendly", state => FormatPercentage(state.UnfriendlyDestinationCount, state.DestinationCount))
+        new("Movement", "Turns Taken", (state, _) => FormatCount(state.TurnsTaken)),
+        new("Movement", "Avg Freight", (state, _) => FormatAverage(state.FreightRollTotal, state.FreightTurnCount)),
+        new("Movement", "Avg Express", (state, _) => FormatAverage(state.ExpressRollTotal, state.ExpressTurnCount)),
+        new("Movement", "Avg Superchief", (state, _) => FormatAverage(state.SuperchiefRollTotal, state.SuperchiefTurnCount)),
+        new("Movement", "Bonus Rolls", (state, _) => FormatCount(state.BonusRollCount)),
+        new("Movement", "Bonus Roll Total", (state, _) => FormatCount(state.BonusRollTotal)),
+        new("Earnings", "Payoffs Collected", (state, _) => FormatCurrency(state.TotalPayoffsCollected)),
+        new("Fees Paid", "Total Fees Paid", (state, _) => FormatCurrency(state.TotalFeesPaid)),
+        new("Fees Collected", "Total Fees Collected", (state, _) => FormatCurrency(state.TotalFeesCollected)),
+        new("Fees Collected", "Fees From", (_, _) => string.Empty, IsSubsectionHeader: true),
+        ..PlayerColumns.Select(playerColumn => new PlayerStatisticRow(
+            "Fees Collected",
+            playerColumn.DisplayName,
+            (_, seatIndex) => seatIndex == playerColumn.SeatIndex
+                ? string.Empty
+                : FormatCurrency(ResolveFeesPaidToPlayer(playerColumn.PlayerState, seatIndex)),
+            IsChildRow: true)),
+        new("Railroads", "Railroad Face Value Bought", (state, _) => FormatCurrency(state.TotalRailroadFaceValuePurchased)),
+        new("Railroads", "Railroad Amount Paid", (state, _) => FormatCurrency(state.TotalRailroadAmountPaid)),
+        new("Railroads", "Auction Wins", (state, _) => FormatCount(state.AuctionWins)),
+        new("Railroads", "Auction Bids", (state, _) => FormatCount(state.AuctionBidsPlaced)),
+        new("Railroads", "Railroads Purchased", (state, _) => FormatCount(state.RailroadsPurchasedCount)),
+        new("Railroads", "Railroads Auctioned", (state, _) => FormatCount(state.RailroadsAuctionedCount)),
+        new("Railroads", "Railroads Sold To Bank", (state, _) => FormatCount(state.RailroadsSoldToBankCount)),
+        new("Destinations", "Destinations", (state, _) => FormatDestinationLog(state)),
+        new("Destinations", "% Unfriendly", (state, _) => FormatPercentage(state.UnfriendlyDestinationCount, state.DestinationCount))
     ];
 
     private static string FormatCount(int value)
@@ -119,7 +150,34 @@ else
             : $"{Math.Round(value * 100m / total, 1, MidpointRounding.AwayFromZero):0.0}%";
     }
 
+    private static string BuildLabelStyle(PlayerStatisticRow row)
+    {
+        if (row.IsSubsectionHeader)
+        {
+            return "white-space: nowrap; font-weight: 600; padding-left: 1rem; opacity: 0.9;";
+        }
+
+        if (row.IsChildRow)
+        {
+            return "white-space: nowrap; font-weight: 400; padding-left: 2rem; opacity: 0.82;";
+        }
+
+        return "white-space: nowrap; font-weight: 600";
+    }
+
+    private static int ResolveFeesPaidToPlayer(PlayerState state, int playerIndex)
+    {
+        return state.FeesPaidToPlayers
+            .FirstOrDefault(entry => entry.PlayerIndex == playerIndex)?
+            .Amount ?? 0;
+    }
+
     private sealed record PlayerStatsColumn(int SeatIndex, string DisplayName, PlayerState PlayerState);
 
-    private sealed record PlayerStatisticRow(string Label, Func<PlayerState, string> GetValue);
+    private sealed record PlayerStatisticRow(
+        string GroupLabel,
+        string Label,
+        Func<PlayerState, int, string> GetValue,
+        bool IsSubsectionHeader = false,
+        bool IsChildRow = false);
 }

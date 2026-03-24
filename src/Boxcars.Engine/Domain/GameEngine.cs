@@ -1182,6 +1182,14 @@ public sealed class GameEngine : ObservableBase
                 BonusRollTotal = player.BonusRollTotal,
                 TotalPayoffsCollected = player.TotalPayoffsCollected,
                 TotalFeesPaid = player.TotalFeesPaid,
+                FeesPaidToPlayers = player.FeesPaidToPlayers
+                    .OrderBy(entry => entry.Key)
+                    .Select(entry => new FeePaidToPlayerState
+                    {
+                        PlayerIndex = entry.Key,
+                        Amount = entry.Value
+                    })
+                    .ToList(),
                 TotalFeesCollected = player.TotalFeesCollected,
                 TotalRailroadFaceValuePurchased = player.TotalRailroadFaceValuePurchased,
                 TotalRailroadAmountPaid = player.TotalRailroadAmountPaid,
@@ -1342,6 +1350,16 @@ public sealed class GameEngine : ObservableBase
             foreach (var railroadIndex in ps.GrandfatheredRailroadIndices)
             {
                 player.GrandfatheredRailroadIndices.Add(railroadIndex);
+            }
+
+            foreach (var feePaidToPlayer in ps.FeesPaidToPlayers)
+            {
+                if (feePaidToPlayer.PlayerIndex < 0 || feePaidToPlayer.PlayerIndex == player.Index || feePaidToPlayer.Amount <= 0)
+                {
+                    continue;
+                }
+
+                player.FeesPaidToPlayers[feePaidToPlayer.PlayerIndex] = feePaidToPlayer.Amount;
             }
 
             foreach (var destinationLogEntry in ps.DestinationLogEntries)
@@ -1881,6 +1899,7 @@ public sealed class GameEngine : ObservableBase
             {
                 feeBucket.Owner.Cash += fee;
                 feeBucket.Owner.TotalFeesCollected += fee;
+                player.FeesPaidToPlayers[feeBucket.Owner.Index] = player.FeesPaidToPlayers.GetValueOrDefault(feeBucket.Owner.Index) + fee;
             }
 
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, feeBucket.Owner, fee, feeBucket.Railroads));
