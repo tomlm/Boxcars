@@ -682,6 +682,58 @@ public class BotTurnResolutionTests
     }
 
     [Fact]
+    public async Task TryResolveAllAiAuctionAsync_WithDisconnectedHumanBidder_DoesNotAutoResolveAuction()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var bidderOne = engine.Players[1];
+        var bidderTwo = engine.Players[2];
+        var railroad = engine.Railroads[0];
+        railroad.Owner = seller;
+        seller.OwnedRailroads.Add(railroad);
+        bidderOne.Cash = 16_000;
+        bidderTwo.Cash = 16_000;
+
+        engine.AuctionRailroad(railroad);
+        var startingPrice = engine.CurrentTurn.AuctionState!.StartingPrice;
+        var turnNumber = engine.ToSnapshot().TurnNumber;
+        Assert.Equal(bidderOne.Index, engine.CurrentTurn.AuctionState.CurrentBidderPlayerIndex);
+        Assert.Equal(2, engine.CurrentTurn.AuctionState.Participants.Count(participant => participant.IsEligible && !participant.HasDroppedOut));
+
+        var presenceService = new GamePresenceService();
+        var humanUser = BotTurnServiceTestHarness.CreateUser(
+            "bob@example.com",
+            name: "Bob Human",
+            strategyText: "Prefer strong networks but stay cash-positive.",
+            isBot: false);
+        var bidderTwoDefinition = BotTurnServiceTestHarness.CreateBotDefinition("charlie@example.com", "Charlie Bot");
+        var service = BotTurnServiceTestHarness.CreateServiceWithUsers(presenceService, [humanUser], bidderTwoDefinition);
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                "seller@example.com",
+                "bob@example.com",
+                "charlie@example.com"),
+            "charlie@example.com",
+            bidderTwoDefinition.BotDefinitionId);
+        var bidderOneState = playerStates.Single(playerState => string.Equals(playerState.PlayerUserId, "bob@example.com", StringComparison.OrdinalIgnoreCase));
+        Assert.False(PlayerControlRules.HasActiveBotControl(bidderOneState));
+        var bidderTwoState = playerStates.Single(playerState => string.Equals(playerState.PlayerUserId, "charlie@example.com", StringComparison.OrdinalIgnoreCase));
+        bidderTwoState.AuctionPlanTurnNumber = turnNumber;
+        bidderTwoState.AuctionPlanRailroadIndex = railroad.Index;
+        bidderTwoState.AuctionPlanStartingPrice = startingPrice;
+        bidderTwoState.AuctionPlanMaximumBid = startingPrice + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement;
+
+        var summaryAction = await service.TryResolveAllAiAuctionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+
+        Assert.Null(summaryAction);
+        Assert.NotNull(engine.CurrentTurn.AuctionState);
+        Assert.Equal(bidderOne.Index, engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex);
+        Assert.Equal(railroad.Owner, seller);
+    }
+
+    [Fact]
     public async Task TryResolveAllAiAuctionAsync_WhenAllAiBiddersDropOut_SellsRailroadToBank()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);

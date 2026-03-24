@@ -354,6 +354,17 @@ public sealed class BotTurnService
         var botControlContexts = new Dictionary<int, (GameSeatState PlayerState, BotStrategyDefinitionEntity Definition)>();
         foreach (var participantIndex in activeParticipantIndices)
         {
+            var slotUserId = ResolveSlotUserId(playerSelections, participantIndex);
+            var explicitSeatState = string.IsNullOrWhiteSpace(slotUserId)
+                ? null
+                : playerStates.FirstOrDefault(playerState =>
+                    string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
+
+            if (explicitSeatState is null || !PlayerControlRules.HasActiveBotControl(explicitSeatState))
+            {
+                return null;
+            }
+
             var botControlContext = await ResolveAuctionBidderContextAsync(gameId, playerStates, playerSelections, participantIndex, cancellationToken);
             if (botControlContext is null)
             {
@@ -777,7 +788,14 @@ public sealed class BotTurnService
             return null;
         }
 
-        return await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
+        var explicitSeatState = playerStates.FirstOrDefault(playerState =>
+            string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
+        if (explicitSeatState is null || !PlayerControlRules.HasActiveBotControl(explicitSeatState))
+        {
+            return null;
+        }
+
+        return await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken, requireExplicitAiControl: true);
     }
 
     private async Task<(GameSeatState PlayerState, int MaximumBid, string Source, string? FallbackReason)?> ResolveAuctionBidPlanAsync(
@@ -941,7 +959,8 @@ public sealed class BotTurnService
         string gameId,
         IReadOnlyList<GameSeatState> playerStates,
         string playerUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireExplicitAiControl = false)
     {
         var playerState = FindActiveSeatState(playerStates, playerUserId);
         var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameId, playerUserId);
@@ -949,6 +968,11 @@ public sealed class BotTurnService
 
         if (playerState is null)
         {
+            if (requireExplicitAiControl)
+            {
+                return null;
+            }
+
             if (isConnected || !string.IsNullOrWhiteSpace(delegatedControllerUserId))
             {
                 return null;
@@ -981,7 +1005,13 @@ public sealed class BotTurnService
             return (implicitPlayerState, implicitDefinition);
         }
 
-        var resolvedControllerMode = PlayerControlRules.ResolveBotControllerMode(playerState) ?? SeatControllerModes.AI;
+        var resolvedControllerMode = PlayerControlRules.ResolveBotControllerMode(playerState);
+        if (requireExplicitAiControl && !SeatControllerModes.IsAiControlled(resolvedControllerMode))
+        {
+            return null;
+        }
+
+        resolvedControllerMode ??= SeatControllerModes.AI;
         var dedicatedBotSeatDefinition = await _userDirectoryService.GetBotDefinitionAsync(playerUserId, cancellationToken);
         var isDedicatedBotPlayer = dedicatedBotSeatDefinition?.IsBotUser == true;
         var botDefinition = isDedicatedBotPlayer
