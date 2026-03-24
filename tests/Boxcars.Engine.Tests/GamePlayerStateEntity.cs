@@ -3,36 +3,13 @@ using Azure.Data.Tables;
 
 namespace Boxcars.Data;
 
-public sealed class GamePlayerStateEntity : ITableEntity
+// Test-only compatibility shim for legacy seat-state tests.
+public sealed class GamePlayerStateEntity : GameSeatState, ITableEntity
 {
-    private const char DestinationLogSeparator = '|';
-
     public const string RowKeyPrefix = "PLAYER_";
     public const string RowKeyExclusiveUpperBound = "PLAYER`";
 
-    public string PartitionKey { get; set; } = string.Empty;
-    public string RowKey { get; set; } = string.Empty;
-    public DateTimeOffset? Timestamp { get; set; }
-    public ETag ETag { get; set; }
-
-    public string GameId { get; set; } = string.Empty;
-    public int SeatIndex { get; set; }
-    public string PlayerUserId { get; set; } = string.Empty;
-    public string DisplayName { get; set; } = string.Empty;
-    public string Color { get; set; } = string.Empty;
-
-    public string ControllerMode { get; set; } = string.Empty;
-    public string ControllerUserId { get; set; } = string.Empty;
     public string BotDefinitionId { get; set; } = string.Empty;
-    public int? AuctionPlanTurnNumber { get; set; }
-    public int? AuctionPlanRailroadIndex { get; set; }
-    public int? AuctionPlanStartingPrice { get; set; }
-    public int? AuctionPlanMaximumBid { get; set; }
-    public DateTimeOffset? BotControlActivatedUtc { get; set; }
-    public DateTimeOffset? BotControlClearedUtc { get; set; }
-    public string BotControlStatus { get; set; } = string.Empty;
-    public string BotControlClearReason { get; set; } = string.Empty;
-
     public int TurnsTaken { get; set; }
     public int FreightTurnCount { get; set; }
     public int FreightRollTotal { get; set; }
@@ -56,38 +33,6 @@ public sealed class GamePlayerStateEntity : ITableEntity
     public int UnfriendlyDestinationCount { get; set; }
     public string DestinationLog { get; set; } = string.Empty;
 
-    public IReadOnlyList<string> GetDestinationLogEntries()
-    {
-        return string.IsNullOrWhiteSpace(DestinationLog)
-            ? []
-            : DestinationLog
-                .Split(DestinationLogSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .ToArray();
-    }
-
-    public void SetDestinationLogEntries(IEnumerable<string> entries)
-    {
-        DestinationLog = string.Join(
-            DestinationLogSeparator,
-            entries.Where(entry => !string.IsNullOrWhiteSpace(entry)).Select(entry => entry.Trim()));
-    }
-
-    public void AppendDestinationLogEntry(string entry)
-    {
-        if (string.IsNullOrWhiteSpace(entry))
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(DestinationLog))
-        {
-            DestinationLog = entry.Trim();
-            return;
-        }
-
-        DestinationLog = string.Concat(DestinationLog, DestinationLogSeparator, entry.Trim());
-    }
-
     public static string BuildRowKey(int seatIndex)
     {
         return $"{RowKeyPrefix}{seatIndex:D2}";
@@ -110,47 +55,6 @@ public sealed class GamePlayerStateEntity : ITableEntity
 
 public static class GamePlayerStateProjection
 {
-    public static IReadOnlyList<GamePlayerSelection> BuildPlayerSelections(IReadOnlyList<GamePlayerStateEntity> playerStates)
-    {
-        return playerStates
-            .OrderBy(playerState => playerState.SeatIndex)
-            .Select(playerState => new GamePlayerSelection
-            {
-                UserId = playerState.PlayerUserId,
-                DisplayName = playerState.DisplayName,
-                Color = playerState.Color
-            })
-            .ToList();
-    }
-
-    public static GamePlayerStateEntity ResetStatistics(GamePlayerStateEntity playerState)
-    {
-        var updatedPlayerState = Clone(playerState);
-        updatedPlayerState.TurnsTaken = 0;
-        updatedPlayerState.FreightTurnCount = 0;
-        updatedPlayerState.FreightRollTotal = 0;
-        updatedPlayerState.ExpressTurnCount = 0;
-        updatedPlayerState.ExpressRollTotal = 0;
-        updatedPlayerState.SuperchiefTurnCount = 0;
-        updatedPlayerState.SuperchiefRollTotal = 0;
-        updatedPlayerState.BonusRollCount = 0;
-        updatedPlayerState.BonusRollTotal = 0;
-        updatedPlayerState.TotalPayoffsCollected = 0;
-        updatedPlayerState.TotalFeesPaid = 0;
-        updatedPlayerState.TotalFeesCollected = 0;
-        updatedPlayerState.TotalRailroadFaceValuePurchased = 0;
-        updatedPlayerState.TotalRailroadAmountPaid = 0;
-        updatedPlayerState.AuctionWins = 0;
-        updatedPlayerState.AuctionBidsPlaced = 0;
-        updatedPlayerState.RailroadsPurchasedCount = 0;
-        updatedPlayerState.RailroadsAuctionedCount = 0;
-        updatedPlayerState.RailroadsSoldToBankCount = 0;
-        updatedPlayerState.DestinationCount = 0;
-        updatedPlayerState.UnfriendlyDestinationCount = 0;
-        updatedPlayerState.DestinationLog = string.Empty;
-        return updatedPlayerState;
-    }
-
     public static GamePlayerStateEntity Clone(GamePlayerStateEntity playerState)
     {
         return new GamePlayerStateEntity
@@ -166,7 +70,6 @@ public static class GamePlayerStateProjection
             Color = playerState.Color,
             ControllerMode = playerState.ControllerMode,
             ControllerUserId = playerState.ControllerUserId,
-            BotDefinitionId = playerState.BotDefinitionId,
             AuctionPlanTurnNumber = playerState.AuctionPlanTurnNumber,
             AuctionPlanRailroadIndex = playerState.AuctionPlanRailroadIndex,
             AuctionPlanStartingPrice = playerState.AuctionPlanStartingPrice,
@@ -175,6 +78,7 @@ public static class GamePlayerStateProjection
             BotControlClearedUtc = playerState.BotControlClearedUtc,
             BotControlStatus = playerState.BotControlStatus,
             BotControlClearReason = playerState.BotControlClearReason,
+            BotDefinitionId = playerState.BotDefinitionId,
             TurnsTaken = playerState.TurnsTaken,
             FreightTurnCount = playerState.FreightTurnCount,
             FreightRollTotal = playerState.FreightRollTotal,
@@ -198,5 +102,18 @@ public static class GamePlayerStateProjection
             UnfriendlyDestinationCount = playerState.UnfriendlyDestinationCount,
             DestinationLog = playerState.DestinationLog
         };
+    }
+
+    public static IReadOnlyList<GamePlayerSelection> BuildPlayerSelections(IReadOnlyList<GamePlayerStateEntity> playerStates)
+    {
+        return playerStates
+            .OrderBy(playerState => playerState.SeatIndex)
+            .Select(playerState => new GamePlayerSelection
+            {
+                UserId = playerState.PlayerUserId,
+                DisplayName = playerState.DisplayName,
+                Color = playerState.Color
+            })
+            .ToList();
     }
 }

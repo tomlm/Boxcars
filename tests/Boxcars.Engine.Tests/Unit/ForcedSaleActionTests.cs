@@ -291,7 +291,7 @@ public class ForcedSaleActionTests
         var method = typeof(GameEngineService).GetMethod("ValidateActionAuthorizationAsync", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("ValidateActionAuthorizationAsync was not found.");
 
-        var task = (Task)(method.Invoke(service, [gameEntity, playerStates, engine, action, CancellationToken.None])
+        var task = (Task)(method.Invoke(service, [gameEntity, playerStates.Cast<GameSeatState>().ToList(), engine, action, CancellationToken.None])
             ?? throw new InvalidOperationException("ValidateActionAuthorizationAsync returned null."));
 
         task.GetAwaiter().GetResult();
@@ -314,7 +314,7 @@ public class ForcedSaleActionTests
                 }))
             .ToList();
 
-        return (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, playerStates, action, snapshotBeforeAction, snapshotAfterAction, engine])
+        return (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, playerStates.Cast<GameSeatState>().ToList(), action, snapshotBeforeAction, snapshotAfterAction, engine])
             ?? throw new InvalidOperationException("DescribeAction returned null."));
     }
 

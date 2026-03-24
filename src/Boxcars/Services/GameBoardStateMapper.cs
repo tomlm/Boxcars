@@ -91,35 +91,35 @@ public sealed class GameBoardStateMapper(
         };
     }
 
-    public IReadOnlyList<GamePlayerSelection> GetPlayerSelections(IReadOnlyList<GamePlayerStateEntity>? playerStates)
+    public IReadOnlyList<GamePlayerSelection> GetSeatSelections(IReadOnlyList<GameSeatState>? playerStates)
     {
         return playerStates is null || playerStates.Count == 0
             ? []
-            : GamePlayerStateProjection.BuildPlayerSelections(playerStates);
+            : GameSeatStateProjection.BuildSeatSelections(playerStates);
     }
 
-    public IReadOnlyList<GamePlayerStateEntity> GetBotControlledPlayerStates(IReadOnlyList<GamePlayerStateEntity>? playerStates)
+    public IReadOnlyList<GameSeatState> GetBotControlledSeatStates(IReadOnlyList<GameSeatState>? playerStates)
     {
         return playerStates is null || playerStates.Count == 0
             ? []
             : playerStates
-                .Where(playerState => !string.IsNullOrWhiteSpace(playerState.BotDefinitionId))
+                .Where(playerState => PlayerControlRules.HasActiveBotControl(playerState.Control))
                 .ToList();
     }
 
-    public IReadOnlyDictionary<string, GamePlayerStateEntity> BuildLatestBotControlStates(IReadOnlyList<GamePlayerStateEntity>? playerStates)
+    public IReadOnlyDictionary<string, GameSeatState> BuildLatestBotControlStates(IReadOnlyList<GameSeatState>? playerStates)
     {
         return BuildPlayerStateLookup(playerStates);
     }
 
-    public static string GetBotControlStatusLabel(GamePlayerStateEntity? playerState, string? botName = null)
+    public static string GetBotControlStatusLabel(GameSeatState? playerState, string? botName = null)
     {
         if (playerState is null)
         {
             return string.Empty;
         }
 
-        return playerState.BotControlStatus switch
+        return playerState.Control.BotControlStatus switch
         {
             BotControlStatuses.Active => string.IsNullOrWhiteSpace(botName) ? "Bot assigned" : botName,
             BotControlStatuses.MissingDefinition => "Bot removed from library",
@@ -127,9 +127,9 @@ public sealed class GameBoardStateMapper(
         };
     }
 
-    public IReadOnlyList<PlayerControlBinding> BuildPlayerControlBindings(string gameId, IReadOnlyList<GamePlayerStateEntity>? playerStates, string? currentUserId)
+    public IReadOnlyList<PlayerControlBinding> BuildSeatControlBindings(string gameId, IReadOnlyList<GameSeatState>? playerStates, string? currentUserId)
     {
-        var selections = GetPlayerSelections(playerStates);
+        var selections = GetSeatSelections(playerStates);
         var playerStatesByUserId = BuildPlayerStateLookup(playerStates);
 
         return selections
@@ -155,7 +155,7 @@ public sealed class GameBoardStateMapper(
 
     public BoardTurnViewState BuildTurnViewState(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity>? playerStates,
+        IReadOnlyList<GameSeatState>? playerStates,
         RailBaronGameState? state,
         string? currentUserId,
         MapDefinition? mapDefinition = null,
@@ -168,7 +168,7 @@ public sealed class GameBoardStateMapper(
             return new BoardTurnViewState();
         }
 
-        var bindings = BuildPlayerControlBindings(gameId, playerStates, currentUserId);
+        var bindings = BuildSeatControlBindings(gameId, playerStates, currentUserId);
         var currentUserPlayerIndex = bindings
             .Where(binding => binding.IsCurrentUser)
             .Select(binding => binding.PlayerIndex)
@@ -235,12 +235,12 @@ public sealed class GameBoardStateMapper(
     private SeatControllerState ResolveSeatControllerState(
         string gameId,
         string? slotUserId,
-        Dictionary<string, GamePlayerStateEntity>? playerStatesByUserId = null)
+        Dictionary<string, GameSeatState>? playerStatesByUserId = null)
     {
         playerStatesByUserId ??= BuildPlayerStateLookup(null);
         var activePlayerState = !string.IsNullOrWhiteSpace(slotUserId)
             && playerStatesByUserId.TryGetValue(slotUserId, out var playerState)
-                ? playerState
+                ? playerState.Control
                 : null;
 
         if (gamePresenceService is null)
@@ -256,11 +256,11 @@ public sealed class GameBoardStateMapper(
         return gamePresenceService.ResolveSeatControllerState(gameId, slotUserId, activePlayerState);
     }
 
-    private static Dictionary<string, GamePlayerStateEntity> BuildPlayerStateLookup(IReadOnlyList<GamePlayerStateEntity>? playerStates)
+    private static Dictionary<string, GameSeatState> BuildPlayerStateLookup(IReadOnlyList<GameSeatState>? playerStates)
     {
         if (playerStates is null || playerStates.Count == 0)
         {
-            return new Dictionary<string, GamePlayerStateEntity>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, GameSeatState>(StringComparer.OrdinalIgnoreCase);
         }
 
         return playerStates
@@ -268,20 +268,20 @@ public sealed class GameBoardStateMapper(
             .GroupBy(playerState => playerState.PlayerUserId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
-                group => group.OrderByDescending(playerState => playerState.BotControlClearedUtc ?? playerState.BotControlActivatedUtc ?? DateTimeOffset.MinValue)
-                    .ThenByDescending(playerState => playerState.BotControlActivatedUtc ?? DateTimeOffset.MinValue)
+                group => group.OrderByDescending(playerState => playerState.Control.BotControlClearedUtc ?? playerState.Control.BotControlActivatedUtc ?? DateTimeOffset.MinValue)
+                    .ThenByDescending(playerState => playerState.Control.BotControlActivatedUtc ?? DateTimeOffset.MinValue)
                     .First(),
                 StringComparer.OrdinalIgnoreCase);
     }
 
-    public IReadOnlyList<PlayerMapState> BuildPlayerMapStates(IReadOnlyList<GamePlayerStateEntity>? playerStates, RailBaronGameState? state, string? currentUserId)
+    public IReadOnlyList<PlayerMapState> BuildPlayerMapStates(IReadOnlyList<GameSeatState>? playerStates, RailBaronGameState? state, string? currentUserId)
     {
         if (state is null)
         {
             return [];
         }
 
-        var selections = GetPlayerSelections(playerStates);
+        var selections = GetSeatSelections(playerStates);
 
         return state.Players
             .Select((player, index) =>

@@ -19,7 +19,7 @@ namespace Boxcars.Engine.Tests.Unit;
 public class GameSettingsImmutabilityTests
 {
     [Fact]
-    public async Task UpdatePlayerStatesAsync_PostStartSeatUpdate_PreservesPersistedGameSettings()
+    public async Task UpdateSeatStatesAsync_PostStartSeatUpdate_PreservesPersistedGameSettings()
     {
         var settings = GameSettingsTestData.Create(
             startingCash: 35_000,
@@ -49,9 +49,9 @@ public class GameSettingsImmutabilityTests
 
         var updatedPlayerState = GamePlayerStateProjection.Clone(persistedPlayerState);
         updatedPlayerState.ControllerMode = SeatControllerModes.AI;
-        updatedPlayerState.BotDefinitionId = "bot-1";
+        updatedPlayerState.BotControlStatus = BotControlStatuses.Active;
 
-        var result = await service.UpdatePlayerStatesAsync("game-1", [updatedPlayerState], CancellationToken.None);
+        var result = await service.UpdateSeatStatesAsync("game-1", [updatedPlayerState], CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(35_000, gamesTable.GameEntity.StartingCash);
@@ -182,6 +182,11 @@ public class GameSettingsImmutabilityTests
             playerState.ETag = new ETag("\"updated\"");
             return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
         }
+
+        public override Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
+        }
     }
 
     private sealed class EngineImmutableSettingsGamesTableClient(GameEntity gameEntity) : TableClient
@@ -281,7 +286,16 @@ public class GameSettingsImmutabilityTests
 
         public Task<global::Boxcars.Engine.Persistence.GameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            return Task.FromResult(new global::Boxcars.Engine.Persistence.GameState
+            {
+                Players =
+                [
+                    new global::Boxcars.Engine.Persistence.PlayerState
+                    {
+                        Name = "Alice"
+                    }
+                ]
+            });
         }
 
         public Task SynchronizeStateAsync(string gameId, global::Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default)

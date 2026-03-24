@@ -46,7 +46,7 @@ public sealed class GameBoardAdviceService(
             return AdvisorResponse.Failed("The game is no longer available.");
         }
 
-        var playerStates = await gameService.GetGamePlayerStatesAsync(gameId, cancellationToken);
+        var playerStates = await gameService.GetGameSeatStatesAsync(gameId, cancellationToken);
         var gameState = await gameEngine.GetCurrentStateAsync(gameId, cancellationToken);
         var mapDefinition = await LoadMapDefinitionAsync(game.MapFileName, cancellationToken);
         var settings = new GameSettingsResolver().Resolve(game).Settings;
@@ -95,7 +95,7 @@ public sealed class GameBoardAdviceService(
         GameEntity game,
         AdvisorConversationSession conversation,
         RailBaronGameState gameState,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         MapDefinition mapDefinition,
         string strategyText,
         GameSettings settings)

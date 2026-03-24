@@ -12,6 +12,14 @@ public sealed record GamePlayerSelection
     public string Color { get; init; } = string.Empty;
 }
 
+public sealed record GameSeatDefinition
+{
+    public int SeatIndex { get; init; }
+    public string PlayerUserId { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+    public string Color { get; init; } = string.Empty;
+}
+
 public sealed record CreateGameRequest
 {
     public string CreatorUserId { get; init; } = string.Empty;
@@ -70,6 +78,24 @@ public static class GamePlayerSelectionSerialization
     public static IReadOnlyList<GamePlayerSelection> Deserialize(string payload)
     {
         return JsonSerializer.Deserialize<List<GamePlayerSelection>>(payload) ?? [];
+    }
+}
+
+public static class GameSeatDefinitionSerialization
+{
+    public static string Serialize(IReadOnlyList<GameSeatDefinition> seats)
+    {
+        return JsonSerializer.Serialize(seats);
+    }
+
+    public static IReadOnlyList<GameSeatDefinition> Deserialize(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<GameSeatDefinition>>(payload) ?? [];
     }
 }
 

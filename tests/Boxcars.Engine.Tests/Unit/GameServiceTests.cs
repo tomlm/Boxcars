@@ -13,14 +13,24 @@ namespace Boxcars.Engine.Tests.Unit;
 public class GameServiceTests
 {
     [Fact]
-    public async Task UpdatePlayerStatesAsync_StatsOnlyChange_PersistsStatisticColumns()
+    public async Task UpdateSeatStatesAsync_ControlChange_ProjectsUpdatedSeatState()
     {
         var gameEntity = new GameEntity
         {
             PartitionKey = "game-1",
             RowKey = "GAME",
             GameId = "game-1",
-            ETag = new ETag("\"game\"")
+            ETag = new ETag("\"game\""),
+            Seats =
+            [
+                new GameSeatDefinition
+                {
+                    SeatIndex = 0,
+                    PlayerUserId = "alice@example.com",
+                    DisplayName = "Alice",
+                    Color = "red"
+                }
+            ]
         };
         var persistedPlayerState = new GamePlayerStateEntity
         {
@@ -37,38 +47,18 @@ public class GameServiceTests
         var service = new GameService(gamesTable, new FakeUsersTableClient(), new FakeHubContext(), new FakeGameEngine());
 
         var updatedPlayerState = GamePlayerStateProjection.Clone(persistedPlayerState);
-        updatedPlayerState.TurnsTaken = 3;
-        updatedPlayerState.ExpressTurnCount = 2;
-        updatedPlayerState.ExpressRollTotal = 15;
-        updatedPlayerState.TotalPayoffsCollected = 21000;
-        updatedPlayerState.TotalFeesPaid = 6000;
-        updatedPlayerState.TotalFeesCollected = 2000;
-        updatedPlayerState.TotalRailroadFaceValuePurchased = 4000;
-        updatedPlayerState.TotalRailroadAmountPaid = 4500;
-        updatedPlayerState.AuctionWins = 1;
-        updatedPlayerState.RailroadsPurchasedCount = 2;
-        updatedPlayerState.DestinationCount = 3;
-        updatedPlayerState.UnfriendlyDestinationCount = 1;
-        updatedPlayerState.DestinationLog = "Boston|Atlanta*|Miami";
+        updatedPlayerState.ControllerMode = SeatControllerModes.AI;
+        updatedPlayerState.BotControlStatus = BotControlStatuses.Active;
+        updatedPlayerState.BotControlActivatedUtc = new DateTimeOffset(2026, 3, 23, 0, 0, 0, TimeSpan.Zero);
 
-        var result = await service.UpdatePlayerStatesAsync("game-1", [updatedPlayerState], CancellationToken.None);
+        var result = await service.UpdateSeatStatesAsync("game-1", [updatedPlayerState], CancellationToken.None);
 
         Assert.True(result.Succeeded);
 
-        var persisted = Assert.Single(gamesTable.PlayerStates);
-        Assert.Equal(3, persisted.TurnsTaken);
-        Assert.Equal(2, persisted.ExpressTurnCount);
-        Assert.Equal(15, persisted.ExpressRollTotal);
-        Assert.Equal(21000, persisted.TotalPayoffsCollected);
-        Assert.Equal(6000, persisted.TotalFeesPaid);
-        Assert.Equal(2000, persisted.TotalFeesCollected);
-        Assert.Equal(4000, persisted.TotalRailroadFaceValuePurchased);
-        Assert.Equal(4500, persisted.TotalRailroadAmountPaid);
-        Assert.Equal(1, persisted.AuctionWins);
-        Assert.Equal(2, persisted.RailroadsPurchasedCount);
-        Assert.Equal(3, persisted.DestinationCount);
-        Assert.Equal(1, persisted.UnfriendlyDestinationCount);
-        Assert.Equal("Boston|Atlanta*|Miami", persisted.DestinationLog);
+        var seatState = Assert.Single(result.PlayerStates);
+        Assert.Equal(SeatControllerModes.AI, seatState.ControllerMode);
+        Assert.Equal(BotControlStatuses.Active, seatState.BotControlStatus);
+        Assert.Equal(updatedPlayerState.BotControlActivatedUtc, seatState.BotControlActivatedUtc);
     }
 
     private sealed class FakeGamesTableClient(GameEntity gameEntity, params GamePlayerStateEntity[] playerStates) : TableClient
@@ -184,6 +174,11 @@ public class GameServiceTests
 
             return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
         }
+
+        public override Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
+        }
     }
 
     private sealed class FakeUsersTableClient : TableClient;
@@ -209,7 +204,16 @@ public class GameServiceTests
 
         public Task<global::Boxcars.Engine.Persistence.GameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            return Task.FromResult(new global::Boxcars.Engine.Persistence.GameState
+            {
+                Players =
+                [
+                    new global::Boxcars.Engine.Persistence.PlayerState
+                    {
+                        Name = "Alice"
+                    }
+                ]
+            });
         }
 
         public Task SynchronizeStateAsync(string gameId, global::Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default)
@@ -336,7 +340,8 @@ public class GameServiceTests
             StartEngine = entity.StartEngine,
             SuperchiefPrice = entity.SuperchiefPrice,
             ExpressPrice = entity.ExpressPrice,
-            SettingsSchemaVersion = entity.SettingsSchemaVersion
+            SettingsSchemaVersion = entity.SettingsSchemaVersion,
+            SeatsJson = entity.SeatsJson
         };
     }
 

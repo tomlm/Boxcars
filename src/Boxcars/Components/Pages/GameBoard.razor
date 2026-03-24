@@ -126,7 +126,7 @@
                 }
                 else if (IsStatsPurchaseTabActive)
                 {
-                    <PlayerStatsTable Players="_players" PlayerStates="_playerStates" />
+                    <PlayerStatsTable Players="_players" PlayerStates="@(_gameState?.Players ?? [])" />
                 }
                 else if (IsHistoryPurchaseTabActive)
                 {
@@ -304,7 +304,6 @@
     private ApplicationUser? _currentUserProfile;
     private Dictionary<string, ApplicationUser> _playerProfilesByUserId = new(StringComparer.OrdinalIgnoreCase);
     private GameEntity? _game;
-    private List<GamePlayerStateEntity> _playerStates = [];
     private GameMapComponent? _gameMap;
     private bool _gameStateSubscriptionInitialized;
     private RailBaronGameState? _gameState;
@@ -541,9 +540,7 @@
             return;
         }
 
-        var playerStates = _playerStates.Count > 0
-            ? _playerStates
-            : (await GameService.GetGamePlayerStatesAsync(GameId, CancellationToken.None)).ToList();
+        var playerStates = GetCurrentPlayerStates();
         if (playerStates.Count < 2)
         {
             ShowNotification("Unable to prepare replay: game players were not found.", Severity.Error);
@@ -558,7 +555,7 @@
             {
                 MapFileName = gameEntity.MapFileName,
                 Settings = GameSettingsResolver.Resolve(gameEntity).Settings,
-                Players = GamePlayerStateProjection.BuildPlayerSelections(playerStates)
+                Players = GameSeatStateProjection.BuildSeatSelections(playerStates)
             });
 
             var result = await GameService.EndGameAsync(_currentUserId, GameId, CancellationToken.None);
@@ -1044,7 +1041,7 @@
 
         _turnViewState = GameBoardStateMapper.BuildTurnViewState(
             GameId,
-            _playerStates,
+            GetCurrentPlayerStates(),
             _gameState,
             _currentUserId,
             _playerBoardMapDefinition,
@@ -1267,11 +1264,12 @@
     {
         var previousState = _gameState;
         _gameState = state;
-        _turnViewState = GameBoardStateMapper.BuildTurnViewState(GameId, _playerStates, state, _currentUserId, _playerBoardMapDefinition, gameEntity: _game);
+        var currentPlayerStates = GetCurrentPlayerStates();
+        _turnViewState = GameBoardStateMapper.BuildTurnViewState(GameId, currentPlayerStates, state, _currentUserId, _playerBoardMapDefinition, gameEntity: _game);
         _currentUserPlayerIndex = _turnViewState.CurrentUserPlayerIndex;
 
-        var playerSelections = GameBoardStateMapper.GetPlayerSelections(_playerStates);
-        var botAssignmentsByUserId = GameBoardStateMapper.BuildLatestBotControlStates(_playerStates);
+        var playerSelections = GameBoardStateMapper.GetSeatSelections(currentPlayerStates);
+        var botAssignmentsByUserId = GameBoardStateMapper.BuildLatestBotControlStates(currentPlayerStates);
         var suggestedRouteDistances = BuildSuggestedRouteDistances(state);
 
         var playerUserIdsByDisplayName = playerSelections
@@ -1316,8 +1314,8 @@
                         ? latestBotAssignment
                         : null;
                 var latestBotName = latestBotAssignment is not null
-                    && !string.IsNullOrWhiteSpace(latestBotAssignment.BotDefinitionId)
-                    && _botDisplayNamesByDefinitionId.TryGetValue(latestBotAssignment.BotDefinitionId, out var botDisplayName)
+                    && !string.IsNullOrWhiteSpace(latestBotAssignment.PlayerUserId)
+                    && _botDisplayNamesByDefinitionId.TryGetValue(latestBotAssignment.PlayerUserId, out var botDisplayName)
                         ? botDisplayName
                         : null;
                 var controllerState = GamePresenceService.ResolveSeatControllerState(GameId, resolvedUserId, activeBotAssignment);
@@ -1374,7 +1372,7 @@
                     IsAiControlled = isBotUser || SeatControllerModes.IsAiControlled(controllerState.ControllerMode) || activeBotAssignment is not null,
                     ControllerMode = controllerState.ControllerMode,
                     IsBotPlayer = isBotUser,
-                    AssignedBotDefinitionId = activeBotAssignment?.BotDefinitionId ?? string.Empty,
+                    AssignedBotDefinitionId = activeBotAssignment?.PlayerUserId ?? string.Empty,
                     BotControlStatusLabel = SeatControllerModes.IsAiControlled(controllerState.ControllerMode)
                         ? "AUTO"
                         : GameBoardStateMapper.GetBotControlStatusLabel(latestBotAssignment, latestBotName),
@@ -1393,7 +1391,7 @@
 
         _selectionMode = ResolveSelectionMode(_turnViewState, CanInspectRailroadsWhileWaiting);
         _auctionBidAmount = CurrentAuctionState?.MinimumBid ?? 0;
-        _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_playerStates, state, _currentUserId).ToList();
+        _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(currentPlayerStates, state, _currentUserId).ToList();
         _currentPlayerColor = ResolveActionPlayerColor(state);
         SyncHomeCitySelection();
         SyncRegionChoiceSelection();
@@ -1758,7 +1756,7 @@ PlayerColorOptions.Colors.Length]);
             return PlayerColorOptions.Colors[0];
         }
 
-        var playerSelections = GameBoardStateMapper.GetPlayerSelections(_playerStates);
+        var playerSelections = GameBoardStateMapper.GetSeatSelections(GetCurrentPlayerStates());
 
         var currentSelection = playerSelections.FirstOrDefault(player => string.Equals(player.UserId, _currentUserId,
 StringComparison.OrdinalIgnoreCase));
@@ -1776,7 +1774,7 @@ StringComparison.OrdinalIgnoreCase));
             return;
         }
 
-        var playerUserIds = GameBoardStateMapper.GetPlayerSelections(_playerStates)
+        var playerUserIds = GameBoardStateMapper.GetSeatSelections(GetCurrentPlayerStates())
             .Select(selection => selection.UserId)
             .Where(userId => !string.IsNullOrWhiteSpace(userId))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -2418,7 +2416,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return false;
         }
 
-        var latestAssignments = GameBoardStateMapper.BuildLatestBotControlStates(_playerStates);
+        var latestAssignments = GameBoardStateMapper.BuildLatestBotControlStates(GetCurrentPlayerStates());
         return latestAssignments.TryGetValue(slotUserId, out var assignment)
             && string.Equals(assignment.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
             && assignment.BotControlClearedUtc is null;
@@ -3089,7 +3087,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(player.Index);
                 var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId) ?? string.Empty;
                 var activeBotAssignment = player.HasActiveBotControl
-                    ? _playerStates.FirstOrDefault(playerState =>
+                    ? GetCurrentPlayerStates().FirstOrDefault(playerState =>
                         string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
                         && playerState.BotControlClearedUtc is null)
@@ -3244,6 +3242,41 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         await RefreshPlayerStatesAsync();
     }
 
+    private List<GameSeatState> GetCurrentPlayerStates()
+    {
+        return GameSeatStateProjection.BuildStates(_game, _gameState).ToList();
+    }
+
+    private void ClearActiveBotControl(string playerUserId, string clearReason)
+    {
+        if (_gameState is null)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var seat in _game?.Seats ?? [])
+        {
+            if (!string.Equals(seat.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
+                || seat.SeatIndex < 0
+                || seat.SeatIndex >= _gameState.Players.Count)
+            {
+                continue;
+            }
+
+            var control = _gameState.Players[seat.SeatIndex].Control;
+            if (!string.Equals(control.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                || control.BotControlClearedUtc is not null)
+            {
+                continue;
+            }
+
+            control.BotControlStatus = BotControlStatuses.Cleared;
+            control.BotControlClearReason = clearReason;
+            control.BotControlClearedUtc = now;
+        }
+    }
+
     private void ApplyGameEntity(GameEntity? game)
     {
         _game = game;
@@ -3257,11 +3290,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
-        _playerStates = (await GameService.GetGamePlayerStatesAsync(GameId, CancellationToken.None)).ToList();
-
         if (_gameState is not null)
         {
-            _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(_playerStates, _gameState, _currentUserId).ToList();
+            _mapPlayerStates = GameBoardStateMapper.BuildPlayerMapStates(GetCurrentPlayerStates(), _gameState, _currentUserId).ToList();
         }
 
         await RefreshBotDisplayNamesAsync();
@@ -3275,8 +3306,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
-        var assignedBotIds = GameBoardStateMapper.GetBotControlledPlayerStates(_playerStates)
-            .Select(playerState => playerState.BotDefinitionId)
+        var assignedBotIds = GameBoardStateMapper.GetBotControlledSeatStates(GetCurrentPlayerStates())
+            .Select(playerState => playerState.PlayerUserId)
             .Where(botDefinitionId => !string.IsNullOrWhiteSpace(botDefinitionId))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -3693,7 +3724,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             changed = GamePresenceService.TryTakeDelegatedControl(GameId, slotUserId, _currentUserId);
             if (changed && game is not null)
             {
-                BotTurnService.ClearActiveBotControl(_playerStates, slotUserId, "Manual control selected.");
+                ClearActiveBotControl(slotUserId, "Manual control selected.");
                 await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
             }
         }
@@ -3704,7 +3735,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             if (changed && game is not null)
             {
-                BotTurnService.ClearActiveBotControl(_playerStates, slotUserId, "Bot control selected.");
+                ClearActiveBotControl(slotUserId, "Bot control selected.");
                 await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
             }
         }
@@ -3718,12 +3749,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private async Task<bool> PersistPlayerStatesAndRefreshAsync(GameEntity game, string saveErrorMessage, bool notifyNewItems)
     {
-        var updateResult = await GameService.UpdatePlayerStatesAsync(game.GameId, _playerStates, CancellationToken.None);
+        var updateResult = await GameService.UpdateSeatStatesAsync(game.GameId, GetCurrentPlayerStates(), CancellationToken.None);
         if (!updateResult.Succeeded || updateResult.Game is null)
         {
             ShowNotification(updateResult.ErrorMessage ?? saveErrorMessage, updateResult.IsConflict ? Severity.Warning : Severity.Error);
             ApplyGameEntity(await GameService.GetGameAsync(GameId, CancellationToken.None));
-            _playerStates = (await GameService.GetGamePlayerStatesAsync(GameId, CancellationToken.None)).ToList();
             await RefreshBotDisplayNamesAsync();
             if (_gameState is not null && _game is not null)
             {
@@ -3734,7 +3764,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         ApplyGameEntity(updateResult.Game);
-        _playerStates = updateResult.PlayerStates.ToList();
         await RefreshBotDisplayNamesAsync();
         _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
         await RefreshGameEntityAsync();

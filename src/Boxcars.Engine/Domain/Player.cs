@@ -122,6 +122,29 @@ public sealed class Player : ObservableBase
         internal set => SetField(ref _pendingImmediateArrival, value);
     }
 
+    public int TurnsTaken { get; set; }
+    public int FreightTurnCount { get; set; }
+    public int FreightRollTotal { get; set; }
+    public int ExpressTurnCount { get; set; }
+    public int ExpressRollTotal { get; set; }
+    public int SuperchiefTurnCount { get; set; }
+    public int SuperchiefRollTotal { get; set; }
+    public int BonusRollCount { get; set; }
+    public int BonusRollTotal { get; set; }
+    public int TotalPayoffsCollected { get; set; }
+    public int TotalFeesPaid { get; set; }
+    public int TotalFeesCollected { get; set; }
+    public int TotalRailroadFaceValuePurchased { get; set; }
+    public int TotalRailroadAmountPaid { get; set; }
+    public int AuctionWins { get; set; }
+    public int AuctionBidsPlaced { get; set; }
+    public int RailroadsPurchasedCount { get; set; }
+    public int RailroadsAuctionedCount { get; set; }
+    public int RailroadsSoldToBankCount { get; set; }
+    public int DestinationCount { get; set; }
+    public int UnfriendlyDestinationCount { get; set; }
+    public List<string> DestinationLogEntries { get; } = new();
+
     /// <summary>Track segments used since last destination arrival (non-reuse rule).</summary>
     internal HashSet<SegmentKey> UsedSegments { get; } = new();
 

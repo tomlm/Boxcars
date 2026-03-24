@@ -22,6 +22,29 @@ public sealed class PlayerState
 {
     public string Name { get; set; } = string.Empty;
     public int Cash { get; set; }
+    public PlayerControlState Control { get; set; } = new();
+    public int TurnsTaken { get; set; }
+    public int FreightTurnCount { get; set; }
+    public int FreightRollTotal { get; set; }
+    public int ExpressTurnCount { get; set; }
+    public int ExpressRollTotal { get; set; }
+    public int SuperchiefTurnCount { get; set; }
+    public int SuperchiefRollTotal { get; set; }
+    public int BonusRollCount { get; set; }
+    public int BonusRollTotal { get; set; }
+    public int TotalPayoffsCollected { get; set; }
+    public int TotalFeesPaid { get; set; }
+    public int TotalFeesCollected { get; set; }
+    public int TotalRailroadFaceValuePurchased { get; set; }
+    public int TotalRailroadAmountPaid { get; set; }
+    public int AuctionWins { get; set; }
+    public int AuctionBidsPlaced { get; set; }
+    public int RailroadsPurchasedCount { get; set; }
+    public int RailroadsAuctionedCount { get; set; }
+    public int RailroadsSoldToBankCount { get; set; }
+    public int DestinationCount { get; set; }
+    public int UnfriendlyDestinationCount { get; set; }
+    public List<string> DestinationLogEntries { get; set; } = new();
     public string HomeCityName { get; set; } = string.Empty;
     public string CurrentCityName { get; set; } = string.Empty;
     public string? TripStartCityName { get; set; }
@@ -42,6 +65,19 @@ public sealed class PlayerState
     public List<int> GrandfatheredRailroadIndices { get; set; } = new();
     public string? CurrentNodeId { get; set; }
     public int RouteProgressIndex { get; set; }
+}
+
+public sealed class PlayerControlState
+{
+    public string ControllerMode { get; set; } = string.Empty;
+    public int? AuctionPlanTurnNumber { get; set; }
+    public int? AuctionPlanRailroadIndex { get; set; }
+    public int? AuctionPlanStartingPrice { get; set; }
+    public int? AuctionPlanMaximumBid { get; set; }
+    public DateTimeOffset? BotControlActivatedUtc { get; set; }
+    public DateTimeOffset? BotControlClearedUtc { get; set; }
+    public string BotControlStatus { get; set; } = string.Empty;
+    public string BotControlClearReason { get; set; } = string.Empty;
 }
 
 public sealed class RouteState

@@ -96,6 +96,7 @@ public class GameEngineServiceCreateGameSettingsTests
     private sealed class RecordingGamesTableClient : TableClient
     {
         public List<GameEntity> GameEntities { get; } = [];
+        public List<GameEventEntity> GameEvents { get; } = [];
 
         public override Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
         {
@@ -103,12 +104,34 @@ public class GameEngineServiceCreateGameSettingsTests
             {
                 GameEntities.Add(gameEntity);
             }
+            else if (entity is GameEventEntity gameEvent)
+            {
+                GameEvents.Add(gameEvent);
+            }
 
             return Task.FromResult<Response>(new FakeResponse(204));
         }
 
+        public override Task<Response<T>> GetEntityAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+        {
+            if (typeof(T) == typeof(GameEntity))
+            {
+                var gameEntity = GameEntities.Single(entity =>
+                    string.Equals(entity.PartitionKey, partitionKey, StringComparison.Ordinal)
+                    && string.Equals(entity.RowKey, rowKey, StringComparison.Ordinal));
+                return Task.FromResult(Response.FromValue((T)(ITableEntity)gameEntity, new FakeResponse(200)));
+            }
+
+            throw new NotSupportedException($"Unsupported entity type: {typeof(T).Name}");
+        }
+
         public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
         {
+            if (typeof(T) == typeof(GameEventEntity))
+            {
+                return AsyncPageable<T>.FromPages([Page<T>.FromValues(GameEvents.Cast<T>().ToList(), null, new FakeResponse(200))]);
+            }
+
             return AsyncPageable<T>.FromPages([Page<T>.FromValues([], null, new FakeResponse(200))]);
         }
     }

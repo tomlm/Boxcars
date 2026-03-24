@@ -1171,6 +1171,28 @@ public sealed class GameEngine : ObservableBase
             {
                 Name = player.Name,
                 Cash = player.Cash,
+                TurnsTaken = player.TurnsTaken,
+                FreightTurnCount = player.FreightTurnCount,
+                FreightRollTotal = player.FreightRollTotal,
+                ExpressTurnCount = player.ExpressTurnCount,
+                ExpressRollTotal = player.ExpressRollTotal,
+                SuperchiefTurnCount = player.SuperchiefTurnCount,
+                SuperchiefRollTotal = player.SuperchiefRollTotal,
+                BonusRollCount = player.BonusRollCount,
+                BonusRollTotal = player.BonusRollTotal,
+                TotalPayoffsCollected = player.TotalPayoffsCollected,
+                TotalFeesPaid = player.TotalFeesPaid,
+                TotalFeesCollected = player.TotalFeesCollected,
+                TotalRailroadFaceValuePurchased = player.TotalRailroadFaceValuePurchased,
+                TotalRailroadAmountPaid = player.TotalRailroadAmountPaid,
+                AuctionWins = player.AuctionWins,
+                AuctionBidsPlaced = player.AuctionBidsPlaced,
+                RailroadsPurchasedCount = player.RailroadsPurchasedCount,
+                RailroadsAuctionedCount = player.RailroadsAuctionedCount,
+                RailroadsSoldToBankCount = player.RailroadsSoldToBankCount,
+                DestinationCount = player.DestinationCount,
+                UnfriendlyDestinationCount = player.UnfriendlyDestinationCount,
+                DestinationLogEntries = player.DestinationLogEntries.ToList(),
                 HomeCityName = player.HomeCity.Name,
                 CurrentCityName = player.CurrentCity.Name,
                 TripStartCityName = player.TripOriginCity?.Name,
@@ -1254,6 +1276,27 @@ public sealed class GameEngine : ObservableBase
             var player = new Player(ps.Name, engine.Players.Count, engine._settings)
             {
                 Cash = ps.Cash,
+                TurnsTaken = ps.TurnsTaken,
+                FreightTurnCount = ps.FreightTurnCount,
+                FreightRollTotal = ps.FreightRollTotal,
+                ExpressTurnCount = ps.ExpressTurnCount,
+                ExpressRollTotal = ps.ExpressRollTotal,
+                SuperchiefTurnCount = ps.SuperchiefTurnCount,
+                SuperchiefRollTotal = ps.SuperchiefRollTotal,
+                BonusRollCount = ps.BonusRollCount,
+                BonusRollTotal = ps.BonusRollTotal,
+                TotalPayoffsCollected = ps.TotalPayoffsCollected,
+                TotalFeesPaid = ps.TotalFeesPaid,
+                TotalFeesCollected = ps.TotalFeesCollected,
+                TotalRailroadFaceValuePurchased = ps.TotalRailroadFaceValuePurchased,
+                TotalRailroadAmountPaid = ps.TotalRailroadAmountPaid,
+                AuctionWins = ps.AuctionWins,
+                AuctionBidsPlaced = ps.AuctionBidsPlaced,
+                RailroadsPurchasedCount = ps.RailroadsPurchasedCount,
+                RailroadsAuctionedCount = ps.RailroadsAuctionedCount,
+                RailroadsSoldToBankCount = ps.RailroadsSoldToBankCount,
+                DestinationCount = ps.DestinationCount,
+                UnfriendlyDestinationCount = ps.UnfriendlyDestinationCount,
                 LocomotiveType = Enum.Parse<LocomotiveType>(ps.LocomotiveType),
                 IsActive = ps.IsActive,
                 IsBankrupt = ps.IsBankrupt,
@@ -1299,6 +1342,14 @@ public sealed class GameEngine : ObservableBase
             foreach (var railroadIndex in ps.GrandfatheredRailroadIndices)
             {
                 player.GrandfatheredRailroadIndices.Add(railroadIndex);
+            }
+
+            foreach (var destinationLogEntry in ps.DestinationLogEntries)
+            {
+                if (!string.IsNullOrWhiteSpace(destinationLogEntry))
+                {
+                    player.DestinationLogEntries.Add(destinationLogEntry);
+                }
             }
 
             if (ps.ActiveRoute != null)

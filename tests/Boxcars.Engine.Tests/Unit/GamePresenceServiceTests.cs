@@ -1,4 +1,5 @@
 using Boxcars.Data;
+using Boxcars.GameEngine;
 using Boxcars.Services;
 using Azure;
 using Azure.Core;
@@ -95,7 +96,7 @@ public class GamePresenceServiceTests
         service.SetMockConnectionState("game-1", "target", isConnected: false);
         service.TryTakeDelegatedControl("game-1", "target", "controller");
 
-        var controllerState = service.ResolveSeatControllerState("game-1", "target", activePlayerState: null);
+        var controllerState = service.ResolveSeatControllerState("game-1", "target", activeSeatState: null);
 
         Assert.Equal(SeatControllerModes.Delegated, controllerState.ControllerMode);
         Assert.Equal("controller", controllerState.DelegatedControllerUserId);
@@ -109,7 +110,7 @@ public class GamePresenceServiceTests
 
         service.SetMockConnectionState("game-1", "target", isConnected: false);
 
-        var controllerState = service.ResolveSeatControllerState("game-1", "target", activePlayerState: null);
+        var controllerState = service.ResolveSeatControllerState("game-1", "target", activeSeatState: null);
 
         Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
         Assert.Equal("target", controllerState.BotDefinitionId);
@@ -138,7 +139,7 @@ public class GamePresenceServiceTests
 
         Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
         Assert.Null(controllerState.DelegatedControllerUserId);
-        Assert.Equal("bot-1", controllerState.BotDefinitionId);
+        Assert.Equal("target", controllerState.BotDefinitionId);
     }
 
     [Fact]
@@ -159,7 +160,7 @@ public class GamePresenceServiceTests
             });
 
         Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
-        Assert.Equal("bot-1", controllerState.BotDefinitionId);
+        Assert.Equal("beatle-bot", controllerState.BotDefinitionId);
     }
 
     [Fact]
@@ -212,7 +213,7 @@ public class GamePresenceServiceTests
                 BotControlStatus = BotControlStatuses.Active
             });
 
-        Assert.Equal(SeatControllerModes.Self, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
         Assert.True(controllerState.IsConnected);
     }
 
@@ -224,7 +225,17 @@ public class GamePresenceServiceTests
             {
                 PartitionKey = "game-1",
                 RowKey = "GAME",
-                GameId = "game-1"
+                GameId = "game-1",
+                Seats =
+                [
+                    new GameSeatDefinition
+                    {
+                        SeatIndex = 0,
+                        PlayerUserId = "target",
+                        DisplayName = "Target",
+                        Color = "#111111"
+                    }
+                ]
             },
             new GamePlayerStateEntity
             {
@@ -252,14 +263,13 @@ public class GamePresenceServiceTests
         service.SetMockConnectionState("game-1", "target", isConnected: false);
         service.SetMockConnectionState("game-1", "target", isConnected: true);
 
-        await WaitForAsync(() =>
-            gamesTable.PlayerStates.Any(playerState => string.Equals(playerState.PlayerUserId, "target", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(playerState.BotControlStatus, BotControlStatuses.Cleared, StringComparison.OrdinalIgnoreCase)));
+        await WaitForAsync(() => gamesTable.Events.Count > 0);
 
-        var playerState = Assert.Single(gamesTable.PlayerStates);
-        Assert.Equal(BotControlStatuses.Cleared, playerState.BotControlStatus);
-        Assert.Equal("Reconnect", playerState.BotControlClearReason);
-        Assert.NotNull(playerState.BotControlClearedUtc);
+        var gameEvent = gamesTable.Events.Last();
+        var snapshot = GameEventSerialization.DeserializeSnapshot(gameEvent.SerializedGameState);
+        Assert.Equal(BotControlStatuses.Cleared, snapshot.Players[0].Control.BotControlStatus);
+        Assert.Equal("Reconnect", snapshot.Players[0].Control.BotControlClearReason);
+        Assert.NotNull(snapshot.Players[0].Control.BotControlClearedUtc);
     }
 
     [Fact]
@@ -270,7 +280,17 @@ public class GamePresenceServiceTests
             {
                 PartitionKey = "game-1",
                 RowKey = "GAME",
-                GameId = "game-1"
+                GameId = "game-1",
+                Seats =
+                [
+                    new GameSeatDefinition
+                    {
+                        SeatIndex = 0,
+                        PlayerUserId = "beatle-bot",
+                        DisplayName = "Beatle Bot",
+                        Color = "#111111"
+                    }
+                ]
             },
             new GamePlayerStateEntity
             {
@@ -335,10 +355,21 @@ public class GamePresenceServiceTests
         }
     }
 
-    private sealed class FakeGamesTableClient(GameEntity gameEntity, params GamePlayerStateEntity[] playerStates) : TableClient
+    private sealed class FakeGamesTableClient : TableClient
     {
-        public GameEntity GameEntity { get; private set; } = Clone(gameEntity);
-        public List<GamePlayerStateEntity> PlayerStates { get; } = playerStates.Select(Clone).ToList();
+        public GameEntity GameEntity { get; private set; }
+        public List<GamePlayerStateEntity> PlayerStates { get; }
+        public List<GameEventEntity> Events { get; }
+
+        public FakeGamesTableClient(GameEntity gameEntity, params GamePlayerStateEntity[] playerStates)
+        {
+            GameEntity = Clone(gameEntity);
+            PlayerStates = playerStates.Select(Clone).ToList();
+            Events =
+            [
+                BuildSnapshotEvent(GameEntity, PlayerStates)
+            ];
+        }
 
         public override Task<Response<T>> GetEntityAsync<T>(
             string partitionKey,
@@ -380,6 +411,14 @@ public class GamePresenceServiceTests
             IEnumerable<string>? select = null,
             CancellationToken cancellationToken = default)
         {
+            if (typeof(T) == typeof(GameEventEntity))
+            {
+                return AsyncPageable<T>.FromPages(
+                [
+                    Page<T>.FromValues(Events.Select(Clone).Cast<T>().ToList(), continuationToken: null, new FakeResponse((int)HttpStatusCode.OK))
+                ]);
+            }
+
             if (typeof(T) == typeof(GamePlayerStateEntity))
             {
                 var values = PlayerStates
@@ -397,6 +436,16 @@ public class GamePresenceServiceTests
             [
                 Page<T>.FromValues([], continuationToken: null, new FakeResponse((int)HttpStatusCode.OK))
             ]);
+        }
+
+        public override Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
+        {
+            if (entity is GameEventEntity gameEvent)
+            {
+                Events.Add(Clone(gameEvent));
+            }
+
+            return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
         }
 
         public override Task<Response> UpdateEntityAsync<T>(
@@ -448,7 +497,16 @@ public class GamePresenceServiceTests
             RowKey = entity.RowKey,
             Timestamp = entity.Timestamp,
             ETag = entity.ETag,
-            GameId = entity.GameId
+            GameId = entity.GameId,
+            Seats = entity.Seats
+                .Select(seat => new GameSeatDefinition
+                {
+                    SeatIndex = seat.SeatIndex,
+                    PlayerUserId = seat.PlayerUserId,
+                    DisplayName = seat.DisplayName,
+                    Color = seat.Color
+                })
+                .ToList()
         };
     }
 
@@ -519,6 +577,60 @@ public class GamePresenceServiceTests
             CreatedUtc = entity.CreatedUtc,
             ModifiedByUserId = entity.ModifiedByUserId,
             ModifiedUtc = entity.ModifiedUtc
+        };
+    }
+
+    private static GameEventEntity Clone(GameEventEntity entity)
+    {
+        return new GameEventEntity
+        {
+            PartitionKey = entity.PartitionKey,
+            RowKey = entity.RowKey,
+            Timestamp = entity.Timestamp,
+            ETag = entity.ETag,
+            GameId = entity.GameId,
+            EventKind = entity.EventKind,
+            EventData = entity.EventData,
+            PreviewRouteNodeIdsJson = entity.PreviewRouteNodeIdsJson,
+            PreviewRouteSegmentKeysJson = entity.PreviewRouteSegmentKeysJson,
+            SerializedGameState = entity.SerializedGameState,
+            OccurredUtc = entity.OccurredUtc,
+            CreatedBy = entity.CreatedBy,
+            ActingUserId = entity.ActingUserId,
+            ActingPlayerIndex = entity.ActingPlayerIndex,
+            ChangeSummary = entity.ChangeSummary
+        };
+    }
+
+    private static GameEventEntity BuildSnapshotEvent(GameEntity gameEntity, IReadOnlyList<GamePlayerStateEntity> playerStates)
+    {
+        var snapshot = new global::Boxcars.Engine.Persistence.GameState
+        {
+            Players = playerStates
+                .OrderBy(playerState => playerState.SeatIndex)
+                .Select(playerState => new global::Boxcars.Engine.Persistence.PlayerState
+                {
+                    Name = string.IsNullOrWhiteSpace(playerState.DisplayName) ? playerState.PlayerUserId : playerState.DisplayName,
+                    Control = GameSeatStateProjection.CloneControl(playerState.Control)
+                })
+                .ToList()
+        };
+
+        return new GameEventEntity
+        {
+            PartitionKey = gameEntity.GameId,
+            RowKey = "Event_0000000001",
+            GameId = gameEntity.GameId,
+            EventKind = "CreateGame",
+            EventData = "{}",
+            PreviewRouteNodeIdsJson = "[]",
+            PreviewRouteSegmentKeysJson = "[]",
+            SerializedGameState = GameEventSerialization.SerializeSnapshot(snapshot),
+            OccurredUtc = DateTimeOffset.UtcNow,
+            CreatedBy = string.Empty,
+            ActingUserId = string.Empty,
+            ActingPlayerIndex = null,
+            ChangeSummary = "Initial snapshot"
         };
     }
 

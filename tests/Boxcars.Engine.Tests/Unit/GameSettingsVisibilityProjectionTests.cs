@@ -43,7 +43,8 @@ public class GameSettingsVisibilityProjectionTests
         {
             Cash = 45_000,
             KeepCashSecret = false,
-            AnnouncingCashThreshold = 250_000
+            AnnouncingCashThreshold = 250_000,
+            IsCurrentUser = true
         };
 
         Assert.True(model.CanViewExactCash);

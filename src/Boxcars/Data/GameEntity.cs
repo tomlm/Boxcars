@@ -1,5 +1,7 @@
 using Azure;
 using Azure.Data.Tables;
+using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 
 namespace Boxcars.Data;
 
@@ -31,4 +33,13 @@ public class GameEntity : ITableEntity
     public int? SuperchiefPrice { get; set; }
     public int? ExpressPrice { get; set; }
     public int? SettingsSchemaVersion { get; set; }
+    public string SeatsJson { get; set; } = "[]";
+
+    [IgnoreDataMember]
+    [JsonIgnore]
+    public IReadOnlyList<GameSeatDefinition> Seats
+    {
+        get => GameSeatDefinitionSerialization.Deserialize(SeatsJson);
+        set => SeatsJson = GameSeatDefinitionSerialization.Serialize(value);
+    }
 }

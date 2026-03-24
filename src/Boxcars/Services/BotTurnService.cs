@@ -48,7 +48,7 @@ public sealed class BotTurnService
         _logger = logger;
     }
 
-    public GamePlayerStateEntity? FindActivePlayerState(IReadOnlyList<GamePlayerStateEntity> playerStates, string playerUserId)
+    public GameSeatState? FindActiveSeatState(IReadOnlyList<GameSeatState> playerStates, string playerUserId)
     {
         ArgumentNullException.ThrowIfNull(playerStates);
 
@@ -58,7 +58,7 @@ public sealed class BotTurnService
             && playerState.BotControlClearedUtc is null);
     }
 
-    public bool ClearActiveBotControl(IReadOnlyList<GamePlayerStateEntity> playerStates, string playerUserId, string clearReason, string clearedStatus = BotControlStatuses.Cleared)
+    public bool ClearActiveBotControl(IReadOnlyList<GameSeatState> playerStates, string playerUserId, string clearReason, string clearedStatus = BotControlStatuses.Cleared)
     {
         ArgumentNullException.ThrowIfNull(playerStates);
 
@@ -81,7 +81,7 @@ public sealed class BotTurnService
 
     public async Task EnsureBotSeatControlStatesAsync(
         string gameId,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         string controllerUserId,
         CancellationToken cancellationToken)
     {
@@ -99,15 +99,13 @@ public sealed class BotTurnService
             }
 
             if (PlayerControlRules.HasActiveBotControl(playerState)
-                && string.Equals(PlayerControlRules.ResolveBotControllerMode(playerState), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(playerState.BotDefinitionId, playerState.PlayerUserId, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(PlayerControlRules.ResolveBotControllerMode(playerState), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
             playerState.ControllerMode = SeatControllerModes.AI;
             playerState.ControllerUserId = string.Empty;
-            playerState.BotDefinitionId = playerState.PlayerUserId;
             playerState.BotControlActivatedUtc = DateTimeOffset.UtcNow;
             playerState.BotControlClearedUtc = null;
             playerState.BotControlStatus = BotControlStatuses.Active;
@@ -117,7 +115,7 @@ public sealed class BotTurnService
 
     public async Task<BotDecisionResolution?> ResolveDecisionAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         string playerUserId,
         string targetPlayerName,
         string phase,
@@ -235,7 +233,7 @@ public sealed class BotTurnService
 
     public async Task<PlayerAction?> CreateBotActionAsync(
         string gameId,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         CancellationToken cancellationToken)
@@ -245,7 +243,7 @@ public sealed class BotTurnService
         ArgumentNullException.ThrowIfNull(mapDefinition);
 
         var snapshot = gameEngine.ToSnapshot();
-        var playerSelections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
+        var playerSelections = GameSeatStateProjection.BuildSeatSelections(playerStates);
 
         if (gameEngine.CurrentTurn.AuctionState is not null)
         {
@@ -266,7 +264,7 @@ public sealed class BotTurnService
 
     private Task<PlayerAction?> CreateHomeCityChoiceActionAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         global::Boxcars.Engine.Persistence.GameState snapshot,
         IReadOnlyList<GamePlayerSelection> playerSelections,
@@ -299,7 +297,7 @@ public sealed class BotTurnService
 
     private Task<PlayerAction?> CreateHomeSwapActionAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         global::Boxcars.Engine.Persistence.GameState snapshot,
         IReadOnlyList<GamePlayerSelection> playerSelections,
@@ -324,7 +322,7 @@ public sealed class BotTurnService
 
     public async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
         string gameId,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         CancellationToken cancellationToken)
@@ -341,7 +339,7 @@ public sealed class BotTurnService
 
         var railroad = gameEngine.Railroads.FirstOrDefault(candidate => candidate.Index == auctionState.RailroadIndex)
             ?? throw new InvalidOperationException($"Railroad '{auctionState.RailroadIndex}' was not found.");
-        var playerSelections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
+        var playerSelections = GameSeatStateProjection.BuildSeatSelections(playerStates);
         var activeParticipantIndices = auctionState.Participants
             .Where(participant => participant.IsEligible && !participant.HasDroppedOut)
             .Select(participant => participant.PlayerIndex)
@@ -353,7 +351,7 @@ public sealed class BotTurnService
             return null;
         }
 
-        var botControlContexts = new Dictionary<int, (GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition)>();
+        var botControlContexts = new Dictionary<int, (GameSeatState PlayerState, BotStrategyDefinitionEntity Definition)>();
         foreach (var participantIndex in activeParticipantIndices)
         {
             var botControlContext = await ResolveAuctionBidderContextAsync(gameId, playerStates, playerSelections, participantIndex, cancellationToken);
@@ -428,7 +426,7 @@ public sealed class BotTurnService
 
     private async Task<PlayerAction?> CreateRegionChoiceActionAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
@@ -495,7 +493,7 @@ public sealed class BotTurnService
 
     private async Task<PlayerAction?> CreateMoveActionAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         global::Boxcars.Engine.Persistence.GameState snapshot,
         IReadOnlyList<GamePlayerSelection> playerSelections,
@@ -561,7 +559,7 @@ public sealed class BotTurnService
 
     private async Task<PlayerAction?> CreatePurchaseActionAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
@@ -707,7 +705,7 @@ public sealed class BotTurnService
 
     private async Task<PlayerAction?> CreateAuctionActionAsync(
         string gameId,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
@@ -766,9 +764,9 @@ public sealed class BotTurnService
             plan.Value.FallbackReason);
     }
 
-    private async Task<(GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition)?> ResolveAuctionBidderContextAsync(
+    private async Task<(GameSeatState PlayerState, BotStrategyDefinitionEntity Definition)?> ResolveAuctionBidderContextAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         IReadOnlyList<GamePlayerSelection> playerSelections,
         int bidderPlayerIndex,
         CancellationToken cancellationToken)
@@ -782,16 +780,16 @@ public sealed class BotTurnService
         return await ResolveBotControlContextAsync(gameId, playerStates, slotUserId, cancellationToken);
     }
 
-    private async Task<(GamePlayerStateEntity PlayerState, int MaximumBid, string Source, string? FallbackReason)?> ResolveAuctionBidPlanAsync(
+    private async Task<(GameSeatState PlayerState, int MaximumBid, string Source, string? FallbackReason)?> ResolveAuctionBidPlanAsync(
         string gameId,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         global::Boxcars.Engine.Persistence.GameState snapshot,
         IReadOnlyList<GamePlayerSelection> playerSelections,
         AuctionState auctionState,
         int bidderPlayerIndex,
-        (GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition) botControlContext,
+        (GameSeatState PlayerState, BotStrategyDefinitionEntity Definition) botControlContext,
         CancellationToken cancellationToken)
     {
         var slotUserId = ResolveSlotUserId(playerSelections, bidderPlayerIndex);
@@ -849,7 +847,7 @@ public sealed class BotTurnService
 
     private async Task<PlayerAction?> CreateForcedSaleActionAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
         IReadOnlyList<GamePlayerSelection> playerSelections,
@@ -939,13 +937,13 @@ public sealed class BotTurnService
             && player.Cash >= startingPrice);
     }
 
-    private async Task<(GamePlayerStateEntity PlayerState, BotStrategyDefinitionEntity Definition)?> ResolveBotControlContextAsync(
+    private async Task<(GameSeatState PlayerState, BotStrategyDefinitionEntity Definition)?> ResolveBotControlContextAsync(
         string gameId,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         string playerUserId,
         CancellationToken cancellationToken)
     {
-        var playerState = FindActivePlayerState(playerStates, playerUserId);
+        var playerState = FindActiveSeatState(playerStates, playerUserId);
         var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameId, playerUserId);
         var isConnected = _gamePresenceService.IsUserConnected(gameId, playerUserId);
 
@@ -965,20 +963,18 @@ public sealed class BotTurnService
             var existingPlayerState = playerStates.FirstOrDefault(candidate =>
                 string.Equals(candidate.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase));
             var implicitPlayerState = existingPlayerState is null
-                ? new GamePlayerStateEntity
+                ? new GameSeatState
                 {
                     GameId = gameId,
                     PlayerUserId = playerUserId,
                     ControllerMode = SeatControllerModes.AI,
                     ControllerUserId = string.Empty,
-                    BotDefinitionId = playerUserId,
                     BotControlStatus = BotControlStatuses.Active
                 }
-                : GamePlayerStateProjection.Clone(existingPlayerState);
+                : GameSeatStateProjection.Clone(existingPlayerState);
 
             implicitPlayerState.ControllerMode = SeatControllerModes.AI;
             implicitPlayerState.ControllerUserId = string.Empty;
-            implicitPlayerState.BotDefinitionId = playerUserId;
             implicitPlayerState.BotControlStatus = BotControlStatuses.Active;
             implicitPlayerState.BotControlClearedUtc = null;
             implicitPlayerState.BotControlClearReason = string.Empty;
@@ -988,11 +984,8 @@ public sealed class BotTurnService
         var resolvedControllerMode = PlayerControlRules.ResolveBotControllerMode(playerState) ?? SeatControllerModes.AI;
         var dedicatedBotSeatDefinition = await _userDirectoryService.GetBotDefinitionAsync(playerUserId, cancellationToken);
         var isDedicatedBotPlayer = dedicatedBotSeatDefinition?.IsBotUser == true;
-        var botDefinitionId = isDedicatedBotPlayer
-            ? string.IsNullOrWhiteSpace(playerState.BotDefinitionId) ? playerUserId : playerState.BotDefinitionId
-            : playerUserId;
         var botDefinition = isDedicatedBotPlayer
-            ? await _userDirectoryService.GetBotDefinitionAsync(botDefinitionId, cancellationToken)
+            ? await _userDirectoryService.GetBotDefinitionAsync(playerUserId, cancellationToken)
             : await _userDirectoryService.GetAutomationProfileAsync(playerUserId, cancellationToken);
         if (botDefinition is null)
         {
@@ -1009,7 +1002,6 @@ public sealed class BotTurnService
 
         playerState.ControllerMode = resolvedControllerMode;
         playerState.ControllerUserId = string.Empty;
-        playerState.BotDefinitionId = botDefinitionId;
         return (playerState, botDefinition);
     }
 
@@ -1566,7 +1558,7 @@ public sealed class BotTurnService
         return int.TryParse(optionId["auction-cap:".Length..], NumberStyles.Integer, CultureInfo.InvariantCulture, out maximumBid);
     }
 
-    private static bool TryGetCachedAuctionMaximumBid(GamePlayerStateEntity playerState, AuctionState auctionState, int turnNumber, out int maximumBid)
+    private static bool TryGetCachedAuctionMaximumBid(GameSeatState playerState, AuctionState auctionState, int turnNumber, out int maximumBid)
     {
         maximumBid = 0;
 
@@ -1583,7 +1575,7 @@ public sealed class BotTurnService
     }
 
     private static PlayerAction BuildAuctionThresholdAction(
-        GamePlayerStateEntity playerState,
+        GameSeatState playerState,
         BotStrategyDefinitionEntity definition,
         string actorUserId,
         Player bidder,
@@ -1617,9 +1609,9 @@ public sealed class BotTurnService
         };
     }
 
-    private static GamePlayerStateEntity CacheAuctionPlan(
-        List<GamePlayerStateEntity> playerStates,
-        GamePlayerStateEntity playerState,
+    private static GameSeatState CacheAuctionPlan(
+        List<GameSeatState> playerStates,
+        GameSeatState playerState,
         AuctionState auctionState,
         int turnNumber,
         int maximumBid)
@@ -1849,7 +1841,7 @@ public sealed class BotTurnService
         return string.Concat(fromNodeId, "|", toNodeId, "|", railroadIndex.ToString(CultureInfo.InvariantCulture));
     }
 
-    private static BotRecordedActionMetadata CreateBotMetadata(GamePlayerStateEntity playerState, BotStrategyDefinitionEntity definition, string source, string? fallbackReason = null)
+    private static BotRecordedActionMetadata CreateBotMetadata(GameSeatState playerState, BotStrategyDefinitionEntity definition, string source, string? fallbackReason = null)
     {
         return CreateBotMetadata(playerState, definition.Name, source, fallbackReason, definition.IsBotUser);
     }
@@ -1871,11 +1863,11 @@ public sealed class BotTurnService
         decimal HopMultiplier,
         decimal WeightedReservePressure);
 
-    private static BotRecordedActionMetadata CreateBotMetadata(GamePlayerStateEntity playerState, string botName, string source, string? fallbackReason = null, bool isBotPlayer = false)
+    private static BotRecordedActionMetadata CreateBotMetadata(GameSeatState playerState, string botName, string source, string? fallbackReason = null, bool isBotPlayer = false)
     {
         return new BotRecordedActionMetadata
         {
-            BotDefinitionId = playerState.BotDefinitionId,
+            BotDefinitionId = playerState.PlayerUserId,
             BotName = botName,
             ControllerMode = playerState.ControllerMode,
             IsBotPlayer = isBotPlayer,

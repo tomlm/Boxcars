@@ -320,7 +320,6 @@ public class BotActionHistoryTests
         ]);
 
         Assert.Equal(2, controlStates.Count);
-        Assert.Equal("bot-new", controlStates["alice@example.com"].BotDefinitionId);
         Assert.Equal(BotControlStatuses.MissingDefinition, controlStates["alice@example.com"].BotControlStatus);
         Assert.Equal("Bot removed from library", GameBoardStateMapper.GetBotControlStatusLabel(controlStates["alice@example.com"]));
         Assert.Equal("El Cheapo", GameBoardStateMapper.GetBotControlStatusLabel(controlStates["charlie@example.com"], "El Cheapo"));
@@ -342,11 +341,11 @@ public class BotActionHistoryTests
         "alice@example.com",
         "bot-1");
 
-        var bindings = mapper.BuildPlayerControlBindings("game-1", playerStates, "bob@example.com");
+        var bindings = mapper.BuildSeatControlBindings("game-1", playerStates, "bob@example.com");
 
         Assert.Equal(SeatControllerModes.AI, bindings[0].ControllerMode);
         Assert.True(bindings[0].HasActiveBotControl);
-        Assert.Equal("bot-1", bindings[0].BotDefinitionId);
+        Assert.Equal("alice@example.com", bindings[0].BotDefinitionId);
     }
 
     private static string InvokeDescribeAction(

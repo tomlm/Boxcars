@@ -1,3 +1,4 @@
+@using Boxcars.Engine.Persistence
 @using Boxcars.Data
 @using MudBlazor
 
@@ -46,22 +47,21 @@ else
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = [];
 
     [Parameter]
-    public IReadOnlyList<GamePlayerStateEntity> PlayerStates { get; set; } = [];
+    public IReadOnlyList<PlayerState> PlayerStates { get; set; } = [];
 
     private IReadOnlyList<PlayerStatsColumn> PlayerColumns => PlayerStates
-        .OrderBy(playerState => playerState.SeatIndex)
-        .Select(playerState =>
+        .Select((playerState, seatIndex) =>
         {
-            var matchingPlayer = Players.FirstOrDefault(player => player.Index == playerState.SeatIndex);
+            var matchingPlayer = Players.FirstOrDefault(player => player.Index == seatIndex);
             var displayName = matchingPlayer?.Name;
             if (string.IsNullOrWhiteSpace(displayName))
             {
-                displayName = string.IsNullOrWhiteSpace(playerState.DisplayName)
-                    ? playerState.PlayerUserId
-                    : playerState.DisplayName;
+                displayName = string.IsNullOrWhiteSpace(playerState.Name)
+                    ? $"Seat {seatIndex + 1}"
+                    : playerState.Name;
             }
 
-            return new PlayerStatsColumn(playerState.SeatIndex, displayName ?? $"Seat {playerState.SeatIndex + 1}", playerState);
+            return new PlayerStatsColumn(seatIndex, displayName ?? $"Seat {seatIndex + 1}", playerState);
         })
         .ToArray();
 
@@ -104,9 +104,9 @@ else
             : ((decimal)total / count).ToString("0.0");
     }
 
-    private static string FormatDestinationLog(GamePlayerStateEntity state)
+    private static string FormatDestinationLog(PlayerState state)
     {
-        var entries = state.GetDestinationLogEntries();
+        var entries = state.DestinationLogEntries;
         return entries.Count == 0
             ? "None"
             : string.Join(", ", entries);
@@ -119,7 +119,7 @@ else
             : $"{Math.Round(value * 100m / total, 1, MidpointRounding.AwayFromZero):0.0}%";
     }
 
-    private sealed record PlayerStatsColumn(int SeatIndex, string DisplayName, GamePlayerStateEntity PlayerState);
+    private sealed record PlayerStatsColumn(int SeatIndex, string DisplayName, PlayerState PlayerState);
 
-    private sealed record PlayerStatisticRow(string Label, Func<GamePlayerStateEntity, string> GetValue);
+    private sealed record PlayerStatisticRow(string Label, Func<PlayerState, string> GetValue);
 }

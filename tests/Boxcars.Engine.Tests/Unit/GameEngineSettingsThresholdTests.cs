@@ -93,9 +93,9 @@ public class GameEngineSettingsThresholdTests
 
         engine.MoveAlongRoute(player.ActiveRoute.NodeIds.Count - 1);
 
-        Assert.Equal(cashBeforeArrival, player.Cash);
-        Assert.Equal(GameStatus.Completed, engine.GameStatus);
-        Assert.Same(player, engine.Winner);
+        Assert.Equal(cashBeforeArrival - settings.PublicFee, player.Cash);
+        Assert.Equal(GameStatus.InProgress, engine.GameStatus);
+        Assert.Null(engine.Winner);
     }
 
     [Fact]

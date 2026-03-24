@@ -1,6 +1,8 @@
 using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
+using Boxcars.Engine.Persistence;
+using Boxcars.GameEngine;
 using Boxcars.Identity;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,6 +20,8 @@ public sealed class GamePresenceService : IDisposable
     private readonly Dictionary<string, Dictionary<string, bool>> _mockPresenceByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _delegatedControllersByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (string GameId, string UserId)> _connectionLookup = new(StringComparer.Ordinal);
+    private const string EventRowKeyPrefix = "Event_";
+    private const string EventRowKeyExclusiveUpperBound = "Event`";
 
     [ActivatorUtilitiesConstructor]
     public GamePresenceService(TableServiceClient tableServiceClient)
@@ -299,14 +303,19 @@ public sealed class GamePresenceService : IDisposable
         }
     }
 
-    public SeatControllerState ResolveSeatControllerState(string gameId, string? slotUserId, GamePlayerStateEntity? activePlayerState)
+    public SeatControllerState ResolveSeatControllerState(string gameId, string? slotUserId, PlayerControlState? activePlayerControl)
     {
         return PlayerControlRules.ResolveSeatControllerState(
             gameId,
             slotUserId,
             IsUserConnected(gameId, slotUserId),
             GetDelegatedControllerUserId(gameId, slotUserId),
-            activePlayerState);
+            activePlayerControl);
+    }
+
+    public SeatControllerState ResolveSeatControllerState(string gameId, string? slotUserId, GameSeatState? activeSeatState)
+    {
+        return ResolveSeatControllerState(gameId, slotUserId, activeSeatState?.Control);
     }
 
     public bool TryTakeDelegatedControl(string gameId, string slotUserId, string controllerUserId)
@@ -585,35 +594,30 @@ public sealed class GamePresenceService : IDisposable
             try
             {
                 var now = DateTimeOffset.UtcNow;
-
-                var playerStates = new List<GamePlayerStateEntity>();
-                var filter = TableClient.CreateQueryFilter(
-                    $"PartitionKey eq {gameId} and RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound}");
-
-                await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(filter: filter))
-                {
-                    playerStates.Add(playerState);
-                }
-
-                if (playerStates.Count == 0)
+                var game = await GetGameEntityAsync(gameId);
+                var latestEvent = await GetLatestEventAsync(gameId);
+                if (game is null || latestEvent is null || string.IsNullOrWhiteSpace(latestEvent.SerializedGameState))
                 {
                     return;
                 }
 
+                var snapshot = GameEventSerialization.DeserializeSnapshot(latestEvent.SerializedGameState);
+                var playerStates = GameSeatStateProjection.BuildStates(game, snapshot);
+
                 var changed = false;
                 foreach (var playerState in playerStates.Where(playerState =>
                              string.Equals(playerState.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
-                             && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                             && playerState.BotControlClearedUtc is null))
+                             && string.Equals(playerState.Control.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+                             && playerState.Control.BotControlClearedUtc is null))
                 {
-                    var updateEntity = new TableEntity(playerState.PartitionKey, playerState.RowKey)
+                    if (playerState.SeatIndex < 0 || playerState.SeatIndex >= snapshot.Players.Count)
                     {
-                        [nameof(GamePlayerStateEntity.BotControlClearedUtc)] = now,
-                        [nameof(GamePlayerStateEntity.BotControlStatus)] = BotControlStatuses.Cleared,
-                        [nameof(GamePlayerStateEntity.BotControlClearReason)] = clearReason
-                    };
+                        continue;
+                    }
 
-                    await _gamesTable.UpdateEntityAsync(updateEntity, ResolveIfMatchETag(playerState), TableUpdateMode.Merge);
+                    snapshot.Players[playerState.SeatIndex].Control.BotControlClearedUtc = now;
+                    snapshot.Players[playerState.SeatIndex].Control.BotControlStatus = BotControlStatuses.Cleared;
+                    snapshot.Players[playerState.SeatIndex].Control.BotControlClearReason = clearReason;
                     changed = true;
                 }
 
@@ -621,6 +625,8 @@ public sealed class GamePresenceService : IDisposable
                 {
                     return;
                 }
+
+                await PersistControlSnapshotAsync(gameId, snapshot, clearReason);
 
                 NotifyPresenceChanged(gameId, metadataChanged: true);
                 return;
@@ -696,11 +702,70 @@ public sealed class GamePresenceService : IDisposable
         _staleConnectionTimer?.Dispose();
     }
 
-    private static ETag ResolveIfMatchETag(GamePlayerStateEntity playerState)
+    private async Task<GameEntity?> GetGameEntityAsync(string gameId)
     {
-        return string.IsNullOrWhiteSpace(playerState.ETag.ToString())
-            ? ETag.All
-            : playerState.ETag;
+        if (_gamesTable is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var response = await _gamesTable.GetEntityAsync<GameEntity>(gameId, "GAME");
+            return response.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    private async Task<GameEventEntity?> GetLatestEventAsync(string gameId)
+    {
+        if (_gamesTable is null)
+        {
+            return null;
+        }
+
+        GameEventEntity? latest = null;
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
+
+        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(filter: filter))
+        {
+            if (latest is null || string.CompareOrdinal(gameEvent.RowKey, latest.RowKey) > 0)
+            {
+                latest = gameEvent;
+            }
+        }
+
+        return latest;
+    }
+
+    private async Task PersistControlSnapshotAsync(string gameId, GameState snapshot, string clearReason)
+    {
+        if (_gamesTable is null)
+        {
+            return;
+        }
+
+        var rowKey = $"Event_{DateTime.UtcNow.Ticks:D20}_{Guid.NewGuid():N}";
+        await _gamesTable.AddEntityAsync(new GameEventEntity
+        {
+            PartitionKey = gameId,
+            RowKey = rowKey,
+            GameId = gameId,
+            EventKind = "SeatControlUpdated",
+            EventData = "{}",
+            PreviewRouteNodeIdsJson = "[]",
+            PreviewRouteSegmentKeysJson = "[]",
+            SerializedGameState = GameEventSerialization.SerializeSnapshot(snapshot),
+            OccurredUtc = DateTimeOffset.UtcNow,
+            CreatedBy = string.Empty,
+            ActingUserId = string.Empty,
+            ActingPlayerIndex = null,
+            ChangeSummary = clearReason
+        });
     }
 }
 

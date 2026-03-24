@@ -11,9 +11,15 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Azure.Data.Tables" Version="12.11.0" />
+    <PackageReference Include="Azure.Core" Version="1.47.3" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,8 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Boxcars\Boxcars.csproj" />
-    <ProjectReference Include="..\..\src\Boxcars.Engine\Boxcars.Engine.csproj" />
+    <Reference Include="Boxcars">
+      <HintPath>..\..\src\Boxcars\bin\$(Configuration)\net10.0\Boxcars.dll</HintPath>
+    </Reference>
+    <Reference Include="Boxcars.Engine">
+      <HintPath>..\..\src\Boxcars.Engine\bin\$(Configuration)\net10.0\Boxcars.Engine.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>

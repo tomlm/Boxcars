@@ -161,44 +161,28 @@ public class GameService
         }
     }
 
-    public async Task<IReadOnlyList<GamePlayerStateEntity>> GetGamePlayerStatesAsync(string gameId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<GameSeatState>> GetGameSeatStatesAsync(string gameId, CancellationToken cancellationToken)
     {
-        var playerStates = new List<GamePlayerStateEntity>();
-        var filter = TableClient.CreateQueryFilter(
-            $"PartitionKey eq {gameId} and RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound}");
-
-        await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(
-                           filter: filter,
-                           cancellationToken: cancellationToken))
+        var game = await GetGameAsync(gameId, cancellationToken);
+        if (game is null)
         {
-            playerStates.Add(playerState);
+            return [];
         }
 
-        playerStates.Sort(static (left, right) => left.SeatIndex.CompareTo(right.SeatIndex));
-        return playerStates;
+        var snapshot = await GetLatestSnapshotAsync(gameId, cancellationToken);
+        return GameSeatStateProjection.BuildStates(game, snapshot);
     }
 
-    public async Task<GamePlayerStateEntity?> GetGamePlayerStateAsync(string gameId, int seatIndex, CancellationToken cancellationToken)
+    public async Task<GameSeatState?> GetGameSeatStateAsync(string gameId, int seatIndex, CancellationToken cancellationToken)
     {
-        try
-        {
-            var response = await _gamesTable.GetEntityAsync<GamePlayerStateEntity>(
-                gameId,
-                GamePlayerStateEntity.BuildRowKey(seatIndex),
-                cancellationToken: cancellationToken);
-
-            return response.Value;
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            return null;
-        }
+        var seatStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
+        return seatStates.FirstOrDefault(seatState => seatState.SeatIndex == seatIndex);
     }
 
-    public async Task<GameUpdateResult> UpdatePlayerStatesAsync(string gameId, IReadOnlyList<GamePlayerStateEntity> playerStates, CancellationToken cancellationToken)
+    public async Task<GameUpdateResult> UpdateSeatStatesAsync(string gameId, IReadOnlyList<GameSeatState> seatStates, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gameId);
-        ArgumentNullException.ThrowIfNull(playerStates);
+        ArgumentNullException.ThrowIfNull(seatStates);
 
         try
         {
@@ -208,67 +192,28 @@ public class GameService
                 return GameUpdateResult.Failed("Game is no longer active.");
             }
 
-            var persistedPlayerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
-            if (persistedPlayerStates.Count == 0)
-            {
-                return GameUpdateResult.Failed("Game player state rows were not found.");
-            }
+            var snapshot = await _gameEngine.GetCurrentStateAsync(gameId, cancellationToken);
 
-            var proposedBySeatIndex = playerStates.ToDictionary(playerState => playerState.SeatIndex);
-            foreach (var persistedPlayerState in persistedPlayerStates)
+            var proposedBySeatIndex = seatStates.ToDictionary(seatState => seatState.SeatIndex);
+            foreach (var playerSnapshot in snapshot.Players.Select((player, index) => (player, index)))
             {
-                if (!proposedBySeatIndex.TryGetValue(persistedPlayerState.SeatIndex, out var proposedPlayerState))
+                if (!proposedBySeatIndex.TryGetValue(playerSnapshot.index, out var proposedPlayerState))
                 {
                     continue;
                 }
 
-                if (ArePlayerStateMutableColumnsEqual(persistedPlayerState, proposedPlayerState))
-                {
-                    continue;
-                }
-
-                var updateEntity = new TableEntity(persistedPlayerState.PartitionKey, persistedPlayerState.RowKey)
-                {
-                    [nameof(GamePlayerStateEntity.ControllerMode)] = proposedPlayerState.ControllerMode,
-                    [nameof(GamePlayerStateEntity.ControllerUserId)] = proposedPlayerState.ControllerUserId,
-                    [nameof(GamePlayerStateEntity.BotDefinitionId)] = proposedPlayerState.BotDefinitionId,
-                    [nameof(GamePlayerStateEntity.AuctionPlanTurnNumber)] = proposedPlayerState.AuctionPlanTurnNumber,
-                    [nameof(GamePlayerStateEntity.AuctionPlanRailroadIndex)] = proposedPlayerState.AuctionPlanRailroadIndex,
-                    [nameof(GamePlayerStateEntity.AuctionPlanStartingPrice)] = proposedPlayerState.AuctionPlanStartingPrice,
-                    [nameof(GamePlayerStateEntity.AuctionPlanMaximumBid)] = proposedPlayerState.AuctionPlanMaximumBid,
-                    [nameof(GamePlayerStateEntity.BotControlActivatedUtc)] = proposedPlayerState.BotControlActivatedUtc,
-                    [nameof(GamePlayerStateEntity.BotControlClearedUtc)] = proposedPlayerState.BotControlClearedUtc,
-                    [nameof(GamePlayerStateEntity.BotControlStatus)] = proposedPlayerState.BotControlStatus,
-                    [nameof(GamePlayerStateEntity.BotControlClearReason)] = proposedPlayerState.BotControlClearReason,
-                    [nameof(GamePlayerStateEntity.TurnsTaken)] = proposedPlayerState.TurnsTaken,
-                    [nameof(GamePlayerStateEntity.FreightTurnCount)] = proposedPlayerState.FreightTurnCount,
-                    [nameof(GamePlayerStateEntity.FreightRollTotal)] = proposedPlayerState.FreightRollTotal,
-                    [nameof(GamePlayerStateEntity.ExpressTurnCount)] = proposedPlayerState.ExpressTurnCount,
-                    [nameof(GamePlayerStateEntity.ExpressRollTotal)] = proposedPlayerState.ExpressRollTotal,
-                    [nameof(GamePlayerStateEntity.SuperchiefTurnCount)] = proposedPlayerState.SuperchiefTurnCount,
-                    [nameof(GamePlayerStateEntity.SuperchiefRollTotal)] = proposedPlayerState.SuperchiefRollTotal,
-                    [nameof(GamePlayerStateEntity.BonusRollCount)] = proposedPlayerState.BonusRollCount,
-                    [nameof(GamePlayerStateEntity.BonusRollTotal)] = proposedPlayerState.BonusRollTotal,
-                    [nameof(GamePlayerStateEntity.TotalPayoffsCollected)] = proposedPlayerState.TotalPayoffsCollected,
-                    [nameof(GamePlayerStateEntity.TotalFeesPaid)] = proposedPlayerState.TotalFeesPaid,
-                    [nameof(GamePlayerStateEntity.TotalFeesCollected)] = proposedPlayerState.TotalFeesCollected,
-                    [nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)] = proposedPlayerState.TotalRailroadFaceValuePurchased,
-                    [nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)] = proposedPlayerState.TotalRailroadAmountPaid,
-                    [nameof(GamePlayerStateEntity.AuctionWins)] = proposedPlayerState.AuctionWins,
-                    [nameof(GamePlayerStateEntity.AuctionBidsPlaced)] = proposedPlayerState.AuctionBidsPlaced,
-                    [nameof(GamePlayerStateEntity.RailroadsPurchasedCount)] = proposedPlayerState.RailroadsPurchasedCount,
-                    [nameof(GamePlayerStateEntity.RailroadsAuctionedCount)] = proposedPlayerState.RailroadsAuctionedCount,
-                    [nameof(GamePlayerStateEntity.RailroadsSoldToBankCount)] = proposedPlayerState.RailroadsSoldToBankCount,
-                    [nameof(GamePlayerStateEntity.DestinationCount)] = proposedPlayerState.DestinationCount,
-                    [nameof(GamePlayerStateEntity.UnfriendlyDestinationCount)] = proposedPlayerState.UnfriendlyDestinationCount,
-                    [nameof(GamePlayerStateEntity.DestinationLog)] = proposedPlayerState.DestinationLog
-                };
-
-                await _gamesTable.UpdateEntityAsync(updateEntity, persistedPlayerState.ETag, TableUpdateMode.Merge, cancellationToken);
+                playerSnapshot.player.Control = GameSeatStateProjection.CloneControl(proposedPlayerState.Control);
             }
+
+            await PersistControlStateSnapshotAsync(
+                persistedGame,
+                snapshot,
+                seatStates,
+                createdBy: string.Empty,
+                cancellationToken);
 
             var updatedGame = await GetGameAsync(gameId, cancellationToken);
-            var updatedPlayerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
+            var updatedPlayerStates = GameSeatStateProjection.BuildStates(persistedGame, snapshot);
             if (updatedGame is null)
             {
                 return GameUpdateResult.Failed("Game is no longer active.");
@@ -287,10 +232,65 @@ public class GameService
         }
     }
 
-    private static bool ArePlayerStateMutableColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
+    private static bool AreSeatStateMutableColumnsEqual(GameSeatState left, GameSeatState right)
     {
-        return AreBotControlColumnsEqual(left, right)
-            && AreStatisticsColumnsEqual(left, right);
+        return AreBotControlColumnsEqual(left, right);
+    }
+
+    private async Task<GameState?> GetLatestSnapshotAsync(string gameId, CancellationToken cancellationToken)
+    {
+        var latestEvent = await GetLatestEventAsync(gameId, cancellationToken);
+        return latestEvent is null || string.IsNullOrWhiteSpace(latestEvent.SerializedGameState)
+            ? null
+            : GameEventSerialization.DeserializeSnapshot(latestEvent.SerializedGameState);
+    }
+
+    private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
+    {
+        var latest = (GameEventEntity?)null;
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
+
+        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(filter: filter, cancellationToken: cancellationToken))
+        {
+            if (latest is null || string.CompareOrdinal(gameEvent.RowKey, latest.RowKey) > 0)
+            {
+                latest = gameEvent;
+            }
+        }
+
+        return latest;
+    }
+
+    private async Task PersistControlStateSnapshotAsync(
+        GameEntity game,
+        GameState snapshot,
+        IReadOnlyList<GameSeatState> playerStates,
+        string createdBy,
+        CancellationToken cancellationToken)
+    {
+        _ = playerStates;
+
+        var tick = DateTime.UtcNow.Ticks;
+        var rowKey = $"Event_{tick:D20}_{Guid.NewGuid():N}";
+        var entity = new GameEventEntity
+        {
+            PartitionKey = game.GameId,
+            RowKey = rowKey,
+            GameId = game.GameId,
+            EventKind = "SeatControlUpdated",
+            EventData = "{}",
+            PreviewRouteNodeIdsJson = "[]",
+            PreviewRouteSegmentKeysJson = "[]",
+            SerializedGameState = GameEventSerialization.SerializeSnapshot(snapshot),
+            ChangeSummary = string.Empty,
+            OccurredUtc = DateTimeOffset.UtcNow,
+            CreatedBy = createdBy,
+            ActingUserId = createdBy,
+            ActingPlayerIndex = null
+        };
+
+        await _gamesTable.AddEntityAsync(entity, cancellationToken);
     }
 
     private static bool AreImmutableGameSettingsEqual(GameEntity left, GameEntity right)
@@ -312,45 +312,17 @@ public class GameService
             && left.SettingsSchemaVersion == right.SettingsSchemaVersion;
     }
 
-    private static bool AreBotControlColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
+    private static bool AreBotControlColumnsEqual(GameSeatState left, GameSeatState right)
     {
-        return string.Equals(left.ControllerMode, right.ControllerMode, StringComparison.Ordinal)
-            && string.Equals(left.ControllerUserId, right.ControllerUserId, StringComparison.Ordinal)
-            && string.Equals(left.BotDefinitionId, right.BotDefinitionId, StringComparison.Ordinal)
-            && left.AuctionPlanTurnNumber == right.AuctionPlanTurnNumber
-            && left.AuctionPlanRailroadIndex == right.AuctionPlanRailroadIndex
-            && left.AuctionPlanStartingPrice == right.AuctionPlanStartingPrice
-            && left.AuctionPlanMaximumBid == right.AuctionPlanMaximumBid
-            && left.BotControlActivatedUtc == right.BotControlActivatedUtc
-            && left.BotControlClearedUtc == right.BotControlClearedUtc
-            && string.Equals(left.BotControlStatus, right.BotControlStatus, StringComparison.Ordinal)
-            && string.Equals(left.BotControlClearReason, right.BotControlClearReason, StringComparison.Ordinal);
-    }
-
-    private static bool AreStatisticsColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
-    {
-        return left.TurnsTaken == right.TurnsTaken
-            && left.FreightTurnCount == right.FreightTurnCount
-            && left.FreightRollTotal == right.FreightRollTotal
-            && left.ExpressTurnCount == right.ExpressTurnCount
-            && left.ExpressRollTotal == right.ExpressRollTotal
-            && left.SuperchiefTurnCount == right.SuperchiefTurnCount
-            && left.SuperchiefRollTotal == right.SuperchiefRollTotal
-            && left.BonusRollCount == right.BonusRollCount
-            && left.BonusRollTotal == right.BonusRollTotal
-            && left.TotalPayoffsCollected == right.TotalPayoffsCollected
-            && left.TotalFeesPaid == right.TotalFeesPaid
-            && left.TotalFeesCollected == right.TotalFeesCollected
-            && left.TotalRailroadFaceValuePurchased == right.TotalRailroadFaceValuePurchased
-            && left.TotalRailroadAmountPaid == right.TotalRailroadAmountPaid
-            && left.AuctionWins == right.AuctionWins
-            && left.AuctionBidsPlaced == right.AuctionBidsPlaced
-            && left.RailroadsPurchasedCount == right.RailroadsPurchasedCount
-            && left.RailroadsAuctionedCount == right.RailroadsAuctionedCount
-                && left.RailroadsSoldToBankCount == right.RailroadsSoldToBankCount
-                && left.DestinationCount == right.DestinationCount
-                && left.UnfriendlyDestinationCount == right.UnfriendlyDestinationCount
-                && string.Equals(left.DestinationLog, right.DestinationLog, StringComparison.Ordinal);
+        return string.Equals(left.Control.ControllerMode, right.Control.ControllerMode, StringComparison.Ordinal)
+            && left.Control.AuctionPlanTurnNumber == right.Control.AuctionPlanTurnNumber
+            && left.Control.AuctionPlanRailroadIndex == right.Control.AuctionPlanRailroadIndex
+            && left.Control.AuctionPlanStartingPrice == right.Control.AuctionPlanStartingPrice
+            && left.Control.AuctionPlanMaximumBid == right.Control.AuctionPlanMaximumBid
+            && left.Control.BotControlActivatedUtc == right.Control.BotControlActivatedUtc
+            && left.Control.BotControlClearedUtc == right.Control.BotControlClearedUtc
+            && string.Equals(left.Control.BotControlStatus, right.Control.BotControlStatus, StringComparison.Ordinal)
+            && string.Equals(left.Control.BotControlClearReason, right.Control.BotControlClearReason, StringComparison.Ordinal);
     }
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, CancellationToken cancellationToken)
@@ -416,7 +388,8 @@ public class GameService
 
     internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent, int announcingCash)
     {
-        if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute"))
+        if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute")
+            || MatchesEventKind(gameEvent.EventKind, "SeatControlUpdated"))
         {
             return [];
         }
@@ -1043,18 +1016,13 @@ public class GameService
     private async Task<HashSet<string>> GetGameIdsForPlayerAsync(string playerId, CancellationToken cancellationToken)
     {
         var gameIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var filter = TableClient.CreateQueryFilter(
-            $"RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound} and PlayerUserId eq {playerId}");
-
-        await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(filter: filter, cancellationToken: cancellationToken))
+        await foreach (var game in _gamesTable.QueryAsync<GameEntity>(
+                           entity => entity.RowKey == "GAME",
+                           cancellationToken: cancellationToken))
         {
-            if (!string.IsNullOrWhiteSpace(playerState.GameId))
+            if (game.Seats.Any(seat => string.Equals(seat.PlayerUserId, playerId, StringComparison.OrdinalIgnoreCase)))
             {
-                gameIds.Add(playerState.GameId);
-            }
-            else if (!string.IsNullOrWhiteSpace(playerState.PartitionKey))
-            {
-                gameIds.Add(playerState.PartitionKey);
+                gameIds.Add(string.IsNullOrWhiteSpace(game.GameId) ? game.PartitionKey : game.GameId);
             }
         }
 
@@ -1082,9 +1050,9 @@ public sealed record GameUpdateResult
     public bool IsConflict { get; init; }
     public string? ErrorMessage { get; init; }
     public GameEntity? Game { get; init; }
-    public IReadOnlyList<GamePlayerStateEntity> PlayerStates { get; init; } = [];
+    public IReadOnlyList<GameSeatState> PlayerStates { get; init; } = [];
 
-    public static GameUpdateResult Success(GameEntity game, IReadOnlyList<GamePlayerStateEntity>? playerStates = null) => new()
+    public static GameUpdateResult Success(GameEntity game, IReadOnlyList<GameSeatState>? playerStates = null) => new()
     {
         Succeeded = true,
         Game = game,

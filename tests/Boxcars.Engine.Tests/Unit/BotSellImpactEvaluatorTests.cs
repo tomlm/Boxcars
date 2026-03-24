@@ -69,7 +69,7 @@ public class BotSellImpactEvaluatorTests
             .Select(candidate => candidate.Railroad)
             .First();
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, mapDefinition, CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, mapDefinition, CancellationToken.None);
 
         var sellAction = Assert.IsType<SellRailroadAction>(action);
         Assert.Equal(expectedRailroad.Index, sellAction.RailroadIndex);
@@ -139,7 +139,7 @@ public class BotSellImpactEvaluatorTests
             .Select(candidate => candidate.Railroad)
             .First();
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, mapDefinition, CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, mapDefinition, CancellationToken.None);
 
         var auctionAction = Assert.IsType<StartAuctionAction>(action);
         Assert.Equal(expectedRailroad.Index, auctionAction.RailroadIndex);

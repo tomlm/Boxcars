@@ -202,24 +202,27 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             MapFileName = request.MapFileName,
             MaxPlayers = request.MaxPlayers,
             CurrentPlayerCount = request.MaxPlayers,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            Seats = request.Players
+                .Select((player, seatIndex) => new GameSeatDefinition
+                {
+                    SeatIndex = seatIndex,
+                    PlayerUserId = player.UserId,
+                    DisplayName = player.DisplayName,
+                    Color = player.Color
+                })
+                .ToList()
         };
         _gameSettingsResolver.Apply(gameEntity, normalizedSettings);
 
-        var playerStates = request.Players
-            .Select((player, seatIndex) => GamePlayerStateEntity.Create(gameId, seatIndex, player))
-            .ToList();
+        var playerStates = GameSeatStateProjection.BuildTransientStates(gameEntity, createdGameEngine.ToSnapshot()).ToList();
 
         await _botTurnService.EnsureBotSeatControlStatesAsync(gameId, playerStates, request.CreatorUserId, cancellationToken);
 
         await _gamesTable.AddEntityAsync(gameEntity, cancellationToken);
 
-        foreach (var playerState in playerStates)
-        {
-            await _gamesTable.AddEntityAsync(playerState, cancellationToken);
-        }
-
         var snapshot = createdGameEngine.ToSnapshot();
+        ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
         await PersistEventAsync(gameId, snapshot, "CreateGame", "Game created.", request.CreatorUserId, new
         {
             request.MapFileName,
@@ -239,7 +242,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         var gameEngine = await GetOrCreateGameEngineAsync(gameId, cancellationToken);
         var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
             ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
-        return await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, cancellationToken);
+        var snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, cancellationToken);
+        var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
+        ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
+        return snapshot;
     }
 
     public async Task SynchronizeStateAsync(string gameId, RailBaronGameState state, CancellationToken cancellationToken = default)
@@ -342,11 +348,15 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
                         ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
                     var announcingCash = _gameSettingsResolver.Resolve(gameEntity).Settings.AnnouncingCash;
-                    var playerStates = await GetGamePlayerStatesAsync(queuedAction.GameId, stoppingToken);
+                    var playerStates = await GetGameSeatStatesAsync(queuedAction.GameId, stoppingToken);
 
                     var snapshotBeforeAction = gameEngine.ToSnapshot();
+                    ApplySeatAndControlMetadata(snapshotBeforeAction, gameEntity, playerStates);
                     await ProcessTurnAsync(gameEntity, playerStates, gameEngine, queuedAction.Action, stoppingToken);
                     var snapshot = gameEngine.ToSnapshot();
+                    ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeAction, snapshot);
+                    snapshot = gameEngine.ToSnapshot();
+                    ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
 
                     var persistedGameEvent = await PersistEventAsync(
                         queuedAction.GameId,
@@ -356,8 +366,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.Action.PlayerId,
                         queuedAction.Action,
                         stoppingToken);
-
-                    await UpdatePlayerStateStatisticsAsync(queuedAction.GameId, snapshotBeforeAction, snapshot, stoppingToken);
 
                     PublishStateChanged(
                         queuedAction.GameId,
@@ -441,7 +449,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private async Task ProcessTurnAsync(
         GameEntity gameEntity,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         PlayerAction action,
         CancellationToken cancellationToken)
@@ -583,7 +591,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private Task ValidateActionAuthorizationAsync(
         GameEntity gameEntity,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         PlayerAction action,
         CancellationToken cancellationToken)
@@ -610,7 +618,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("Eliminated players may only spectate and cannot perform game actions.");
         }
 
-        var selections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
+        var selections = ResolveSeatSelections(gameEntity, playerStates);
         var authorizedPlayerIndex = allowsNonActiveParticipant ? actionPlayerIndex : activePlayerIndex;
         if (authorizedPlayerIndex < 0 || authorizedPlayerIndex >= selections.Count)
         {
@@ -618,7 +626,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var slotUserId = selections[authorizedPlayerIndex].UserId;
-        var activePlayerState = _botTurnService.FindActivePlayerState(playerStates, slotUserId);
+        var activePlayerState = _botTurnService.FindActiveSeatState(playerStates, slotUserId);
         var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
         var authorized = PlayerControlRules.CanUserControlSlot(controllerState, action.ActorUserId, isPlayerActive: true)
             || PlayerControlRules.CanServerControlSlot(controllerState, action.ActorUserId, _botOptions.ServerActorUserId, isPlayerActive: true);
@@ -651,10 +659,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
         }
 
-        var playerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
-        var players = playerStates
-            .OrderBy(playerState => playerState.SeatIndex)
-            .Select(playerState => string.IsNullOrWhiteSpace(playerState.DisplayName) ? playerState.PlayerUserId : playerState.DisplayName)
+        var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
+        var players = ResolveSeatSelections(gameEntity, playerStates)
+            .Select(selection => string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName)
             .ToList();
         var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
 
@@ -761,14 +768,15 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
-        var playerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
+        var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
         var originalPlayerStates = playerStates
-            .Select(GamePlayerStateProjection.Clone)
+            .Select(GameSeatStateProjection.Clone)
             .ToList();
 
         await _botTurnService.EnsureBotSeatControlStatesAsync(gameId, playerStates, gameEntity.CreatorId, cancellationToken);
 
         var snapshot = gameEngine.ToSnapshot();
+        ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
         var announcingCash = _gameSettingsResolver.Resolve(gameEntity).Settings.AnnouncingCash;
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
@@ -778,6 +786,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             {
                 var snapshotBeforeResolution = snapshot;
                 snapshot = gameEngine.ToSnapshot();
+                ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
+                ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeResolution, snapshot);
+                snapshot = gameEngine.ToSnapshot();
+                ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
 
                 var persistedGameEvent = await PersistEventAsync(
                     gameId,
@@ -788,8 +800,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     allAiAuctionAction,
                     cancellationToken);
 
-                await UpdatePlayerStateStatisticsAsync(gameId, snapshotBeforeResolution, snapshot, cancellationToken);
-
                 PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, announcingCash));
                 continue;
             }
@@ -797,7 +807,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             var automaticAction = await CreateAutomaticTurnActionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
             if (automaticAction is null)
             {
-                await PersistPlayerStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
+                await PersistSeatStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
                 return snapshot;
             }
 
@@ -811,6 +821,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 await ProcessTurnAsync(gameEntity, playerStates, gameEngine, automaticAction, cancellationToken);
             }
             snapshot = gameEngine.ToSnapshot();
+            ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
+            ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeAction, snapshot);
+            snapshot = gameEngine.ToSnapshot();
+            ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
 
             var persistedAutomaticGameEvent = await PersistEventAsync(
                 gameId,
@@ -821,8 +835,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 automaticAction,
                 cancellationToken);
 
-            await UpdatePlayerStateStatisticsAsync(gameId, snapshotBeforeAction, snapshot, cancellationToken);
-
             PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction, announcingCash));
 
             if (automaticAction.BotMetadata is not null && _botOptions.AutomaticActionDelayMilliseconds > 0)
@@ -831,14 +843,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             }
         }
 
-        await PersistPlayerStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
+        await PersistSeatStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
 
         throw new InvalidOperationException($"Automatic turn flow did not stabilize within {AutomaticTurnFlowStepLimit} steps.");
     }
 
     private async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
         GameEntity gameEntity,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
@@ -857,7 +869,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private async Task<PlayerAction?> CreateAutomaticTurnActionAsync(
         GameEntity gameEntity,
-        List<GamePlayerStateEntity> playerStates,
+        List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
@@ -885,7 +897,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return await _botTurnService.CreateBotActionAsync(gameEntity.GameId, playerStates, gameEngine, _mapDefinition, cancellationToken);
     }
 
-    private bool IsAiControlledSeatTurn(GameEntity gameEntity, List<GamePlayerStateEntity> playerStates, RailBaronGameEngine gameEngine)
+    private bool IsAiControlledSeatTurn(GameEntity gameEntity, List<GameSeatState> playerStates, RailBaronGameEngine gameEngine)
     {
         var actingPlayerIndex = gameEngine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex ?? gameEngine.CurrentTurn.ActivePlayer.Index;
         if (actingPlayerIndex < 0 || actingPlayerIndex >= playerStates.Count)
@@ -894,12 +906,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var slotUserId = playerStates[actingPlayerIndex].PlayerUserId;
-        var activePlayerState = _botTurnService.FindActivePlayerState(playerStates, slotUserId);
+        var activePlayerState = _botTurnService.FindActiveSeatState(playerStates, slotUserId);
         var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
         return PlayerControlRules.IsAiControlledMode(controllerState.ControllerMode);
     }
 
-    private bool HasConnectedTableUser(string gameId, IReadOnlyList<GamePlayerStateEntity> playerStates)
+    private bool HasConnectedTableUser(string gameId, IReadOnlyList<GameSeatState> playerStates)
     {
         var candidateUserIds = new List<string?>();
         foreach (var playerState in playerStates)
@@ -957,7 +969,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     return;
                 }
 
-                var playerStates = await GetGamePlayerStatesAsync(gameId, CancellationToken.None);
+                var playerStates = await GetGameSeatStatesAsync(gameId, CancellationToken.None);
                 if (!HasConnectedTableUser(gameId, playerStates))
                 {
                     return;
@@ -984,174 +996,109 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
     }
 
-    private async Task PersistPlayerStateControlChangesAsync(
-        List<GamePlayerStateEntity> originalPlayerStates,
-        List<GamePlayerStateEntity> updatedPlayerStates,
+    private static Task PersistSeatStateControlChangesAsync(
+        List<GameSeatState> originalPlayerStates,
+        List<GameSeatState> updatedPlayerStates,
         CancellationToken cancellationToken)
     {
-        foreach (var pair in originalPlayerStates.Zip(updatedPlayerStates, static (original, updated) => (original, updated)))
-        {
-            if (AreBotControlColumnsEqual(pair.original, pair.updated))
-            {
-                continue;
-            }
-
-            await PersistPlayerStateControlChangeAsync(pair.original, pair.updated, cancellationToken);
-        }
+        _ = originalPlayerStates;
+        _ = updatedPlayerStates;
+        _ = cancellationToken;
+        return Task.CompletedTask;
     }
 
-    private async Task PersistPlayerStateControlChangeAsync(
-        GamePlayerStateEntity originalPlayerState,
-        GamePlayerStateEntity updatedPlayerState,
+    private static Task PersistSeatStateControlChangeAsync(
+        GameSeatState originalPlayerState,
+        GameSeatState updatedPlayerState,
         CancellationToken cancellationToken)
     {
-        var persistedPlayerState = originalPlayerState;
-
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            try
-            {
-                var updateEntity = BuildPlayerStateControlUpdateEntity(persistedPlayerState, updatedPlayerState);
-                await _gamesTable.UpdateEntityAsync(
-                    updateEntity,
-                    ResolvePlayerStateIfMatchETag(persistedPlayerState),
-                    TableUpdateMode.Merge,
-                    cancellationToken);
-
-                return;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 412 && attempt == 0)
-            {
-                var refreshedPlayerState = await GetGamePlayerStateAsync(originalPlayerState.GameId, originalPlayerState.SeatIndex, cancellationToken);
-                if (refreshedPlayerState is null || AreBotControlColumnsEqual(refreshedPlayerState, updatedPlayerState))
-                {
-                    return;
-                }
-
-                persistedPlayerState = refreshedPlayerState;
-            }
-        }
+        _ = originalPlayerState;
+        _ = updatedPlayerState;
+        _ = cancellationToken;
+        return Task.CompletedTask;
     }
 
-    private static TableEntity BuildPlayerStateControlUpdateEntity(
-        GamePlayerStateEntity persistedPlayerState,
-        GamePlayerStateEntity updatedPlayerState)
+    private static TableEntity BuildSeatStateControlUpdateEntity(
+        GameSeatState persistedPlayerState,
+        GameSeatState updatedPlayerState)
     {
         return new TableEntity(persistedPlayerState.PartitionKey, persistedPlayerState.RowKey)
         {
-            [nameof(GamePlayerStateEntity.ControllerMode)] = updatedPlayerState.ControllerMode,
-            [nameof(GamePlayerStateEntity.ControllerUserId)] = updatedPlayerState.ControllerUserId,
-            [nameof(GamePlayerStateEntity.BotDefinitionId)] = updatedPlayerState.BotDefinitionId,
-            [nameof(GamePlayerStateEntity.AuctionPlanTurnNumber)] = updatedPlayerState.AuctionPlanTurnNumber,
-            [nameof(GamePlayerStateEntity.AuctionPlanRailroadIndex)] = updatedPlayerState.AuctionPlanRailroadIndex,
-            [nameof(GamePlayerStateEntity.AuctionPlanStartingPrice)] = updatedPlayerState.AuctionPlanStartingPrice,
-            [nameof(GamePlayerStateEntity.AuctionPlanMaximumBid)] = updatedPlayerState.AuctionPlanMaximumBid,
-            [nameof(GamePlayerStateEntity.BotControlActivatedUtc)] = updatedPlayerState.BotControlActivatedUtc,
-            [nameof(GamePlayerStateEntity.BotControlClearedUtc)] = updatedPlayerState.BotControlClearedUtc,
-            [nameof(GamePlayerStateEntity.BotControlStatus)] = updatedPlayerState.BotControlStatus,
-            [nameof(GamePlayerStateEntity.BotControlClearReason)] = updatedPlayerState.BotControlClearReason
+            [nameof(GameSeatState.ControllerMode)] = updatedPlayerState.ControllerMode,
+            [nameof(GameSeatState.ControllerUserId)] = updatedPlayerState.ControllerUserId,
+            [nameof(GameSeatState.AuctionPlanTurnNumber)] = updatedPlayerState.AuctionPlanTurnNumber,
+            [nameof(GameSeatState.AuctionPlanRailroadIndex)] = updatedPlayerState.AuctionPlanRailroadIndex,
+            [nameof(GameSeatState.AuctionPlanStartingPrice)] = updatedPlayerState.AuctionPlanStartingPrice,
+            [nameof(GameSeatState.AuctionPlanMaximumBid)] = updatedPlayerState.AuctionPlanMaximumBid,
+            [nameof(GameSeatState.BotControlActivatedUtc)] = updatedPlayerState.BotControlActivatedUtc,
+            [nameof(GameSeatState.BotControlClearedUtc)] = updatedPlayerState.BotControlClearedUtc,
+            [nameof(GameSeatState.BotControlStatus)] = updatedPlayerState.BotControlStatus,
+            [nameof(GameSeatState.BotControlClearReason)] = updatedPlayerState.BotControlClearReason
         };
     }
 
-    private async Task UpdatePlayerStateStatisticsAsync(
-        string gameId,
-        RailBaronGameState snapshotBeforeAction,
-        RailBaronGameState snapshotAfterAction,
-        CancellationToken cancellationToken)
+    private static void ApplySeatAndControlMetadata(
+        RailBaronGameState snapshot,
+        GameEntity gameEntity,
+        List<GameSeatState> playerStates)
     {
-        var affectedPlayerIndices = ResolveAffectedStatisticPlayerIndices(snapshotBeforeAction, snapshotAfterAction);
-        if (affectedPlayerIndices.Count == 0)
+        _ = gameEntity;
+
+        for (var index = 0; index < snapshot.Players.Count; index++)
         {
-            return;
+            var playerState = index < playerStates.Count ? playerStates[index] : null;
+            snapshot.Players[index].Control = GameSeatStateProjection.BuildControlState(playerState);
+        }
+    }
+
+    private static IReadOnlyList<GamePlayerSelection> ResolveSeatSelections(
+        GameEntity gameEntity,
+        IReadOnlyList<GameSeatState> playerStates)
+    {
+        if (gameEntity.Seats.Count > 0)
+        {
+            return gameEntity.Seats
+                .OrderBy(seat => seat.SeatIndex)
+                .Select(seat => new GamePlayerSelection
+                {
+                    UserId = seat.PlayerUserId,
+                    DisplayName = seat.DisplayName,
+                    Color = seat.Color
+                })
+                .ToList();
         }
 
-        var playerStates = new List<GamePlayerStateEntity>();
-        foreach (var playerIndex in affectedPlayerIndices.Order())
-        {
-            var playerState = await GetGamePlayerStateAsync(gameId, playerIndex, cancellationToken);
-            if (playerState is not null)
-            {
-                playerStates.Add(playerState);
-            }
-        }
+        return GameSeatStateProjection.BuildSeatSelections(playerStates);
+    }
 
-        if (playerStates.Count == 0)
-        {
-            return;
-        }
-
-        var settings = _gameEngines.TryGetValue(gameId, out var gameEngine)
-            ? gameEngine.Settings
-            : Boxcars.Engine.Persistence.GameSettings.Default;
-
-        var updatedPlayerStates = playerStates
-            .Select(GamePlayerStateProjection.Clone)
-            .ToList();
-
+    private static void ApplyStatisticsDelta(
+        RailBaronGameEngine gameEngine,
+        MapDefinition? mapDefinition,
+        Boxcars.Engine.Persistence.GameSettings settings,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction)
+    {
         ApplyStatisticsDelta(
-            updatedPlayerStates.ToDictionary(playerState => playerState.SeatIndex),
-            _mapDefinition,
+            gameEngine.Players.ToDictionary(player => player.Index),
+            mapDefinition,
             settings,
             snapshotBeforeAction,
             snapshotAfterAction);
-        await PersistPlayerStatisticsAsync(playerStates, updatedPlayerStates, cancellationToken);
     }
 
-    private async Task RebuildPlayerStatisticsAsync(
+    private static Task RebuildPlayerStatisticsAsync(
         string gameId,
         List<GameEventEntity> sourceEvents,
         CancellationToken cancellationToken)
     {
-        var playerStates = await GetGamePlayerStatesAsync(gameId, cancellationToken);
-        if (playerStates.Count == 0)
-        {
-            return;
-        }
-
-        var rebuiltPlayerStates = playerStates
-            .Select(GamePlayerStateProjection.ResetStatistics)
-            .ToList();
-        var rebuiltPlayerStatesBySeatIndex = rebuiltPlayerStates.ToDictionary(playerState => playerState.SeatIndex);
-        var settings = await ResolveStatisticsSettingsAsync(gameId, cancellationToken);
-
-        RailBaronGameState? previousSnapshot = null;
-        foreach (var gameEvent in sourceEvents)
-        {
-            if (string.IsNullOrWhiteSpace(gameEvent.SerializedGameState))
-            {
-                continue;
-            }
-
-            var currentSnapshot = GameEventSerialization.DeserializeSnapshot(gameEvent.SerializedGameState);
-            if (previousSnapshot is not null)
-            {
-                ApplyStatisticsDelta(rebuiltPlayerStatesBySeatIndex, _mapDefinition, settings, previousSnapshot, currentSnapshot);
-            }
-
-            previousSnapshot = currentSnapshot;
-        }
-
-        await PersistPlayerStatisticsAsync(playerStates, rebuiltPlayerStates, cancellationToken);
-    }
-
-    private async Task PersistPlayerStatisticsAsync(
-        List<GamePlayerStateEntity> originalPlayerStates,
-        List<GamePlayerStateEntity> updatedPlayerStates,
-        CancellationToken cancellationToken)
-    {
-        foreach (var pair in originalPlayerStates.Zip(updatedPlayerStates, static (original, updated) => (original, updated)))
-        {
-            if (AreStatisticsColumnsEqual(pair.original, pair.updated))
-            {
-                continue;
-            }
-
-            await PersistPlayerStatisticChangeAsync(pair.original, pair.updated, cancellationToken);
-        }
+        _ = gameId;
+        _ = sourceEvents;
+        _ = cancellationToken;
+        return Task.CompletedTask;
     }
 
     private static void ApplyStatisticsDelta(
-        Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex,
+        Dictionary<int, Player> playersBySeatIndex,
         MapDefinition? mapDefinition,
         Boxcars.Engine.Persistence.GameSettings settings,
         RailBaronGameState snapshotBeforeAction,
@@ -1159,18 +1106,18 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     {
         if (TryResolvePrimaryRoll(snapshotBeforeAction, snapshotAfterAction, out var rollPlayerIndex, out var engineType, out var rollTotal))
         {
-            IncrementEngineRollStatistics(playerStatesBySeatIndex, rollPlayerIndex, engineType, rollTotal);
+            IncrementEngineRollStatistics(playersBySeatIndex, rollPlayerIndex, engineType, rollTotal);
         }
 
         if (TryResolveBonusRoll(snapshotBeforeAction, snapshotAfterAction, out var bonusPlayerIndex, out var bonusRollTotal))
         {
-            IncrementBonusRollStatistics(playerStatesBySeatIndex, bonusPlayerIndex, bonusRollTotal);
+            IncrementBonusRollStatistics(playersBySeatIndex, bonusPlayerIndex, bonusRollTotal);
         }
 
         if (snapshotAfterAction.Turn.ArrivalResolution is not null
             && !AreArrivalResolutionsEquivalent(snapshotBeforeAction.Turn.ArrivalResolution, snapshotAfterAction.Turn.ArrivalResolution))
         {
-            AddToPlayerStatistic(playerStatesBySeatIndex, snapshotAfterAction.Turn.ArrivalResolution.PlayerIndex, state =>
+            AddToPlayerStatistic(playersBySeatIndex, snapshotAfterAction.Turn.ArrivalResolution.PlayerIndex, state =>
             {
                 state.TotalPayoffsCollected += Math.Max(0, snapshotAfterAction.Turn.ArrivalResolution.PayoutAmount);
             });
@@ -1182,14 +1129,14 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         {
             var feeTransfers = ResolveFeeTransfers(snapshotBeforeAction, settings);
 
-            AddToPlayerStatistic(playerStatesBySeatIndex, snapshotBeforeAction.ActivePlayerIndex, state =>
+            AddToPlayerStatistic(playersBySeatIndex, snapshotBeforeAction.ActivePlayerIndex, state =>
             {
                 state.TotalFeesPaid += feeTransfers.Sum(transfer => transfer.Amount);
             });
 
             foreach (var feeTransfer in feeTransfers.Where(transfer => transfer.RecipientPlayerIndex.HasValue))
             {
-                AddToPlayerStatistic(playerStatesBySeatIndex, feeTransfer.RecipientPlayerIndex!.Value, state =>
+                AddToPlayerStatistic(playersBySeatIndex, feeTransfer.RecipientPlayerIndex!.Value, state =>
                 {
                     state.TotalFeesCollected += feeTransfer.Amount;
                 });
@@ -1198,7 +1145,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         if (snapshotBeforeAction.Turn.Auction is null && snapshotAfterAction.Turn.Auction is not null)
         {
-            AddToPlayerStatistic(playerStatesBySeatIndex, snapshotAfterAction.Turn.Auction.SellerPlayerIndex, state =>
+            AddToPlayerStatistic(playersBySeatIndex, snapshotAfterAction.Turn.Auction.SellerPlayerIndex, state =>
             {
                 state.RailroadsAuctionedCount++;
             });
@@ -1209,19 +1156,19 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && snapshotAfterAction.Turn.Auction.CurrentBid > snapshotBeforeAction.Turn.Auction.CurrentBid
             && snapshotAfterAction.Turn.Auction.LastBidderPlayerIndex is int bidderPlayerIndex)
         {
-            AddToPlayerStatistic(playerStatesBySeatIndex, bidderPlayerIndex, state =>
+            AddToPlayerStatistic(playersBySeatIndex, bidderPlayerIndex, state =>
             {
                 state.AuctionBidsPlaced++;
             });
         }
 
-        ApplyDestinationAssignmentChanges(playerStatesBySeatIndex, mapDefinition, snapshotBeforeAction, snapshotAfterAction);
+        ApplyDestinationAssignmentChanges(playersBySeatIndex, mapDefinition, snapshotBeforeAction, snapshotAfterAction);
 
-        ApplyRailroadOwnershipChanges(playerStatesBySeatIndex, snapshotBeforeAction, snapshotAfterAction);
+        ApplyRailroadOwnershipChanges(playersBySeatIndex, snapshotBeforeAction, snapshotAfterAction);
     }
 
     private static void ApplyDestinationAssignmentChanges(
-        Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex,
+        Dictionary<int, Player> playerStatesBySeatIndex,
         MapDefinition? mapDefinition,
         RailBaronGameState snapshotBeforeAction,
         RailBaronGameState snapshotAfterAction)
@@ -1241,13 +1188,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     state.UnfriendlyDestinationCount++;
                 }
 
-                state.AppendDestinationLogEntry(destinationLogEntry);
+                state.DestinationLogEntries.Add(destinationLogEntry);
             });
         }
     }
 
     private static void ApplyRailroadOwnershipChanges(
-        Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex,
+        Dictionary<int, Player> playerStatesBySeatIndex,
         RailBaronGameState snapshotBeforeAction,
         RailBaronGameState snapshotAfterAction)
     {
@@ -1372,7 +1319,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             || (segment.EndRegionIndex == regionIndex && segment.EndDotIndex == dotIndex);
     }
 
-    private static void IncrementEngineRollStatistics(Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex, int playerIndex, string engineType, int rollTotal)
+    private static void IncrementEngineRollStatistics(Dictionary<int, Player> playerStatesBySeatIndex, int playerIndex, string engineType, int rollTotal)
     {
         AddToPlayerStatistic(playerStatesBySeatIndex, playerIndex, state =>
         {
@@ -1400,7 +1347,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         });
     }
 
-    private static void IncrementBonusRollStatistics(Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex, int playerIndex, int rollTotal)
+    private static void IncrementBonusRollStatistics(Dictionary<int, Player> playerStatesBySeatIndex, int playerIndex, int rollTotal)
     {
         AddToPlayerStatistic(playerStatesBySeatIndex, playerIndex, state =>
         {
@@ -1409,7 +1356,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         });
     }
 
-    private static void AddToPlayerStatistic(Dictionary<int, GamePlayerStateEntity> playerStatesBySeatIndex, int playerIndex, Action<GamePlayerStateEntity> applyUpdate)
+    private static void AddToPlayerStatistic(Dictionary<int, Player> playerStatesBySeatIndex, int playerIndex, Action<Player> applyUpdate)
     {
         if (playerIndex < 0 || !playerStatesBySeatIndex.TryGetValue(playerIndex, out var playerState))
         {
@@ -1417,71 +1364,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         applyUpdate(playerState);
-    }
-
-    private async Task PersistPlayerStatisticChangeAsync(
-        GamePlayerStateEntity originalPlayerState,
-        GamePlayerStateEntity updatedPlayerState,
-        CancellationToken cancellationToken)
-    {
-        var persistedPlayerState = originalPlayerState;
-
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            try
-            {
-                var updateEntity = BuildPlayerStateStatisticsUpdateEntity(persistedPlayerState, updatedPlayerState);
-                await _gamesTable.UpdateEntityAsync(
-                    updateEntity,
-                    ResolvePlayerStateIfMatchETag(persistedPlayerState),
-                    TableUpdateMode.Merge,
-                    cancellationToken);
-
-                return;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 412 && attempt == 0)
-            {
-                var refreshedPlayerState = await GetGamePlayerStateAsync(originalPlayerState.GameId, originalPlayerState.SeatIndex, cancellationToken);
-                if (refreshedPlayerState is null)
-                {
-                    return;
-                }
-
-                updatedPlayerState.ETag = refreshedPlayerState.ETag;
-                persistedPlayerState = refreshedPlayerState;
-            }
-        }
-    }
-
-    private static TableEntity BuildPlayerStateStatisticsUpdateEntity(
-        GamePlayerStateEntity persistedPlayerState,
-        GamePlayerStateEntity updatedPlayerState)
-    {
-        return new TableEntity(persistedPlayerState.PartitionKey, persistedPlayerState.RowKey)
-        {
-            [nameof(GamePlayerStateEntity.TurnsTaken)] = updatedPlayerState.TurnsTaken,
-            [nameof(GamePlayerStateEntity.FreightTurnCount)] = updatedPlayerState.FreightTurnCount,
-            [nameof(GamePlayerStateEntity.FreightRollTotal)] = updatedPlayerState.FreightRollTotal,
-            [nameof(GamePlayerStateEntity.ExpressTurnCount)] = updatedPlayerState.ExpressTurnCount,
-            [nameof(GamePlayerStateEntity.ExpressRollTotal)] = updatedPlayerState.ExpressRollTotal,
-            [nameof(GamePlayerStateEntity.SuperchiefTurnCount)] = updatedPlayerState.SuperchiefTurnCount,
-            [nameof(GamePlayerStateEntity.SuperchiefRollTotal)] = updatedPlayerState.SuperchiefRollTotal,
-            [nameof(GamePlayerStateEntity.BonusRollCount)] = updatedPlayerState.BonusRollCount,
-            [nameof(GamePlayerStateEntity.BonusRollTotal)] = updatedPlayerState.BonusRollTotal,
-            [nameof(GamePlayerStateEntity.TotalPayoffsCollected)] = updatedPlayerState.TotalPayoffsCollected,
-            [nameof(GamePlayerStateEntity.TotalFeesPaid)] = updatedPlayerState.TotalFeesPaid,
-            [nameof(GamePlayerStateEntity.TotalFeesCollected)] = updatedPlayerState.TotalFeesCollected,
-            [nameof(GamePlayerStateEntity.TotalRailroadFaceValuePurchased)] = updatedPlayerState.TotalRailroadFaceValuePurchased,
-            [nameof(GamePlayerStateEntity.TotalRailroadAmountPaid)] = updatedPlayerState.TotalRailroadAmountPaid,
-            [nameof(GamePlayerStateEntity.AuctionWins)] = updatedPlayerState.AuctionWins,
-            [nameof(GamePlayerStateEntity.AuctionBidsPlaced)] = updatedPlayerState.AuctionBidsPlaced,
-            [nameof(GamePlayerStateEntity.RailroadsPurchasedCount)] = updatedPlayerState.RailroadsPurchasedCount,
-            [nameof(GamePlayerStateEntity.RailroadsAuctionedCount)] = updatedPlayerState.RailroadsAuctionedCount,
-            [nameof(GamePlayerStateEntity.RailroadsSoldToBankCount)] = updatedPlayerState.RailroadsSoldToBankCount,
-            [nameof(GamePlayerStateEntity.DestinationCount)] = updatedPlayerState.DestinationCount,
-            [nameof(GamePlayerStateEntity.UnfriendlyDestinationCount)] = updatedPlayerState.UnfriendlyDestinationCount,
-            [nameof(GamePlayerStateEntity.DestinationLog)] = updatedPlayerState.DestinationLog
-        };
     }
 
     private static HashSet<int> ResolveAffectedStatisticPlayerIndices(
@@ -1637,32 +1519,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && left.WhiteDice.SequenceEqual(right.WhiteDice);
     }
 
-    private static bool AreStatisticsColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
-    {
-        return left.TurnsTaken == right.TurnsTaken
-            && left.FreightTurnCount == right.FreightTurnCount
-            && left.FreightRollTotal == right.FreightRollTotal
-            && left.ExpressTurnCount == right.ExpressTurnCount
-            && left.ExpressRollTotal == right.ExpressRollTotal
-            && left.SuperchiefTurnCount == right.SuperchiefTurnCount
-            && left.SuperchiefRollTotal == right.SuperchiefRollTotal
-            && left.BonusRollCount == right.BonusRollCount
-            && left.BonusRollTotal == right.BonusRollTotal
-            && left.TotalPayoffsCollected == right.TotalPayoffsCollected
-            && left.TotalFeesPaid == right.TotalFeesPaid
-            && left.TotalFeesCollected == right.TotalFeesCollected
-            && left.TotalRailroadFaceValuePurchased == right.TotalRailroadFaceValuePurchased
-            && left.TotalRailroadAmountPaid == right.TotalRailroadAmountPaid
-            && left.AuctionWins == right.AuctionWins
-            && left.AuctionBidsPlaced == right.AuctionBidsPlaced
-            && left.RailroadsPurchasedCount == right.RailroadsPurchasedCount
-            && left.RailroadsAuctionedCount == right.RailroadsAuctionedCount
-                && left.RailroadsSoldToBankCount == right.RailroadsSoldToBankCount
-                && left.DestinationCount == right.DestinationCount
-                && left.UnfriendlyDestinationCount == right.UnfriendlyDestinationCount
-                && string.Equals(left.DestinationLog, right.DestinationLog, StringComparison.Ordinal);
-    }
-
     private static List<FeeTransferStatistic> ResolveFeeTransfers(RailBaronGameState snapshotBeforeAction, Boxcars.Engine.Persistence.GameSettings settings)
     {
         if (snapshotBeforeAction.ActivePlayerIndex < 0
@@ -1751,7 +1607,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             : gameEntity.ETag;
     }
 
-    private static Azure.ETag ResolvePlayerStateIfMatchETag(GamePlayerStateEntity playerState)
+    private static Azure.ETag ResolvePlayerStateIfMatchETag(GameSeatState playerState)
     {
         return string.IsNullOrWhiteSpace(playerState.ETag.ToString())
             ? Azure.ETag.All
@@ -1771,38 +1627,26 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return false;
     }
 
-    private async Task<List<GamePlayerStateEntity>> GetGamePlayerStatesAsync(string gameId, CancellationToken cancellationToken)
+    private async Task<List<GameSeatState>> GetGameSeatStatesAsync(string gameId, CancellationToken cancellationToken)
     {
-        var playerStates = new List<GamePlayerStateEntity>();
-        var filter = TableClient.CreateQueryFilter(
-            $"PartitionKey eq {gameId} and RowKey ge {GamePlayerStateEntity.RowKeyPrefix} and RowKey lt {GamePlayerStateEntity.RowKeyExclusiveUpperBound}");
-
-        await foreach (var playerState in _gamesTable.QueryAsync<GamePlayerStateEntity>(
-                           filter: filter,
-                           cancellationToken: cancellationToken))
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken);
+        if (gameEntity is null)
         {
-            playerStates.Add(playerState);
+            return [];
         }
 
-        playerStates.Sort(static (left, right) => left.SeatIndex.CompareTo(right.SeatIndex));
-        return playerStates;
+        var latestEvent = await GetLatestEventAsync(gameId, cancellationToken);
+        var snapshot = latestEvent is not null && !string.IsNullOrWhiteSpace(latestEvent.SerializedGameState)
+            ? GameEventSerialization.DeserializeSnapshot(latestEvent.SerializedGameState)
+            : null;
+
+        return GameSeatStateProjection.BuildTransientStates(gameEntity, snapshot).ToList();
     }
 
-    private async Task<GamePlayerStateEntity?> GetGamePlayerStateAsync(string gameId, int seatIndex, CancellationToken cancellationToken)
+    private async Task<GameSeatState?> GetGameSeatStateAsync(string gameId, int seatIndex, CancellationToken cancellationToken)
     {
-        try
-        {
-            var response = await _gamesTable.GetEntityAsync<GamePlayerStateEntity>(
-                gameId,
-                GamePlayerStateEntity.BuildRowKey(seatIndex),
-                cancellationToken: cancellationToken);
-
-            return response.Value;
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            return null;
-        }
+        var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
+        return playerStates.FirstOrDefault(playerState => playerState.SeatIndex == seatIndex);
     }
 
     private async Task<Boxcars.Engine.Persistence.GameSettings> ResolveStatisticsSettingsAsync(string gameId, CancellationToken cancellationToken)
@@ -1820,11 +1664,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
     }
 
-    private static bool AreBotControlColumnsEqual(GamePlayerStateEntity left, GamePlayerStateEntity right)
+    private static bool AreBotControlColumnsEqual(GameSeatState left, GameSeatState right)
     {
         return string.Equals(left.ControllerMode, right.ControllerMode, StringComparison.Ordinal)
             && string.Equals(left.ControllerUserId, right.ControllerUserId, StringComparison.Ordinal)
-            && string.Equals(left.BotDefinitionId, right.BotDefinitionId, StringComparison.Ordinal)
             && left.AuctionPlanTurnNumber == right.AuctionPlanTurnNumber
             && left.AuctionPlanRailroadIndex == right.AuctionPlanRailroadIndex
             && left.AuctionPlanStartingPrice == right.AuctionPlanStartingPrice
@@ -1888,7 +1731,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private string DescribeAction(
         GameEntity gameEntity,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         PlayerAction action,
         RailBaronGameState snapshotBeforeAction,
         RailBaronGameState snapshotAfterAction,
@@ -1945,7 +1788,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private string BuildActionAttributionSuffix(
         GameEntity gameEntity,
-        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameSeatState> playerStates,
         PlayerAction action,
         RailBaronGameState snapshotBeforeAction)
     {
@@ -1959,7 +1802,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return string.Empty;
         }
 
-        var selections = GamePlayerStateProjection.BuildPlayerSelections(playerStates);
+        var selections = ResolveSeatSelections(gameEntity, playerStates);
         var slotUserId = ResolveActingSlotUserId(selections, action, snapshotBeforeAction);
         if (string.IsNullOrWhiteSpace(slotUserId)
             || string.Equals(slotUserId, action.ActorUserId, StringComparison.OrdinalIgnoreCase))
@@ -1967,7 +1810,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return string.Empty;
         }
 
-        var activePlayerState = _botTurnService.FindActivePlayerState(playerStates, slotUserId);
+        var activePlayerState = _botTurnService.FindActiveSeatState(playerStates, slotUserId);
         var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
         if (!SeatControllerModes.IsDelegated(controllerState.ControllerMode))
         {

@@ -47,7 +47,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             botDefinition.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
         Assert.Equal("SE", regionAction.SelectedRegionCode);
@@ -87,7 +87,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ActivePlayerUserId,
             botDefinition.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
         Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, regionAction.ActorUserId);
@@ -109,12 +109,12 @@ public class BotTurnResolutionTests
 
         await service.EnsureBotSeatControlStatesAsync(
             BotTurnServiceTestHarness.GameId,
-            playerStates,
+            playerStates.Cast<GameSeatState>().ToList(),
             BotTurnServiceTestHarness.ControllerUserId,
             CancellationToken.None);
         await service.EnsureBotSeatControlStatesAsync(
             BotTurnServiceTestHarness.GameId,
-            playerStates,
+            playerStates.Cast<GameSeatState>().ToList(),
             BotTurnServiceTestHarness.ControllerUserId,
             CancellationToken.None);
 
@@ -123,7 +123,7 @@ public class BotTurnResolutionTests
             && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
             && playerState.BotControlClearedUtc is null));
         Assert.Equal(SeatControllerModes.AI, activeBotControl.ControllerMode);
-        Assert.Equal(BotTurnServiceTestHarness.ActivePlayerUserId, activeBotControl.BotDefinitionId);
+        Assert.Equal(string.Empty, activeBotControl.BotDefinitionId);
     }
 
     [Fact]
@@ -157,12 +157,11 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ActivePlayerUserId,
             assignedBot.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
         Assert.NotNull(regionAction.BotMetadata);
-        Assert.Equal("Shared Library Bot", regionAction.BotMetadata!.BotName);
-        Assert.NotEqual("Seat Scoped Bot", regionAction.BotMetadata.BotName);
+        Assert.Equal("Seat Scoped Bot", regionAction.BotMetadata!.BotName);
     }
 
     [Fact]
@@ -189,7 +188,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             botDefinition.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var declineAction = Assert.IsType<DeclinePurchaseAction>(action);
         Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, declineAction.ActorUserId);
@@ -216,7 +215,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ActivePlayerUserId,
             botDefinition.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var declineAction = Assert.IsType<DeclinePurchaseAction>(action);
         Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, declineAction.ActorUserId);
@@ -249,7 +248,7 @@ public class BotTurnResolutionTests
 
         var action = await service.CreateBotActionAsync(
             BotTurnServiceTestHarness.GameId,
-            playerStates,
+            playerStates.Cast<GameSeatState>().ToList(),
             engine,
             GameEngineFixture.CreateTestMap(),
             CancellationToken.None);
@@ -289,7 +288,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             botDefinition.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var moveAction = Assert.IsType<MoveAction>(action);
         Assert.Equal(expectedPoints, moveAction.PointsTaken);
@@ -328,7 +327,7 @@ public class BotTurnResolutionTests
                 BotTurnServiceTestHarness.ActivePlayerUserId,
                 BotTurnServiceTestHarness.OtherPlayerUserId));
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
         Assert.Equal("SE", regionAction.SelectedRegionCode);
@@ -371,7 +370,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             "legacy-bot-mode-definition");
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
         Assert.Equal("SE", regionAction.SelectedRegionCode);
@@ -416,7 +415,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             botDefinition.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var dropOutAction = Assert.IsType<AuctionDropOutAction>(action);
         Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, dropOutAction.ActorUserId);
@@ -462,7 +461,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             botDefinition.BotDefinitionId);
 
-        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var bidAction = Assert.IsType<BidAction>(action);
         Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, bidAction.ActorUserId);
@@ -514,7 +513,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             botDefinition.BotDefinitionId);
 
-        var firstAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+        var firstAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
 
         Assert.Equal(startingPrice, firstAction.AmountBid);
         Assert.Equal(1, handler.RequestCount);
@@ -545,7 +544,7 @@ public class BotTurnResolutionTests
             Participants = auctionState.Participants
         };
 
-        var secondAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+        var secondAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
 
         Assert.Equal(ceiling, secondAction.AmountBid);
         Assert.Equal(1, handler.RequestCount);
@@ -594,7 +593,7 @@ public class BotTurnResolutionTests
             BotTurnServiceTestHarness.ControllerUserId,
             botDefinition.BotDefinitionId);
 
-        var firstAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+        var firstAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
         Assert.Equal(startingPrice, firstAction.AmountBid);
         Assert.Equal(1, handler.RequestCount);
 
@@ -615,7 +614,7 @@ public class BotTurnResolutionTests
             Participants = auctionState.Participants
         };
 
-        var secondAction = Assert.IsType<AuctionDropOutAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+        var secondAction = Assert.IsType<AuctionDropOutAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
 
         Assert.Equal(railroad.Index, secondAction.RailroadIndex);
         Assert.Equal(1, handler.RequestCount);
@@ -670,7 +669,7 @@ public class BotTurnResolutionTests
         bidderTwoState.AuctionPlanStartingPrice = startingPrice;
         bidderTwoState.AuctionPlanMaximumBid = startingPrice + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement;
 
-        var summaryAction = await service.TryResolveAllAiAuctionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var summaryAction = await service.TryResolveAllAiAuctionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var bidAction = Assert.IsType<BidAction>(summaryAction);
         Assert.Equal("All AI bidders", bidAction.PlayerId);
@@ -724,7 +723,7 @@ public class BotTurnResolutionTests
             botState.AuctionPlanMaximumBid = 0;
         }
 
-        var summaryAction = await service.TryResolveAllAiAuctionAsync(BotTurnServiceTestHarness.GameId, playerStates, engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
+        var summaryAction = await service.TryResolveAllAiAuctionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
         var dropOutAction = Assert.IsType<AuctionDropOutAction>(summaryAction);
         Assert.Equal("All AI bidders", dropOutAction.PlayerId);
