@@ -64,6 +64,7 @@ public sealed class PlayerState
     public List<string> SelectedRouteSegmentKeys { get; set; } = new();
     public List<string> UsedSegments { get; set; } = new();
     public List<int> GrandfatheredRailroadIndices { get; set; } = new();
+    public List<GrandfatheredRailroadFeeState> GrandfatheredRailroadFees { get; set; } = new();
     public string? CurrentNodeId { get; set; }
     public int RouteProgressIndex { get; set; }
 }
@@ -72,6 +73,12 @@ public sealed class FeePaidToPlayerState
 {
     public int PlayerIndex { get; set; }
     public int Amount { get; set; }
+}
+
+public sealed class GrandfatheredRailroadFeeState
+{
+    public int RailroadIndex { get; set; }
+    public int FeeAmount { get; set; }
 }
 
 public sealed class PlayerControlState

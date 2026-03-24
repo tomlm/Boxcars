@@ -110,10 +110,11 @@ public class PurchasePhaseActionTests
         engine.BuyRailroad(railroadToBuy);
 
         Assert.Equal(TurnPhase.UseFees, engine.CurrentTurn.Phase);
-        Assert.Equal(10_000, engine.CurrentTurn.PendingFeeAmount);
+        Assert.Equal(5_000, engine.CurrentTurn.PendingFeeAmount);
         Assert.NotNull(engine.CurrentTurn.ForcedSaleState);
         Assert.False(engine.CurrentTurn.ForcedSaleState!.CanPayNow);
         Assert.Equal(railroadToBuy.Index, engine.CurrentTurn.SelectedRailroadForSaleIndex);
+        Assert.Equal(5_000, player.GrandfatheredRailroadFees[feeRailroad.Index]);
     }
 
     [Fact]

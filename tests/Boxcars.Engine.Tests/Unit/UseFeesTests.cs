@@ -1,7 +1,10 @@
 using Boxcars.Engine.Domain;
 using Boxcars.Engine.Events;
+using Boxcars.Engine.Data.Maps;
+using Boxcars.Engine.Persistence;
 using Boxcars.Engine.Tests.Fixtures;
 using Boxcars.Engine.Tests.TestDoubles;
+using GE = Boxcars.Engine.Domain.GameEngine;
 
 namespace Boxcars.Engine.Tests.Unit;
 
@@ -132,6 +135,70 @@ public class UseFeesTests
     }
 
     [Fact]
+    public void BuyRailroad_GrandfatheringAtPublicRate_SurvivesDestinationAndTurnBoundary()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var railroad = engine.Railroads.First(rr => rr.Index == 0);
+
+        rider.Cash = 100_000;
+        owner.Cash = 100_000;
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "New York", StringComparison.Ordinal));
+
+        engine.CurrentTurn.ActivePlayer = owner;
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.BuyRailroad(railroad);
+
+        Assert.Equal(1_000, rider.GrandfatheredRailroadFees[railroad.Index]);
+
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = 1;
+        engine.CurrentTurn.MovementRemaining = 1;
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Boston", StringComparison.Ordinal));
+        rider.TripOriginCity = rider.CurrentCity;
+        rider.ActiveRoute = new Route(
+            ["0:0", "0:1"],
+            [new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = railroad.Index }],
+            0);
+        rider.RouteProgressIndex = 0;
+
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
+        Assert.Equal(1_000, rider.GrandfatheredRailroadFees[railroad.Index]);
+
+        engine.DeclinePurchase();
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+        engine.EndTurn();
+
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Clear();
+        engine.CurrentTurn.MovementAllowance = 1;
+        engine.CurrentTurn.MovementRemaining = 1;
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Miami", StringComparison.Ordinal));
+        rider.TripOriginCity = rider.CurrentCity;
+        rider.ActiveRoute = new Route(
+            ["0:1", "0:2"],
+            [new RouteSegment { FromNodeId = "0:1", ToNodeId = "0:2", RailroadIndex = railroad.Index }],
+            0);
+        rider.RouteProgressIndex = 0;
+
+        var riderCashBefore = rider.Cash;
+        var ownerCashBefore = owner.Cash;
+
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal(riderCashBefore - 1_000, rider.Cash);
+        Assert.Equal(ownerCashBefore + 1_000, owner.Cash);
+        Assert.Equal(1_000, rider.GrandfatheredRailroadFees[railroad.Index]);
+    }
+
+    [Fact]
     public void MoveAlongRoute_LeavingGrandfatheredRailroad_ClearsProtection()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
@@ -154,6 +221,73 @@ public class UseFeesTests
         engine.MoveAlongRoute(1);
 
         Assert.Empty(rider.GrandfatheredRailroadIndices);
+    }
+
+    [Fact]
+    public void LastRailroadSold_GrandfathersOpponentAtFiveThousandThroughDestinationAndNextTurn()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var grandfatheredRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var purchasedRailroad = engine.Railroads.First(rr => rr.Index == 1);
+
+        rider.Cash = 100_000;
+        owner.Cash = 100_000;
+        grandfatheredRailroad.Owner = owner;
+        owner.OwnedRailroads.Add(grandfatheredRailroad);
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "New York", StringComparison.Ordinal));
+
+        engine.CurrentTurn.ActivePlayer = owner;
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.BuyRailroad(purchasedRailroad);
+
+        Assert.True(engine.AllRailroadsSold);
+        Assert.Equal(5_000, rider.GrandfatheredRailroadFees[grandfatheredRailroad.Index]);
+
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = 1;
+        engine.CurrentTurn.MovementRemaining = 1;
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Boston", StringComparison.Ordinal));
+        rider.TripOriginCity = rider.CurrentCity;
+        rider.ActiveRoute = new Route(
+            ["0:0", "0:1"],
+            [new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = grandfatheredRailroad.Index }],
+            0);
+        rider.RouteProgressIndex = 0;
+
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
+        Assert.Equal(5_000, rider.GrandfatheredRailroadFees[grandfatheredRailroad.Index]);
+
+        engine.DeclinePurchase();
+        engine.EndTurn();
+
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Clear();
+        engine.CurrentTurn.MovementAllowance = 1;
+        engine.CurrentTurn.MovementRemaining = 1;
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Miami", StringComparison.Ordinal));
+        rider.TripOriginCity = rider.CurrentCity;
+        rider.ActiveRoute = new Route(
+            ["0:1", "0:2"],
+            [new RouteSegment { FromNodeId = "0:1", ToNodeId = "0:2", RailroadIndex = grandfatheredRailroad.Index }],
+            0);
+        rider.RouteProgressIndex = 0;
+
+        var riderCashBefore = rider.Cash;
+        var ownerCashBefore = owner.Cash;
+
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal(riderCashBefore - 5_000, rider.Cash);
+        Assert.Equal(ownerCashBefore + 5_000, owner.Cash);
+        Assert.Equal(5_000, rider.GrandfatheredRailroadFees[grandfatheredRailroad.Index]);
     }
 
     [Fact]
@@ -355,5 +489,114 @@ public class UseFeesTests
         Assert.Equal(0, engine.CurrentTurn.PendingFeeAmount);
         Assert.Equal(4000 + (ownedRailroad.PurchasePrice / 2) - 5000, player.Cash);
         Assert.Equal(5000, owner.Cash);
+    }
+
+    [Fact]
+    public void SuggestRoute_UsesGrandfatheredPublicRateWhenChoosingBestRoute()
+    {
+        var engine = CreateRoutePlanningEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var grandfatheredRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var alternateRailroad = engine.Railroads.First(rr => rr.Index == 1);
+
+        grandfatheredRailroad.Owner = owner;
+        alternateRailroad.Owner = owner;
+        owner.OwnedRailroads.Add(grandfatheredRailroad);
+        owner.OwnedRailroads.Add(alternateRailroad);
+
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        rider.GrandfatheredRailroadIndices.Add(grandfatheredRailroad.Index);
+        rider.GrandfatheredRailroadFees[grandfatheredRailroad.Index] = 1_000;
+
+        var route = engine.SuggestRouteForPlayer(rider.Index);
+
+        Assert.Equal([0, 0], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(1_000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRoute_UsesGrandfatheredFiveThousandRateAfterAllRailroadsSold()
+    {
+        var engine = CreateRoutePlanningEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var grandfatheredRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var purchasedRailroad = engine.Railroads.First(rr => rr.Index == 1);
+
+        rider.Cash = 100_000;
+        owner.Cash = 100_000;
+        grandfatheredRailroad.Owner = owner;
+        owner.OwnedRailroads.Add(grandfatheredRailroad);
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+
+        engine.CurrentTurn.ActivePlayer = owner;
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.BuyRailroad(purchasedRailroad);
+
+        var route = engine.SuggestRouteForPlayer(rider.Index);
+
+        Assert.True(engine.AllRailroadsSold);
+        Assert.Equal(5_000, rider.GrandfatheredRailroadFees[grandfatheredRailroad.Index]);
+        Assert.Equal([0, 0], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(5_000, route.TotalCost);
+    }
+
+    private static GE CreateRoutePlanningEngine()
+    {
+        var random = new FixedRandomProvider();
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+        return new GE(
+            CreateRoutePlanningMap(),
+            GameEngineFixture.DefaultPlayerNames,
+            random,
+            GameSettings.Default with
+            {
+                HomeCityChoice = false,
+                HomeSwapping = false
+            });
+    }
+
+    private static MapDefinition CreateRoutePlanningMap()
+    {
+        var map = new MapDefinition
+        {
+            Name = "RoutePlanningMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 2 });
+
+        map.Railroads.Add(new RailroadDefinition { Index = 0, Name = "Grandfather Line", ShortName = "GF" });
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "Alternate Line", ShortName = "ALT" });
+
+        for (var dot = 0; dot < 4; dot++)
+        {
+            map.TrainDots.Add(new TrainDot
+            {
+                Id = $"0:{dot}",
+                RegionIndex = 0,
+                DotIndex = dot,
+                X = dot * 10,
+                Y = dot * 10
+            });
+        }
+
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 0, StartRegionIndex = 0, StartDotIndex = 0, EndRegionIndex = 0, EndDotIndex = 1 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 0, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 2 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 3 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 3, EndRegionIndex = 0, EndDotIndex = 2 });
+
+        return map;
     }
 }

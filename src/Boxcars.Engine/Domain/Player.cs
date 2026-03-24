@@ -152,6 +152,9 @@ public sealed class Player : ObservableBase
     /// <summary>Railroads the player may continue using at the public rate until they leave them.</summary>
     internal HashSet<int> GrandfatheredRailroadIndices { get; } = new();
 
+    /// <summary>Exact fee amount preserved for each grandfathered railroad until the player leaves it.</summary>
+    internal Dictionary<int, int> GrandfatheredRailroadFees { get; } = new();
+
     /// <summary>Current position as a node ID on the route graph (regionIndex:dotIndex).</summary>
     internal string? CurrentNodeId { get; set; }
 

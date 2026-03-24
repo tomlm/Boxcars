@@ -625,7 +625,7 @@ public sealed class GameEngine : ObservableBase
         player.Cash -= railroad.PurchasePrice;
         railroad.Owner = player;
         player.OwnedRailroads.Add(railroad);
-        UpdateGrandfatheringForOwnershipChange(railroad.Index, player);
+        UpdateGrandfatheringForOwnershipChange(railroad.Index, previousOwner: null, newOwner: player);
         CurrentTurn.ArrivalResolution = null;
 
         CheckAllRailroadsSold();
@@ -916,7 +916,7 @@ public sealed class GameEngine : ObservableBase
             railroad.Owner = null;
         }
 
-        UpdateGrandfatheringForOwnershipChange(railroad.Index, railroad.Owner);
+        UpdateGrandfatheringForOwnershipChange(railroad.Index, previousOwner, railroad.Owner);
 
         CheckAllRailroadsSold();
         AuctionCompleted?.Invoke(this, new AuctionCompletedEventArgs(railroad, winner, winningBid));
@@ -944,9 +944,10 @@ public sealed class GameEngine : ObservableBase
 
         player.Cash += salePrice;
         player.OwnedRailroads.Remove(railroad);
+        var previousOwner = railroad.Owner;
         railroad.Owner = null;
 
-        UpdateGrandfatheringForOwnershipChange(railroad.Index, newOwner: null);
+        UpdateGrandfatheringForOwnershipChange(railroad.Index, previousOwner, newOwner: null);
         CheckAllRailroadsSold();
 
         var amountOwed = CurrentTurn.PendingFeeAmount > 0
@@ -1215,6 +1216,14 @@ public sealed class GameEngine : ObservableBase
                 PendingImmediateArrival = player.PendingImmediateArrival,
                 OwnedRailroadIndices = player.OwnedRailroads.Select(r => r.Index).ToList(),
                 GrandfatheredRailroadIndices = player.GrandfatheredRailroadIndices.OrderBy(index => index).ToList(),
+                GrandfatheredRailroadFees = player.GrandfatheredRailroadFees
+                    .OrderBy(entry => entry.Key)
+                    .Select(entry => new GrandfatheredRailroadFeeState
+                    {
+                        RailroadIndex = entry.Key,
+                        FeeAmount = entry.Value
+                    })
+                    .ToList(),
                 CurrentNodeId = player.CurrentNodeId,
                 RouteProgressIndex = player.RouteProgressIndex,
                 UsedSegments = player.UsedSegments.Select(s => s.ToString()).ToList()
@@ -1350,6 +1359,17 @@ public sealed class GameEngine : ObservableBase
             foreach (var railroadIndex in ps.GrandfatheredRailroadIndices)
             {
                 player.GrandfatheredRailroadIndices.Add(railroadIndex);
+            }
+
+            foreach (var grandfatheredRailroadFee in ps.GrandfatheredRailroadFees)
+            {
+                if (grandfatheredRailroadFee.RailroadIndex < 0 || grandfatheredRailroadFee.FeeAmount <= 0)
+                {
+                    continue;
+                }
+
+                player.GrandfatheredRailroadIndices.Add(grandfatheredRailroadFee.RailroadIndex);
+                player.GrandfatheredRailroadFees[grandfatheredRailroadFee.RailroadIndex] = grandfatheredRailroadFee.FeeAmount;
             }
 
             foreach (var feePaidToPlayer in ps.FeesPaidToPlayers)
@@ -1888,10 +1908,9 @@ public sealed class GameEngine : ObservableBase
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, null, fee, []));
         }
 
-        var opponentRate = GetUnfriendlyFee(_settings, AllRailroadsSold);
         foreach (var feeBucket in feeCalculation.OpponentBuckets.Values.OrderBy(bucket => bucket.Owner?.Index ?? -1))
         {
-            var fee = feeBucket.RequiresFullOwnerRate ? opponentRate : GetPrivateFee(_settings);
+            var fee = feeBucket.FeeAmount;
 
             player.Cash -= fee;
             player.TotalFeesPaid += fee;
@@ -2316,7 +2335,13 @@ public sealed class GameEngine : ObservableBase
 
     private void CheckAllRailroadsSold()
     {
-        AllRailroadsSold = Railroads.Where(r => !r.IsPublic).All(r => r.Owner != null);
+        var allRailroadsSold = Railroads.Where(r => !r.IsPublic).All(r => r.Owner != null);
+        if (!AllRailroadsSold && allRailroadsSold)
+        {
+            GrandfatherPlayersOnOpponentRailroads(GetUnfriendlyFee(_settings, allRailroadsSold: false));
+        }
+
+        AllRailroadsSold = allRailroadsSold;
     }
 
     private int CalculatePendingFeeAmount(Player player)
@@ -2339,8 +2364,7 @@ public sealed class GameEngine : ObservableBase
             amount += GetPrivateFee(_settings);
         }
 
-        var opponentRate = GetUnfriendlyFee(_settings, AllRailroadsSold);
-        amount += feeCalculation.OpponentBuckets.Values.Sum(feeBucket => feeBucket.RequiresFullOwnerRate ? opponentRate : GetPrivateFee(_settings));
+        amount += feeCalculation.OpponentBuckets.Values.Sum(feeBucket => feeBucket.FeeAmount);
 
         return amount;
     }
@@ -2371,7 +2395,13 @@ public sealed class GameEngine : ObservableBase
                 continue;
             }
 
-            AddRailroadToFeeBucket(opponentBuckets, railroad, CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn);
+            var feeAmount = rider.GrandfatheredRailroadFees.TryGetValue(railroad.Index, out var grandfatheredFee)
+                ? grandfatheredFee
+                : CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroad.Index)
+                    ? GetUnfriendlyFee(_settings, AllRailroadsSold)
+                    : GetPrivateFee(_settings);
+
+            AddRailroadToFeeBucket(opponentBuckets, railroad, feeAmount);
         }
 
         return new FeeCalculation(usesPublicFee, usesPrivateFee, opponentBuckets);
@@ -2387,10 +2417,15 @@ public sealed class GameEngine : ObservableBase
         if (player.GrandfatheredRailroadIndices.Contains(railroadIndex))
         {
             player.GrandfatheredRailroadIndices.IntersectWith([railroadIndex]);
+            foreach (var grandfatheredRailroad in player.GrandfatheredRailroadFees.Keys.Where(index => index != railroadIndex).ToList())
+            {
+                player.GrandfatheredRailroadFees.Remove(grandfatheredRailroad);
+            }
             return;
         }
 
         player.GrandfatheredRailroadIndices.Clear();
+        player.GrandfatheredRailroadFees.Clear();
     }
 
     private void TrackRailroadFeeRate(Player rider, int railroadIndex)
@@ -2407,11 +2442,12 @@ public sealed class GameEngine : ObservableBase
         }
     }
 
-    private void UpdateGrandfatheringForOwnershipChange(int railroadIndex, Player? newOwner)
+    private void UpdateGrandfatheringForOwnershipChange(int railroadIndex, Player? previousOwner, Player? newOwner)
     {
         foreach (var rider in Players)
         {
             rider.GrandfatheredRailroadIndices.Remove(railroadIndex);
+            rider.GrandfatheredRailroadFees.Remove(railroadIndex);
         }
 
         if (newOwner is null)
@@ -2419,10 +2455,35 @@ public sealed class GameEngine : ObservableBase
             return;
         }
 
+        var preservedFee = previousOwner is null
+            ? GetPublicFee(_settings)
+            : GetUnfriendlyFee(_settings, AllRailroadsSold);
+
         foreach (var rider in Players.Where(player => player != newOwner && IsPlayerOnRailroadNode(player, railroadIndex)))
         {
-            rider.GrandfatheredRailroadIndices.Add(railroadIndex);
+            GrantGrandfatheredAccess(rider, railroadIndex, preservedFee);
         }
+    }
+
+    private void GrandfatherPlayersOnOpponentRailroads(int preservedFee)
+    {
+        foreach (var rider in Players.Where(player => !string.IsNullOrWhiteSpace(player.CurrentNodeId)))
+        {
+            foreach (var railroad in Railroads.Where(railroad =>
+                         railroad.Owner is not null
+                         && railroad.Owner != rider
+                         && IsPlayerOnRailroadNode(rider, railroad.Index)
+                         && !rider.GrandfatheredRailroadIndices.Contains(railroad.Index)))
+            {
+                GrantGrandfatheredAccess(rider, railroad.Index, preservedFee);
+            }
+        }
+    }
+
+    private static void GrantGrandfatheredAccess(Player rider, int railroadIndex, int feeAmount)
+    {
+        rider.GrandfatheredRailroadIndices.Add(railroadIndex);
+        rider.GrandfatheredRailroadFees[railroadIndex] = feeAmount;
     }
 
     private bool IsPlayerOnRailroadNode(Player player, int railroadIndex)
@@ -2441,20 +2502,31 @@ public sealed class GameEngine : ObservableBase
     private static void AddRailroadToFeeBucket(
         Dictionary<int, FeeBucket> feeBuckets,
         Railroad railroad,
-        HashSet<int> railroadsRequiringFullOwnerRate)
+        int feeAmount)
     {
         var ownerKey = railroad.Owner!.Index;
         if (!feeBuckets.TryGetValue(ownerKey, out var bucket))
         {
-            bucket = new FeeBucket(railroad.Owner);
+            bucket = new FeeBucket(railroad.Owner, feeAmount);
             feeBuckets[ownerKey] = bucket;
         }
 
         bucket.Railroads.Add(railroad.Index);
-        if (railroadsRequiringFullOwnerRate.Contains(railroad.Index))
+        if (feeAmount > bucket.FeeAmount)
         {
-            bucket.RequiresFullOwnerRate = true;
+            bucket.FeeAmount = feeAmount;
         }
+    }
+
+    private int GetTraversalFee(Player player, Railroad railroad)
+    {
+        return railroad.Owner switch
+        {
+            null => GetPublicFee(_settings),
+            _ when railroad.Owner == player => GetPrivateFee(_settings),
+            _ when player.GrandfatheredRailroadFees.TryGetValue(railroad.Index, out var grandfatheredFee) => grandfatheredFee,
+            _ => GetUnfriendlyFee(_settings, AllRailroadsSold)
+        };
     }
 
     private static int GetUpgradeCost(LocomotiveType from, LocomotiveType to)
@@ -2554,12 +2626,7 @@ public sealed class GameEngine : ObservableBase
                 var railroad = Railroads.FirstOrDefault(r => r.Index == edge.RailroadIndex);
                 if (railroad != null)
                 {
-                    edgeCost += railroad.Owner switch
-                    {
-                        null => GetPublicFee(_settings),
-                        _ when railroad.Owner == player => GetPrivateFee(_settings),
-                        _ => GetUnfriendlyFee(_settings, AllRailroadsSold)
-                    };
+                    edgeCost += GetTraversalFee(player, railroad);
                 }
 
                 int newDist = dist[current] + edgeCost;
@@ -2609,12 +2676,7 @@ public sealed class GameEngine : ObservableBase
                 continue;
             }
 
-            totalCost += rr.Owner switch
-            {
-                null => GetPublicFee(_settings),
-                _ when rr.Owner == player => GetPrivateFee(_settings),
-                _ => GetUnfriendlyFee(_settings, AllRailroadsSold)
-            };
+            totalCost += GetTraversalFee(player, rr);
         }
 
         return new Route(nodeIds, segments, totalCost);
@@ -2640,11 +2702,11 @@ internal sealed class RouteGraphEdge
     }
 }
 
-internal sealed class FeeBucket(Player? owner)
+internal sealed class FeeBucket(Player? owner, int feeAmount)
 {
     public Player? Owner { get; } = owner;
     public List<int> Railroads { get; } = new();
-    public bool RequiresFullOwnerRate { get; set; }
+    public int FeeAmount { get; set; } = feeAmount;
 }
 
 internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Dictionary<int, FeeBucket> opponentBuckets)

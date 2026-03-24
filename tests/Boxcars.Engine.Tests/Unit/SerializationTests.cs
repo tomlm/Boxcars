@@ -188,6 +188,36 @@ public class SerializationTests
     }
 
     [Fact]
+    public void Snapshot_RoundTrip_PreservesGrandfatheredRailroadFees()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.Players[0].GrandfatheredRailroadIndices.Add(0);
+        engine.Players[0].GrandfatheredRailroadFees[0] = 1_000;
+        engine.Players[0].GrandfatheredRailroadIndices.Add(1);
+        engine.Players[0].GrandfatheredRailroadFees[1] = 5_000;
+
+        var snapshot = engine.ToSnapshot();
+        var feeEntries = snapshot.Players[0].GrandfatheredRailroadFees.OrderBy(entry => entry.RailroadIndex).ToArray();
+        Assert.Collection(
+            feeEntries,
+            entry =>
+            {
+                Assert.Equal(0, entry.RailroadIndex);
+                Assert.Equal(1_000, entry.FeeAmount);
+            },
+            entry =>
+            {
+                Assert.Equal(1, entry.RailroadIndex);
+                Assert.Equal(5_000, entry.FeeAmount);
+            });
+
+        var restored = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal(1_000, restored.Players[0].GrandfatheredRailroadFees[0]);
+        Assert.Equal(5_000, restored.Players[0].GrandfatheredRailroadFees[1]);
+    }
+
+    [Fact]
     public void Snapshot_RoundTrip_PreservesFeesPaidToPlayers()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
