@@ -152,7 +152,7 @@
                         <MudText Typo="Typo.h5">Game Settings</MudText>
                     </TitleContent>
                     <ChildContent>
-                        <MudGrid>
+                        <MudGrid Style="width: fit-content; max-width: 100%">
                             <MudItem xs="12" md="6">
                                 <MudNumericField T="int" Label="Starting Cash" Value="@_settings.StartingCash" ValueChanged="@(value => UpdateSettings(_settings with { StartingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
