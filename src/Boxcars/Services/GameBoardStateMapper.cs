@@ -315,7 +315,7 @@ public sealed class GameBoardStateMapper(
 
         var nodeIds = playerState.SelectedRouteNodeIds.Count > 0
             ? playerState.SelectedRouteNodeIds
-            : playerState.ActiveRoute?.NodeIds ?? [];
+            : BuildRemainingRouteNodeIds(playerState);
 
         var segmentKeys = playerState.SelectedRouteSegmentKeys.Count > 0
             ? playerState.SelectedRouteSegmentKeys
@@ -488,8 +488,28 @@ public sealed class GameBoardStateMapper(
         }
 
         return playerState.ActiveRoute.Segments
+            .Skip(Math.Clamp(playerState.RouteProgressIndex, 0, playerState.ActiveRoute.Segments.Count))
             .Select(segment => string.Concat(segment.FromNodeId, "|", segment.ToNodeId, "|", segment.RailroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)))
             .ToList();
+    }
+
+    private static List<string> BuildRemainingRouteNodeIds(PlayerStateSnapshot playerState)
+    {
+        if (playerState.ActiveRoute is null)
+        {
+            return !string.IsNullOrWhiteSpace(playerState.CurrentNodeId)
+                ? [playerState.CurrentNodeId]
+                : [];
+        }
+
+        var startIndex = Math.Clamp(playerState.RouteProgressIndex, 0, Math.Max(0, playerState.ActiveRoute.NodeIds.Count - 1));
+        var remainingNodeIds = playerState.ActiveRoute.NodeIds.Skip(startIndex).ToList();
+        if (remainingNodeIds.Count == 0 && !string.IsNullOrWhiteSpace(playerState.CurrentNodeId))
+        {
+            remainingNodeIds.Add(playerState.CurrentNodeId);
+        }
+
+        return remainingNodeIds;
     }
 
     private static int CalculateRollTotal(RailBaronGameState state)

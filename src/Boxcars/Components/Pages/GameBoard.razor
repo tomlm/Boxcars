@@ -972,7 +972,9 @@
 
     private bool CanCommitMoveSelection()
     {
-        return _turnViewState.CanEndTurn || SelectionReachesDestination();
+        var selectedSegmentCount = _gameMap?.GetSelectedRouteMoveCount() ?? CurrentRouteMoveCount;
+        var movementRemaining = Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
+        return selectedSegmentCount == movementRemaining || SelectionReachesDestination();
     }
 
     private bool SelectionReachesDestination()
@@ -3058,6 +3060,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         _lastAutoSuggestKey = autoSuggestKey;
         await _gameMap.SuggestRouteAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     private bool RouteSelectionMatchesCurrentMap(IReadOnlyList<string> nodeIds, IReadOnlyList<string> segmentKeys)
