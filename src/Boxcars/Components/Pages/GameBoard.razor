@@ -146,15 +146,25 @@
                             <MudList T="NotificationHistoryEntry" Dense="true" Class="pa-0">
                                 @foreach (var item in NotificationHistoryItems)
                                 {
-                                    <MudListItem T="NotificationHistoryEntry" Style="@ResolveNotificationHistoryItemStyle(item)">
+                                    <MudListItem T="NotificationHistoryEntry" Class="mb-2" Style="@ResolveNotificationHistoryItemStyle(item)">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mud-width-full">
                                             <MudIcon Icon="@item.Icon"
                                                      Color="@ResolveNotificationHistoryIconColor(item)"
                                                      Size="Size.Medium"
                                                      Class="mt-0 flex-shrink-0" />
-                                            <MudStack Spacing="0" Class="overflow-hidden" Style="min-width: 0">
+                                            <MudStack Spacing="0" Class="overflow-hidden flex-grow-1" Style="min-width: 0">
                                                 <MudText Typo="Typo.body2">@item.Message</MudText>
                                             </MudStack>
+                                            @if (item.CanUndo)
+                                            {
+                                                <MudButton Size="Size.Small"
+                                                           Variant="Variant.Outlined"
+                                                           Color="MudBlazor.Color.Warning"
+                                                           Disabled="_awaitingAuthoritativeUpdate"
+                                                           OnClick="@(() => OnUndoToHistoryItemAsync(item))">
+                                                    Undo to here
+                                                </MudButton>
+                                            }
                                         </MudStack>
                                     </MudListItem>
                                 }
@@ -1199,7 +1209,14 @@
                 SyncRouteSelectionToActivePlayer();
             }
 
-            ApplyLiveTimelineItems(update.TimelineItems);
+            if (update.ReplaceTimeline)
+            {
+                ReplaceTimelineItems(update.TimelineItems);
+            }
+            else
+            {
+                ApplyLiveTimelineItems(update.TimelineItems);
+            }
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
             {
@@ -1730,6 +1747,14 @@ destinationPayoutIndex)
         _gameEngineEvents.AddRange(newItems);
         _timelineInitialized = true;
         NotifyNewTimelineItems(previousEventIds);
+    }
+
+    private void ReplaceTimelineItems(IReadOnlyList<EventTimelineItem> timelineItems)
+    {
+        _gameEngineEvents = timelineItems.ToList();
+        RemoveTimelineHistoryEntries();
+        MergeTimelineNotifications();
+        _timelineInitialized = true;
     }
 
     private string ResolvePlayerColor(GamePlayerSelection? selection, int index)
@@ -2752,6 +2777,49 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return result == true;
     }
 
+    private async Task OnUndoToHistoryItemAsync(NotificationHistoryEntry item)
+    {
+        if (string.IsNullOrWhiteSpace(GameId)
+            || string.IsNullOrWhiteSpace(_currentUserId)
+            || string.IsNullOrWhiteSpace(item.EventBaseId))
+        {
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBox(
+            "Cheat",
+            "Are you sure you want to cheat?",
+            yesText: "YES",
+            noText: "NO");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        try
+        {
+            MarkAuthoritativeUpdatePending();
+            var succeeded = await SharedGameEngine.UndoToEventAsync(
+                GameId,
+                item.EventBaseId,
+                item.Message,
+                _currentUserId,
+                CancellationToken.None);
+
+            if (!succeeded)
+            {
+                _awaitingAuthoritativeUpdate = false;
+                ShowNotification("That history event could not be found anymore.", Severity.Warning);
+                StateHasChanged();
+            }
+        }
+        catch (Exception exception)
+        {
+            HandleActionDispatchFailure(exception);
+        }
+    }
+
     private Task DismissSelectedRailroadOverlayAsync()
     {
         if (SelectedRailroadIndex is int)
@@ -3431,7 +3499,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 snackbarClass: ResolveTimelineSnackbarClass(item),
                 detail: BuildTimelineNotificationDetail(item),
                 occurredUtc: item.OccurredUtc,
-                visibleStateDuration: visibleStateDuration);
+                visibleStateDuration: visibleStateDuration,
+                eventBaseId: GetTimelineEventBaseId(item));
         }
     }
 
@@ -3446,7 +3515,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 ResolveTimelineSnackbarIcon(item),
                 ResolveTimelineSnackbarClass(item),
                 BuildTimelineNotificationDetail(item),
-                item.OccurredUtc);
+                item.OccurredUtc,
+                GetTimelineEventBaseId(item));
         }
     }
 
@@ -3587,7 +3657,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         string? snackbarClass = null,
         string? detail = null,
         DateTimeOffset? occurredUtc = null,
-        int? visibleStateDuration = null)
+        int? visibleStateDuration = null,
+        string? eventBaseId = null)
     {
         AddNotificationHistory(
             historyKey ?? $"notification:{Guid.NewGuid():N}",
@@ -3596,7 +3667,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             icon,
             snackbarClass,
             detail,
-            occurredUtc ?? DateTimeOffset.UtcNow);
+            occurredUtc ?? DateTimeOffset.UtcNow,
+            eventBaseId);
 
         Snackbar.Add(message, severity, options =>
         {
@@ -3624,7 +3696,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         string? icon,
         string? snackbarClass,
         string? detail,
-        DateTimeOffset occurredUtc)
+        DateTimeOffset occurredUtc,
+        string? eventBaseId = null)
     {
         if (!_notificationHistoryKeys.Add(historyKey))
         {
@@ -3639,12 +3712,30 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             Severity = severity,
             Icon = string.IsNullOrWhiteSpace(icon) ? ResolveSeverityIcon(severity) : icon,
             AccentClass = snackbarClass,
-            OccurredUtc = occurredUtc
+            OccurredUtc = occurredUtc,
+            EventBaseId = eventBaseId
         });
 
         _notificationHistory = _notificationHistory
             .OrderByDescending(item => item.OccurredUtc)
             .ThenByDescending(item => item.HistoryKey, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private void RemoveTimelineHistoryEntries()
+    {
+        var timelineKeys = _notificationHistory
+            .Where(item => item.CanUndo)
+            .Select(item => item.HistoryKey)
+            .ToList();
+
+        foreach (var timelineKey in timelineKeys)
+        {
+            _notificationHistoryKeys.Remove(timelineKey);
+        }
+
+        _notificationHistory = _notificationHistory
+            .Where(item => !item.CanUndo)
             .ToList();
     }
 
@@ -4211,5 +4302,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         public string Icon { get; init; } = Icons.Material.Filled.Notifications;
         public string? AccentClass { get; init; }
         public DateTimeOffset OccurredUtc { get; init; }
+        public string? EventBaseId { get; init; }
+        public bool CanUndo => !string.IsNullOrWhiteSpace(EventBaseId);
     }
 }

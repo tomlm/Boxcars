@@ -298,39 +298,163 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     public async Task<bool> UndoLastOperationAsync(string gameId, CancellationToken cancellationToken = default)
     {
         ValidateGameId(gameId);
-        await _mapReady.Task.WaitAsync(cancellationToken);
-
-        var events = await GetEventsOrderedAsync(gameId, cancellationToken);
-        if (events.Count < 2)
+        if (!_busyGames.TryAdd(gameId, 0))
         {
-            return false;
+            throw new InvalidOperationException("Another action is still being processed for this game. Wait for the board to finish updating and try again.");
         }
 
-        var previousEvent = events[^2];
-        var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(previousEvent.SerializedGameState);
-        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
-            ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
-        var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
-        var restoredEngine = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
+        try
+        {
+            await _mapReady.Task.WaitAsync(cancellationToken);
 
-        _gameEngines[gameId] = restoredEngine;
+            var events = await GetEventsOrderedAsync(gameId, cancellationToken);
+            if (events.Count < 2)
+            {
+                return false;
+            }
 
-        var persistedUndoEvent = await PersistEventAsync(
-            gameId,
-            restoredSnapshot,
-            "Undo",
-            $"Undo applied. Reverted action '{events[^1].EventKind}'.",
-            previousEvent.CreatedBy,
-            new { RevertedEvent = events[^1].RowKey },
-            cancellationToken);
+            var previousEvent = events[^2];
+            var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(previousEvent.SerializedGameState);
+            var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
+                ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+            var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
+            var restoredEngine = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
 
-        await RebuildPlayerStatisticsAsync(gameId, events.Take(Math.Max(0, events.Count - 1)).ToList(), cancellationToken);
+            _gameEngines[gameId] = restoredEngine;
 
-        PublishStateChanged(
-            gameId,
-            restoredSnapshot,
-            GameService.BuildTimelineItems(persistedUndoEvent, previousGameEvent: null, resolvedSettings.Settings.AnnouncingCash));
-        return true;
+            var persistedUndoEvent = await PersistEventAsync(
+                gameId,
+                restoredSnapshot,
+                "Undo",
+                $"Undo applied. Reverted action '{events[^1].EventKind}'.",
+                previousEvent.CreatedBy,
+                new { RevertedEvent = events[^1].RowKey },
+                cancellationToken);
+
+            await RebuildPlayerStatisticsAsync(gameId, events.Take(Math.Max(0, events.Count - 1)).ToList(), cancellationToken);
+
+            PublishStateChanged(
+                gameId,
+                restoredSnapshot,
+                GameService.BuildTimelineItems(persistedUndoEvent, previousGameEvent: null, resolvedSettings.Settings.AnnouncingCash));
+            return true;
+        }
+        finally
+        {
+            _busyGames.TryRemove(gameId, out _);
+        }
+    }
+
+    public async Task<bool> UndoToEventAsync(
+        string gameId,
+        string targetEventRowKey,
+        string targetDescription,
+        string actorUserId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateGameId(gameId);
+        if (string.IsNullOrWhiteSpace(targetEventRowKey))
+        {
+            throw new ArgumentException("A target history event is required.", nameof(targetEventRowKey));
+        }
+
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            throw new ArgumentException("An acting user is required.", nameof(actorUserId));
+        }
+
+        if (!_busyGames.TryAdd(gameId, 0))
+        {
+            throw new InvalidOperationException("Another action is still being processed for this game. Wait for the board to finish updating and try again.");
+        }
+
+        try
+        {
+            await _mapReady.Task.WaitAsync(cancellationToken);
+
+            var events = await GetEventsOrderedAsync(gameId, cancellationToken);
+            var targetIndex = events.FindIndex(gameEvent => string.Equals(gameEvent.RowKey, targetEventRowKey, StringComparison.Ordinal));
+            if (targetIndex < 0)
+            {
+                return false;
+            }
+
+            var targetEvent = events[targetIndex];
+            var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(targetEvent.SerializedGameState);
+            var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
+                ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+            var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
+            var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
+            ApplySeatAndControlMetadata(restoredSnapshot, gameEntity, playerStates);
+
+            _gameEngines[gameId] = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
+
+            var deletedEvents = events.Skip(targetIndex + 1).ToList();
+            foreach (var deletedEvent in deletedEvents)
+            {
+                await _gamesTable.DeleteEntityAsync(deletedEvent.PartitionKey, deletedEvent.RowKey, cancellationToken: cancellationToken);
+            }
+
+            var selections = ResolveSeatSelections(gameEntity, playerStates);
+            if (!selections.Any(selection => string.Equals(selection.UserId, actorUserId, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException("Only a player in this game can reset the timeline.");
+            }
+
+            var actingPlayerIndex = selections
+                .Select((selection, index) => new { selection.UserId, Index = index })
+                .FirstOrDefault(entry => string.Equals(entry.UserId, actorUserId, StringComparison.OrdinalIgnoreCase))
+                ?.Index;
+            var actorDisplayName = ResolveParticipantDisplayName(selections, actorUserId);
+            if (string.IsNullOrWhiteSpace(actorDisplayName))
+            {
+                actorDisplayName = actorUserId;
+            }
+
+            var normalizedTargetDescription = string.IsNullOrWhiteSpace(targetDescription)
+                ? targetEvent.ChangeSummary
+                : targetDescription.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedTargetDescription))
+            {
+                normalizedTargetDescription = targetEvent.EventKind;
+            }
+
+            var cheatSummary = $"{actorDisplayName} decided to cheat and reset the game back to '{normalizedTargetDescription}'";
+            var persistedCheatEvent = await PersistEventAsync(
+                gameId,
+                restoredSnapshot,
+                "Cheat",
+                cheatSummary,
+                actorUserId,
+                new
+                {
+                    TargetEventRowKey = targetEventRowKey,
+                    TargetDescription = normalizedTargetDescription,
+                    DeletedEventRowKeys = deletedEvents.Select(gameEvent => gameEvent.RowKey).ToArray()
+                },
+                cancellationToken,
+                actingUserId: actorUserId,
+                actingPlayerIndex: actingPlayerIndex);
+
+            var timelineEvents = events.Take(targetIndex + 1).ToList();
+            timelineEvents.Add(persistedCheatEvent);
+
+            var finalSnapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, _gameEngines[gameId], cancellationToken);
+            timelineEvents = await GetEventsOrderedAsync(gameId, cancellationToken);
+
+            await RebuildPlayerStatisticsAsync(gameId, timelineEvents, cancellationToken);
+
+            PublishStateChanged(
+                gameId,
+                finalSnapshot,
+                BuildTimelineItemsForEvents(timelineEvents, resolvedSettings.Settings.AnnouncingCash),
+                replaceTimeline: true);
+            return true;
+        }
+        finally
+        {
+            _busyGames.TryRemove(gameId, out _);
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -736,7 +860,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         string changeSummary,
         string createdBy,
         object eventData,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? actingUserId = null,
+        int? actingPlayerIndex = null)
     {
         var tick = DateTime.UtcNow.Ticks;
         var sequence = Interlocked.Increment(ref _eventSequence);
@@ -755,8 +881,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             ChangeSummary = changeSummary,
             OccurredUtc = DateTimeOffset.UtcNow,
             CreatedBy = createdBy,
-            ActingUserId = eventData is PlayerAction playerAction ? playerAction.ActorUserId : string.Empty,
-            ActingPlayerIndex = eventData is PlayerAction actingAction ? actingAction.PlayerIndex : null
+            ActingUserId = string.IsNullOrWhiteSpace(actingUserId)
+                ? eventData is PlayerAction playerAction ? playerAction.ActorUserId : string.Empty
+                : actingUserId,
+            ActingPlayerIndex = actingPlayerIndex ?? (eventData is PlayerAction actingAction ? actingAction.PlayerIndex : null)
         };
 
         await _gamesTable.AddEntityAsync(entity, cancellationToken);
@@ -1681,9 +1809,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             && string.Equals(left.BotControlClearReason, right.BotControlClearReason, StringComparison.Ordinal);
     }
 
-    private void PublishStateChanged(string gameId, RailBaronGameState state, IReadOnlyList<EventTimelineItem>? timelineItems = null)
+    private void PublishStateChanged(
+        string gameId,
+        RailBaronGameState state,
+        IReadOnlyList<EventTimelineItem>? timelineItems = null,
+        bool replaceTimeline = false)
     {
-        OnStateChanged?.Invoke(gameId, new GameStateUpdate(state, timelineItems ?? []));
+        OnStateChanged?.Invoke(gameId, new GameStateUpdate(state, timelineItems ?? [], replaceTimeline));
     }
 
     private static List<EventTimelineItem> BuildLiveTimelineItems(GameEventEntity gameEvent, RailBaronGameState? previousSnapshot, int announcingCash)
@@ -1696,6 +1828,19 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             };
 
         return GameService.BuildTimelineItems(gameEvent, previousGameEvent, announcingCash);
+    }
+
+    private static List<EventTimelineItem> BuildTimelineItemsForEvents(IReadOnlyList<GameEventEntity> orderedEvents, int announcingCash)
+    {
+        var timelineItems = new List<EventTimelineItem>();
+        GameEventEntity? previousGameEvent = null;
+        foreach (var gameEvent in orderedEvents)
+        {
+            timelineItems.AddRange(GameService.BuildTimelineItems(gameEvent, previousGameEvent, announcingCash));
+            previousGameEvent = gameEvent;
+        }
+
+        return timelineItems;
     }
 
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)

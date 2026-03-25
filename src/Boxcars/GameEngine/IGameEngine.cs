@@ -19,9 +19,11 @@ public interface IGameEngine
     ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default);
 
     Task<bool> UndoLastOperationAsync(string gameId, CancellationToken cancellationToken = default);
+
+    Task<bool> UndoToEventAsync(string gameId, string targetEventRowKey, string targetDescription, string actorUserId, CancellationToken cancellationToken = default);
 }
 
-public sealed record GameStateUpdate(RailBaronGameState State, IReadOnlyList<EventTimelineItem> TimelineItems);
+public sealed record GameStateUpdate(RailBaronGameState State, IReadOnlyList<EventTimelineItem> TimelineItems, bool ReplaceTimeline = false);
 
 public sealed record GameCreationOptions
 {

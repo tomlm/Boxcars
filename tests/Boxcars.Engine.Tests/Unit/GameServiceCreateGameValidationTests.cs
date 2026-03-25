@@ -96,6 +96,7 @@ public class GameServiceCreateGameValidationTests
         public bool IsGameBusy(string gameId) => false;
         public ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> UndoLastOperationAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> UndoToEventAsync(string gameId, string targetEventRowKey, string targetDescription, string actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeTableClient : TableClient;

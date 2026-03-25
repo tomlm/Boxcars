@@ -235,6 +235,11 @@ public class GameServiceTests
         {
             throw new NotSupportedException();
         }
+
+        public Task<bool> UndoToEventAsync(string gameId, string targetEventRowKey, string targetDescription, string actorUserId, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class FakeHubContext : IHubContext<DashboardHub>
