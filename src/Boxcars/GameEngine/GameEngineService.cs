@@ -914,28 +914,28 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
-            var allAiAuctionAction = await TryResolveAllAiAuctionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
-            if (allAiAuctionAction is not null)
-            {
-                var snapshotBeforeResolution = snapshot;
-                snapshot = gameEngine.ToSnapshot();
-                ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
-                ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeResolution, snapshot);
-                snapshot = gameEngine.ToSnapshot();
-                ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
+            //  var allAiAuctionAction = await TryResolveAllAiAuctionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
+            // if (allAiAuctionAction is not null)
+            // {
+            //     var snapshotBeforeResolution = snapshot;
+            //     snapshot = gameEngine.ToSnapshot();
+            //     ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
+            //     ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeResolution, snapshot);
+            //     snapshot = gameEngine.ToSnapshot();
+            //     ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
 
-                var persistedGameEvent = await PersistEventAsync(
-                    gameId,
-                    snapshot,
-                    allAiAuctionAction.Kind.ToString(),
-                    DescribeAction(gameEntity, playerStates, allAiAuctionAction, snapshotBeforeResolution, snapshot, gameEngine),
-                    allAiAuctionAction.PlayerId,
-                    allAiAuctionAction,
-                    cancellationToken);
+            //     var persistedGameEvent = await PersistEventAsync(
+            //         gameId,
+            //         snapshot,
+            //         allAiAuctionAction.Kind.ToString(),
+            //         DescribeAction(gameEntity, playerStates, allAiAuctionAction, snapshotBeforeResolution, snapshot, gameEngine),
+            //         allAiAuctionAction.PlayerId,
+            //         allAiAuctionAction,
+            //         cancellationToken);
 
-                PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, announcingCash));
-                continue;
-            }
+            //     PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, announcingCash));
+            //     continue;
+            // }
 
             var automaticAction = await CreateAutomaticTurnActionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
             if (automaticAction is null)
@@ -979,25 +979,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         await PersistSeatStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
 
         throw new InvalidOperationException($"Automatic turn flow did not stabilize within {AutomaticTurnFlowStepLimit} steps.");
-    }
-
-    private async Task<PlayerAction?> TryResolveAllAiAuctionAsync(
-        GameEntity gameEntity,
-        List<GameSeatState> playerStates,
-        RailBaronGameEngine gameEngine,
-        CancellationToken cancellationToken)
-    {
-        if (gameEngine.CurrentTurn.AuctionState is null)
-        {
-            return null;
-        }
-
-        if (_mapDefinition is null)
-        {
-            throw new InvalidOperationException("The game map definition has not been initialized yet.");
-        }
-
-        return await _botTurnService.TryResolveAllAiAuctionAsync(gameEntity.GameId, playerStates, gameEngine, _mapDefinition, cancellationToken);
     }
 
     private async Task<PlayerAction?> CreateAutomaticTurnActionAsync(

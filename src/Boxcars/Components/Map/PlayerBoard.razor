@@ -1,7 +1,7 @@
 @using Boxcars.Data
 @using MudBlazor
 
-<MudStack Style="width: 100%; padding: 0; box-sizing: border-box" Spacing="2">
+<MudStack Class="w-100 pa-0" Style="box-sizing: border-box" Spacing="2">
         @foreach (var player in Players)
         {
             <MudTooltip Placement="Placement.Right" Arrow="true" Disabled="@(player.CoverageMetrics.Count == 0)">
@@ -25,12 +25,14 @@
                 <ChildContent>
                     <MudPaper Style="@GetCardStyle(player)">
                         <MudStack Row="true" Style="@GetPortraitStyle(player)">
-                            <div style="position: relative; display: inline-flex; flex-shrink: 0">
+                            <MudStack Class="d-inline-flex flex-shrink-0" Style="position: relative" Spacing="0">
                                 @if (player.IsWinner)
                                 {
-                                    <div style="position: absolute; top: -0.2rem; left: -0.2rem; z-index: 2; background: linear-gradient(135deg, #facc15, #f59e0b); color: #1f2937; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.08em; padding: 0.15rem 0.45rem; border-radius: 0.35rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.35)">
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Style="position: absolute; top: -0.2rem; left: -0.2rem; z-index: 2; background: linear-gradient(135deg, #facc15, #f59e0b); color: #1f2937; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.08em; padding: 0.15rem 0.45rem; border-radius: 0.35rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.35)">
                                         WINNER
-                                    </div>
+                                    </MudChip>
                                 }
                                 <MudButton Variant="Variant.Text"
                                            Color="MudBlazor.Color.Inherit"
@@ -55,14 +57,15 @@
                                         </MudAvatar>
                                     </MudBadge>
                                 </MudButton>
-                            </div>
-                            <MudStack Style="min-width: 0; flex: 1 1 auto" Spacing="0">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="display: flex; width: 100%; min-width: 0">
+                            </MudStack>
+                            <MudStack Class="flex-grow-1" Style="min-width: 0" Spacing="0">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="w-100" Style="min-width: 0">
                                     <MudText Typo="Typo.subtitle1" Style="min-width: 0; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 8px rgb(0 0 0 / 0.28)">@player.Name</MudText>
                                     @if (player.IsBotPlayer)
                                     {
+                                        <MudSpacer />
                                         <MudTooltip Text="AI player">
-                                            <MudText Typo="Typo.caption" Style="margin-left: auto; padding-left: 0.5rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 2px rgb(0 0 0 / 0.7)">AI</MudText>
+                                            <MudText Typo="Typo.caption" Style="padding-left: 0.5rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 2px rgb(0 0 0 / 0.7)">AI</MudText>
                                         </MudTooltip>
                                     }
                                 </MudStack>
@@ -70,68 +73,74 @@
                             </MudStack>
                         </MudStack>
 
-                        <MudStack Style="padding: 0.4rem 0.5rem 0.45rem; flex: 1 1 auto" Spacing="1">
-                            <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
+                        <MudStack Class="flex-grow-1" Style="padding: 0.4rem 0.5rem 0.45rem" Spacing="1">
+                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
                                 @if (player.IsAtDestination)
                                 {
-                                    <span style="font-weight: 700">At Destination:</span>
-                                    <span>@player.TripDestinationLabel</span>
+                                    <MudText Typo="Typo.subtitle2">At Destination:</MudText>
+                                    <MudText Typo="Typo.caption">@player.TripDestinationLabel</MudText>
                                 }
                                 else
                                 {
-                                    <span style="font-weight: 700">Trip:</span>
-                                    <span>@player.TripStartLabel @("=>") @player.TripDestinationLabel</span>
+                                    <MudText Typo="Typo.subtitle2">Trip:</MudText>
+                                    <MudText Typo="Typo.caption">@player.TripStartLabel @("=>") @player.TripDestinationLabel</MudText>
                                 }
-                            </MudText>
+                            </MudStack>
                             @if (!player.IsAtDestination)
                             {
-                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
-                                    <span style="font-weight: 700">Distance:</span> @player.DistanceToDestination <span style="font-weight: 700">Payout:</span> $@player.Payoff.ToString("N0")
-                                </MudText>
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                    <MudText Typo="Typo.subtitle2">Distance:</MudText>
+                                    <MudText Typo="Typo.caption">@player.DistanceToDestination</MudText>
+                                    <MudText Typo="Typo.subtitle2">Payout:</MudText>
+                                    <MudText Typo="Typo.caption">$@player.Payoff.ToString("N0")</MudText>
+                                </MudStack>
                             }
-                            <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
-                                <span style="font-weight: 700">Engine:</span> @player.LocomotiveLabel
-                            </MudText>
-                            <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
-                                <span style="font-weight: 700">Cash:</span> <span style="@GetCashValueStyle(player)">@player.GetMoneyDisplay()</span>
-                            </MudText>
+                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                <MudText Typo="Typo.subtitle2">Engine:</MudText>
+                                <MudText Typo="Typo.caption">@player.LocomotiveLabel</MudText>
+                            </MudStack>
+                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                <MudText Typo="Typo.subtitle2">Cash:</MudText>
+                                <MudText Typo="Typo.caption" Style="@GetCashValueStyle(player)">@player.GetMoneyDisplay()</MudText>
+                            </MudStack>
                             @if (player.HasDeclared)
                             {
-                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
-                                    <span style="font-weight: 700">Declared: @player.HomeCity</span>
-                                </MudText>
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                    <MudText Typo="Typo.subtitle2">Declared:</MudText>
+                                    <MudText Typo="Typo.caption">@player.HomeCity</MudText>
+                                </MudStack>
                                 @if (!string.IsNullOrWhiteSpace(player.AlternateCity))
                                 {
-                                    <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
-                                        <span style="font-weight: 700">Alternate City:</span> @player.AlternateCity
-                                    </MudText>
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                        <MudText Typo="Typo.subtitle2">Alternate City:</MudText>
+                                        <MudText Typo="Typo.caption">@player.AlternateCity</MudText>
+                                    </MudStack>
                                 }
                             }
                             @if (!string.IsNullOrWhiteSpace(player.DelegatedControllerDisplayName))
                             {
-                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1; font-style: italic; color: var(--mud-palette-text-secondary)">
-                                    <span style="font-weight: 700; font-style: italic">Controlled by:</span>
-                                    <span style="font-style: italic; font-weight: 600">@player.DelegatedControllerDisplayName</span>
-                                </MudText>
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                    <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Controlled by:</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@player.DelegatedControllerDisplayName</MudText>
+                                </MudStack>
                             }
                             @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
                             {
-                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
-                                    <span style="display: inline-block; font-weight: 700; color: #1d4ed8">@player.BonusPendingLabel</span>
-                                </MudText>
+                                <MudText Typo="Typo.subtitle2" Color="Color.Primary">@player.BonusPendingLabel</MudText>
                             }
                             @if (player.FeesOwed > 0)
                             {
-                                <MudText Typo="Typo.caption" Style="margin: 0; line-height: 1.1">
-                                    <span style="font-weight: 700">Fees Due:</span> <span style="display: inline-block; font-weight: 700; color: #ff3b30">$@player.FeesOwed.ToString("N0")</span>
-                                </MudText>
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                    <MudText Typo="Typo.subtitle2">Fees Due:</MudText>
+                                    <MudText Typo="Typo.subtitle2" Color="Color.Error">$@player.FeesOwed.ToString("N0")</MudText>
+                                </MudStack>
                             }
 
                         </MudStack>
 
                         @if (player.ShowDisconnectedControlToggle)
                         {
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Style="margin-top: auto; padding: 0.35rem 0.5rem 0.5rem; border-top: 1px solid color-mix(in srgb, var(--mud-palette-divider) 72%, transparent)">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="mt-auto" Style="padding: 0.35rem 0.5rem 0.5rem; border-top: 1px solid color-mix(in srgb, var(--mud-palette-divider) 72%, transparent)">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                     <MudText Typo="Typo.caption">AI</MudText>
                                     <MudSwitch T="bool"
