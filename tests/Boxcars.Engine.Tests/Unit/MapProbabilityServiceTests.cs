@@ -14,7 +14,7 @@ public class MapProbabilityServiceTests
         var overrides = MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(1234));
 
         Assert.Equal(map.Cities.Count, overrides.Count);
-        Assert.All(overrides, entry => Assert.True(entry.Probability >= 0.5d));
+        Assert.All(overrides, entry => Assert.True(entry.Probability >= 0.1d));
         Assert.InRange(overrides.Sum(entry => entry.Probability), 99.999999d, 100.000001d);
     }
 
@@ -27,7 +27,7 @@ public class MapProbabilityServiceTests
         var minProbability = overrides.Min(entry => entry.Probability);
         var maxProbability = overrides.Max(entry => entry.Probability);
 
-        Assert.True(minProbability >= 0.5d, $"Expected min probability to respect the 0.5% floor, got {minProbability:N3}%.");
+        Assert.True(minProbability >= 0.1d, $"Expected min probability to respect the 0.1% floor, got {minProbability:N3}%.");
         Assert.True(maxProbability <= 5d, $"Expected generated probabilities to honor the 5% cap, got {maxProbability:N3}%.");
         Assert.True((maxProbability - minProbability) >= 3.5d, $"Expected a broader spread than the near-uniform distribution. Min={minProbability:N3}%, Max={maxProbability:N3}%.");
     }

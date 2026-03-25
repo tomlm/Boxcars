@@ -6,7 +6,7 @@ namespace Boxcars.Services.Maps;
 
 public static class MapProbabilityService
 {
-    private const double MinimumGeneratedCityProbabilityPercent = 0.5d;
+    private const double MinimumGeneratedCityProbabilityPercent = 0.1d;
     private const double MaximumGeneratedCityProbabilityPercent = 5.0d;
     private const double GeneratedWeightRangeLog10 = 3d;
     private static readonly FieldInfo? PayoutChartField = typeof(MapDefinition).GetField("_payoutChart", BindingFlags.Instance | BindingFlags.NonPublic);

@@ -374,15 +374,20 @@ public sealed class BotTurnService
             botControlContexts[participantIndex] = botControlContext.Value;
         }
 
-        var winningBid = 0;
-        while (gameEngine.CurrentTurn.AuctionState is { CurrentBidderPlayerIndex: int bidderPlayerIndex } liveAuctionState)
+        if (gameEngine.CurrentTurn.AuctionState is not { CurrentBidderPlayerIndex: int bidderPlayerIndex } liveAuctionState)
         {
-            if (!botControlContexts.TryGetValue(bidderPlayerIndex, out var botControlContext))
+            return null;
+        }
+
+        var snapshot = gameEngine.ToSnapshot();
+        var bidderPlans = new Dictionary<int, (GameSeatState PlayerState, BotStrategyDefinitionEntity Definition, int MaximumBid)>();
+        foreach (var participantIndex in activeParticipantIndices)
+        {
+            if (!botControlContexts.TryGetValue(participantIndex, out var botControlContext))
             {
                 return null;
             }
 
-            var snapshot = gameEngine.ToSnapshot();
             var plan = await ResolveAuctionBidPlanAsync(
                 gameId,
                 playerStates,
@@ -391,7 +396,7 @@ public sealed class BotTurnService
                 snapshot,
                 playerSelections,
                 liveAuctionState,
-                bidderPlayerIndex,
+                participantIndex,
                 botControlContext,
                 cancellationToken);
             if (plan is null)
@@ -399,40 +404,155 @@ public sealed class BotTurnService
                 return null;
             }
 
-            botControlContexts[bidderPlayerIndex] = (plan.Value.PlayerState, botControlContext.Definition);
-
-            var bidder = gameEngine.Players[bidderPlayerIndex];
-            var minimumBid = liveAuctionState.CurrentBid > 0
-                ? liveAuctionState.CurrentBid + RailBaronGameEngine.AuctionBidIncrement
-                : liveAuctionState.StartingPrice;
-
-            if (plan.Value.MaximumBid >= minimumBid && bidder.Cash >= minimumBid)
-            {
-                gameEngine.SubmitAuctionBid(railroad, bidder, minimumBid);
-                winningBid = minimumBid;
-                continue;
-            }
-
-            gameEngine.DropOutOfAuction(railroad, bidder);
+            bidderPlans[participantIndex] = (plan.Value.PlayerState, botControlContext.Definition, plan.Value.MaximumBid);
         }
 
-        var summaryMetadata = CreateCollectiveAuctionMetadata();
-        return railroad.Owner is not null && railroad.Owner.Index != auctionState.SellerPlayerIndex && winningBid > 0
-            ? new BidAction
+        if (!bidderPlans.TryGetValue(bidderPlayerIndex, out var currentBidderPlan))
+        {
+            return null;
+        }
+
+        var bidder = gameEngine.Players[bidderPlayerIndex];
+        var maximumBidByPlayer = bidderPlans.ToDictionary(entry => entry.Key, entry => entry.Value.MaximumBid);
+        var cashByPlayer = gameEngine.Players.ToDictionary(player => player.Index, player => player.Cash);
+        var compressedBidAmount = SimulateCompressedAuctionBidAmount(liveAuctionState, maximumBidByPlayer, cashByPlayer);
+
+        if (compressedBidAmount.HasValue)
+        {
+            gameEngine.SubmitAuctionBid(railroad, bidder, compressedBidAmount.Value);
+
+            return new BidAction
             {
-                PlayerId = "All AI bidders",
+                PlayerId = bidder.Name,
+                PlayerIndex = bidderPlayerIndex,
                 ActorUserId = ResolveBotActorUserId(),
                 RailroadIndex = auctionState.RailroadIndex,
-                AmountBid = winningBid,
-                BotMetadata = summaryMetadata
-            }
-            : new AuctionDropOutAction
-            {
-                PlayerId = "All AI bidders",
-                ActorUserId = ResolveBotActorUserId(),
-                RailroadIndex = auctionState.RailroadIndex,
-                BotMetadata = summaryMetadata
+                AmountBid = compressedBidAmount.Value,
+                BotMetadata = CreateBotMetadata(
+                    currentBidderPlan.PlayerState,
+                    currentBidderPlan.Definition.Name,
+                    AllAiAuctionResolutionSource,
+                    isBotPlayer: currentBidderPlan.Definition.IsBotUser)
             };
+        }
+
+        gameEngine.DropOutOfAuction(railroad, bidder);
+        return new AuctionDropOutAction
+        {
+            PlayerId = bidder.Name,
+            PlayerIndex = bidderPlayerIndex,
+            ActorUserId = ResolveBotActorUserId(),
+            RailroadIndex = auctionState.RailroadIndex,
+            BotMetadata = CreateBotMetadata(
+                currentBidderPlan.PlayerState,
+                currentBidderPlan.Definition.Name,
+                AllAiAuctionResolutionSource,
+                isBotPlayer: currentBidderPlan.Definition.IsBotUser)
+        };
+    }
+
+    private static int? SimulateCompressedAuctionBidAmount(
+        AuctionState auctionState,
+        IReadOnlyDictionary<int, int> maximumBidByPlayer,
+        IReadOnlyDictionary<int, int> cashByPlayer)
+    {
+        if (auctionState.CurrentBidderPlayerIndex is not int originalBidderPlayerIndex)
+        {
+            return null;
+        }
+
+        var droppedParticipants = auctionState.Participants
+            .Where(participant => participant.HasDroppedOut || !participant.IsEligible)
+            .Select(participant => participant.PlayerIndex)
+            .ToHashSet();
+        var currentBid = auctionState.CurrentBid;
+        int? currentBidderPlayerIndex = originalBidderPlayerIndex;
+        var leaderPlayerIndex = auctionState.LastBidderPlayerIndex;
+        var lastBidByPlayer = new Dictionary<int, int>();
+
+        while (currentBidderPlayerIndex is int bidderPlayerIndex)
+        {
+            var minimumBid = currentBid > 0
+                ? currentBid + RailBaronGameEngine.AuctionBidIncrement
+                : auctionState.StartingPrice;
+            var maximumBid = maximumBidByPlayer.GetValueOrDefault(bidderPlayerIndex, 0);
+            var availableCash = cashByPlayer.GetValueOrDefault(bidderPlayerIndex, 0);
+
+            if (maximumBid >= minimumBid && availableCash >= minimumBid)
+            {
+                currentBid = minimumBid;
+                leaderPlayerIndex = bidderPlayerIndex;
+                lastBidByPlayer[bidderPlayerIndex] = minimumBid;
+            }
+            else
+            {
+                droppedParticipants.Add(bidderPlayerIndex);
+            }
+
+            var activeParticipants = auctionState.Participants
+                .Where(participant => !droppedParticipants.Contains(participant.PlayerIndex))
+                .Select(participant => participant.PlayerIndex)
+                .ToList();
+            if (leaderPlayerIndex is int resolvedLeaderPlayerIndex)
+            {
+                if (activeParticipants.All(participantIndex => participantIndex == resolvedLeaderPlayerIndex))
+                {
+                    break;
+                }
+            }
+            else if (activeParticipants.Count == 0)
+            {
+                break;
+            }
+
+            var nextBidderPlayerIndex = GetNextSimulatedAuctionParticipantIndex(
+                auctionState.Participants,
+                droppedParticipants,
+                bidderPlayerIndex);
+            currentBidderPlayerIndex = nextBidderPlayerIndex;
+        }
+
+        return lastBidByPlayer.GetValueOrDefault(originalBidderPlayerIndex) > 0
+            ? lastBidByPlayer[originalBidderPlayerIndex]
+            : null;
+    }
+
+    private static int? GetNextSimulatedAuctionParticipantIndex(
+        IReadOnlyList<AuctionParticipant> participants,
+        HashSet<int> droppedParticipants,
+        int currentPlayerIndex)
+    {
+        if (participants.Count == 0)
+        {
+            return null;
+        }
+
+        var currentPosition = participants
+            .Select((participant, index) => new { participant, index })
+            .Where(entry => entry.participant.PlayerIndex == currentPlayerIndex)
+            .Select(entry => entry.index)
+            .DefaultIfEmpty(-1)
+            .First();
+
+        if (currentPosition < 0)
+        {
+            return participants
+                .Select(participant => participant.PlayerIndex)
+                .Where(playerIndex => !droppedParticipants.Contains(playerIndex))
+                .Cast<int?>()
+                .FirstOrDefault();
+        }
+
+        for (var offset = 1; offset <= participants.Count; offset++)
+        {
+            var candidate = participants[(currentPosition + offset) % participants.Count];
+            if (!droppedParticipants.Contains(candidate.PlayerIndex))
+            {
+                return candidate.PlayerIndex;
+            }
+        }
+
+        return null;
     }
 
     private async Task<PlayerAction?> CreateRegionChoiceActionAsync(

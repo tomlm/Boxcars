@@ -495,10 +495,23 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.Action,
                         stoppingToken);
 
+                    var timelineItems = BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeAction, announcingCash);
+                    var persistedAuctionResolutionEvent = await PersistAuctionResolutionEventAsync(
+                        queuedAction.GameId,
+                        snapshotBeforeAction,
+                        snapshot,
+                        gameEngine,
+                        queuedAction.Action,
+                        stoppingToken);
+                    if (persistedAuctionResolutionEvent is not null)
+                    {
+                        timelineItems.AddRange(GameService.BuildTimelineItems(persistedAuctionResolutionEvent, persistedGameEvent, announcingCash));
+                    }
+
                     PublishStateChanged(
                         queuedAction.GameId,
                         snapshot,
-                        BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeAction, announcingCash));
+                        timelineItems);
 
                     await AdvanceAutomaticTurnFlowAsync(gameEntity, queuedAction.GameId, gameEngine, stoppingToken);
                 }
@@ -895,6 +908,34 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return entity;
     }
 
+    private async Task<GameEventEntity?> PersistAuctionResolutionEventAsync(
+        string gameId,
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction,
+        RailBaronGameEngine gameEngine,
+        PlayerAction action,
+        CancellationToken cancellationToken)
+    {
+        if (!TryDescribeAuctionResolution(snapshotBeforeAction, snapshotAfterAction, gameEngine, action, out var changeSummary))
+        {
+            return null;
+        }
+
+        return await PersistEventAsync(
+            gameId,
+            snapshotAfterAction,
+            "AuctionResolved",
+            changeSummary,
+            action.PlayerId,
+            new
+            {
+                ActionKind = action.Kind.ToString()
+            },
+            cancellationToken,
+            actingUserId: action.ActorUserId,
+            actingPlayerIndex: action.PlayerIndex);
+    }
+
     private async Task<RailBaronGameState> AdvanceAutomaticTurnFlowAsync(
         GameEntity gameEntity,
         string gameId,
@@ -914,28 +955,49 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
-            //  var allAiAuctionAction = await TryResolveAllAiAuctionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
-            // if (allAiAuctionAction is not null)
-            // {
-            //     var snapshotBeforeResolution = snapshot;
-            //     snapshot = gameEngine.ToSnapshot();
-            //     ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
-            //     ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeResolution, snapshot);
-            //     snapshot = gameEngine.ToSnapshot();
-            //     ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
+            if (_mapDefinition is not null)
+            {
+                var allAiAuctionAction = await _botTurnService.TryResolveAllAiAuctionAsync(
+                    gameEntity.GameId,
+                    playerStates,
+                    gameEngine,
+                    _mapDefinition,
+                    cancellationToken);
+                if (allAiAuctionAction is not null)
+                {
+                    var snapshotBeforeResolution = snapshot;
+                    snapshot = gameEngine.ToSnapshot();
+                    ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
+                    ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeResolution, snapshot);
+                    snapshot = gameEngine.ToSnapshot();
+                    ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
 
-            //     var persistedGameEvent = await PersistEventAsync(
-            //         gameId,
-            //         snapshot,
-            //         allAiAuctionAction.Kind.ToString(),
-            //         DescribeAction(gameEntity, playerStates, allAiAuctionAction, snapshotBeforeResolution, snapshot, gameEngine),
-            //         allAiAuctionAction.PlayerId,
-            //         allAiAuctionAction,
-            //         cancellationToken);
+                    var persistedGameEvent = await PersistEventAsync(
+                        gameId,
+                        snapshot,
+                        allAiAuctionAction.Kind.ToString(),
+                        DescribeAction(gameEntity, playerStates, allAiAuctionAction, snapshotBeforeResolution, snapshot, gameEngine),
+                        allAiAuctionAction.PlayerId,
+                        allAiAuctionAction,
+                        cancellationToken);
 
-            //     PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, announcingCash));
-            //     continue;
-            // }
+                    var aiResolutionTimelineItems = BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, announcingCash);
+                    var aiResolutionEvent = await PersistAuctionResolutionEventAsync(
+                        gameId,
+                        snapshotBeforeResolution,
+                        snapshot,
+                        gameEngine,
+                        allAiAuctionAction,
+                        cancellationToken);
+                    if (aiResolutionEvent is not null)
+                    {
+                        aiResolutionTimelineItems.AddRange(GameService.BuildTimelineItems(aiResolutionEvent, persistedGameEvent, announcingCash));
+                    }
+
+                    PublishStateChanged(gameId, snapshot, aiResolutionTimelineItems);
+                    continue;
+                }
+            }
 
             var automaticAction = await CreateAutomaticTurnActionAsync(gameEntity, playerStates, gameEngine, cancellationToken);
             if (automaticAction is null)
@@ -968,7 +1030,20 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 automaticAction,
                 cancellationToken);
 
-            PublishStateChanged(gameId, snapshot, BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction, announcingCash));
+            var automaticTimelineItems = BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction, announcingCash);
+            var automaticAuctionResolutionEvent = await PersistAuctionResolutionEventAsync(
+                gameId,
+                snapshotBeforeAction,
+                snapshot,
+                gameEngine,
+                automaticAction,
+                cancellationToken);
+            if (automaticAuctionResolutionEvent is not null)
+            {
+                automaticTimelineItems.AddRange(GameService.BuildTimelineItems(automaticAuctionResolutionEvent, persistedAutomaticGameEvent, announcingCash));
+            }
+
+            PublishStateChanged(gameId, snapshot, automaticTimelineItems);
 
             if (automaticAction.BotMetadata is not null && _botOptions.AutomaticActionDelayMilliseconds > 0)
             {
@@ -2166,13 +2241,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var railroad = FindRailroad(gameEngine, railroadIndex);
-
         var sellerPlayerIndex = snapshotBeforeAction.Turn.Auction?.SellerPlayerIndex ?? ResolvePlayerIndex(action, snapshotBeforeAction);
         var sellerOwnedRailroadBeforeAction = sellerPlayerIndex.HasValue
             && sellerPlayerIndex.Value >= 0
             && sellerPlayerIndex.Value < snapshotBeforeAction.Players.Count
             && snapshotBeforeAction.Players[sellerPlayerIndex.Value].OwnedRailroadIndices.Contains(railroadIndex);
-
         if (sellerOwnedRailroadBeforeAction && railroad.Owner is null)
         {
             return $"{GetRailroadDisplayName(railroad)} was sold to the bank for {FormatCurrency(railroad.PurchasePrice / 2)}";
@@ -2184,9 +2257,38 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return defaultDescription;
         }
 
+        return defaultDescription;
+    }
+
+    private static bool TryDescribeAuctionResolution(
+        RailBaronGameState snapshotBeforeAction,
+        RailBaronGameState snapshotAfterAction,
+        RailBaronGameEngine gameEngine,
+        PlayerAction action,
+        out string changeSummary)
+    {
+        changeSummary = string.Empty;
+
+        var auctionBeforeAction = snapshotBeforeAction.Turn.Auction;
+        if (auctionBeforeAction is null || snapshotAfterAction.Turn.Auction is not null)
+        {
+            return false;
+        }
+
+        var railroad = FindRailroad(gameEngine, auctionBeforeAction.RailroadIndex);
+        var sellerOwnedRailroadBeforeAction = auctionBeforeAction.SellerPlayerIndex >= 0
+            && auctionBeforeAction.SellerPlayerIndex < snapshotBeforeAction.Players.Count
+            && snapshotBeforeAction.Players[auctionBeforeAction.SellerPlayerIndex].OwnedRailroadIndices.Contains(auctionBeforeAction.RailroadIndex);
+
+        if (sellerOwnedRailroadBeforeAction && railroad.Owner is null)
+        {
+            changeSummary = $"{GetRailroadDisplayName(railroad)} was sold to the bank for {FormatCurrency(railroad.PurchasePrice / 2)}";
+            return true;
+        }
+
         if (railroad.Owner is null || railroad.Owner.Index == auctionBeforeAction.SellerPlayerIndex)
         {
-            return defaultDescription;
+            return false;
         }
 
         var winningBid = action switch
@@ -2195,17 +2297,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             AuctionPassAction or AuctionDropOutAction => auctionBeforeAction.CurrentBid,
             _ => 0
         };
-
         if (winningBid <= 0)
         {
-            return defaultDescription;
+            return false;
         }
 
         var sellerName = string.IsNullOrWhiteSpace(auctionBeforeAction.SellerPlayerName)
             ? ResolvePlayerName(snapshotAfterAction, auctionBeforeAction.SellerPlayerIndex)
             : auctionBeforeAction.SellerPlayerName;
-
-        return $"{railroad.Owner.Name} bought the {GetRailroadDisplayName(railroad)} railroad for {FormatCurrency(winningBid)}; {FormatCurrency(winningBid)} was transferred to {sellerName}.";
+        changeSummary = $"{railroad.Owner.Name} won the auction for the {GetRailroadDisplayName(railroad)} railroad with {FormatCurrency(winningBid)}; {FormatCurrency(winningBid)} was transferred to {sellerName}.";
+        return true;
     }
 
     private static string ResolveActorName(PlayerAction action, RailBaronGameState snapshot)

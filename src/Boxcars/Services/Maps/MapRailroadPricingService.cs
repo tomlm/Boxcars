@@ -10,8 +10,8 @@ public static class MapRailroadPricingService
     private const double ExpectedRentalIncomeWeight = 1.25d;
     private const double CoverageWeight = 350d;
     private const double ChokePointWeight = 1000d;
-    private const int MinimumRailroadPrice = 4_000;
-    private const int MaximumRailroadPrice = 80_000;
+    private const int MinimumRailroadPrice = 2_000;
+    private const int MaximumRailroadPrice = 65_000;
 
     public static IReadOnlyDictionary<int, int> CalculatePurchasePrices(MapDefinition mapDefinition)
     {

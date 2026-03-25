@@ -568,6 +568,15 @@ public class GameService
                     playerAction));
                 break;
 
+            case "AuctionResolved":
+                timelineItems.Add(CreateTimelineItem(
+                    gameEvent,
+                    $"{gameEvent.RowKey}:auction-resolved",
+                    EventTimelineKind.PayFees,
+                    gameEvent.ChangeSummary,
+                    playerAction));
+                break;
+
             case "PurchaseRailroad":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
@@ -677,6 +686,7 @@ public class GameService
             "Bid" => EventTimelineKind.PayFees,
             "AuctionPass" => EventTimelineKind.PayFees,
             "AuctionDropOut" => EventTimelineKind.PayFees,
+            "AuctionResolved" => EventTimelineKind.PayFees,
             "PurchaseRailroad" => EventTimelineKind.Purchase,
             "BuyEngine" => EventTimelineKind.Purchase,
             "BuySuperchief" => EventTimelineKind.Purchase,

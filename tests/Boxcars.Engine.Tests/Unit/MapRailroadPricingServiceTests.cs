@@ -16,7 +16,7 @@ public class MapRailroadPricingServiceTests
         Assert.Equal(map.Railroads.Count, prices.Count);
         Assert.All(prices.Values, price =>
         {
-            Assert.InRange(price, 4_000, 80_000);
+            Assert.InRange(price, 2_000, 65_000);
             Assert.Equal(0, price % 500);
         });
     }
@@ -28,8 +28,8 @@ public class MapRailroadPricingServiceTests
 
         var prices = MapRailroadPricingService.CalculatePurchasePrices(map).Values.OrderBy(price => price).ToArray();
 
-        Assert.Equal(4_000, prices.First());
-        Assert.InRange(prices.Last(), 50_000, 80_000);
+        Assert.Equal(2_000, prices.First());
+        Assert.InRange(prices.Last(), 50_000, 65_000);
     }
 
     [Fact]
