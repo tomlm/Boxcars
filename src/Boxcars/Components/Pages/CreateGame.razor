@@ -120,6 +120,32 @@
                 @(_generatingRandomCities ? "Generating..." : "Generate Random Cities")
             </MudButton>
 
+            @if (!string.IsNullOrWhiteSpace(_cityProbabilitySummary))
+            {
+                <MudText Typo="Typo.body2" Style="opacity: 0.8">@_cityProbabilitySummary</MudText>
+            }
+
+            @if (_regionProbabilityPreview.Count > 0)
+            {
+                <MudPaper Class="pa-4" Outlined="true">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 700">Region Distribution</MudText>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.75rem">
+                            @foreach (var region in _regionProbabilityPreview)
+                            {
+                                <MudPaper Class="pa-3" Outlined="true">
+                                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                        <MudText Typo="Typo.body2" Style="font-weight: 600">@region.RegionName</MudText>
+                                        <MudText Typo="Typo.body2" Style="font-weight: 700">@($"{region.Probability:N1}%")</MudText>
+                                    </MudStack>
+                                    <MudText Typo="Typo.caption" Style="opacity: 0.75">@region.RegionCode</MudText>
+                                </MudPaper>
+                            }
+                        </div>
+                    </MudStack>
+                </MudPaper>
+            }
+
             <MudExpansionPanels>
                 <MudExpansionPanel Expanded="false">
                     <TitleContent>
@@ -216,6 +242,7 @@
     private IReadOnlyList<CityProbabilityOverride> _cityProbabilityOverrides = [];
     private IReadOnlyList<RailroadPriceOverride> _railroadPriceOverrides = [];
     private string _cityProbabilitySummary = "Using default city probabilities.";
+    private IReadOnlyList<RegionDistributionPreview> _regionProbabilityPreview = [];
     private bool IsBusy => _creating || _generatingRandomCities;
     private string BusyMessage => _creating ? "Creating game and saving settings..." : "Generating city probabilities and railroad prices...";
 
@@ -508,6 +535,7 @@
                     PurchasePrice = railroad.PurchasePrice ?? 4_000
                 })
                 .ToList();
+            _regionProbabilityPreview = BuildRegionProbabilityPreview(randomizedMap);
             var regionCount = _cityProbabilityOverrides
                 .Select(overrideValue => overrideValue.RegionCode)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -567,6 +595,7 @@
             : replayPreset.MapFileName;
         _cityProbabilityOverrides = replayPreset.CityProbabilityOverrides;
         _railroadPriceOverrides = replayPreset.RailroadPriceOverrides;
+        _regionProbabilityPreview = BuildRegionProbabilityPreview(replayPreset.CityProbabilityOverrides);
         _cityProbabilitySummary = _cityProbabilityOverrides.Count == 0
             ? "Using default city probabilities."
             : $"Randomized {_cityProbabilityOverrides.Count:N0} city probabilities loaded from preset.";
@@ -631,6 +660,31 @@
             : selectedPlayer.Nickname;
     }
 
+    private static IReadOnlyList<RegionDistributionPreview> BuildRegionProbabilityPreview(MapDefinition mapDefinition)
+    {
+        return mapDefinition.Regions
+            .Select(region => new RegionDistributionPreview(
+                region.Code,
+                region.Name,
+                Math.Max(0d, region.Probability ?? 0d)))
+            .OrderByDescending(region => region.Probability)
+            .ThenBy(region => region.RegionName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IReadOnlyList<RegionDistributionPreview> BuildRegionProbabilityPreview(IReadOnlyList<CityProbabilityOverride> cityProbabilityOverrides)
+    {
+        return cityProbabilityOverrides
+            .GroupBy(entry => entry.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new RegionDistributionPreview(
+                group.Key,
+                group.Key,
+                group.Sum(entry => entry.Probability)))
+            .OrderByDescending(region => region.Probability)
+            .ThenBy(region => region.RegionName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private sealed class PlayerSlot
     {
         public Guid SlotId { get; } = Guid.NewGuid();
@@ -638,4 +692,9 @@
         public string AssignedColor { get; set; } = PlayerColorOptions.Colors[0];
         public bool IsCreatorSeat { get; set; }
     }
+
+    private sealed record RegionDistributionPreview(
+        string RegionCode,
+        string RegionName,
+        double Probability);
 }

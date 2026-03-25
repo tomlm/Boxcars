@@ -10,58 +10,60 @@
 }
 else
 {
-    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column" Style="min-height: 100%">
+    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column" Style="width: fit-content; max-width: 100%">
         <MudStack Spacing="0" Class="mb-3">
             <MudText Typo="Typo.h6">Stats</MudText>
             <MudText Typo="Typo.caption">Players are shown in columns and tracked stats in grouped sections.</MudText>
         </MudStack>
 
-        <MudDataGrid T="PlayerStatisticRow"
-                     Items="StatisticRows"
-                     Dense="true"
-                     Hover="true"
-                     ReadOnly="true"
-                     Filterable="false"
-                     SortMode="SortMode.None"
-                     Groupable="true"
-                     GroupExpanded="true"
-                     Bordered="false"
-                     Striped="false">
-            <Columns>
-                <PropertyColumn Property="x => x.GroupLabel"
-                                Title="Group"
-                                Hidden="true"
-                                Grouping="true"
-                                Groupable="true"
-                                Sortable="false"
-                                Filterable="false">
-                    <GroupTemplate>
-                        <MudText Typo="Typo.subtitle2">@context.Grouping.Key</MudText>
-                    </GroupTemplate>
-                </PropertyColumn>
+        <div style="overflow-x: auto; max-width: 100%">
+            <MudDataGrid T="PlayerStatisticRow"
+                         Items="StatisticRows"
+                         Dense="true"
+                         Hover="true"
+                         ReadOnly="true"
+                         Filterable="false"
+                         SortMode="SortMode.None"
+                         Groupable="true"
+                         GroupExpanded="true"
+                         Bordered="false"
+                         Striped="false">
+                <Columns>
+                    <PropertyColumn Property="x => x.GroupLabel"
+                                    Title="Group"
+                                    Hidden="true"
+                                    Grouping="true"
+                                    Groupable="true"
+                                    Sortable="false"
+                                    Filterable="false">
+                        <GroupTemplate>
+                            <MudText Typo="Typo.subtitle2">@context.Grouping.Key</MudText>
+                        </GroupTemplate>
+                    </PropertyColumn>
 
-                <TemplateColumn Title="Stat" Sortable="false" Filterable="false" Groupable="false">
-                    <CellTemplate>
-                        <span style="@BuildLabelStyle(context.Item)">@context.Item.Label</span>
-                    </CellTemplate>
-                </TemplateColumn>
-
-                @foreach (var player in PlayerColumns)
-                {
-                    <TemplateColumn Title="@player.DisplayName" Sortable="false" Filterable="false" Groupable="false">
-                        <HeaderTemplate>
-                            <MudStack Spacing="0" Style="min-width: 7.5rem">
-                                <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
-                                <MudText Typo="Typo.caption" Style="opacity: 0.72">Seat @(player.SeatIndex + 1)</MudText>
-                            </MudStack>
-                        </HeaderTemplate>
+                    <TemplateColumn Title="Stat" Sortable="false" Filterable="false" Groupable="false">
                         <CellTemplate>
-                            @context.Item.GetValue(player.PlayerState, player.SeatIndex)
+                            <span style="@BuildLabelStyle(context.Item)">@context.Item.Label</span>
                         </CellTemplate>
                     </TemplateColumn>
-                }
-            </Columns>
-        </MudDataGrid>
+
+                    @foreach (var player in PlayerColumns)
+                    {
+                        <TemplateColumn Title="@player.DisplayName" Sortable="false" Filterable="false" Groupable="false">
+                            <HeaderTemplate>
+                                <MudStack Spacing="0" Style="min-width: 7.5rem">
+                                    <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
+                                    <MudText Typo="Typo.caption" Style="opacity: 0.72">Seat @(player.SeatIndex + 1)</MudText>
+                                </MudStack>
+                            </HeaderTemplate>
+                            <CellTemplate>
+                                @context.Item.GetValue(player.PlayerState, player.SeatIndex)
+                            </CellTemplate>
+                        </TemplateColumn>
+                    }
+                </Columns>
+            </MudDataGrid>
+        </div>
     </MudPaper>
 }
 

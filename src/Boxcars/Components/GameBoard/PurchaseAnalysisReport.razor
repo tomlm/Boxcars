@@ -54,41 +54,44 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, max-content)); gap: 0.75rem; align-items: start">
                         @foreach (var regionGroup in RegionCityGroups)
                         {
-                            <div style="width: fit-content; max-width: 100%; min-width: 0">
+                            <MudPaper Class="pa-3" Outlined="true" Style="width: fit-content; max-width: 100%; min-width: 0">
                                 <MudText Typo="Typo.h6" Style="margin-bottom: 0.2rem">@regionGroup.RegionName</MudText>
                                 <MudText Typo="Typo.caption" Style="display: block; margin-bottom: 0.6rem">Map Probability: @FormatPercent(regionGroup.RegionProbabilityPercentage)</MudText>
                                 <MudTable T="CityAccessRow" Items="regionGroup.Cities" Dense="true" Hover="true">
                                     <HeaderContent>
                                         <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
+                                        <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.GlobalAccessPercentage)"><strong>Map %</strong></MudTableSortLabel></MudTh>
                                         <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.WithinRegionPercentage)"><strong>Region %</strong></MudTableSortLabel></MudTh>
                                     </HeaderContent>
                                     <RowTemplate>
                                         <MudTd>@context.CityName</MudTd>
+                                        <MudTd>@FormatCityPercent(context.GlobalAccessPercentage)</MudTd>
                                         <MudTd>@FormatCityPercent(context.WithinRegionPercentage)</MudTd>
                                     </RowTemplate>
                                 </MudTable>
-                            </div>
+                            </MudPaper>
                         }
                     </div>
                 </MudPaper>
             }
             else if (View == PurchaseExperienceTab.Cities)
             {
-                <MudPaper Class="pa-3" Style="width: 100%; max-width: 100%" Outlined="true">
+                <MudPaper Class="pa-3" Style="width: fit-content; max-width: 100%" Outlined="true">
                     <MudText Typo="Typo.subtitle2" Style="margin-bottom: 0.75rem; font-weight: 700">Map City Access</MudText>
-
-                    <div style="--purchase-analysis-city-rows: 14; display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--purchase-analysis-city-rows), minmax(0, auto)); grid-auto-columns: minmax(14rem, 1fr); gap: 0.5rem 1rem; width: 100%; max-width: 100%; overflow-x: auto; align-content: start">
-                        @foreach (var city in SortedCityRows)
-                        {
-                            <MudPaper Outlined="true" Style="display: grid; gap: 0.2rem; min-width: 0; padding: 0.45rem 0.6rem; background: color-mix(in srgb, var(--mud-palette-surface) 86%, white 14%)">
-                                <MudText Typo="Typo.body2" Style="font-weight: 600">@city.CityName</MudText>
-                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Style="min-width: 0">
-                                    <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary)">@city.RegionCode</MudText>
-                                    <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-primary); font-weight: 600">@FormatCityPercent(city.GlobalAccessPercentage)</MudText>
-                                </MudStack>
-                            </MudPaper>
-                        }
-                    </div>
+                    <MudTable T="CityAccessRow" Items="SortedCityRows" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.RegionName)"><strong>Region</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.GlobalAccessPercentage)"><strong>Map %</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.WithinRegionPercentage)"><strong>Region %</strong></MudTableSortLabel></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.CityName</MudTd>
+                            <MudTd>@context.RegionName</MudTd>
+                            <MudTd>@FormatCityPercent(context.GlobalAccessPercentage)</MudTd>
+                            <MudTd>@FormatCityPercent(context.WithinRegionPercentage)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
                 </MudPaper>
             }
 
