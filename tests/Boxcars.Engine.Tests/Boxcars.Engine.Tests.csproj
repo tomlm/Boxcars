@@ -27,12 +27,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="Boxcars">
-      <HintPath>..\..\src\Boxcars\bin\$(Configuration)\net10.0\Boxcars.dll</HintPath>
-    </Reference>
-    <Reference Include="Boxcars.Engine">
-      <HintPath>..\..\src\Boxcars.Engine\bin\$(Configuration)\net10.0\Boxcars.Engine.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\..\src\Boxcars\Boxcars.csproj" />
+    <ProjectReference Include="..\..\src\Boxcars.Engine\Boxcars.Engine.csproj" />
   </ItemGroup>
 
 </Project>

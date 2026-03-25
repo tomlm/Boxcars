@@ -5,6 +5,7 @@ using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Persistence;
 using Boxcars.GameEngine;
 using Microsoft.AspNetCore.Hosting;
+using Boxcars.Services.Maps;
 using RailBaronGameState = Boxcars.Engine.Persistence.GameState;
 using PlayerStateSnapshot = Boxcars.Engine.Persistence.PlayerState;
 
@@ -48,7 +49,7 @@ public sealed class GameBoardAdviceService(
 
         var playerStates = await gameService.GetGameSeatStatesAsync(gameId, cancellationToken);
         var gameState = await gameEngine.GetCurrentStateAsync(gameId, cancellationToken);
-        var mapDefinition = await LoadMapDefinitionAsync(game.MapFileName, cancellationToken);
+        var mapDefinition = await LoadMapDefinitionAsync(game.MapFileName, game.CityProbabilityOverrides, game.RailroadPriceOverrides, cancellationToken);
         var settings = new GameSettingsResolver().Resolve(game).Settings;
 
         // Resolve the controlled player's strategy text from their profile
@@ -644,7 +645,11 @@ public sealed class GameBoardAdviceService(
         return sb.ToString();
     }
 
-    private async Task<MapDefinition> LoadMapDefinitionAsync(string? mapFileName, CancellationToken cancellationToken)
+    private async Task<MapDefinition> LoadMapDefinitionAsync(
+        string? mapFileName,
+        IReadOnlyList<CityProbabilityOverride> cityProbabilityOverrides,
+        IReadOnlyList<RailroadPriceOverride>? railroadPriceOverrides,
+        CancellationToken cancellationToken)
     {
         var resolvedMapFileName = string.IsNullOrWhiteSpace(mapFileName)
             ? GameService.DefaultMapFileName
@@ -664,7 +669,7 @@ public sealed class GameBoardAdviceService(
             throw new InvalidOperationException($"Unable to load map '{resolvedMapFileName}': {errors}");
         }
 
-        return loadResult.Definition!;
+        return MapProbabilityService.ApplyCityProbabilities(loadResult.Definition!, cityProbabilityOverrides, railroadPriceOverrides);
     }
 
     private static string ResolveTripStartCityName(PlayerStateSnapshot player)

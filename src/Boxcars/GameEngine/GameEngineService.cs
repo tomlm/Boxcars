@@ -189,12 +189,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             .ToList();
         var normalizedSettings = _gameSettingsResolver.Normalize(request.Settings);
 
-        var createdGameEngine = CreateGameEngine(players, normalizedSettings);
-        if (!_gameEngines.TryAdd(gameId, createdGameEngine))
-        {
-            throw new InvalidOperationException($"A game with id '{gameId}' already exists.");
-        }
-
         var gameEntity = new GameEntity
         {
             PartitionKey = gameId,
@@ -205,6 +199,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             MaxPlayers = request.MaxPlayers,
             CurrentPlayerCount = request.MaxPlayers,
             CreatedAt = DateTimeOffset.UtcNow,
+            CityProbabilityOverrides = request.CityProbabilityOverrides,
+            RailroadPriceOverrides = request.RailroadPriceOverrides,
             Seats = request.Players
                 .Select((player, seatIndex) => new GameSeatDefinition
                 {
@@ -216,6 +212,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 .ToList()
         };
         _gameSettingsResolver.Apply(gameEntity, normalizedSettings);
+
+        var createdGameEngine = CreateGameEngine(gameEntity, players, normalizedSettings);
+        if (!_gameEngines.TryAdd(gameId, createdGameEngine))
+        {
+            throw new InvalidOperationException($"A game with id '{gameId}' already exists.");
+        }
 
         var playerStates = GameSeatStateProjection.BuildTransientStates(gameEntity, createdGameEngine.ToSnapshot()).ToList();
 
@@ -266,7 +268,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("Game settings are immutable and no longer match the persisted game record.");
         }
 
-        _gameEngines[gameId] = RestoreGameEngine(state, resolvedSettings.Settings);
+        _gameEngines[gameId] = RestoreGameEngine(gameEntity, state, resolvedSettings.Settings);
     }
 
     public bool IsGameBusy(string gameId)
@@ -318,7 +320,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
                 ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
             var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
-            var restoredEngine = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
+        var restoredEngine = RestoreGameEngine(gameEntity, restoredSnapshot, resolvedSettings.Settings);
 
             _gameEngines[gameId] = restoredEngine;
 
@@ -387,7 +389,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
             ApplySeatAndControlMetadata(restoredSnapshot, gameEntity, playerStates);
 
-            _gameEngines[gameId] = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
+            _gameEngines[gameId] = RestoreGameEngine(gameEntity, restoredSnapshot, resolvedSettings.Settings);
 
             var deletedEvents = events.Skip(targetIndex + 1).ToList();
             foreach (var deletedEvent in deletedEvents)
@@ -791,13 +793,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             .ToList();
         var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
 
-        var initializedGameEngine = CreateGameEngine(players, resolvedSettings.Settings);
+        var initializedGameEngine = CreateGameEngine(gameEntity, players, resolvedSettings.Settings);
 
         var persistedEvent = await GetLatestEventAsync(gameId, cancellationToken);
         if (persistedEvent is not null && !string.IsNullOrWhiteSpace(persistedEvent.SerializedGameState))
         {
             var restoredSnapshot = GameEventSerialization.DeserializeSnapshot(persistedEvent.SerializedGameState);
-            initializedGameEngine = RestoreGameEngine(restoredSnapshot, resolvedSettings.Settings);
+            initializedGameEngine = RestoreGameEngine(gameEntity, restoredSnapshot, resolvedSettings.Settings);
         }
 
         var loadedGameEngine = _gameEngines.GetOrAdd(gameId, initializedGameEngine);
@@ -822,13 +824,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
     }
 
-    private RailBaronGameEngine CreateGameEngine(IReadOnlyList<string> players, Engine.Persistence.GameSettings settings)
+    private RailBaronGameEngine CreateGameEngine(GameEntity gameEntity, IReadOnlyList<string> players, Engine.Persistence.GameSettings settings)
     {
-        if (_mapDefinition is null)
-        {
-            throw new InvalidOperationException("The game map definition has not been initialized yet.");
-        }
-
+        var mapDefinition = ResolveMapDefinition(gameEntity);
         var normalizedPlayers = players
             .Where(player => !string.IsNullOrWhiteSpace(player))
             .Select(player => player.Trim())
@@ -840,17 +838,22 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             normalizedPlayers.Add($"Open Seat {normalizedPlayers.Count + 1}");
         }
 
-        return new RailBaronGameEngine(_mapDefinition, normalizedPlayers, new DefaultRandomProvider(), settings);
+        return new RailBaronGameEngine(mapDefinition, normalizedPlayers, new DefaultRandomProvider(), settings);
     }
 
-    private RailBaronGameEngine RestoreGameEngine(RailBaronGameState snapshot, Engine.Persistence.GameSettings settings)
+    private RailBaronGameEngine RestoreGameEngine(GameEntity gameEntity, RailBaronGameState snapshot, Engine.Persistence.GameSettings settings)
+    {
+        return RailBaronGameEngine.FromSnapshot(snapshot, ResolveMapDefinition(gameEntity), new DefaultRandomProvider(), settings);
+    }
+
+    private MapDefinition ResolveMapDefinition(GameEntity gameEntity)
     {
         if (_mapDefinition is null)
         {
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
-        return RailBaronGameEngine.FromSnapshot(snapshot, _mapDefinition, new DefaultRandomProvider(), settings);
+        return MapProbabilityService.ApplyCityProbabilities(_mapDefinition, gameEntity.CityProbabilityOverrides, gameEntity.RailroadPriceOverrides);
     }
 
     private async Task<GameEventEntity> PersistEventAsync(

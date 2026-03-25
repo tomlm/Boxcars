@@ -1,20 +1,34 @@
 @page "/games/new"
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components
 @using Boxcars.Data
+@using Boxcars.Engine.Data.Maps
 @using Boxcars.Engine.Domain
 @using Boxcars.Engine.Persistence
 @using MudBlazor
 @using Boxcars.Services
+@using Boxcars.Services.Maps
 @attribute [Authorize]
 @inject GameService GameService
 @inject PlayerProfileService ProfileService
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
+@inject IWebHostEnvironment WebHostEnvironment
 
 <PageTitle>Create Game - BoxCars</PageTitle>
+
+@if (IsBusy)
+{
+    <MudPaper Class="pa-4 mb-4" Outlined="true">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
+            <MudText Typo="Typo.body1">@BusyMessage</MudText>
+        </MudStack>
+    </MudPaper>
+}
 
 <MudStack Spacing="6">
     <MudText Typo="Typo.h3">Create Game</MudText>
@@ -33,6 +47,7 @@
                        Value="@_playerCount"
                        ValueChanged="OnPlayerCountChanged"
                        Variant="Variant.Outlined"
+                       Disabled="@IsBusy"
                        FullWidth="true">
                 @foreach (var count in _playerCountOptions)
                 {
@@ -56,12 +71,12 @@
                             <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowUp"
                                            Color="MudBlazor.Color.Primary"
                                            Size="Size.Small"
-                                           Disabled="@(index == 0 || _creating)"
+                                           Disabled="@(index == 0 || IsBusy)"
                                            OnClick="@(() => MovePlayer(slot, -1))" />
                             <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowDown"
                                            Color="MudBlazor.Color.Primary"
                                            Size="Size.Small"
-                                           Disabled="@(index == _playerSlots.Count - 1 || _creating)"
+                                           Disabled="@(index == _playerSlots.Count - 1 || IsBusy)"
                                            OnClick="@(() => MovePlayer(slot, 1))" />
                         </MudStack>
 
@@ -72,7 +87,7 @@
                                            Value="@slot.UserId"
                                            ValueChanged="@(value => OnPlayerChangedAsync(slot, value))"
                                            Variant="Variant.Outlined"
-                                           Disabled="@(slot.IsCreatorSeat || _creating)"
+                                           Disabled="@(slot.IsCreatorSeat || IsBusy)"
                                            FullWidth="true">
                                     @foreach (var profile in GetSelectablePlayers(slot))
                                     {
@@ -86,7 +101,7 @@
                                            Value="@slot.AssignedColor"
                                            ValueChanged="@(value => OnColorChanged(slot, value))"
                                            Variant="Variant.Outlined"
-                                           Disabled="@_creating"
+                                           Disabled="@IsBusy"
                                            FullWidth="true">
                                     @foreach (var color in PlayerColorOptions.Colors)
                                     {
@@ -98,6 +113,12 @@
                     </MudPaper>
                 }
             </MudStack>
+            <MudButton Variant="Variant.Outlined"
+                        Color="MudBlazor.Color.Secondary"
+                        Disabled="@IsBusy"
+                        OnClick="GenerateRandomCitiesAsync">
+                @(_generatingRandomCities ? "Generating..." : "Generate Random Cities")
+            </MudButton>
 
             <MudExpansionPanels>
                 <MudExpansionPanel Expanded="false">
@@ -107,50 +128,50 @@
                     <ChildContent>
                         <MudGrid>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Starting Cash" Value="@_settings.StartingCash" ValueChanged="@(value => UpdateSettings(_settings with { StartingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Starting Cash" Value="@_settings.StartingCash" ValueChanged="@(value => UpdateSettings(_settings with { StartingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Announcing Cash" Value="@_settings.AnnouncingCash" ValueChanged="@(value => UpdateSettings(_settings with { AnnouncingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Announcing Cash" Value="@_settings.AnnouncingCash" ValueChanged="@(value => UpdateSettings(_settings with { AnnouncingCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Winning Cash" Value="@_settings.WinningCash" ValueChanged="@(value => UpdateSettings(_settings with { WinningCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Winning Cash" Value="@_settings.WinningCash" ValueChanged="@(value => UpdateSettings(_settings with { WinningCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Rover Cash" Value="@_settings.RoverCash" ValueChanged="@(value => UpdateSettings(_settings with { RoverCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Rover Cash" Value="@_settings.RoverCash" ValueChanged="@(value => UpdateSettings(_settings with { RoverCash = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Public Fee" Value="@_settings.PublicFee" ValueChanged="@(value => UpdateSettings(_settings with { PublicFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Public Fee" Value="@_settings.PublicFee" ValueChanged="@(value => UpdateSettings(_settings with { PublicFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Private Fee" Value="@_settings.PrivateFee" ValueChanged="@(value => UpdateSettings(_settings with { PrivateFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Private Fee" Value="@_settings.PrivateFee" ValueChanged="@(value => UpdateSettings(_settings with { PrivateFee = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Unfriendly Fee 1" Value="@_settings.UnfriendlyFee1" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee1 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Unfriendly Fee 1" Value="@_settings.UnfriendlyFee1" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee1 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Unfriendly Fee 2" Value="@_settings.UnfriendlyFee2" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee2 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Unfriendly Fee 2" Value="@_settings.UnfriendlyFee2" ValueChanged="@(value => UpdateSettings(_settings with { UnfriendlyFee2 = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudSelect T="LocomotiveType" Label="Starting Engine" Value="@_settings.StartEngine" ValueChanged="@(value => UpdateSettings(_settings with { StartEngine = value }))" Variant="Variant.Outlined" Disabled="@_creating" FullWidth="true">
+                                <MudSelect T="LocomotiveType" Label="Starting Engine" Value="@_settings.StartEngine" ValueChanged="@(value => UpdateSettings(_settings with { StartEngine = value }))" Variant="Variant.Outlined" Disabled="@IsBusy" FullWidth="true">
                                     <MudSelectItem Value="@LocomotiveType.Freight">Freight</MudSelectItem>
                                     <MudSelectItem Value="@LocomotiveType.Express">Express</MudSelectItem>
                                     <MudSelectItem Value="@LocomotiveType.Superchief">Superchief</MudSelectItem>
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Express Price" Value="@_settings.ExpressPrice" ValueChanged="@(value => UpdateSettings(_settings with { ExpressPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Express Price" Value="@_settings.ExpressPrice" ValueChanged="@(value => UpdateSettings(_settings with { ExpressPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudNumericField T="int" Label="Superchief Price" Value="@_settings.SuperchiefPrice" ValueChanged="@(value => UpdateSettings(_settings with { SuperchiefPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@_creating" FullWidth="true" />
+                                <MudNumericField T="int" Label="Superchief Price" Value="@_settings.SuperchiefPrice" ValueChanged="@(value => UpdateSettings(_settings with { SuperchiefPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
                             <MudItem xs="12" md="4">
-                                <MudSwitch T="bool" Label="Keep Cash Secret" Value="@_settings.KeepCashSecret" ValueChanged="@(value => UpdateSettings(_settings with { KeepCashSecret = value }))" Disabled="@_creating" Color="Color.Primary" />
+                                <MudSwitch T="bool" Label="Keep Cash Secret" Value="@_settings.KeepCashSecret" ValueChanged="@(value => UpdateSettings(_settings with { KeepCashSecret = value }))" Disabled="@IsBusy" Color="Color.Primary" />
                             </MudItem>
                             <MudItem xs="12" md="4">
-                                <MudSwitch T="bool" Label="Home Swapping" Value="@_settings.HomeSwapping" ValueChanged="@(value => UpdateSettings(_settings with { HomeSwapping = value }))" Disabled="@_creating" Color="Color.Primary" />
+                                <MudSwitch T="bool" Label="Home Swapping" Value="@_settings.HomeSwapping" ValueChanged="@(value => UpdateSettings(_settings with { HomeSwapping = value }))" Disabled="@IsBusy" Color="Color.Primary" />
                             </MudItem>
                             <MudItem xs="12" md="4">
-                                <MudSwitch T="bool" Label="Home City Choice" Value="@_settings.HomeCityChoice" ValueChanged="@(value => UpdateSettings(_settings with { HomeCityChoice = value }))" Disabled="@_creating" Color="Color.Primary" />
+                                <MudSwitch T="bool" Label="Home City Choice" Value="@_settings.HomeCityChoice" ValueChanged="@(value => UpdateSettings(_settings with { HomeCityChoice = value }))" Disabled="@IsBusy" Color="Color.Primary" />
                             </MudItem>
                         </MudGrid>
                     </ChildContent>
@@ -166,13 +187,13 @@
                 <MudButton Variant="Variant.Filled"
                            Color="MudBlazor.Color.Primary"
                            OnClick="CreateGameAsync"
-                           Disabled="@_creating">
+                           Disabled="@IsBusy">
                     @(_creating ? "Creating..." : "Create Game")
                 </MudButton>
                 <MudButton Variant="Variant.Outlined"
                            Color="MudBlazor.Color.Primary"
                            OnClick='@(() => Navigation.NavigateTo("/dashboard"))'
-                           Disabled="@_creating">
+                           Disabled="@IsBusy">
                     Cancel
                 </MudButton>
             </MudStack>
@@ -187,10 +208,16 @@
     private List<int> _playerCountOptions = [2, 3, 4, 5, 6];
     private int _playerCount = 4;
     private bool _creating;
+    private bool _generatingRandomCities;
     private string? _validationMessage;
     private GameSettings _settings = GameSettings.Default;
     private string _mapFileName = GameService.DefaultMapFileName;
     private string? _appliedPresetPayload;
+    private IReadOnlyList<CityProbabilityOverride> _cityProbabilityOverrides = [];
+    private IReadOnlyList<RailroadPriceOverride> _railroadPriceOverrides = [];
+    private string _cityProbabilitySummary = "Using default city probabilities.";
+    private bool IsBusy => _creating || _generatingRandomCities;
+    private string BusyMessage => _creating ? "Creating game and saving settings..." : "Generating city probabilities and railroad prices...";
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -363,6 +390,8 @@
                 CreatorUserId = _currentUserId,
                 MapFileName = _mapFileName,
                 Settings = _settings,
+                CityProbabilityOverrides = _cityProbabilityOverrides,
+                RailroadPriceOverrides = _railroadPriceOverrides,
                 Players = _playerSlots.Select(slot => new GamePlayerSelection
                 {
                     UserId = slot.UserId,
@@ -446,6 +475,57 @@
         _validationMessage = null;
     }
 
+    private async Task GenerateRandomCitiesAsync()
+    {
+        _generatingRandomCities = true;
+
+        try
+        {
+            var configuredMapFile = string.IsNullOrWhiteSpace(_mapFileName)
+                ? GameService.DefaultMapFileName
+                : _mapFileName.Trim();
+            var mapPath = Path.Combine(WebHostEnvironment.ContentRootPath, configuredMapFile);
+            if (!File.Exists(mapPath))
+            {
+                Snackbar.Add($"Map file '{configuredMapFile}' was not found.", Severity.Error);
+                return;
+            }
+
+            await using var stream = File.OpenRead(mapPath);
+            var loadResult = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream, CancellationToken.None);
+            if (!loadResult.Succeeded || loadResult.Definition is null)
+            {
+                Snackbar.Add("Unable to load the map for probability generation.", Severity.Error);
+                return;
+            }
+
+            _cityProbabilityOverrides = MapProbabilityService.GenerateRandomCityProbabilities(loadResult.Definition);
+            var randomizedMap = MapProbabilityService.ApplyCityProbabilities(loadResult.Definition, _cityProbabilityOverrides);
+            _railroadPriceOverrides = randomizedMap.Railroads
+                .Select(railroad => new RailroadPriceOverride
+                {
+                    RailroadIndex = railroad.Index,
+                    PurchasePrice = railroad.PurchasePrice ?? 4_000
+                })
+                .ToList();
+            var regionCount = _cityProbabilityOverrides
+                .Select(overrideValue => overrideValue.RegionCode)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            _cityProbabilitySummary = $"Randomized {_cityProbabilityOverrides.Count:N0} city probabilities across {regionCount:N0} regions.";
+            _validationMessage = null;
+            Snackbar.Add("Random city probabilities generated.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _generatingRandomCities = false;
+        }
+    }
+
     private void ApplyReplayPreset()
     {
         if (string.IsNullOrWhiteSpace(Preset)
@@ -485,6 +565,11 @@
         _mapFileName = string.IsNullOrWhiteSpace(replayPreset.MapFileName)
             ? GameService.DefaultMapFileName
             : replayPreset.MapFileName;
+        _cityProbabilityOverrides = replayPreset.CityProbabilityOverrides;
+        _railroadPriceOverrides = replayPreset.RailroadPriceOverrides;
+        _cityProbabilitySummary = _cityProbabilityOverrides.Count == 0
+            ? "Using default city probabilities."
+            : $"Randomized {_cityProbabilityOverrides.Count:N0} city probabilities loaded from preset.";
         _playerSlots.Clear();
 
         for (var index = 0; index < presetPlayers.Count; index++)

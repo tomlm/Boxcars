@@ -34,6 +34,8 @@ public class GameEntity : ITableEntity
     public int? ExpressPrice { get; set; }
     public int? SettingsSchemaVersion { get; set; }
     public string SeatsJson { get; set; } = "[]";
+    public string CityProbabilityOverridesJson { get; set; } = "[]";
+    public string RailroadPriceOverridesJson { get; set; } = "[]";
 
     [IgnoreDataMember]
     [JsonIgnore]
@@ -41,5 +43,21 @@ public class GameEntity : ITableEntity
     {
         get => GameSeatDefinitionSerialization.Deserialize(SeatsJson);
         set => SeatsJson = GameSeatDefinitionSerialization.Serialize(value);
+    }
+
+    [IgnoreDataMember]
+    [JsonIgnore]
+    public IReadOnlyList<CityProbabilityOverride> CityProbabilityOverrides
+    {
+        get => CityProbabilityOverrideSerialization.Deserialize(CityProbabilityOverridesJson);
+        set => CityProbabilityOverridesJson = CityProbabilityOverrideSerialization.Serialize(value);
+    }
+
+    [IgnoreDataMember]
+    [JsonIgnore]
+    public IReadOnlyList<RailroadPriceOverride> RailroadPriceOverrides
+    {
+        get => RailroadPriceOverrideSerialization.Deserialize(RailroadPriceOverridesJson);
+        set => RailroadPriceOverridesJson = RailroadPriceOverrideSerialization.Serialize(value);
     }
 }

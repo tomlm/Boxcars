@@ -1,10 +1,10 @@
 using Azure;
 using Azure.Core;
 using Azure.Data.Tables;
-using Boxcars.Data;
-using Boxcars.Engine.Persistence;
-using Boxcars.GameEngine;
-using Boxcars.Services;
+using global::Boxcars.Data;
+using global::Boxcars.Engine.Persistence;
+using global::Boxcars.GameEngine;
+using global::Boxcars.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -76,6 +76,120 @@ public class GameEngineServiceCreateGameSettingsTests
         Assert.Equal(45_000, persistedGame.SuperchiefPrice);
         Assert.Equal(6_000, persistedGame.ExpressPrice);
         Assert.Equal(GameSettings.InitialSchemaVersion, persistedGame.SettingsSchemaVersion);
+    }
+
+    [Fact]
+    public async Task CreateGameAsync_PersistsCityProbabilityOverrides()
+    {
+        var presenceService = new GamePresenceService();
+        var gamesTable = new RecordingGamesTableClient();
+        var service = new GameEngineService(
+            new TestWebHostEnvironment(),
+            gamesTable,
+            presenceService,
+            BotTurnServiceTestHarness.CreateService(presenceService),
+            new GameSettingsResolver(),
+            Options.Create(new BotOptions()),
+            NullLogger<GameEngineService>.Instance);
+
+        SetMapReady(service);
+        SetMapDefinition(service, Boxcars.Engine.Tests.Fixtures.GameEngineFixture.CreateTestMap());
+
+        var overrides = new[]
+        {
+            new CityProbabilityOverride { CityName = "New York", RegionCode = "NE", Probability = 0.15 },
+            new CityProbabilityOverride { CityName = "Boston", RegionCode = "NE", Probability = 0.10 },
+            new CityProbabilityOverride { CityName = "Miami", RegionCode = "SE", Probability = 0.35 },
+            new CityProbabilityOverride { CityName = "Atlanta", RegionCode = "SE", Probability = 0.40 }
+        };
+
+        await service.CreateGameAsync(new CreateGameRequest
+        {
+            CreatorUserId = "creator@example.com",
+            Players =
+            [
+                new GamePlayerSelection { UserId = "creator@example.com", DisplayName = "Alice", Color = "red" },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "blue" }
+            ],
+            CityProbabilityOverrides = overrides
+        }, new GameCreationOptions { PreferredGameId = "game-1" }, CancellationToken.None);
+
+        var persistedGame = Assert.Single(gamesTable.GameEntities);
+        Assert.Collection(
+            persistedGame.CityProbabilityOverrides.OrderBy(entry => entry.CityName, StringComparer.Ordinal),
+            entry =>
+            {
+                Assert.Equal("Atlanta", entry.CityName);
+                Assert.Equal("SE", entry.RegionCode);
+                Assert.Equal(0.40, entry.Probability, 6);
+            },
+            entry =>
+            {
+                Assert.Equal("Boston", entry.CityName);
+                Assert.Equal("NE", entry.RegionCode);
+                Assert.Equal(0.10, entry.Probability, 6);
+            },
+            entry =>
+            {
+                Assert.Equal("Miami", entry.CityName);
+                Assert.Equal("SE", entry.RegionCode);
+                Assert.Equal(0.35, entry.Probability, 6);
+            },
+            entry =>
+            {
+                Assert.Equal("New York", entry.CityName);
+                Assert.Equal("NE", entry.RegionCode);
+                Assert.Equal(0.15, entry.Probability, 6);
+            });
+    }
+
+    [Fact]
+    public async Task CreateGameAsync_PersistsRailroadPriceOverrides()
+    {
+        var presenceService = new GamePresenceService();
+        var gamesTable = new RecordingGamesTableClient();
+        var service = new GameEngineService(
+            new TestWebHostEnvironment(),
+            gamesTable,
+            presenceService,
+            BotTurnServiceTestHarness.CreateService(presenceService),
+            new GameSettingsResolver(),
+            Options.Create(new BotOptions()),
+            NullLogger<GameEngineService>.Instance);
+
+        SetMapReady(service);
+        SetMapDefinition(service, Boxcars.Engine.Tests.Fixtures.GameEngineFixture.CreateTestMap());
+
+        var overrides = new[]
+        {
+            new RailroadPriceOverride { RailroadIndex = 0, PurchasePrice = 4_000 },
+            new RailroadPriceOverride { RailroadIndex = 1, PurchasePrice = 57_500 }
+        };
+
+        await service.CreateGameAsync(new CreateGameRequest
+        {
+            CreatorUserId = "creator@example.com",
+            Players =
+            [
+                new GamePlayerSelection { UserId = "creator@example.com", DisplayName = "Alice", Color = "red" },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "blue" }
+            ],
+            RailroadPriceOverrides = overrides
+        }, new GameCreationOptions { PreferredGameId = "game-1" }, CancellationToken.None);
+
+        var persistedGame = Assert.Single(gamesTable.GameEntities);
+        Assert.Collection(
+            persistedGame.RailroadPriceOverrides.OrderBy(entry => entry.RailroadIndex),
+            entry =>
+            {
+                Assert.Equal(0, entry.RailroadIndex);
+                Assert.Equal(4_000, entry.PurchasePrice);
+            },
+            entry =>
+            {
+                Assert.Equal(1, entry.RailroadIndex);
+                Assert.Equal(57_500, entry.PurchasePrice);
+            });
     }
 
     private static void SetMapDefinition(GameEngineService service, Boxcars.Engine.Data.Maps.MapDefinition mapDefinition)

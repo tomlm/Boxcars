@@ -566,6 +566,8 @@
             {
                 MapFileName = gameEntity.MapFileName,
                 Settings = GameSettingsResolver.Resolve(gameEntity).Settings,
+                CityProbabilityOverrides = gameEntity.CityProbabilityOverrides,
+                RailroadPriceOverrides = gameEntity.RailroadPriceOverrides,
                 Players = GameSeatStateProjection.BuildSeatSelections(playerStates)
             });
 
@@ -1539,7 +1541,7 @@
         var loadResult = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream, cancellationToken);
         if (loadResult.Succeeded)
         {
-            var mapDefinition = loadResult.Definition!;
+            var mapDefinition = MapProbabilityService.ApplyCityProbabilities(loadResult.Definition!, _game?.CityProbabilityOverrides, _game?.RailroadPriceOverrides);
             _playerBoardMapDefinition = mapDefinition;
             _mapAnalysisReport = MapAnalysisService.BuildReport(mapDefinition);
         }

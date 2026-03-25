@@ -26,6 +26,8 @@ public sealed record CreateGameRequest
     public string MapFileName { get; init; } = "U21MAP.RB3";
     public IReadOnlyList<GamePlayerSelection> Players { get; init; } = [];
     public GameSettings Settings { get; init; } = GameSettings.Default;
+    public IReadOnlyList<CityProbabilityOverride> CityProbabilityOverrides { get; init; } = [];
+    public IReadOnlyList<RailroadPriceOverride> RailroadPriceOverrides { get; init; } = [];
 
     public int MaxPlayers => Players.Count;
 }
@@ -35,6 +37,21 @@ public sealed record ReplayGamePreset
     public string MapFileName { get; init; } = "U21MAP.RB3";
     public IReadOnlyList<GamePlayerSelection> Players { get; init; } = [];
     public GameSettings Settings { get; init; } = GameSettings.Default;
+    public IReadOnlyList<CityProbabilityOverride> CityProbabilityOverrides { get; init; } = [];
+    public IReadOnlyList<RailroadPriceOverride> RailroadPriceOverrides { get; init; } = [];
+}
+
+public sealed record CityProbabilityOverride
+{
+    public string CityName { get; init; } = string.Empty;
+    public string RegionCode { get; init; } = string.Empty;
+    public double Probability { get; init; }
+}
+
+public sealed record RailroadPriceOverride
+{
+    public int RailroadIndex { get; init; }
+    public int PurchasePrice { get; init; }
 }
 
 public enum EventTimelineKind
@@ -96,6 +113,42 @@ public static class GameSeatDefinitionSerialization
         }
 
         return JsonSerializer.Deserialize<List<GameSeatDefinition>>(payload) ?? [];
+    }
+}
+
+public static class CityProbabilityOverrideSerialization
+{
+    public static string Serialize(IReadOnlyList<CityProbabilityOverride> overrides)
+    {
+        return JsonSerializer.Serialize(overrides);
+    }
+
+    public static IReadOnlyList<CityProbabilityOverride> Deserialize(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<CityProbabilityOverride>>(payload) ?? [];
+    }
+}
+
+public static class RailroadPriceOverrideSerialization
+{
+    public static string Serialize(IReadOnlyList<RailroadPriceOverride> overrides)
+    {
+        return JsonSerializer.Serialize(overrides);
+    }
+
+    public static IReadOnlyList<RailroadPriceOverride> Deserialize(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<RailroadPriceOverride>>(payload) ?? [];
     }
 }
 
