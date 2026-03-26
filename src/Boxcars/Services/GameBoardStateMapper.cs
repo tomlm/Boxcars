@@ -592,16 +592,17 @@ public sealed class GameBoardStateMapper(
             return null;
         }
 
+        var cashAfterPayout = state.Turn.ArrivalResolution?.CashAfterPayout ?? activePlayer.Cash;
         var currentCoverage = mapDefinition is null
             ? null
             : networkCoverageService.BuildSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices);
-        var engineOptions = BuildEligibleEngineOptions(activePlayer, gameEntity);
+        var engineOptions = BuildEligibleEngineOptions(activePlayer, cashAfterPayout, gameEntity);
         var affordableRailroadOptions = mapDefinition is null
             ? []
-            : BuildAffordableRailroadOptions(state, mapDefinition, activePlayer.Cash);
+            : BuildAffordableRailroadOptions(state, mapDefinition, cashAfterPayout);
         var railroadOptions = mapDefinition is null
             ? []
-            : BuildAvailableRailroadOptions(state, mapDefinition, activePlayer.Cash);
+            : BuildAvailableRailroadOptions(state, mapDefinition, cashAfterPayout);
         var taskbarOptions = railroadOptions
             .Select(railroadOption => new PurchaseOptionModel
             {
@@ -659,10 +660,10 @@ public sealed class GameBoardStateMapper(
         {
             PlayerIndex = activePlayerIndex,
             PlayerName = activePlayer.Name,
-            CashAvailable = activePlayer.Cash,
+            CashAvailable = cashAfterPayout,
             DestinationCityName = state.Turn.ArrivalResolution?.DestinationCityName ?? string.Empty,
             PayoutAmount = state.Turn.ArrivalResolution?.PayoutAmount ?? 0,
-            CashAfterPayout = state.Turn.ArrivalResolution?.CashAfterPayout ?? activePlayer.Cash,
+            CashAfterPayout = cashAfterPayout,
             RailroadOptions = railroadOptions,
             EngineOptions = engineOptions,
             TaskbarOptions = taskbarOptions,
@@ -720,7 +721,7 @@ public sealed class GameBoardStateMapper(
             .ToList();
     }
 
-    private List<EngineUpgradeOption> BuildEligibleEngineOptions(PlayerStateSnapshot activePlayer, GameEntity? gameEntity)
+    private List<EngineUpgradeOption> BuildEligibleEngineOptions(PlayerStateSnapshot activePlayer, int cashAvailable, GameEntity? gameEntity)
     {
         var currentEngineType = ParseLocomotiveType(activePlayer.LocomotiveType);
         var settings = gameEntity is null
@@ -737,7 +738,7 @@ public sealed class GameBoardStateMapper(
                     DisplayName = targetEngineType.ToString(),
                     PurchasePrice = price,
                     CurrentEngineType = currentEngineType,
-                    IsEligible = price > 0 && activePlayer.Cash >= price
+                    IsEligible = price > 0 && cashAvailable >= price
                 };
             })
             .Where(option => option.PurchasePrice > 0)
@@ -1077,20 +1078,32 @@ public sealed class GameBoardStateMapper(
             NetworkTab = new NetworkTabModel
             {
                 PlayerName = activePlayer.Name,
+                CurrentAccessPercent = currentNetwork?.AccessibleDestinationPercent ?? 0m,
+                CurrentMonopolyPercent = currentNetwork?.MonopolyDestinationPercent ?? 0m,
                 RailroadSummaries = saleCandidates
-                    .Select(candidate => new NetworkRailroadSummaryModel
+                    .Select(candidate =>
                     {
-                        RailroadIndex = candidate.RailroadIndex,
-                        RailroadName = candidate.RailroadName,
-                        OriginalPurchasePrice = candidate.OriginalPurchasePrice,
-                        AccessPercentWithCurrentOwnership = currentNetwork?.AccessibleCityPercent ?? 0m,
-                        MonopolyPercentWithCurrentOwnership = currentNetwork?.MonopolyCityPercent ?? 0m,
-                        AccessPercentIfSold = mapDefinition is null
+                        var projectedCoverage = mapDefinition is null
                             ? null
-                            : networkCoverageService.BuildProjectedSnapshotAfterSale(mapDefinition, activePlayer.OwnedRailroadIndices, candidate.RailroadIndex).AccessibleCityPercent,
-                        MonopolyPercentIfSold = mapDefinition is null
-                            ? null
-                            : networkCoverageService.BuildProjectedSnapshotAfterSale(mapDefinition, activePlayer.OwnedRailroadIndices, candidate.RailroadIndex).MonopolyCityPercent
+                            : networkCoverageService.BuildProjectedSnapshotAfterSale(mapDefinition, activePlayer.OwnedRailroadIndices, candidate.RailroadIndex);
+
+                        return new NetworkRailroadSummaryModel
+                        {
+                            RailroadIndex = candidate.RailroadIndex,
+                            RailroadName = candidate.RailroadName,
+                            OriginalPurchasePrice = candidate.OriginalPurchasePrice,
+                            BankSalePrice = candidate.BankSalePrice,
+                            AccessPercentAfterSale = projectedCoverage?.AccessibleDestinationPercent ?? 0m,
+                            MonopolyPercentAfterSale = projectedCoverage?.MonopolyDestinationPercent ?? 0m,
+                            AccessDeltaPercentAfterSale = Math.Round(
+                                (projectedCoverage?.AccessibleDestinationPercent ?? 0m) - (currentNetwork?.AccessibleDestinationPercent ?? 0m),
+                                1,
+                                MidpointRounding.AwayFromZero),
+                            MonopolyDeltaPercentAfterSale = Math.Round(
+                                (projectedCoverage?.MonopolyDestinationPercent ?? 0m) - (currentNetwork?.MonopolyDestinationPercent ?? 0m),
+                                1,
+                                MidpointRounding.AwayFromZero)
+                        };
                     })
                     .ToList(),
                 SelectedRailroadImpact = effectiveSelectedRailroadIndex is int selectedCandidateRailroadIndex && currentNetwork is not null && projectedNetworkAfterSale is not null

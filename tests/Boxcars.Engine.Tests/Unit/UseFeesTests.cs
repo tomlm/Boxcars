@@ -135,6 +135,27 @@ public class UseFeesTests
     }
 
     [Fact]
+    public void BuyRailroad_WhenAnotherPlayerIsNotConnectedToThatRailroad_DoesNotGrandfatherThatPlayer()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var purchasedRailroad = engine.Railroads.First(rr => rr.Index == 1);
+
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "New York", StringComparison.Ordinal));
+
+        engine.CurrentTurn.ActivePlayer = owner;
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        owner.Cash = 100_000;
+
+        engine.BuyRailroad(purchasedRailroad);
+
+        Assert.DoesNotContain(purchasedRailroad.Index, rider.GrandfatheredRailroadIndices);
+        Assert.False(rider.GrandfatheredRailroadFees.ContainsKey(purchasedRailroad.Index));
+    }
+
+    [Fact]
     public void BuyRailroad_GrandfatheringAtPublicRate_SurvivesDestinationAndTurnBoundary()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();

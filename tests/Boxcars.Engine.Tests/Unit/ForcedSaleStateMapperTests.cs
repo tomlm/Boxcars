@@ -50,6 +50,19 @@ public class ForcedSaleStateMapperTests
         Assert.NotNull(state.ForcedSalePhase!.ProjectedNetworkAfterSale);
         Assert.True(state.ForcedSalePhase.ProjectedNetworkAfterSale!.AccessibleCityPercent < state.ForcedSalePhase.CurrentNetwork!.AccessibleCityPercent);
         Assert.NotNull(state.ForcedSalePhase.NetworkTab.SelectedRailroadImpact);
-        Assert.Contains(state.ForcedSalePhase.NetworkTab.RailroadSummaries, summary => summary.RailroadIndex == firstRailroad.Index && summary.AccessPercentIfSold.HasValue);
+        Assert.Equal(state.ForcedSalePhase.CurrentNetwork.AccessibleDestinationPercent, state.ForcedSalePhase.NetworkTab.CurrentAccessPercent);
+        Assert.Equal(state.ForcedSalePhase.CurrentNetwork.MonopolyDestinationPercent, state.ForcedSalePhase.NetworkTab.CurrentMonopolyPercent);
+        var firstRailroadSummary = Assert.Single(
+            state.ForcedSalePhase.NetworkTab.RailroadSummaries.Where(summary => summary.RailroadIndex == firstRailroad.Index));
+
+        Assert.Equal(firstRailroad.PurchasePrice / 2, firstRailroadSummary.BankSalePrice);
+        Assert.Equal(state.ForcedSalePhase.ProjectedNetworkAfterSale.AccessibleDestinationPercent, firstRailroadSummary.AccessPercentAfterSale);
+        Assert.Equal(state.ForcedSalePhase.ProjectedNetworkAfterSale.MonopolyDestinationPercent, firstRailroadSummary.MonopolyPercentAfterSale);
+        Assert.Equal(
+            Math.Round(
+                state.ForcedSalePhase.ProjectedNetworkAfterSale.AccessibleDestinationPercent - state.ForcedSalePhase.CurrentNetwork.AccessibleDestinationPercent,
+                1,
+                MidpointRounding.AwayFromZero),
+            firstRailroadSummary.AccessDeltaPercentAfterSale);
     }
 }

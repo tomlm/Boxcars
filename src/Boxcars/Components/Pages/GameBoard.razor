@@ -2095,11 +2095,17 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             var projectedCoverageByRailroad = unownedRailroadIndices.ToDictionary(
                 railroadIndex => railroadIndex,
                 railroadIndex => NetworkCoverageService.BuildProjectedSnapshot(_playerBoardMapDefinition, ownedRailroadIndices, railroadIndex));
+            var effectivePurchaseCash = GetEffectivePurchaseCash(effectivePlayerIndex);
+            var affordableRailroadIndices = _playerBoardMapDefinition.Railroads
+                .Where(railroad => unownedRailroadIndices.Contains(railroad.Index))
+                .Where(railroad => (railroad.PurchasePrice ?? RailBaronGameEngine.GetRailroadPurchasePrice(railroad.Index)) <= effectivePurchaseCash)
+                .Select(railroad => railroad.Index)
+                .ToList();
 
             return new RecommendationInputSet
             {
                 MapAnalysisReport = CurrentMapAnalysisReport,
-                AffordableRailroadIndices = baseInputs?.AffordableRailroadIndices ?? [],
+                AffordableRailroadIndices = baseInputs?.AffordableRailroadIndices ?? affordableRailroadIndices,
                 UnownedRailroadIndices = baseInputs?.UnownedRailroadIndices ?? unownedRailroadIndices,
                 EligibleEngineTypes = baseInputs?.EligibleEngineTypes ?? [],
                 CurrentCoverage = currentCoverage,
@@ -2403,10 +2409,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                         RailroadIndex = railroad.Index,
                         RailroadName = railroad.Name,
                         OriginalPurchasePrice = purchasePrice,
-                        AccessPercentWithCurrentOwnership = currentCoverage.AccessibleCityPercent,
-                        MonopolyPercentWithCurrentOwnership = currentCoverage.MonopolyCityPercent,
-                        AccessPercentIfSold = projectedCoverage.AccessibleCityPercent,
-                        MonopolyPercentIfSold = projectedCoverage.MonopolyCityPercent
+                        BankSalePrice = purchasePrice / 2,
+                        AccessPercentAfterSale = projectedCoverage.AccessibleDestinationPercent,
+                        MonopolyPercentAfterSale = projectedCoverage.MonopolyDestinationPercent,
+                        AccessDeltaPercentAfterSale = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
+                        MonopolyDeltaPercentAfterSale = Math.Round(projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent, 1, MidpointRounding.AwayFromZero)
                     };
                 })
                 .ToList();
@@ -2414,6 +2421,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return new NetworkTabModel
             {
                 PlayerName = player.Name,
+                CurrentAccessPercent = currentCoverage.AccessibleDestinationPercent,
+                CurrentMonopolyPercent = currentCoverage.MonopolyDestinationPercent,
                 RailroadSummaries = summaries
             };
         }
@@ -2553,6 +2562,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         var effectivePlayer = _gameState.Players[effectivePlayerIndex];
+        var effectivePurchaseCash = GetEffectivePurchaseCash(effectivePlayerIndex);
         var railroad = _playerBoardMapDefinition.Railroads.FirstOrDefault(entry => entry.Index == railroadIndex);
         if (railroad is null)
         {
@@ -2587,7 +2597,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             var ownerName = ownerIndex.Value >= 0 && ownerIndex.Value < _gameState.Players.Count
                 ? _gameState.Players[ownerIndex.Value].Name
                 : "another player";
-            var canAffordAuctionOpeningBid = effectivePlayer.Cash >= bankSalePrice;
+            var canAffordAuctionOpeningBid = effectivePurchaseCash >= bankSalePrice;
 
             return new RailroadOverlayInfo
             {
@@ -2602,7 +2612,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             };
         }
 
-        var isAffordable = effectivePlayer.Cash >= purchasePrice;
+        var isAffordable = effectivePurchaseCash >= purchasePrice;
         return new RailroadOverlayInfo
         {
             RailroadIndex = railroad.Index,
@@ -2631,7 +2641,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 return [];
             }
 
-            var cashAvailable = _gameState.Players[effectivePlayerIndex].Cash;
+            var cashAvailable = GetEffectivePurchaseCash(effectivePlayerIndex);
             return _playerBoardMapDefinition.Railroads
                 .Where(railroad => !_gameState.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null)
                 .Select(railroad =>
@@ -2651,6 +2661,29 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 .ThenBy(option => option.RailroadName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
+    }
+
+    private int GetEffectivePurchaseCash(int playerIndex)
+    {
+        if (_gameState is null || playerIndex < 0 || playerIndex >= _gameState.Players.Count)
+        {
+            return 0;
+        }
+
+        if (CurrentPurchasePhase is not null && CurrentPurchasePhase.PlayerIndex == playerIndex)
+        {
+            return CurrentPurchasePhase.CashAfterPayout;
+        }
+
+        var player = _gameState.Players[playerIndex];
+        if (playerIndex != _gameState.ActivePlayerIndex
+            || !string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+            || !SelectionReachesDestination())
+        {
+            return player.Cash;
+        }
+
+        return Math.Max(0, player.Cash - CurrentRouteFees + CalculateTripPayoff(player));
     }
 
     private static List<RailroadOverlayMetricRow> BuildOverlayMetricRows(

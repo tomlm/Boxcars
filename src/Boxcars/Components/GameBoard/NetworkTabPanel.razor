@@ -8,6 +8,11 @@
         <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@BuildOwnerLabel()</MudChip>
     </MudStack>
 
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+        <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">% Access: @FormatPercent(NetworkTab.CurrentAccessPercent)</MudChip>
+        <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">% Monopoly: @FormatPercent(NetworkTab.CurrentMonopolyPercent)</MudChip>
+    </MudStack>
+
     @if (NetworkTab.RailroadSummaries.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Dense="true">
@@ -19,11 +24,12 @@
         <MudTable T="NetworkRailroadSummaryModel" Items="NetworkTab.RailroadSummaries" Dense="true" Hover="true" Style="width: fit-content; max-width: 100%">
             <HeaderContent>
                 <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.RailroadName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.OriginalPurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.AccessPercentWithCurrentOwnership)"><strong>Access %</strong></MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.MonopolyPercentWithCurrentOwnership)"><strong>Monopoly %</strong></MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => GetAccessDelta(row))"><strong>Player Access</strong></MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => GetMonopolyDelta(row))"><strong>Player Monopoly</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.OriginalPurchasePrice)"><strong>Original Value</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.BankSalePrice)"><strong>Bank Value</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.AccessPercentAfterSale)"><strong>% Access After</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.MonopolyPercentAfterSale)"><strong>% Monopoly After</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.AccessDeltaPercentAfterSale)"><strong>% Access Delta After</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.MonopolyDeltaPercentAfterSale)"><strong>% Monopoly Delta After</strong></MudTableSortLabel></MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd>
@@ -36,16 +42,17 @@
                     </MudStack>
                 </MudTd>
                 <MudTd>@FormatCurrency(context.OriginalPurchasePrice)</MudTd>
-                <MudTd>@FormatPercent(context.AccessPercentWithCurrentOwnership)</MudTd>
-                <MudTd>@FormatPercent(context.MonopolyPercentWithCurrentOwnership)</MudTd>
+                <MudTd>@FormatCurrency(context.BankSalePrice)</MudTd>
+                <MudTd>@FormatPercent(context.AccessPercentAfterSale)</MudTd>
+                <MudTd>@FormatPercent(context.MonopolyPercentAfterSale)</MudTd>
                 <MudTd>
-                    <MudText Typo="Typo.body2" Color="@GetDeltaColor(GetAccessDelta(context))">
-                        @FormatSignedOptionalPercent(GetAccessDelta(context))
+                    <MudText Typo="Typo.body2" Color="@GetDeltaColor(context.AccessDeltaPercentAfterSale)">
+                        @FormatSignedPercent(context.AccessDeltaPercentAfterSale)
                     </MudText>
                 </MudTd>
                 <MudTd>
-                    <MudText Typo="Typo.body2" Color="@GetDeltaColor(GetMonopolyDelta(context))">
-                        @FormatSignedOptionalPercent(GetMonopolyDelta(context))
+                    <MudText Typo="Typo.body2" Color="@GetDeltaColor(context.MonopolyDeltaPercentAfterSale)">
+                        @FormatSignedPercent(context.MonopolyDeltaPercentAfterSale)
                     </MudText>
                 </MudTd>
             </RowTemplate>
@@ -86,44 +93,20 @@
         return $"${Math.Max(0, value):N0}";
     }
 
-    private static decimal? GetAccessDelta(NetworkRailroadSummaryModel summary)
+    private static string FormatSignedPercent(decimal value)
     {
-        return summary.AccessPercentIfSold.HasValue
-            ? Math.Round(summary.AccessPercentIfSold.Value - summary.AccessPercentWithCurrentOwnership, 1, MidpointRounding.AwayFromZero)
-            : null;
+        var formattedValue = value.ToString("0.#", CultureInfo.InvariantCulture);
+        return value >= 0m ? $"+{formattedValue}%" : $"{formattedValue}%";
     }
 
-    private static decimal? GetMonopolyDelta(NetworkRailroadSummaryModel summary)
+    private static Color GetDeltaColor(decimal value)
     {
-        return summary.MonopolyPercentIfSold.HasValue
-            ? Math.Round(summary.MonopolyPercentIfSold.Value - summary.MonopolyPercentWithCurrentOwnership, 1, MidpointRounding.AwayFromZero)
-            : null;
-    }
-
-    private static string FormatSignedOptionalPercent(decimal? value)
-    {
-        if (!value.HasValue)
-        {
-            return "-";
-        }
-
-        var formattedValue = value.Value.ToString("0.#", CultureInfo.InvariantCulture);
-        return value.Value >= 0m ? $"+{formattedValue}%" : $"{formattedValue}%";
-    }
-
-    private static Color GetDeltaColor(decimal? value)
-    {
-        if (!value.HasValue)
-        {
-            return Color.Default;
-        }
-
-        if (value.Value > 0m)
+        if (value > 0m)
         {
             return Color.Success;
         }
 
-        if (value.Value < 0m)
+        if (value < 0m)
         {
             return Color.Error;
         }

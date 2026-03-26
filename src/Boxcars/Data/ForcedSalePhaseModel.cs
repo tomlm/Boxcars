@@ -50,6 +50,10 @@ public sealed class NetworkTabModel
 {
     public string PlayerName { get; init; } = string.Empty;
 
+    public decimal CurrentAccessPercent { get; init; }
+
+    public decimal CurrentMonopolyPercent { get; init; }
+
     public IReadOnlyList<NetworkRailroadSummaryModel> RailroadSummaries { get; init; } = [];
 
     public RailroadOverlayInfo? SelectedRailroadImpact { get; init; }
@@ -63,13 +67,15 @@ public sealed class NetworkRailroadSummaryModel
 
     public int OriginalPurchasePrice { get; init; }
 
-    public decimal AccessPercentWithCurrentOwnership { get; init; }
+    public int BankSalePrice { get; init; }
 
-    public decimal MonopolyPercentWithCurrentOwnership { get; init; }
+    public decimal AccessPercentAfterSale { get; init; }
 
-    public decimal? AccessPercentIfSold { get; init; }
+    public decimal MonopolyPercentAfterSale { get; init; }
 
-    public decimal? MonopolyPercentIfSold { get; init; }
+    public decimal AccessDeltaPercentAfterSale { get; init; }
+
+    public decimal MonopolyDeltaPercentAfterSale { get; init; }
 }
 
 public enum AuctionParticipantActionModel
