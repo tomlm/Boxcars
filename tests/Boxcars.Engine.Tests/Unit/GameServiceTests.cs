@@ -1,8 +1,11 @@
 using System.Net;
+using System.Linq.Expressions;
 using Azure;
 using Azure.Core;
 using Azure.Data.Tables;
 using Boxcars.Data;
+using Boxcars.Engine.Domain;
+using Boxcars.Engine.Persistence;
 using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Services;
@@ -61,10 +64,64 @@ public class GameServiceTests
         Assert.Equal(updatedPlayerState.BotControlActivatedUtc, seatState.BotControlActivatedUtc);
     }
 
-    private sealed class FakeGamesTableClient(GameEntity gameEntity, params GamePlayerStateEntity[] playerStates) : TableClient
+    [Fact]
+    public async Task GetDashboardStateAsync_ReturnsOnlyActiveGamesForParticipant()
     {
-        public GameEntity GameEntity { get; private set; } = Clone(gameEntity);
+        var lobbyGame = CreateGame("game-lobby", PersistedGameStates.Lobby, "alice@example.com", "bob@example.com");
+        var playingGame = CreateGame("game-playing", PersistedGameStates.Playing, "alice@example.com", "carol@example.com");
+        var completedGame = CreateGame("game-completed", PersistedGameStates.Playing, "alice@example.com", "dave@example.com");
+        var otherPlayersGame = CreateGame("game-other", PersistedGameStates.Lobby, "eve@example.com", "frank@example.com");
+        var gamesTable = new FakeGamesTableClient(
+            [lobbyGame, playingGame, completedGame, otherPlayersGame],
+            [],
+            [CreateSnapshotEvent("game-playing", GameStatus.InProgress), CreateSnapshotEvent("game-completed", GameStatus.Completed)]);
+        var service = new GameService(gamesTable, new FakeUsersTableClient(), new FakeHubContext(), new FakeGameEngine());
+
+        var result = await service.GetDashboardStateAsync("alice@example.com", CancellationToken.None);
+
+        Assert.Collection(
+            result.Games,
+            game =>
+            {
+                Assert.Equal("game-lobby", game.GameId);
+                Assert.Equal(PersistedGameStates.Lobby, game.State);
+            },
+            game =>
+            {
+                Assert.Equal("game-playing", game.GameId);
+                Assert.Equal(PersistedGameStates.Playing, game.State);
+            });
+    }
+
+    [Fact]
+    public async Task JoinGameAsync_CompletedGame_ReturnsInactiveFailure()
+    {
+        var completedGame = CreateGame("game-completed", PersistedGameStates.Playing, "alice@example.com", "bob@example.com");
+        var gamesTable = new FakeGamesTableClient(
+            [completedGame],
+            [],
+            [CreateSnapshotEvent("game-completed", GameStatus.Completed)]);
+        var service = new GameService(gamesTable, new FakeUsersTableClient(), new FakeHubContext(), new FakeGameEngine());
+
+        var result = await service.JoinGameAsync("alice@example.com", "game-completed", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("This game is no longer active.", result.Reason);
+    }
+
+    private sealed class FakeGamesTableClient(
+        IReadOnlyList<GameEntity> games,
+        IReadOnlyList<GamePlayerStateEntity> playerStates,
+        IReadOnlyList<GameEventEntity> gameEvents) : TableClient
+    {
+        public List<GameEntity> Games { get; } = games.Select(Clone).ToList();
         public List<GamePlayerStateEntity> PlayerStates { get; } = playerStates.Select(Clone).ToList();
+        public List<GameEventEntity> GameEvents { get; } = gameEvents.Select(Clone).ToList();
+
+        public FakeGamesTableClient(GameEntity gameEntity, params GamePlayerStateEntity[] playerStates)
+            : this([gameEntity], playerStates, [])
+        {
+        }
 
         public override Task<Response<T>> GetEntityAsync<T>(
             string partitionKey,
@@ -74,13 +131,16 @@ public class GameServiceTests
         {
             if (typeof(T) == typeof(GameEntity))
             {
-                if (!string.Equals(partitionKey, GameEntity.PartitionKey, StringComparison.Ordinal)
-                    || !string.Equals(rowKey, GameEntity.RowKey, StringComparison.Ordinal))
+                var gameEntity = Games.SingleOrDefault(game =>
+                    string.Equals(partitionKey, game.PartitionKey, StringComparison.Ordinal)
+                    && string.Equals(rowKey, game.RowKey, StringComparison.Ordinal));
+
+                if (gameEntity is null)
                 {
                     throw new RequestFailedException((int)HttpStatusCode.NotFound, "Entity was not found.");
                 }
 
-                return Task.FromResult(Response.FromValue((T)(ITableEntity)Clone(GameEntity), new FakeResponse((int)HttpStatusCode.OK)));
+                return Task.FromResult(Response.FromValue((T)(ITableEntity)Clone(gameEntity), new FakeResponse((int)HttpStatusCode.OK)));
             }
 
             if (typeof(T) == typeof(GamePlayerStateEntity))
@@ -101,6 +161,31 @@ public class GameServiceTests
         }
 
         public override AsyncPageable<T> QueryAsync<T>(
+            Expression<Func<T, bool>> filter,
+            int? maxPerPage = null,
+            IEnumerable<string>? select = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (typeof(T) == typeof(GameEntity))
+            {
+                var values = Games
+                    .Select(Clone)
+                    .Cast<T>()
+                    .ToList();
+
+                return AsyncPageable<T>.FromPages(
+                [
+                    Page<T>.FromValues(values, continuationToken: null, new FakeResponse((int)HttpStatusCode.OK))
+                ]);
+            }
+
+            return AsyncPageable<T>.FromPages(
+            [
+                Page<T>.FromValues([], continuationToken: null, new FakeResponse((int)HttpStatusCode.OK))
+            ]);
+        }
+
+        public override AsyncPageable<T> QueryAsync<T>(
             string? filter = null,
             int? maxPerPage = null,
             IEnumerable<string>? select = null,
@@ -109,6 +194,20 @@ public class GameServiceTests
             if (typeof(T) == typeof(GamePlayerStateEntity))
             {
                 var values = PlayerStates
+                    .Select(Clone)
+                    .Cast<T>()
+                    .ToList();
+
+                return AsyncPageable<T>.FromPages(
+                [
+                    Page<T>.FromValues(values, continuationToken: null, new FakeResponse((int)HttpStatusCode.OK))
+                ]);
+            }
+
+            if (typeof(T) == typeof(GameEventEntity))
+            {
+                var values = GameEvents
+                    .Where(gameEvent => string.IsNullOrWhiteSpace(filter) || string.Equals(gameEvent.PartitionKey, ExtractPartitionKey(filter), StringComparison.Ordinal))
                     .Select(Clone)
                     .Cast<T>()
                     .ToList();
@@ -359,8 +458,94 @@ public class GameServiceTests
         };
     }
 
+    private static GameEventEntity Clone(GameEventEntity entity)
+    {
+        return new GameEventEntity
+        {
+            PartitionKey = entity.PartitionKey,
+            RowKey = entity.RowKey,
+            Timestamp = entity.Timestamp,
+            ETag = entity.ETag,
+            GameId = entity.GameId,
+            EventKind = entity.EventKind,
+            EventData = entity.EventData,
+            PreviewRouteNodeIdsJson = entity.PreviewRouteNodeIdsJson,
+            PreviewRouteSegmentKeysJson = entity.PreviewRouteSegmentKeysJson,
+            SerializedGameState = entity.SerializedGameState,
+            ChangeSummary = entity.ChangeSummary,
+            OccurredUtc = entity.OccurredUtc,
+            CreatedBy = entity.CreatedBy,
+            ActingUserId = entity.ActingUserId,
+            ActingPlayerIndex = entity.ActingPlayerIndex
+        };
+    }
+
     private static GamePlayerStateEntity Clone(GamePlayerStateEntity entity)
     {
         return GamePlayerStateProjection.Clone(entity);
+    }
+
+    private static GameEntity CreateGame(string gameId, string state, params string[] playerUserIds)
+    {
+        return new GameEntity
+        {
+            PartitionKey = gameId,
+            RowKey = "GAME",
+            GameId = gameId,
+            Name = gameId,
+            CreatorId = playerUserIds[0],
+            State = state,
+            CreatedAt = new DateTimeOffset(2026, 3, 26, 0, 0, 0, TimeSpan.Zero),
+            Seats = playerUserIds
+                .Select((userId, index) => new GameSeatDefinition
+                {
+                    SeatIndex = index,
+                    PlayerUserId = userId,
+                    DisplayName = userId,
+                    Color = index == 0 ? "red" : "blue"
+                })
+                .ToList()
+        };
+    }
+
+    private static GameEventEntity CreateSnapshotEvent(string gameId, GameStatus gameStatus)
+    {
+        return new GameEventEntity
+        {
+            PartitionKey = gameId,
+            RowKey = "Event_00000000000000000001_00000001",
+            GameId = gameId,
+            EventKind = "StateUpdated",
+            EventData = "{}",
+            PreviewRouteNodeIdsJson = "[]",
+            PreviewRouteSegmentKeysJson = "[]",
+            SerializedGameState = GameEventSerialization.SerializeSnapshot(new GameState
+            {
+                GameStatus = gameStatus.ToString(),
+                Players =
+                [
+                    new PlayerState { Name = "Alice", IsActive = true },
+                    new PlayerState { Name = "Bob", IsActive = true }
+                ]
+            }),
+            ChangeSummary = string.Empty,
+            OccurredUtc = new DateTimeOffset(2026, 3, 26, 0, 0, 0, TimeSpan.Zero),
+            CreatedBy = "system",
+            ActingUserId = string.Empty
+        };
+    }
+
+    private static string ExtractPartitionKey(string filter)
+    {
+        const string marker = "PartitionKey eq '";
+        var startIndex = filter.IndexOf(marker, StringComparison.Ordinal);
+        if (startIndex < 0)
+        {
+            return string.Empty;
+        }
+
+        startIndex += marker.Length;
+        var endIndex = filter.IndexOf('\'', startIndex);
+        return endIndex < 0 ? string.Empty : filter[startIndex..endIndex];
     }
 }

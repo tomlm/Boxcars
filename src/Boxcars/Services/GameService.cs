@@ -53,7 +53,7 @@ public class GameService
 
     public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
     {
-        var participantGames = await GetGamesForPlayerAsync(playerId, cancellationToken);
+        var participantGames = await GetActiveGamesForPlayerAsync(playerId, cancellationToken);
 
         return new DashboardState
         {
@@ -1084,6 +1084,22 @@ public class GameService
             .ToList();
     }
 
+    private async Task<IReadOnlyList<GameEntity>> GetActiveGamesForPlayerAsync(string playerId, CancellationToken cancellationToken)
+    {
+        var participantGames = await GetGamesForPlayerAsync(playerId, cancellationToken);
+        var activeGames = new List<GameEntity>(participantGames.Count);
+
+        foreach (var game in participantGames)
+        {
+            if (await IsGameActiveAsync(game, cancellationToken))
+            {
+                activeGames.Add(game);
+            }
+        }
+
+        return activeGames;
+    }
+
     private async Task<GameActionResult> JoinGameCoreAsync(string playerId, string gameId, CancellationToken cancellationToken)
     {
         var game = await GetGameAsync(gameId, cancellationToken);
@@ -1105,11 +1121,32 @@ public class GameService
             };
         }
 
+        if (!await IsGameActiveAsync(game, cancellationToken))
+        {
+            return new GameActionResult
+            {
+                Success = false,
+                Reason = "This game is no longer active."
+            };
+        }
+
         return new GameActionResult
         {
             Success = true,
             GameId = game.GameId
         };
+    }
+
+    private async Task<bool> IsGameActiveAsync(GameEntity game, CancellationToken cancellationToken)
+    {
+        if (string.Equals(NormalizePersistedGameState(game.State), PersistedGameStates.Lobby, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var latestSnapshot = await GetLatestSnapshotAsync(game.GameId, cancellationToken);
+        return latestSnapshot is null
+            || !string.Equals(latestSnapshot.GameStatus, Boxcars.Engine.Domain.GameStatus.Completed.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildFallbackGameName(GameEntity game)
