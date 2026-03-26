@@ -36,7 +36,7 @@
                                 }
                                 <MudButton Variant="Variant.Text"
                                            Color="MudBlazor.Color.Inherit"
-                                           Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0"
+                                           Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0; overflow: visible"
                                            OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
                                            aria-label="@($"Focus map on {player.Name}")">
                                     <MudBadge Visible="@(!player.IsBotPlayer)"
@@ -44,7 +44,9 @@
                                               Dot="true"
                                               Overlap="true"
                                               Bordered="true"
-                                              Origin="Origin.BottomRight">
+                                              Origin="Origin.BottomRight"
+                                              Class="d-inline-flex"
+                                              Style="overflow: visible">
                                         <MudAvatar Style="color: var(--player-color-fg, #fff); font-weight: 700; overflow: hidden; flex-shrink: 0; background-color: rgb(255 255 255 / 0.32)" Size="Size.Large">
                                             @if (HasThumbnail(player))
                                             {
@@ -69,7 +71,9 @@
                                         </MudTooltip>
                                     }
                                 </MudStack>
-                                <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">Home: @player.HomeCity</MudText>
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">Home: @player.HomeCity</MudText>
+                                </MudStack>
                             </MudStack>
                         </MudStack>
 
@@ -141,15 +145,19 @@
                         @if (player.ShowDisconnectedControlToggle)
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="mt-auto" Style="padding: 0.35rem 0.5rem 0.5rem; border-top: 1px solid color-mix(in srgb, var(--mud-palette-divider) 72%, transparent)">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.caption">AI</MudText>
-                                    <MudSwitch T="bool"
-                                               Value="@player.IsManualControlSelected"
-                                               ValueChanged="@(isManual => OnDisconnectedSeatControlChangedAsync(player, isManual))"
-                                               Color="MudBlazor.Color.Primary"
-                                               Disabled="@(!CanToggleDisconnectedSeatControl(player))" />
-                                    <MudText Typo="Typo.caption">Manual</MudText>
-                                </MudStack>
+                                <MudToggleGroup T="string"
+                                                Value="@player.DisconnectedControlMode"
+                                                ValueChanged="@(mode => OnDisconnectedSeatControlChangedAsync(player, mode))"
+                                                Color="MudBlazor.Color.Primary"
+                                                CheckMark="false"
+                                                Size="Size.Small"
+                                                Disabled="@(!CanToggleDisconnectedSeatControl(player))"
+                                                Outlined="true"
+                                                Style="font-size: 0.1em">
+                                    <MudToggleItem T="string" Value="@DisconnectedSeatControlModes.Wait" Text="Wait" />
+                                    <MudToggleItem T="string" Value="@DisconnectedSeatControlModes.Manual" Text="Manual" />
+                                    <MudToggleItem T="string" Value="@DisconnectedSeatControlModes.AI" Text="AI" />
+                                </MudToggleGroup>
                             </MudStack>
                         }
                     </MudPaper>
@@ -238,12 +246,12 @@
         return player.CanSelectAiControl || player.CanSelectManualControl;
     }
 
-    private Task OnDisconnectedSeatControlChangedAsync(PlayerBoardModel player, bool isManual)
+    private Task OnDisconnectedSeatControlChangedAsync(PlayerBoardModel player, string? controlMode)
     {
         return OnSetDisconnectedSeatControl.InvokeAsync(new DisconnectedSeatControlRequest
         {
             PlayerIndex = player.Index,
-            ControlMode = isManual ? DisconnectedSeatControlModes.Manual : DisconnectedSeatControlModes.AI
+            ControlMode = string.IsNullOrWhiteSpace(controlMode) ? DisconnectedSeatControlModes.Wait : controlMode
         });
     }
 

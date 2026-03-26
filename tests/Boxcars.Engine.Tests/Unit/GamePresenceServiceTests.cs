@@ -104,7 +104,7 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public void ResolveSeatControllerState_DisconnectedHumanWithoutManualController_DefaultsToBot()
+    public void ResolveSeatControllerState_DisconnectedHumanWithoutManualController_DefaultsToWait()
     {
         var service = new GamePresenceService();
 
@@ -112,8 +112,8 @@ public class GamePresenceServiceTests
 
         var controllerState = service.ResolveSeatControllerState("game-1", "target", activeSeatState: null);
 
-        Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
-        Assert.Equal("target", controllerState.BotDefinitionId);
+        Assert.Equal(SeatControllerModes.Self, controllerState.ControllerMode);
+        Assert.Null(controllerState.BotDefinitionId);
         Assert.False(controllerState.IsConnected);
     }
 
@@ -164,7 +164,7 @@ public class GamePresenceServiceTests
     }
 
     [Fact]
-    public void ReleaseDelegatedControl_DisconnectedSeatFallsBackToBot()
+    public void ReleaseDelegatedControl_DisconnectedSeatFallsBackToWait()
     {
         var service = new GamePresenceService();
 
@@ -173,20 +173,9 @@ public class GamePresenceServiceTests
         service.TryTakeDelegatedControl("game-1", "target", "controller");
         service.ReleaseDelegatedControl("game-1", "target", "controller");
 
-        var controllerState = service.ResolveSeatControllerState(
-            "game-1",
-            "target",
-            new GamePlayerStateEntity
-            {
-                GameId = "game-1",
-                PlayerUserId = "target",
-                ControllerUserId = "controller",
-                ControllerMode = SeatControllerModes.AI,
-                BotDefinitionId = "bot-1",
-                BotControlStatus = BotControlStatuses.Active
-            });
+        var controllerState = service.ResolveSeatControllerState("game-1", "target", activeSeatState: null);
 
-        Assert.Equal(SeatControllerModes.AI, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.Self, controllerState.ControllerMode);
         Assert.Null(controllerState.DelegatedControllerUserId);
     }
 

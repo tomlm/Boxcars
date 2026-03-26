@@ -298,7 +298,7 @@ public class BotTurnResolutionTests
     }
 
     [Fact]
-    public async Task CreateBotActionAsync_DisconnectedHumanWithoutBotControl_UsesPlayerStrategyProfile()
+    public async Task CreateBotActionAsync_DisconnectedHumanWithoutBotControl_ReturnsNull()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
         engine.CurrentTurn.Phase = TurnPhase.RegionChoice;
@@ -329,12 +329,7 @@ public class BotTurnResolutionTests
 
         var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None);
 
-        var regionAction = Assert.IsType<ChooseDestinationRegionAction>(action);
-        Assert.Equal("SE", regionAction.SelectedRegionCode);
-        Assert.Equal(BotTurnServiceTestHarness.ServerActorUserId, regionAction.ActorUserId);
-        Assert.NotNull(regionAction.BotMetadata);
-        Assert.Equal("OnlyLegalChoice", regionAction.BotMetadata!.DecisionSource);
-        Assert.Equal("Alice", regionAction.BotMetadata.BotName);
+        Assert.Null(action);
     }
 
     [Fact]

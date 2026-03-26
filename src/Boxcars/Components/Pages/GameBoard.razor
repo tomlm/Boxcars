@@ -1407,6 +1407,7 @@
                     CanSelectManualControl = CanCurrentUserSelectManualControl(index, resolvedUserId, delegatedControllerUserId),
                     IsAiControlSelected = SeatControllerModes.IsAiControlled(controllerState.ControllerMode),
                     IsManualControlSelected = SeatControllerModes.IsDelegated(controllerState.ControllerMode),
+                    DisconnectedControlMode = ResolveDisconnectedControlMode(controllerState.ControllerMode),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, playerDisplayNamesByUserId),
                     HasActiveBotControl = activeBotAssignment is not null,
@@ -3242,6 +3243,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     CanSelectManualControl = CanCurrentUserSelectManualControl(player.Index, slotUserId, delegatedControllerUserId),
                     IsAiControlSelected = SeatControllerModes.IsAiControlled(controllerState.ControllerMode),
                     IsManualControlSelected = SeatControllerModes.IsDelegated(controllerState.ControllerMode),
+                    DisconnectedControlMode = ResolveDisconnectedControlMode(controllerState.ControllerMode),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, null),
                     HasActiveBotControl = player.HasActiveBotControl,
@@ -3400,6 +3402,32 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             control.BotControlStatus = BotControlStatuses.Cleared;
             control.BotControlClearReason = clearReason;
             control.BotControlClearedUtc = now;
+        }
+    }
+
+    private void ActivateBotControl(string playerUserId)
+    {
+        if (_gameState is null)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var seat in _game?.Seats ?? [])
+        {
+            if (!string.Equals(seat.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase)
+                || seat.SeatIndex < 0
+                || seat.SeatIndex >= _gameState.Players.Count)
+            {
+                continue;
+            }
+
+            var control = _gameState.Players[seat.SeatIndex].Control;
+            control.ControllerMode = SeatControllerModes.AI;
+            control.BotControlActivatedUtc = now;
+            control.BotControlStatus = BotControlStatuses.Active;
+            control.BotControlClearReason = string.Empty;
+            control.BotControlClearedUtc = null;
         }
     }
 
@@ -3877,6 +3905,18 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
             }
         }
+        else if (string.Equals(request.ControlMode, DisconnectedSeatControlModes.AI, StringComparison.OrdinalIgnoreCase))
+        {
+            changed = string.IsNullOrWhiteSpace(delegatedControllerUserId)
+                || GamePresenceService.ReleaseDelegatedControl(GameId, slotUserId, delegatedControllerUserId);
+
+            if (game is not null)
+            {
+                ActivateBotControl(slotUserId);
+                changed = true;
+                await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
+            }
+        }
         else
         {
             changed = string.IsNullOrWhiteSpace(delegatedControllerUserId)
@@ -3884,7 +3924,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             if (changed && game is not null)
             {
-                ClearActiveBotControl(slotUserId, "Bot control selected.");
+                ClearActiveBotControl(slotUserId, "Wait for reconnect selected.");
                 await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
             }
         }
@@ -3967,6 +4007,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return _gameState is not null
             && _currentUserPlayerIndex >= 0
             && _currentUserPlayerIndex < _gameState.Players.Count;
+    }
+
+    private static string ResolveDisconnectedControlMode(string? controllerMode)
+    {
+        if (SeatControllerModes.IsAiControlled(controllerMode))
+        {
+            return DisconnectedSeatControlModes.AI;
+        }
+
+        if (SeatControllerModes.IsDelegated(controllerMode))
+        {
+            return DisconnectedSeatControlModes.Manual;
+        }
+
+        return DisconnectedSeatControlModes.Wait;
     }
 
     private string ResolveParticipantDisplayName(string? userId, IReadOnlyDictionary<string, string>? playerDisplayNamesByUserId)

@@ -16,7 +16,7 @@ public static class PlayerControlRules
         {
             SeatControllerModes.AI when activePlayerControl is not null => SeatControllerModes.AI,
             _ when !isConnected && !string.IsNullOrWhiteSpace(delegatedControllerUserId) => SeatControllerModes.Delegated,
-            _ when !isConnected => SeatControllerModes.AI,
+            _ when !isConnected => SeatControllerModes.Self,
             _ => SeatControllerModes.Self
         };
 

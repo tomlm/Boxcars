@@ -123,11 +123,12 @@ public sealed record BotRecordedActionMetadata
 public sealed record DisconnectedSeatControlRequest
 {
     public int PlayerIndex { get; init; }
-    public string ControlMode { get; init; } = DisconnectedSeatControlModes.AI;
+    public string ControlMode { get; init; } = DisconnectedSeatControlModes.Wait;
 }
 
 public static class DisconnectedSeatControlModes
 {
+    public const string Wait = "Wait";
     public const string AI = "AI";
     public const string Manual = "Manual";
 }

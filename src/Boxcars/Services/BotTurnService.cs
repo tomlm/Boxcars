@@ -1088,41 +1088,7 @@ public sealed class BotTurnService
 
         if (playerState is null)
         {
-            if (requireExplicitAiControl)
-            {
-                return null;
-            }
-
-            if (isConnected || !string.IsNullOrWhiteSpace(delegatedControllerUserId))
-            {
-                return null;
-            }
-
-            var implicitDefinition = await _userDirectoryService.GetAutomationProfileAsync(playerUserId, cancellationToken);
-            if (implicitDefinition is null)
-            {
-                return null;
-            }
-
-            var existingPlayerState = playerStates.FirstOrDefault(candidate =>
-                string.Equals(candidate.PlayerUserId, playerUserId, StringComparison.OrdinalIgnoreCase));
-            var implicitPlayerState = existingPlayerState is null
-                ? new GameSeatState
-                {
-                    GameId = gameId,
-                    PlayerUserId = playerUserId,
-                    ControllerMode = SeatControllerModes.AI,
-                    ControllerUserId = string.Empty,
-                    BotControlStatus = BotControlStatuses.Active
-                }
-                : GameSeatStateProjection.Clone(existingPlayerState);
-
-            implicitPlayerState.ControllerMode = SeatControllerModes.AI;
-            implicitPlayerState.ControllerUserId = string.Empty;
-            implicitPlayerState.BotControlStatus = BotControlStatuses.Active;
-            implicitPlayerState.BotControlClearedUtc = null;
-            implicitPlayerState.BotControlClearReason = string.Empty;
-            return (implicitPlayerState, implicitDefinition);
+            return null;
         }
 
         var resolvedControllerMode = PlayerControlRules.ResolveBotControllerMode(playerState);

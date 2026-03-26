@@ -70,7 +70,7 @@ public sealed class PlayerBoardModel
     /// <summary>True when the player is currently connected to the game session.</summary>
     public bool IsConnected { get; init; } = true;
 
-    /// <summary>True when the disconnected-seat AI/Manual toggle should be shown.</summary>
+    /// <summary>True when the disconnected-seat Wait/Manual/AI control should be shown.</summary>
     public bool ShowDisconnectedControlToggle { get; init; }
 
     /// <summary>True when the current user can switch the seat to AI control.</summary>
@@ -84,6 +84,9 @@ public sealed class PlayerBoardModel
 
     /// <summary>True when manual control is currently selected for the disconnected seat.</summary>
     public bool IsManualControlSelected { get; init; }
+
+    /// <summary>The selected disconnected-seat control mode.</summary>
+    public string DisconnectedControlMode { get; init; } = DisconnectedSeatControlModes.Wait;
 
     /// <summary>User id of the participant currently controlling this player via delegation.</summary>
     public string DelegatedControllerUserId { get; init; } = string.Empty;
