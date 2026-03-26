@@ -14,10 +14,14 @@ public class GameEntity : ITableEntity
 
     public string GameId { get; set; } = string.Empty;
     public string CreatorId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public DateTimeOffset? GameDate { get; set; }
+    public string State { get; set; } = PersistedGameStates.Lobby;
     public string MapFileName { get; set; } = "U21MAP.RB3";
     public int MaxPlayers { get; set; } = 6;
     public int CurrentPlayerCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
     public int? StartingCash { get; set; }
     public int? AnnouncingCash { get; set; }
     public int? WinningCash { get; set; }

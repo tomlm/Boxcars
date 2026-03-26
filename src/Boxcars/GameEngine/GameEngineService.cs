@@ -195,6 +195,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             RowKey = "GAME",
             GameId = gameId,
             CreatorId = request.CreatorUserId,
+            Name = string.IsNullOrWhiteSpace(request.Name) ? $"Game {gameId[..Math.Min(8, gameId.Length)]}" : request.Name.Trim(),
+            GameDate = request.GameDate,
+            State = PersistedGameStates.Lobby,
             MapFileName = request.MapFileName,
             MaxPlayers = request.MaxPlayers,
             CurrentPlayerCount = request.MaxPlayers,
@@ -213,39 +216,64 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         };
         _gameSettingsResolver.Apply(gameEntity, normalizedSettings);
 
-        var createdGameEngine = CreateGameEngine(gameEntity, players, normalizedSettings);
-        if (!_gameEngines.TryAdd(gameId, createdGameEngine))
+        await _gamesTable.AddEntityAsync(gameEntity, cancellationToken);
+        return gameId;
+    }
+
+    public async Task StartGameAsync(string gameId, CancellationToken cancellationToken = default)
+    {
+        ValidateGameId(gameId);
+        await _mapReady.Task.WaitAsync(cancellationToken);
+
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+        if (!string.Equals(NormalizePersistedGameState(gameEntity.State), PersistedGameStates.Lobby, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"A game with id '{gameId}' already exists.");
+            return;
         }
 
+        var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
+        var players = gameEntity.Seats
+            .OrderBy(seat => seat.SeatIndex)
+            .Select(seat => string.IsNullOrWhiteSpace(seat.DisplayName) ? seat.PlayerUserId : seat.DisplayName)
+            .ToList();
+        var createdGameEngine = CreateGameEngine(gameEntity, players, resolvedSettings.Settings);
+
+        _gameEngines[gameId] = createdGameEngine;
+
         var playerStates = GameSeatStateProjection.BuildTransientStates(gameEntity, createdGameEngine.ToSnapshot()).ToList();
+        await _botTurnService.EnsureBotSeatControlStatesAsync(gameId, playerStates, gameEntity.CreatorId, cancellationToken);
 
-        await _botTurnService.EnsureBotSeatControlStatesAsync(gameId, playerStates, request.CreatorUserId, cancellationToken);
-
-        await _gamesTable.AddEntityAsync(gameEntity, cancellationToken);
+        gameEntity.State = PersistedGameStates.Playing;
+        gameEntity.StartedAt = DateTimeOffset.UtcNow;
+        await UpdateGameEntityAsync(gameEntity, cancellationToken);
 
         var snapshot = createdGameEngine.ToSnapshot();
         ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
-        await PersistEventAsync(gameId, snapshot, "CreateGame", "Game created.", request.CreatorUserId, new
+        await PersistEventAsync(gameId, snapshot, "StartGame", "Game started.", gameEntity.CreatorId, new
         {
-            request.MapFileName,
-            request.Players
+            gameEntity.Name,
+            gameEntity.GameDate,
+            gameEntity.MapFileName,
+            Seats = gameEntity.Seats
         }, cancellationToken);
 
         snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, createdGameEngine, cancellationToken);
-
         PublishStateChanged(gameId, snapshot);
-        return gameId;
     }
 
     public async Task<RailBaronGameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default)
     {
         ValidateGameId(gameId);
         await _mapReady.Task.WaitAsync(cancellationToken);
-        var gameEngine = await GetOrCreateGameEngineAsync(gameId, cancellationToken);
         var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
             ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+        if (!string.Equals(NormalizePersistedGameState(gameEntity.State), PersistedGameStates.Playing, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Game is still in the lobby.");
+        }
+
+        var gameEngine = await GetOrCreateGameEngineAsync(gameId, cancellationToken);
         var snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, cancellationToken);
         var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
         ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
@@ -800,6 +828,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
         }
 
+        if (!string.Equals(NormalizePersistedGameState(gameEntity.State), PersistedGameStates.Playing, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Game is still in the lobby.");
+        }
+
         var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
         var players = ResolveSeatSelections(gameEntity, playerStates)
             .Select(selection => string.IsNullOrWhiteSpace(selection.DisplayName) ? selection.UserId : selection.DisplayName)
@@ -835,6 +868,18 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         {
             return null;
         }
+    }
+
+    private Task<Response> UpdateGameEntityAsync(GameEntity gameEntity, CancellationToken cancellationToken)
+    {
+        return _gamesTable.UpdateEntityAsync(gameEntity, ETag.All, TableUpdateMode.Replace, cancellationToken);
+    }
+
+    private static string NormalizePersistedGameState(string? state)
+    {
+        return string.Equals(state, PersistedGameStates.Playing, StringComparison.OrdinalIgnoreCase)
+            ? PersistedGameStates.Playing
+            : PersistedGameStates.Lobby;
     }
 
     private RailBaronGameEngine CreateGameEngine(GameEntity gameEntity, IReadOnlyList<string> players, Engine.Persistence.GameSettings settings)

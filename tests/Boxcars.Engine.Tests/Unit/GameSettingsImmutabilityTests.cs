@@ -298,6 +298,11 @@ public class GameSettingsImmutabilityTests
             });
         }
 
+        public Task StartGameAsync(string gameId, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
         public Task SynchronizeStateAsync(string gameId, global::Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();

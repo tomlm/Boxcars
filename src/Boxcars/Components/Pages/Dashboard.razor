@@ -104,60 +104,54 @@ else
         <MudPaper Class="pa-6">
             <MudText Typo="Typo.h5" Class="mb-3">Games</MudText>
 
-            @if (_dashboardState!.HasActiveGame)
+            @if (_dashboardState!.Games.Count > 0)
             {
-                <MudText Typo="Typo.body1" Class="mb-4">You have an active game.</MudText>
-                <MudStack Row="true" Spacing="3">
-                    <MudButton Variant="Variant.Filled"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="@(() => Navigation.NavigateTo($"/game/{_dashboardState.ActiveGameId}"))">
-                        Resume Game
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="OpenDeleteGameDialog">
-                        Delete Game
-                    </MudButton>
-                </MudStack>
-            }
-            else
-            {
-                @if (_dashboardState.JoinableGames.Any())
-                {
-                    <MudText Typo="Typo.body1" Class="mb-4">Available games to join:</MudText>
-                    <MudStack Class="mb-6" Spacing="3">
-                        @foreach (var game in _dashboardState.JoinableGames)
-                        {
-                            <MudPaper Class="pa-4">
-                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                                    <MudStack>
-                                        <MudText Typo="Typo.body1">
-                                            Game @game.RowKey[..8]...
-                                        </MudText>
-                                        <MudText Typo="Typo.caption" Style="opacity: 0.7">
-                                            @game.CurrentPlayerCount / @game.MaxPlayers players
-                                        </MudText>
-                                    </MudStack>
+                <MudStack Class="mb-6" Spacing="3">
+                    @foreach (var game in _dashboardState.Games)
+                    {
+                        <MudPaper Class="pa-4">
+                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="3">
+                                <MudStack Spacing="1">
+                                    <MudText Typo="Typo.body1">@game.Name</MudText>
+                                    <MudText Typo="Typo.caption" Style="opacity: 0.7">
+                                        @(game.GameDate?.ToLocalTime().ToString("MMM d, yyyy") ?? game.CreatedAt.ToLocalTime().ToString("MMM d, yyyy"))
+                                        • @game.PlayerCount players
+                                        • @game.State
+                                        @if (game.IsCreator)
+                                        {
+                                            <span> • Created by you</span>
+                                        }
+                                    </MudText>
+                                </MudStack>
+                                <MudStack Row="true" Spacing="2">
                                     <MudButton Variant="Variant.Filled"
                                                Color="MudBlazor.Color.Primary"
-                                               OnClick="@(() => JoinGameAsync(game.RowKey))">
-                                        Join Game
+                                               OnClick="@(() => JoinGameAsync(game.GameId))">
+                                        Join
                                     </MudButton>
+                                    @if (game.IsCreator)
+                                    {
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="MudBlazor.Color.Primary"
+                                                   OnClick="@(() => OpenDeleteGameDialog(game.GameId))">
+                                            Delete
+                                        </MudButton>
+                                    }
                                 </MudStack>
-                            </MudPaper>
-                        }
-                    </MudStack>
-                }
-
-                <MudText Typo="Typo.h6" Class="mb-3">Create a New Game</MudText>
-                <MudStack Row="true" Spacing="3">
-                    <MudButton Variant="Variant.Filled"
-                               Color="MudBlazor.Color.Primary"
-                               OnClick="@CreateGameAsync">
-                        Create Game
-                    </MudButton>
+                            </MudStack>
+                        </MudPaper>
+                    }
                 </MudStack>
             }
+
+            <MudText Typo="Typo.h6" Class="mb-3">Create a New Game</MudText>
+            <MudStack Row="true" Spacing="3">
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Primary"
+                           OnClick="@CreateGameAsync">
+                    Create Game
+                </MudButton>
+            </MudStack>
         </MudPaper>
     </MudStack>
 }
@@ -237,18 +231,18 @@ else
         }
     }
 
-    private async Task OpenDeleteGameDialog()
+    private async Task OpenDeleteGameDialog(string gameId)
     {
         var parameters = new DialogParameters<DeleteGameDialog>
         {
             { x => x.OnDelete, async (ct) =>
                 {
-                    if (_currentUserId is null || string.IsNullOrWhiteSpace(_dashboardState?.ActiveGameId))
+                    if (_currentUserId is null || string.IsNullOrWhiteSpace(gameId))
                     {
                         return (false, "Unable to identify the active game.");
                     }
 
-                    var result = await GameService.EndGameAsync(_currentUserId, _dashboardState.ActiveGameId, ct);
+                    var result = await GameService.EndGameAsync(_currentUserId, gameId, ct);
                     return (result.Success, result.Reason);
                 }
             }
@@ -302,8 +296,7 @@ else
             {
                 _dashboardState = new DashboardState
                 {
-                    HasActiveGame = false,
-                    JoinableGames = []
+                    Games = []
                 };
             }
         }

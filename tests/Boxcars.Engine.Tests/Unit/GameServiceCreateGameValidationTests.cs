@@ -69,6 +69,7 @@ public class GameServiceCreateGameValidationTests
         return new CreateGameRequest
         {
             CreatorUserId = "creator@example.com",
+            Name = "Test Game",
             Players =
             [
                 new GamePlayerSelection { UserId = "creator@example.com", DisplayName = "Alice", Color = "red" },
@@ -91,6 +92,7 @@ public class GameServiceCreateGameValidationTests
             return Task.FromResult(options?.PreferredGameId ?? "game-1");
         }
 
+        public Task StartGameAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<Boxcars.Engine.Persistence.GameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SynchronizeStateAsync(string gameId, Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public bool IsGameBusy(string gameId) => false;

@@ -9,6 +9,7 @@ public interface IGameEngine
     event Action<string, GameActionFailure>? OnActionFailed;
 
     Task<string> CreateGameAsync(CreateGameRequest request, GameCreationOptions? options = null, CancellationToken cancellationToken = default);
+    Task StartGameAsync(string gameId, CancellationToken cancellationToken = default);
 
     Task<RailBaronGameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default);
 

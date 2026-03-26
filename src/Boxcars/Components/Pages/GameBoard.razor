@@ -43,6 +43,66 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
+@if (_game is null)
+{
+    <MudStack Style="min-height: 16rem" Justify="Justify.Center" AlignItems="AlignItems.Center">
+        <MudProgressCircular Indeterminate="true" Color="MudBlazor.Color.Primary" />
+    </MudStack>
+}
+else if (IsLobbyGame)
+{
+    <MudStack Spacing="4" Style="max-width: 56rem; margin: 0 auto; padding: 2rem 1rem 3rem">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.h4">@LobbyGameName</MudText>
+            <MudText Typo="Typo.body1" Style="opacity: 0.75">
+                @(LobbyGameDateText) • Lobby
+            </MudText>
+        </MudStack>
+
+        <MudPaper Class="pa-6" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Players</MudText>
+                @foreach (var seat in LobbySeats)
+                {
+                    <MudPaper Class="pa-3" Outlined="true">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body1">@seat.DisplayName</MudText>
+                                <MudText Typo="Typo.caption" Style="opacity: 0.7">@seat.RoleLabel</MudText>
+                            </MudStack>
+                            <MudChip T="string"
+                                     Color="@seat.StatusColor"
+                                     Variant="Variant.Filled"
+                                     Value="@seat.StatusText">
+                                @seat.StatusText
+                            </MudChip>
+                        </MudStack>
+                    </MudPaper>
+                }
+            </MudStack>
+        </MudPaper>
+
+        <MudStack Row="true" Spacing="2">
+            @if (CanCurrentUserStartGame)
+            {
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Primary"
+                           Disabled="@_startingLobbyGame"
+                           OnClick="StartLobbyGameAsync">
+                    @(_startingLobbyGame ? "Starting..." : "Start Game")
+                </MudButton>
+            }
+
+            <MudButton Variant="Variant.Outlined"
+                       Color="MudBlazor.Color.Primary"
+                       OnClick='@(() => Navigation.NavigateTo("/dashboard"))'>
+                Back To Games
+            </MudButton>
+        </MudStack>
+    </MudStack>
+}
+else
+{
 <MudStack Row="true" Class="overflow-hidden" Style="height: calc(100dvh - 64px); width: 100%">
     <MudPaper Class="flex-shrink-0 overflow-y-auto" Style="width: 270px; background: #000; border-right: 1px solid #ccc; padding: 0.5rem 0.4rem 0.75rem; box-sizing: border-box">
         <MudStack Spacing="2">
@@ -308,6 +368,7 @@
         </MudStack>
     </MudStack>
 </MudStack>
+}
 
 @code {
     private const int PresenceHeartbeatIntervalMilliseconds = 5000;
@@ -324,6 +385,7 @@
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
     private List<PlayerBoardModel> _players = new();
+    private bool _startingLobbyGame;
     private bool _startingReplayGame;
     private GameSettingsSummaryModel _gameSettingsSummary = GameSettingsSummaryModel.Empty;
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
@@ -464,7 +526,14 @@
         await RefreshGameEntityAsync();
         await LoadPlayerProfilesAsync(CancellationToken.None);
         await EnsurePlayerBoardMapDefinitionAsync(CancellationToken.None);
-        await LoadGameStateAsync(refreshGameEntity: false);
+        if (IsLobbyGame)
+        {
+            ReevaluatePlayerPresenceState();
+        }
+        else
+        {
+            await LoadGameStateAsync(refreshGameEntity: false);
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -564,6 +633,8 @@
         {
             var presetPayload = ReplayGamePresetSerialization.Serialize(new ReplayGamePreset
             {
+                Name = gameEntity.Name,
+                GameDate = gameEntity.GameDate,
                 MapFileName = gameEntity.MapFileName,
                 Settings = GameSettingsResolver.Resolve(gameEntity).Settings,
                 CityProbabilityOverrides = gameEntity.CityProbabilityOverrides,
@@ -583,6 +654,65 @@
         finally
         {
             _startingReplayGame = false;
+        }
+    }
+
+    private bool IsLobbyGame => string.Equals(_game?.State, PersistedGameStates.Lobby, StringComparison.OrdinalIgnoreCase);
+
+    private bool CanCurrentUserStartGame => IsLobbyGame
+        && !_startingLobbyGame
+        && !string.IsNullOrWhiteSpace(_currentUserId)
+        && string.Equals(_game?.CreatorId, _currentUserId, StringComparison.OrdinalIgnoreCase);
+
+    private string LobbyGameName => string.IsNullOrWhiteSpace(_game?.Name)
+        ? "Game Lobby"
+        : _game.Name;
+
+    private string LobbyGameDateText => (_game?.GameDate ?? _game?.CreatedAt ?? DateTimeOffset.UtcNow)
+        .ToLocalTime()
+        .ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
+
+    private IReadOnlyList<LobbySeatViewModel> LobbySeats => (_game?.Seats ?? [])
+        .OrderBy(seat => seat.SeatIndex)
+        .Select(seat =>
+        {
+            var isBot = IsBotUser(seat.PlayerUserId);
+            var isConnected = isBot || GamePresenceService.IsUserConnected(GameId, seat.PlayerUserId);
+            var roleLabel = string.Equals(seat.PlayerUserId, _game?.CreatorId, StringComparison.OrdinalIgnoreCase)
+                ? "Host"
+                : isBot ? "Bot player" : "Player";
+            return new LobbySeatViewModel(
+                seat.DisplayName,
+                roleLabel,
+                isBot ? "Bot" : isConnected ? "Connected" : "Waiting",
+                isBot ? Color.Info : isConnected ? Color.Success : Color.Warning);
+        })
+        .ToList();
+
+    private async Task StartLobbyGameAsync()
+    {
+        if (!CanCurrentUserStartGame || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        _startingLobbyGame = true;
+
+        try
+        {
+            var result = await GameService.StartGameAsync(_currentUserId, GameId, CancellationToken.None);
+            if (!result.Success)
+            {
+                ShowNotification(result.Reason ?? "Unable to start game.", Severity.Error);
+                return;
+            }
+
+            await RefreshGameEntityAsync();
+            await LoadGameStateAsync(refreshGameEntity: false);
+        }
+        finally
+        {
+            _startingLobbyGame = false;
         }
     }
 
@@ -1108,12 +1238,19 @@
 
     private async Task LoadGameStateAsync(bool refreshGameEntity = true)
     {
-        _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
-
         if (refreshGameEntity)
         {
             await RefreshGameEntityAsync();
         }
+
+        if (IsLobbyGame)
+        {
+            _gameState = null;
+            ReevaluatePlayerPresenceState();
+            return;
+        }
+
+        _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
 
         await RefreshBotDisplayNamesAsync();
         ApplyGameState(_gameState);
@@ -1187,6 +1324,7 @@
 
         _ = InvokeAsync(async () =>
         {
+            await RefreshGameEntityAsync();
             var priorTurnNumber = _gameState?.TurnNumber ?? -1;
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
@@ -4398,4 +4536,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         public string? EventBaseId { get; init; }
         public bool CanUndo => !string.IsNullOrWhiteSpace(EventBaseId);
     }
+
+    private sealed record LobbySeatViewModel(
+        string DisplayName,
+        string RoleLabel,
+        string StatusText,
+        Color StatusColor);
 }

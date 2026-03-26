@@ -216,6 +216,11 @@ public class GameServiceTests
             });
         }
 
+        public Task StartGameAsync(string gameId, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
         public Task SynchronizeStateAsync(string gameId, global::Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
@@ -327,10 +332,14 @@ public class GameServiceTests
             ETag = entity.ETag,
             GameId = entity.GameId,
             CreatorId = entity.CreatorId,
+            Name = entity.Name,
+            GameDate = entity.GameDate,
+            State = entity.State,
             MapFileName = entity.MapFileName,
             MaxPlayers = entity.MaxPlayers,
             CurrentPlayerCount = entity.CurrentPlayerCount,
             CreatedAt = entity.CreatedAt,
+            StartedAt = entity.StartedAt,
             StartingCash = entity.StartingCash,
             AnnouncingCash = entity.AnnouncingCash,
             WinningCash = entity.WinningCash,

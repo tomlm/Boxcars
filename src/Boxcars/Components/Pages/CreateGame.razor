@@ -41,6 +41,19 @@
 
             <MudDivider />
 
+            <MudTextField @bind-Value="_gameName"
+                          Label="Game Name"
+                          Variant="Variant.Outlined"
+                          Disabled="@IsBusy"
+                          FullWidth="true" />
+
+            <MudDatePicker Label="Game Date"
+                           Date="@_gameDate"
+                           DateChanged="OnGameDateChanged"
+                           Editable="true"
+                           Variant="Variant.Outlined"
+                           Disabled="@IsBusy" />
+
 
             <MudSelect T="int"
                        Label="Player Count"
@@ -238,6 +251,8 @@
     private string? _validationMessage;
     private GameSettings _settings = GameSettings.Default;
     private string _mapFileName = GameService.DefaultMapFileName;
+    private string _gameName = string.Empty;
+    private DateTime? _gameDate = DateTime.Today;
     private string? _appliedPresetPayload;
     private IReadOnlyList<CityProbabilityOverride> _cityProbabilityOverrides = [];
     private IReadOnlyList<RailroadPriceOverride> _railroadPriceOverrides = [];
@@ -275,6 +290,10 @@
 
         _playerCount = Math.Min(4, _playerCountOptions[^1]);
         InitializePlayerSlots();
+        if (string.IsNullOrWhiteSpace(_gameName))
+        {
+            _gameName = $"Game {DateTime.Now:MMM d}";
+        }
         ApplyReplayPreset();
     }
 
@@ -415,6 +434,10 @@
             var request = new CreateGameRequest
             {
                 CreatorUserId = _currentUserId,
+                Name = _gameName.Trim(),
+                GameDate = _gameDate.HasValue
+                    ? new DateTimeOffset(DateOnly.FromDateTime(_gameDate.Value).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+                    : null,
                 MapFileName = _mapFileName,
                 Settings = _settings,
                 CityProbabilityOverrides = _cityProbabilityOverrides,
@@ -447,6 +470,11 @@
         if (_playerSlots.Any(slot => string.IsNullOrWhiteSpace(slot.UserId)))
         {
             return "Select a player for every turn-order row.";
+        }
+
+        if (string.IsNullOrWhiteSpace(_gameName))
+        {
+            return "Enter a game name.";
         }
 
         var distinctUsers = _playerSlots
@@ -589,6 +617,8 @@
         }
 
         _playerCount = presetPlayers.Count;
+        _gameName = string.IsNullOrWhiteSpace(replayPreset.Name) ? _gameName : replayPreset.Name;
+        _gameDate = replayPreset.GameDate?.LocalDateTime.Date ?? _gameDate;
         _settings = replayPreset.Settings;
         _mapFileName = string.IsNullOrWhiteSpace(replayPreset.MapFileName)
             ? GameService.DefaultMapFileName
@@ -658,6 +688,13 @@
         return string.IsNullOrWhiteSpace(selectedPlayer.Nickname)
             ? selectedPlayer.Email
             : selectedPlayer.Nickname;
+    }
+
+    private Task OnGameDateChanged(DateTime? value)
+    {
+        _gameDate = value;
+        _validationMessage = null;
+        return Task.CompletedTask;
     }
 
     private static IReadOnlyList<RegionDistributionPreview> BuildRegionProbabilityPreview(MapDefinition mapDefinition)

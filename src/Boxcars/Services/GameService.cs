@@ -53,18 +53,26 @@ public class GameService
 
     public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
     {
-        var games = await GetAllGamesAsync(cancellationToken);
-        var activeGameIds = await GetGameIdsForPlayerAsync(playerId, cancellationToken);
-
-        var activeGame = games
-            .OrderByDescending(game => game.CreatedAt)
-            .FirstOrDefault(game => activeGameIds.Contains(game.GameId));
+        var participantGames = await GetGamesForPlayerAsync(playerId, cancellationToken);
 
         return new DashboardState
         {
-            HasActiveGame = activeGame is not null,
-            ActiveGameId = activeGame?.GameId,
-            JoinableGames = []
+            Games = participantGames
+                .OrderBy(game => ResolveStateSortOrder(game.State))
+                .ThenByDescending(game => game.GameDate ?? game.CreatedAt)
+                .ThenByDescending(game => game.CreatedAt)
+                .Select(game => new DashboardGameSummary
+                {
+                    GameId = game.GameId,
+                    Name = string.IsNullOrWhiteSpace(game.Name) ? BuildFallbackGameName(game) : game.Name,
+                    CreatedAt = game.CreatedAt,
+                    GameDate = game.GameDate,
+                    State = NormalizePersistedGameState(game.State),
+                    IsCreator = string.Equals(game.CreatorId, playerId, StringComparison.OrdinalIgnoreCase),
+                    PlayerCount = game.Seats.Count,
+                    HumanPlayerCount = game.Seats.Count(seat => !IsBotSeatUserId(seat.PlayerUserId))
+                })
+                .ToList()
         };
     }
 
@@ -87,6 +95,11 @@ public class GameService
     public async Task<GameActionResult> CreateGameAsync(CreateGameRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return new GameActionResult { Success = false, Reason = "Game name is required." };
+        }
 
         if (request.Players.Count < 2)
         {
@@ -125,7 +138,12 @@ public class GameService
 
         try
         {
-            var createdGameId = await _gameEngine.CreateGameAsync(request with { CreatorUserId = request.CreatorUserId, Settings = normalizedSettings },
+            var createdGameId = await _gameEngine.CreateGameAsync(request with
+                {
+                    CreatorUserId = request.CreatorUserId,
+                    Name = request.Name.Trim(),
+                    Settings = normalizedSettings
+                },
                 new GameCreationOptions { PreferredGameId = gameId },
                 cancellationToken);
 
@@ -140,12 +158,36 @@ public class GameService
     }
 
     public Task<GameActionResult> JoinGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
+        => JoinGameCoreAsync(playerId, gameId, cancellationToken);
+
+    public async Task<GameActionResult> StartGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
     {
-        return Task.FromResult(new GameActionResult
+        var game = await GetGameAsync(gameId, cancellationToken);
+        if (game is null)
         {
-            Success = false,
-            Reason = "Joining existing games is not supported in this flow."
-        });
+            return new GameActionResult { Success = false, Reason = "Game was not found." };
+        }
+
+        if (!string.Equals(game.CreatorId, playerId, StringComparison.OrdinalIgnoreCase))
+        {
+            return new GameActionResult { Success = false, Reason = "Only the game creator can start the game." };
+        }
+
+        if (!string.Equals(NormalizePersistedGameState(game.State), PersistedGameStates.Lobby, StringComparison.Ordinal))
+        {
+            return new GameActionResult { Success = false, Reason = "Game has already started." };
+        }
+
+        try
+        {
+            await _gameEngine.StartGameAsync(gameId, cancellationToken);
+            await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
+            return new GameActionResult { Success = true, GameId = gameId };
+        }
+        catch (Exception exception)
+        {
+            return new GameActionResult { Success = false, Reason = exception.Message };
+        }
     }
 
     public async Task<GameEntity?> GetGameAsync(string gameId, CancellationToken cancellationToken)
@@ -1026,25 +1068,81 @@ public class GameService
     private async Task<HashSet<string>> GetGameIdsForPlayerAsync(string playerId, CancellationToken cancellationToken)
     {
         var gameIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        await foreach (var game in _gamesTable.QueryAsync<GameEntity>(
-                           entity => entity.RowKey == "GAME",
-                           cancellationToken: cancellationToken))
+        foreach (var game in await GetGamesForPlayerAsync(playerId, cancellationToken))
         {
-            if (game.Seats.Any(seat => string.Equals(seat.PlayerUserId, playerId, StringComparison.OrdinalIgnoreCase)))
-            {
-                gameIds.Add(string.IsNullOrWhiteSpace(game.GameId) ? game.PartitionKey : game.GameId);
-            }
+            gameIds.Add(game.GameId);
         }
 
         return gameIds;
+    }
+
+    private async Task<IReadOnlyList<GameEntity>> GetGamesForPlayerAsync(string playerId, CancellationToken cancellationToken)
+    {
+        var games = await GetAllGamesAsync(cancellationToken);
+        return games
+            .Where(game => game.Seats.Any(seat => string.Equals(seat.PlayerUserId, playerId, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private async Task<GameActionResult> JoinGameCoreAsync(string playerId, string gameId, CancellationToken cancellationToken)
+    {
+        var game = await GetGameAsync(gameId, cancellationToken);
+        if (game is null)
+        {
+            return new GameActionResult
+            {
+                Success = false,
+                Reason = "Game is no longer available."
+            };
+        }
+
+        if (!game.Seats.Any(seat => string.Equals(seat.PlayerUserId, playerId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return new GameActionResult
+            {
+                Success = false,
+                Reason = "You are not a participant in this game."
+            };
+        }
+
+        return new GameActionResult
+        {
+            Success = true,
+            GameId = game.GameId
+        };
+    }
+
+    private static string BuildFallbackGameName(GameEntity game)
+    {
+        var gameId = string.IsNullOrWhiteSpace(game.GameId) ? game.PartitionKey : game.GameId;
+        return gameId.Length <= 8 ? $"Game {gameId}" : $"Game {gameId[..8]}";
+    }
+
+    private static int ResolveStateSortOrder(string? state)
+    {
+        return string.Equals(NormalizePersistedGameState(state), PersistedGameStates.Lobby, StringComparison.Ordinal)
+            ? 0
+            : 1;
+    }
+
+    private static string NormalizePersistedGameState(string? state)
+    {
+        return string.Equals(state, PersistedGameStates.Playing, StringComparison.OrdinalIgnoreCase)
+            ? PersistedGameStates.Playing
+            : PersistedGameStates.Lobby;
+    }
+
+    private static bool IsBotSeatUserId(string? userId)
+    {
+        return !string.IsNullOrWhiteSpace(userId)
+            && (userId.Contains("bot", StringComparison.OrdinalIgnoreCase)
+                || userId.StartsWith("ai-", StringComparison.OrdinalIgnoreCase));
     }
 }
 
 public class DashboardState
 {
-    public bool HasActiveGame { get; set; }
-    public string? ActiveGameId { get; set; }
-    public List<GameEntity> JoinableGames { get; set; } = new();
+    public List<DashboardGameSummary> Games { get; set; } = new();
 }
 
 public class GameActionResult

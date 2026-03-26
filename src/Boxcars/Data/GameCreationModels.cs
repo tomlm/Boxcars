@@ -23,6 +23,8 @@ public sealed record GameSeatDefinition
 public sealed record CreateGameRequest
 {
     public string CreatorUserId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public DateTimeOffset? GameDate { get; init; }
     public string MapFileName { get; init; } = "U21MAP.RB3";
     public IReadOnlyList<GamePlayerSelection> Players { get; init; } = [];
     public GameSettings Settings { get; init; } = GameSettings.Default;
@@ -34,6 +36,8 @@ public sealed record CreateGameRequest
 
 public sealed record ReplayGamePreset
 {
+    public string Name { get; init; } = string.Empty;
+    public DateTimeOffset? GameDate { get; init; }
     public string MapFileName { get; init; } = "U21MAP.RB3";
     public IReadOnlyList<GamePlayerSelection> Players { get; init; } = [];
     public GameSettings Settings { get; init; } = GameSettings.Default;
@@ -66,6 +70,24 @@ public enum EventTimelineKind
     PurchaseOpportunity,
     Purchase,
     DeclinedPurchase
+}
+
+public static class PersistedGameStates
+{
+    public const string Lobby = "Lobby";
+    public const string Playing = "Playing";
+}
+
+public sealed record DashboardGameSummary
+{
+    public string GameId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? GameDate { get; init; }
+    public string State { get; init; } = PersistedGameStates.Lobby;
+    public bool IsCreator { get; init; }
+    public int PlayerCount { get; init; }
+    public int HumanPlayerCount { get; init; }
 }
 
 public sealed record EventTimelineItem
