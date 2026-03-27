@@ -15,6 +15,17 @@ namespace Boxcars.Engine.Tests.Unit;
 
 public class GameServiceTests
 {
+    [Theory]
+    [InlineData("Game 3/1/25", "Game 3/1/25 2")]
+    [InlineData("Game 3/1/25 2", "Game 3/1/25 3")]
+    [InlineData("Game 3/1/25 9", "Game 3/1/25 10")]
+    public void BuildReplayName_IncrementsTrailingReplayCounter(string currentName, string expectedReplayName)
+    {
+        var replayName = ReplayGameNaming.BuildReplayName(currentName);
+
+        Assert.Equal(expectedReplayName, replayName);
+    }
+
     [Fact]
     public async Task UpdateSeatStatesAsync_ControlChange_ProjectsUpdatedSeatState()
     {

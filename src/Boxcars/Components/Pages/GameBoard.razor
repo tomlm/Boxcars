@@ -633,7 +633,7 @@ else
         {
             var presetPayload = ReplayGamePresetSerialization.Serialize(new ReplayGamePreset
             {
-                Name = gameEntity.Name,
+                Name = ReplayGameNaming.BuildReplayName(gameEntity.Name),
                 GameDate = gameEntity.GameDate,
                 MapFileName = gameEntity.MapFileName,
                 Settings = GameSettingsResolver.Resolve(gameEntity).Settings,

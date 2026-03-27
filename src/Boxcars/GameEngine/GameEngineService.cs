@@ -1225,6 +1225,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     return;
                 }
 
+                if (!string.Equals(NormalizePersistedGameState(gameEntity.State), PersistedGameStates.Playing, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
                 var playerStates = await GetGameSeatStatesAsync(gameId, CancellationToken.None);
                 if (!HasConnectedTableUser(gameId, playerStates))
                 {

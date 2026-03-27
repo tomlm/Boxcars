@@ -202,3 +202,23 @@ public static class ReplayGamePresetSerialization
         }
     }
 }
+
+public static class ReplayGameNaming
+{
+    public static string BuildReplayName(string? gameName)
+    {
+        var trimmedName = string.IsNullOrWhiteSpace(gameName)
+            ? "Game"
+            : gameName.Trim();
+        var lastSpaceIndex = trimmedName.LastIndexOf(' ');
+
+        if (lastSpaceIndex > 0
+            && int.TryParse(trimmedName[(lastSpaceIndex + 1)..], out var replayNumber)
+            && replayNumber >= 2)
+        {
+            return $"{trimmedName[..lastSpaceIndex]} {replayNumber + 1}";
+        }
+
+        return $"{trimmedName} 2";
+    }
+}

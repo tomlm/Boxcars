@@ -107,7 +107,8 @@ public sealed class PlayerBoardModel
     public bool IsBotPlayer { get; init; }
 
     /// <summary>True when the current viewer should see the exact cash amount instead of the coarse public indicator.</summary>
-    public bool CanViewExactCash => IsCurrentUser
+    public bool CanViewExactCash => !KeepCashSecret
+        || IsCurrentUser
         || (IsDelegatedToCurrentUser && !HasActiveBotControl)
         || Cash >= AnnouncingCashThreshold;
 

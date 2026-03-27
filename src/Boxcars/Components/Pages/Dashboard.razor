@@ -102,7 +102,16 @@ else
         </MudPaper>
 
         <MudPaper Class="pa-6">
-            <MudText Typo="Typo.h5" Class="mb-3">Games</MudText>
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+                <MudText Typo="Typo.h5">Games</MudText>
+                <MudButton Variant="Variant.Outlined"
+                           Color="MudBlazor.Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           Disabled="@_refreshingGames"
+                           OnClick="RefreshGamesAsync">
+                    @(_refreshingGames ? "Refreshing..." : "Refresh")
+                </MudButton>
+            </MudStack>
 
             @if (_dashboardState!.Games.Count > 0)
             {
@@ -161,6 +170,7 @@ else
     private bool _loading = true;
     private bool _loadError;
     private bool _needsNickname;
+    private bool _refreshingGames;
     private string _newNickname = string.Empty;
     private string? _nicknameError;
     private string? _currentUserId;
@@ -321,6 +331,27 @@ else
         catch
         {
             // Silently fail — user can manually refresh
+        }
+    }
+
+    private async Task RefreshGamesAsync()
+    {
+        if (_refreshingGames)
+        {
+            return;
+        }
+
+        _refreshingGames = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await RefreshDashboardStateAsync();
+        }
+        finally
+        {
+            _refreshingGames = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

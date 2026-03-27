@@ -126,6 +126,36 @@ public class GameEngineServiceAiHistoryTests
     }
 
     [Fact]
+    public async Task ResumeAutomaticTurnFlowAsync_LobbyGame_DoesNotCreateEngine()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", "player-1", isConnected: true);
+
+        var service = new GameEngineService(
+            new TestWebHostEnvironment(),
+            new ResumeAutomaticTurnFlowGamesTableClient(
+                new GameEntity
+                {
+                    PartitionKey = "game-1",
+                    RowKey = "GAME",
+                    GameId = "game-1",
+                    State = PersistedGameStates.Lobby
+                }),
+            presenceService,
+            BotTurnServiceTestHarness.CreateService(presenceService),
+            new GameSettingsResolver(),
+            Options.Create(new BotOptions()),
+            NullLogger<GameEngineService>.Instance);
+
+        SetMapReady(service);
+        SetMapDefinition(service, GameEngineFixture.CreateTestMap());
+
+        await InvokeResumeAutomaticTurnFlowAsync(service, "game-1");
+
+        Assert.Empty(GetCachedGameEngines(service));
+    }
+
+    [Fact]
     public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationWithinRangeAndBuffer_Declares()
     {
         var presenceService = new GamePresenceService();
@@ -351,6 +381,27 @@ public class GameEngineServiceAiHistoryTests
         return await task;
     }
 
+    private static async Task InvokeResumeAutomaticTurnFlowAsync(GameEngineService service, string gameId)
+    {
+        var method = typeof(GameEngineService).GetMethod("ResumeAutomaticTurnFlowAsync", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("ResumeAutomaticTurnFlowAsync was not found.");
+
+        var task = (Task)(method.Invoke(service, [gameId])
+            ?? throw new InvalidOperationException("ResumeAutomaticTurnFlowAsync returned null."));
+
+        await task;
+    }
+
+    private static IReadOnlyCollection<object> GetCachedGameEngines(GameEngineService service)
+    {
+        var field = typeof(GameEngineService).GetField("_gameEngines", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("_gameEngines field was not found.");
+        var cache = (System.Collections.IDictionary)(field.GetValue(service)
+            ?? throw new InvalidOperationException("_gameEngines was null."));
+
+        return cache.Values.Cast<object>().ToList();
+    }
+
     private static GameEngineService CreateGameEngineServiceForTests()
     {
         return CreateGameEngineServiceForTests(new GamePresenceService());
@@ -366,12 +417,35 @@ public class GameEngineServiceAiHistoryTests
             NullLogger<GameEngineService>.Instance);
     }
 
+    private static void SetMapReady(GameEngineService service)
+    {
+        var field = typeof(GameEngineService).GetField("_mapReady", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("_mapReady field was not found.");
+        var source = (TaskCompletionSource)(field.GetValue(service) ?? throw new InvalidOperationException("_mapReady was null."));
+        source.TrySetResult();
+    }
+
     private static void SetMapDefinition(GameEngineService service, global::Boxcars.Engine.Data.Maps.MapDefinition mapDefinition)
     {
         var field = typeof(GameEngineService).GetField("_mapDefinition", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("_mapDefinition field was not found.");
 
         field.SetValue(service, mapDefinition);
+    }
+
+    private sealed class ResumeAutomaticTurnFlowGamesTableClient(GameEntity gameEntity) : TableClient
+    {
+        public override Task<Response<T>> GetEntityAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+        {
+            if (typeof(T) == typeof(GameEntity)
+                && string.Equals(partitionKey, gameEntity.PartitionKey, StringComparison.Ordinal)
+                && string.Equals(rowKey, gameEntity.RowKey, StringComparison.Ordinal))
+            {
+                return Task.FromResult(Response.FromValue((T)(ITableEntity)gameEntity, new FakeResponse((int)HttpStatusCode.OK)));
+            }
+
+            throw new RequestFailedException((int)HttpStatusCode.NotFound, "Not found");
+        }
     }
 
     private sealed class TestWebHostEnvironment : IWebHostEnvironment
