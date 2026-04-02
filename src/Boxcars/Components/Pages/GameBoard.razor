@@ -298,7 +298,6 @@ else
                                                                                                  IsBusy="@_awaitingAuthoritativeUpdate"
                                                  BuyRequested="OnBuyPurchaseAsync"
                                                  DeclineRequested="DeclinePurchaseAsync"
-                                                 DelegatedControlLabel="@CurrentDelegatedControlLabel"
                                                  CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
                                                  ProjectedCoverage="SelectedProjectedCoverage"
                                                  SelectedEngineOption="SelectedEngineOption" />
@@ -2411,26 +2410,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             CanDecline = CurrentPurchasePhase.CanDecline && !IsGameBusy
         };
 
-    private string CurrentDelegatedControlLabel
-    {
-        get
-        {
-            if (_gameState is null
-                || _gameState.ActivePlayerIndex < 0
-                || _gameState.ActivePlayerIndex >= _players.Count)
-            {
-                return string.Empty;
-            }
-
-            var activePlayer = _players[_gameState.ActivePlayerIndex];
-            if (string.IsNullOrWhiteSpace(activePlayer.DelegatedControllerDisplayName))
-            {
-                return string.Empty;
-            }
-
-            return $"Acting for {activePlayer.Name}: {activePlayer.DelegatedControllerDisplayName}";
-        }
-    }
 
     private bool CanBuySelectedPurchaseOption => CurrentPurchasePhase is not null
         && !IsGameCompleted

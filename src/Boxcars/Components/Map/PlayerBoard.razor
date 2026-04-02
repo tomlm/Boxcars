@@ -121,13 +121,6 @@
                                     </MudStack>
                                 }
                             }
-                            @if (!string.IsNullOrWhiteSpace(player.DelegatedControllerDisplayName))
-                            {
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                    <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Controlled by:</MudText>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@player.DelegatedControllerDisplayName</MudText>
-                                </MudStack>
-                            }
                             @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
                             {
                                 <MudText Typo="Typo.subtitle2" Color="Color.Primary">@player.BonusPendingLabel</MudText>

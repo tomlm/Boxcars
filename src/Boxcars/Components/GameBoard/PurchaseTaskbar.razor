@@ -4,12 +4,6 @@
 <MudPaper Class="pa-3" Outlined="true" Style="width: 100%">
     <MudStack Spacing="2">
         <MudText Typo="Typo.h4">Purchase Opportunity</MudText>
-        @if (!string.IsNullOrWhiteSpace(DelegatedControlLabel))
-        {
-            <MudText Typo="Typo.subtitle2" Color="Color.Secondary" Style="font-style: italic; font-weight: 600">
-                @DelegatedControlLabel
-            </MudText>
-        }
 
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
             <MudSelect T="string" Value="SelectedOptionKey" ValueChanged="OnSelectedOptionChangedAsync" Dense="true" Placeholder="Select a railroad or engine" Style="min-width: 18rem; white-space: nowrap" Disabled="TaskbarState.Options.Count == 0 || IsBusy">
@@ -62,9 +56,6 @@
 
     [Parameter]
     public EngineUpgradeOption? SelectedEngineOption { get; set; }
-
-    [Parameter]
-    public string DelegatedControlLabel { get; set; } = string.Empty;
 
     private async Task OnSelectedOptionChangedAsync(string? optionKey)
     {
