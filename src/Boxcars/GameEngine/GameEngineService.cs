@@ -795,8 +795,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var slotUserId = selections[authorizedPlayerIndex].UserId;
-        var activePlayerState = _botTurnService.FindActiveSeatState(playerStates, slotUserId);
-        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
+        var seatState = playerStates.FirstOrDefault(playerState =>
+            string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, seatState);
         var authorized = PlayerControlRules.CanUserControlSlot(controllerState, action.ActorUserId, isPlayerActive: true)
             || PlayerControlRules.CanServerControlSlot(controllerState, action.ActorUserId, _botOptions.ServerActorUserId, isPlayerActive: true);
         if (!authorized)
@@ -1162,8 +1163,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var slotUserId = playerStates[actingPlayerIndex].PlayerUserId;
-        var activePlayerState = _botTurnService.FindActiveSeatState(playerStates, slotUserId);
-        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
+        var seatState = playerStates.FirstOrDefault(playerState =>
+            string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, seatState);
         return PlayerControlRules.IsAiControlledMode(controllerState.ControllerMode);
     }
 
@@ -1174,7 +1176,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         {
             candidateUserIds.Add(playerState.PlayerUserId);
 
-            var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameId, playerState.PlayerUserId);
+            var delegatedControllerUserId = !string.IsNullOrWhiteSpace(playerState.ControllerUserId)
+                ? playerState.ControllerUserId
+                : _gamePresenceService.GetDelegatedControllerUserId(gameId, playerState.PlayerUserId);
             if (!string.IsNullOrWhiteSpace(delegatedControllerUserId))
             {
                 candidateUserIds.Add(delegatedControllerUserId);
@@ -2067,8 +2071,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return string.Empty;
         }
 
-        var activePlayerState = _botTurnService.FindActiveSeatState(playerStates, slotUserId);
-        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, activePlayerState);
+        var seatState = playerStates.FirstOrDefault(playerState =>
+            string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
+        var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, seatState);
         if (!SeatControllerModes.IsDelegated(controllerState.ControllerMode))
         {
             return string.Empty;

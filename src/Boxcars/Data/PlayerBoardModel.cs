@@ -70,8 +70,11 @@ public sealed class PlayerBoardModel
     /// <summary>True when the player is currently connected to the game session.</summary>
     public bool IsConnected { get; init; } = true;
 
-    /// <summary>True when the disconnected-seat Wait/Manual/AI control should be shown.</summary>
+    /// <summary>True when the seat-control settings menu should be shown.</summary>
     public bool ShowDisconnectedControlToggle { get; init; }
+
+    /// <summary>The control options available in the seat-control settings menu.</summary>
+    public IReadOnlyList<PlayerControlOptionModel> ControlModeOptions { get; init; } = [];
 
     /// <summary>True when the current user can switch the seat to AI control.</summary>
     public bool CanSelectAiControl { get; init; }
@@ -85,8 +88,8 @@ public sealed class PlayerBoardModel
     /// <summary>True when manual control is currently selected for the disconnected seat.</summary>
     public bool IsManualControlSelected { get; init; }
 
-    /// <summary>The selected disconnected-seat control mode.</summary>
-    public string DisconnectedControlMode { get; init; } = DisconnectedSeatControlModes.Wait;
+    /// <summary>The selected seat-control mode.</summary>
+    public string DisconnectedControlMode { get; init; } = DisconnectedSeatControlModes.Self;
 
     /// <summary>User id of the participant currently controlling this player via delegation.</summary>
     public string DelegatedControllerUserId { get; init; } = string.Empty;
@@ -157,3 +160,5 @@ public sealed class PlayerBoardModel
         return new string('$', dollarSigns);
     }
 }
+
+public sealed record PlayerControlOptionModel(string Value, string Label);

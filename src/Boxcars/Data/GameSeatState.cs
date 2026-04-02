@@ -24,8 +24,8 @@ public class GameSeatState
 
     public string ControllerUserId
     {
-        get => string.Empty;
-        set => _ = value;
+        get => Control.ControllerUserId;
+        set => Control.ControllerUserId = value;
     }
 
     public int? AuctionPlanTurnNumber
@@ -144,6 +144,7 @@ public static class GameSeatStateProjection
         return new PlayerControlState
         {
             ControllerMode = controlState.ControllerMode,
+            ControllerUserId = controlState.ControllerUserId,
             AuctionPlanTurnNumber = controlState.AuctionPlanTurnNumber,
             AuctionPlanRailroadIndex = controlState.AuctionPlanRailroadIndex,
             AuctionPlanStartingPrice = controlState.AuctionPlanStartingPrice,

@@ -309,7 +309,9 @@ public sealed class GamePresenceService : IDisposable
             gameId,
             slotUserId,
             IsUserConnected(gameId, slotUserId),
-            GetDelegatedControllerUserId(gameId, slotUserId),
+            !string.IsNullOrWhiteSpace(activePlayerControl?.ControllerUserId)
+                ? activePlayerControl.ControllerUserId
+                : GetDelegatedControllerUserId(gameId, slotUserId),
             activePlayerControl);
     }
 

@@ -98,9 +98,32 @@ public class GamePresenceServiceTests
 
         var controllerState = service.ResolveSeatControllerState("game-1", "target", activeSeatState: null);
 
-        Assert.Equal(SeatControllerModes.Delegated, controllerState.ControllerMode);
+        Assert.Equal(SeatControllerModes.Manual, controllerState.ControllerMode);
         Assert.Equal("controller", controllerState.DelegatedControllerUserId);
         Assert.False(controllerState.IsConnected);
+    }
+
+    [Fact]
+    public void ResolveSeatControllerState_ConnectedPersistedAdminSeat_ReturnsDelegated()
+    {
+        var service = new GamePresenceService();
+
+        service.SetMockConnectionState("game-1", "target", isConnected: true);
+
+        var controllerState = service.ResolveSeatControllerState(
+            "game-1",
+            "target",
+            new GamePlayerStateEntity
+            {
+                GameId = "game-1",
+                PlayerUserId = "target",
+                ControllerUserId = "creator",
+                ControllerMode = SeatControllerModes.Manual
+            });
+
+        Assert.Equal(SeatControllerModes.Manual, controllerState.ControllerMode);
+        Assert.Equal("creator", controllerState.DelegatedControllerUserId);
+        Assert.True(controllerState.IsConnected);
     }
 
     [Fact]

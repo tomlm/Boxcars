@@ -1379,7 +1379,10 @@ else
         _ = InvokeAsync(() =>
         {
             _awaitingAuthoritativeUpdate = false;
-            ShowNotification(failure.Message, Severity.Error);
+            if (!ShouldSuppressStaleActionFailure(failure.Message))
+            {
+                ShowNotification(failure.Message, Severity.Error);
+            }
             StateHasChanged();
             return Task.CompletedTask;
         });
@@ -1439,6 +1442,16 @@ else
         return exception.Message.Contains("Another action is still being processed", StringComparison.OrdinalIgnoreCase);
     }
 
+    private bool ShouldSuppressStaleActionFailure(string? message)
+    {
+        if (!string.Equals(message, "Not in DrawDestination phase.", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return !string.Equals(_turnViewState.TurnPhase, TurnPhase.DrawDestination.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     private void ApplyGameState(RailBaronGameState state, bool queueRestoredRouteSelection = true)
     {
         var previousState = _gameState;
@@ -1480,9 +1493,9 @@ else
                 var resolvedUserId = resolvedUserIdsByIndex[index];
 
                 var isConnected = IsPlayerConnected(resolvedUserId);
-                var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, resolvedUserId) ?? string.Empty;
-                var isDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
                 var isBotUser = IsBotUser(resolvedUserId);
+                var currentSeatState = currentPlayerStates.FirstOrDefault(playerState =>
+                    string.Equals(playerState.PlayerUserId, resolvedUserId, StringComparison.OrdinalIgnoreCase));
                 var latestBotAssignment = !string.IsNullOrWhiteSpace(resolvedUserId)
                     && botAssignmentsByUserId.TryGetValue(resolvedUserId, out var assignment)
                         ? assignment
@@ -1497,7 +1510,9 @@ else
                     && _botDisplayNamesByDefinitionId.TryGetValue(latestBotAssignment.PlayerUserId, out var botDisplayName)
                         ? botDisplayName
                         : null;
-                var controllerState = GamePresenceService.ResolveSeatControllerState(GameId, resolvedUserId, activeBotAssignment);
+                var controllerState = GamePresenceService.ResolveSeatControllerState(GameId, resolvedUserId, currentSeatState);
+                var delegatedControllerUserId = controllerState.DelegatedControllerUserId ?? string.Empty;
+                var isDelegatedToCurrentUser = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
 
                 var isCurrentUser = !string.IsNullOrWhiteSpace(_currentUserId)
                     && !string.IsNullOrWhiteSpace(resolvedUserId)
@@ -1541,11 +1556,12 @@ else
                     IsEliminated = !player.IsActive,
                     IsConnected = isConnected,
                     ShowDisconnectedControlToggle = ShouldShowDisconnectedControlToggle(index, resolvedUserId),
-                    CanSelectAiControl = CanCurrentUserSelectAiControl(index, resolvedUserId, delegatedControllerUserId),
-                    CanSelectManualControl = CanCurrentUserSelectManualControl(index, resolvedUserId, delegatedControllerUserId),
-                    IsAiControlSelected = SeatControllerModes.IsAiControlled(controllerState.ControllerMode),
-                    IsManualControlSelected = SeatControllerModes.IsDelegated(controllerState.ControllerMode),
-                    DisconnectedControlMode = ResolveDisconnectedControlMode(controllerState.ControllerMode),
+                    ControlModeOptions = BuildSeatControlOptions(index, resolvedUserId),
+                    CanSelectAiControl = CanCurrentUserSelectAiControl(index, resolvedUserId, controllerState),
+                    CanSelectManualControl = CanCurrentUserSelectManualControl(index, resolvedUserId, controllerState),
+                    IsAiControlSelected = SeatControllerModes.IsAiControlled(player.Control.ControllerMode),
+                    IsManualControlSelected = SeatControllerModes.IsManual(player.Control.ControllerMode),
+                    DisconnectedControlMode = ResolveDisconnectedControlMode(player.Control.ControllerMode),
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, playerDisplayNamesByUserId),
                     HasActiveBotControl = activeBotAssignment is not null,
@@ -2578,7 +2594,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
-        var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
+        var delegatedControllerUserId = ResolveControllerUserId(slotUserId);
         var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId);
         var isDelegatedController = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
 
@@ -2601,7 +2617,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
-        var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
+        var delegatedControllerUserId = ResolveControllerUserId(slotUserId);
         return PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)
             || PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
     }
@@ -2631,7 +2647,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             }
 
             var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(_gameState.ActivePlayerIndex);
-            var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
+            var delegatedControllerUserId = ResolveControllerUserId(slotUserId);
             return PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId)
                 && PlayerHasActiveBotAssignment(slotUserId);
         }
@@ -3350,14 +3366,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             .Select(player =>
             {
                 var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(player.Index);
-                var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId) ?? string.Empty;
-                var activeBotAssignment = player.HasActiveBotControl
-                    ? GetCurrentPlayerStates().FirstOrDefault(playerState =>
-                        string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
-                        && playerState.BotControlClearedUtc is null)
-                    : null;
-                var controllerState = GamePresenceService.ResolveSeatControllerState(GameId, slotUserId, activeBotAssignment);
+                var currentSeatState = GetCurrentPlayerStates().FirstOrDefault(playerState =>
+                    string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
+                var controllerState = GamePresenceService.ResolveSeatControllerState(GameId, slotUserId, currentSeatState);
+                var delegatedControllerUserId = controllerState.DelegatedControllerUserId ?? string.Empty;
                 return new PlayerBoardModel
                 {
                     Index = player.Index,
@@ -3377,11 +3389,12 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     IsEliminated = player.IsEliminated,
                     IsConnected = IsPlayerConnected(slotUserId),
                     ShowDisconnectedControlToggle = ShouldShowDisconnectedControlToggle(player.Index, slotUserId),
-                    CanSelectAiControl = CanCurrentUserSelectAiControl(player.Index, slotUserId, delegatedControllerUserId),
-                    CanSelectManualControl = CanCurrentUserSelectManualControl(player.Index, slotUserId, delegatedControllerUserId),
-                    IsAiControlSelected = SeatControllerModes.IsAiControlled(controllerState.ControllerMode),
-                    IsManualControlSelected = SeatControllerModes.IsDelegated(controllerState.ControllerMode),
-                    DisconnectedControlMode = ResolveDisconnectedControlMode(controllerState.ControllerMode),
+                    ControlModeOptions = BuildSeatControlOptions(player.Index, slotUserId),
+                    CanSelectAiControl = CanCurrentUserSelectAiControl(player.Index, slotUserId, controllerState),
+                    CanSelectManualControl = CanCurrentUserSelectManualControl(player.Index, slotUserId, controllerState),
+                    IsAiControlSelected = player.IsAiControlSelected,
+                    IsManualControlSelected = player.IsManualControlSelected,
+                    DisconnectedControlMode = player.DisconnectedControlMode,
                     DelegatedControllerUserId = delegatedControllerUserId,
                     DelegatedControllerDisplayName = ResolveParticipantDisplayName(delegatedControllerUserId, null),
                     HasActiveBotControl = player.HasActiveBotControl,
@@ -4031,41 +4044,41 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         var game = _game;
-        var delegatedControllerUserId = GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
-        bool changed;
-
-        if (string.Equals(request.ControlMode, DisconnectedSeatControlModes.Manual, StringComparison.OrdinalIgnoreCase))
+        var playerControl = request.PlayerIndex >= 0 && _gameState is not null && request.PlayerIndex < _gameState.Players.Count
+            ? _gameState.Players[request.PlayerIndex].Control
+            : null;
+        if (game is null || playerControl is null)
         {
-            changed = GamePresenceService.TryTakeDelegatedControl(GameId, slotUserId, _currentUserId);
-            if (changed && game is not null)
-            {
-                ClearActiveBotControl(slotUserId, "Manual control selected.");
-                await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
-            }
+            return;
         }
-        else if (string.Equals(request.ControlMode, DisconnectedSeatControlModes.AI, StringComparison.OrdinalIgnoreCase))
-        {
-            changed = string.IsNullOrWhiteSpace(delegatedControllerUserId)
-                || GamePresenceService.ReleaseDelegatedControl(GameId, slotUserId, delegatedControllerUserId);
 
-            if (game is not null)
+        playerControl.ControllerMode = request.ControlMode;
+        playerControl.ControllerUserId = string.Equals(request.ControlMode, DisconnectedSeatControlModes.Manual, StringComparison.OrdinalIgnoreCase)
+            ? ResolveAdminControllerUserId()
+            : string.Empty;
+
+        var changed = true;
+        if (string.Equals(request.ControlMode, DisconnectedSeatControlModes.AI, StringComparison.OrdinalIgnoreCase))
+        {
+            if (IsPlayerConnected(slotUserId))
+            {
+                ClearActiveBotControl(slotUserId, "AI control configured until disconnect.");
+            }
+            else
             {
                 ActivateBotControl(slotUserId);
-                changed = true;
-                await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
             }
+        }
+        else if (string.Equals(request.ControlMode, DisconnectedSeatControlModes.Manual, StringComparison.OrdinalIgnoreCase))
+        {
+            ClearActiveBotControl(slotUserId, "Admin control selected.");
         }
         else
         {
-            changed = string.IsNullOrWhiteSpace(delegatedControllerUserId)
-                || GamePresenceService.ReleaseDelegatedControl(GameId, slotUserId, delegatedControllerUserId);
-
-            if (changed && game is not null)
-            {
-                ClearActiveBotControl(slotUserId, "Wait for reconnect selected.");
-                await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
-            }
+            ClearActiveBotControl(slotUserId, "Player control selected.");
         }
+
+        await PersistPlayerStatesAndRefreshAsync(game, "Unable to update seat control.", notifyNewItems: true);
 
         if (!changed)
         {
@@ -4112,12 +4125,13 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             && playerIndex < _gameState.Players.Count
             && _gameState.Players[playerIndex].IsActive
             && !IsBotUser(slotUserId)
-            && !IsPlayerConnected(slotUserId)
-            && !PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)
-            && IsCurrentUserInGameRoster();
+            && IsCurrentUserInGameRoster()
+            && (IsCurrentUserGameAdmin()
+                || (!IsPlayerConnected(slotUserId)
+                    && !PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)));
     }
 
-    private bool CanCurrentUserSelectManualControl(int playerIndex, string? slotUserId, string? delegatedControllerUserId)
+    private bool CanCurrentUserSelectManualControl(int playerIndex, string? slotUserId, SeatControllerState controllerState)
     {
         if (!ShouldShowDisconnectedControlToggle(playerIndex, slotUserId)
             || string.IsNullOrWhiteSpace(_currentUserId))
@@ -4125,19 +4139,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return false;
         }
 
-        return string.IsNullOrWhiteSpace(delegatedControllerUserId)
-            || PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+        return IsCurrentUserGameAdmin()
+            || string.IsNullOrWhiteSpace(controllerState.DelegatedControllerUserId)
+            || PlayerControlRules.IsDelegatedController(controllerState.DelegatedControllerUserId, _currentUserId);
     }
 
-    private bool CanCurrentUserSelectAiControl(int playerIndex, string? slotUserId, string? delegatedControllerUserId)
+    private bool CanCurrentUserSelectAiControl(int playerIndex, string? slotUserId, SeatControllerState controllerState)
     {
         if (!ShouldShowDisconnectedControlToggle(playerIndex, slotUserId))
         {
             return false;
         }
 
-        return string.IsNullOrWhiteSpace(delegatedControllerUserId)
-            || PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+        return IsCurrentUserGameAdmin()
+            || string.IsNullOrWhiteSpace(controllerState.DelegatedControllerUserId)
+            || PlayerControlRules.IsDelegatedController(controllerState.DelegatedControllerUserId, _currentUserId);
     }
 
     private bool IsCurrentUserInGameRoster()
@@ -4154,12 +4170,58 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return DisconnectedSeatControlModes.AI;
         }
 
-        if (SeatControllerModes.IsDelegated(controllerMode))
+        if (SeatControllerModes.IsManual(controllerMode))
         {
             return DisconnectedSeatControlModes.Manual;
         }
 
-        return DisconnectedSeatControlModes.Wait;
+        return DisconnectedSeatControlModes.Self;
+    }
+
+    private IReadOnlyList<PlayerControlOptionModel> BuildSeatControlOptions(int playerIndex, string? slotUserId)
+    {
+        if (!ShouldShowDisconnectedControlToggle(playerIndex, slotUserId))
+        {
+            return [];
+        }
+
+        return
+        [
+            new PlayerControlOptionModel(DisconnectedSeatControlModes.Self, "Player"),
+            new PlayerControlOptionModel(DisconnectedSeatControlModes.Manual, "Admin"),
+            new PlayerControlOptionModel(DisconnectedSeatControlModes.AI, "AI")
+        ];
+    }
+
+    private bool IsCurrentUserGameAdmin()
+    {
+        return !string.IsNullOrWhiteSpace(_currentUserId)
+            && string.Equals(_game?.CreatorId, _currentUserId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string ResolveAdminControllerUserId()
+    {
+        var creatorId = _game?.CreatorId;
+        if (!string.IsNullOrWhiteSpace(creatorId))
+        {
+            return creatorId;
+        }
+
+        return _currentUserId ?? string.Empty;
+    }
+
+    private string? ResolveControllerUserId(string? slotUserId)
+    {
+        if (string.IsNullOrWhiteSpace(slotUserId))
+        {
+            return null;
+        }
+
+        var playerState = GetCurrentPlayerStates().FirstOrDefault(playerState =>
+            string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
+        return !string.IsNullOrWhiteSpace(playerState?.ControllerUserId)
+            ? playerState.ControllerUserId
+            : GamePresenceService.GetDelegatedControllerUserId(GameId, slotUserId);
     }
 
     private string ResolveParticipantDisplayName(string? userId, IReadOnlyDictionary<string, string>? playerDisplayNamesByUserId)

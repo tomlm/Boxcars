@@ -84,6 +84,7 @@ public sealed class GrandfatheredRailroadFeeState
 public sealed class PlayerControlState
 {
     public string ControllerMode { get; set; } = string.Empty;
+    public string ControllerUserId { get; set; } = string.Empty;
     public int? AuctionPlanTurnNumber { get; set; }
     public int? AuctionPlanRailroadIndex { get; set; }
     public int? AuctionPlanStartingPrice { get; set; }

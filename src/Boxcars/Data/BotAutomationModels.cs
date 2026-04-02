@@ -15,8 +15,8 @@ public sealed record SeatControllerState
 
 public static class SeatControllerModes
 {
-    public const string Self = "Self";
-    public const string Delegated = "Delegated";
+    public const string Self = "Player";
+    public const string Manual = "Admin";
     public const string AI = "AI";
 
     public static bool IsAiControlled(string? controllerMode)
@@ -26,12 +26,21 @@ public static class SeatControllerModes
 
     public static bool IsDelegated(string? controllerMode)
     {
-        return string.Equals(controllerMode, Delegated, StringComparison.OrdinalIgnoreCase);
+        return IsManual(controllerMode);
+    }
+
+    public static bool IsManual(string? controllerMode)
+    {
+        return string.Equals(controllerMode, Manual, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(controllerMode, "Manual", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(controllerMode, "Observer", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(controllerMode, "Delegated", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsSelf(string? controllerMode)
     {
-        return string.Equals(controllerMode, Self, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(controllerMode, Self, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(controllerMode, "Self", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string Normalize(string? controllerMode)
@@ -46,9 +55,9 @@ public static class SeatControllerModes
             return AI;
         }
 
-        if (IsDelegated(controllerMode))
+        if (IsManual(controllerMode))
         {
-            return Delegated;
+            return Manual;
         }
 
         if (IsSelf(controllerMode))
@@ -123,14 +132,14 @@ public sealed record BotRecordedActionMetadata
 public sealed record DisconnectedSeatControlRequest
 {
     public int PlayerIndex { get; init; }
-    public string ControlMode { get; init; } = DisconnectedSeatControlModes.Wait;
+    public string ControlMode { get; init; } = DisconnectedSeatControlModes.Self;
 }
 
 public static class DisconnectedSeatControlModes
 {
-    public const string Wait = "Wait";
+    public const string Self = "Player";
     public const string AI = "AI";
-    public const string Manual = "Manual";
+    public const string Manual = "Admin";
 }
 
 public static class SeatControllerStateSerialization

@@ -95,6 +95,19 @@ public sealed class BotTurnService
             var strategyProfile = await _userDirectoryService.GetBotDefinitionAsync(playerState.PlayerUserId, cancellationToken);
             if (strategyProfile is null || !strategyProfile.IsBotUser)
             {
+                if (SeatControllerModes.IsAiControlled(playerState.ControllerMode)
+                    && !_gamePresenceService.IsUserConnected(gameId, playerState.PlayerUserId)
+                    && (!PlayerControlRules.HasActiveBotControl(playerState)
+                        || !string.Equals(PlayerControlRules.ResolveBotControllerMode(playerState), SeatControllerModes.AI, StringComparison.OrdinalIgnoreCase)))
+                {
+                    playerState.ControllerMode = SeatControllerModes.AI;
+                    playerState.ControllerUserId = string.Empty;
+                    playerState.BotControlActivatedUtc = DateTimeOffset.UtcNow;
+                    playerState.BotControlClearedUtc = null;
+                    playerState.BotControlStatus = BotControlStatuses.Active;
+                    playerState.BotControlClearReason = string.Empty;
+                }
+
                 continue;
             }
 
@@ -1083,7 +1096,6 @@ public sealed class BotTurnService
         bool requireExplicitAiControl = false)
     {
         var playerState = FindActiveSeatState(playerStates, playerUserId);
-        var delegatedControllerUserId = _gamePresenceService.GetDelegatedControllerUserId(gameId, playerUserId);
         var isConnected = _gamePresenceService.IsUserConnected(gameId, playerUserId);
 
         if (playerState is null)

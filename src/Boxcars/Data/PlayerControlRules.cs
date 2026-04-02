@@ -11,21 +11,28 @@ public static class PlayerControlRules
         string? delegatedControllerUserId,
         PlayerControlState? activePlayerControl)
     {
+        var configuredControllerUserId = !string.IsNullOrWhiteSpace(activePlayerControl?.ControllerUserId)
+            ? activePlayerControl.ControllerUserId
+            : delegatedControllerUserId;
+        var configuredControllerMode = SeatControllerModes.Normalize(activePlayerControl?.ControllerMode);
         var resolvedBotControllerMode = ResolveBotControllerMode(activePlayerControl);
         var controllerMode = resolvedBotControllerMode switch
         {
             SeatControllerModes.AI when activePlayerControl is not null => SeatControllerModes.AI,
-            _ when !isConnected && !string.IsNullOrWhiteSpace(delegatedControllerUserId) => SeatControllerModes.Delegated,
-            _ when !isConnected => SeatControllerModes.Self,
+            _ when SeatControllerModes.IsManual(configuredControllerMode) && !string.IsNullOrWhiteSpace(configuredControllerUserId) => SeatControllerModes.Manual,
+            _ when !isConnected && !string.IsNullOrWhiteSpace(configuredControllerUserId) => SeatControllerModes.Manual,
             _ => SeatControllerModes.Self
         };
+        var activeDelegatedControllerUserId = SeatControllerModes.IsDelegated(controllerMode)
+            ? configuredControllerUserId
+            : null;
 
         return new SeatControllerState
         {
             GameId = gameId,
             PlayerUserId = slotUserId ?? string.Empty,
             ControllerMode = controllerMode,
-            DelegatedControllerUserId = delegatedControllerUserId,
+            DelegatedControllerUserId = activeDelegatedControllerUserId,
             OwningHumanUserId = slotUserId,
             IsConnected = isConnected,
             BotDefinitionId = SeatControllerModes.IsAiControlled(controllerMode)
