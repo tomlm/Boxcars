@@ -1,5 +1,6 @@
-using Azure;
 using System.Collections.Concurrent;
+using Azure;
+using Boxcars.Components.Account.Pages.Manage;
 using Boxcars.Data;
 
 namespace Boxcars.Services;
@@ -177,7 +178,11 @@ public class PlayerProfileService
     private static ApplicationUser MapProfile(ApplicationUser user)
     {
         user.RowKey = NormalizeUserId(user.RowKey);
-        user.ThumbnailUrl = ResolveThumbnailUrl(user.Email, user.ThumbnailUrl);
+        if (string.IsNullOrWhiteSpace(user.ThumbnailUrl))
+        {
+            user.ThumbnailUrl = $"https://robohash.org/{Uri.EscapeDataString(user.Name)}?set=set6";
+        }
+
         user.StrategyText = ResolveStrategyTextOrDefault(user.StrategyText);
         return user;
     }
@@ -256,18 +261,6 @@ public class PlayerProfileService
     public static bool HasRequiredStrategyText(string? strategyText)
     {
         return string.IsNullOrWhiteSpace(NormalizeStrategyText(strategyText)) is false;
-    }
-
-    private static string ResolveThumbnailUrl(string email, string? thumbnailUrl)
-    {
-        if (!string.IsNullOrWhiteSpace(thumbnailUrl) && !thumbnailUrl.Contains("placeholder"))
-        {
-            return thumbnailUrl;
-        }
-
-        return string.IsNullOrWhiteSpace(email)
-            ? string.Empty
-            : $"https://robohash.org/{Uri.EscapeDataString(email)}";
     }
 
     private sealed record CachedProfile(ApplicationUser? Profile);
