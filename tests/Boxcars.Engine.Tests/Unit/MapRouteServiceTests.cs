@@ -50,6 +50,101 @@ public class MapRouteServiceTests
     }
 
     [Fact]
+    public void FindCheapestSuggestion_PrefersMoreDirectRouteWhenDetourOnlySavesOneThousand()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = [], ["E"] = [], ["F"] = [], ["G"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3),
+            ["E"] = CreateDot("E", 0, 4),
+            ["F"] = CreateDot("F", 0, 5),
+            ["G"] = CreateDot("G", 0, 6)
+        };
+
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "C", 1);
+        AddEdge(adjacency, "C", "D", 1);
+        AddEdge(adjacency, "D", "E", 1);
+        AddEdge(adjacency, "E", "F", 1);
+        AddEdge(adjacency, "F", "G", 1);
+        AddEdge(adjacency, "A", "G", 2);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "G",
+                MovementType = PlayerMovementType.ThreeDie,
+                MovementCapacity = 10,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = rr => rr == 1
+                    ? RailroadOwnershipCategory.Friendly
+                    : RailroadOwnershipCategory.Public,
+                ResolveRailroadFee = rr => rr == 1 ? 1000 : 2000
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["A", "G"], suggestion.NodeIds);
+        Assert.Equal(2000, suggestion.TotalCost);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_PrefersFriendlyExitWhenHostileRailroadCanBeLeftForDestinationPath()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3)
+        };
+
+        AddBidirectionalEdge(adjacency, "A", "B", 1);
+        AddBidirectionalEdge(adjacency, "B", "D", 1);
+        AddBidirectionalEdge(adjacency, "B", "C", 2);
+        AddBidirectionalEdge(adjacency, "C", "D", 2);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.ThreeDie,
+                MovementCapacity = 10,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = rr => rr == 1
+                    ? RailroadOwnershipCategory.Unfriendly
+                    : RailroadOwnershipCategory.Public
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["A", "B", "C", "D"], suggestion.NodeIds);
+        Assert.Equal([1, 2, 2], suggestion.Segments.Select(segment => segment.RailroadIndex).ToArray());
+    }
+
+    [Fact]
     public void FindCheapestSuggestion_CapacityAffectsTurnCount()
     {
         var service = new MapRouteService();
@@ -97,10 +192,10 @@ public class MapRouteServiceTests
                 ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
-        // Same route, but capacity changes the number of turns and total cost
+        // First turn uses the current remaining movement; later turns use normal two-die capacity.
         Assert.Equal(["A", "B", "C", "D"], lowCap.NodeIds);
-        Assert.Equal(3, lowCap.TotalTurns);
-        Assert.Equal(3000, lowCap.TotalCost);
+        Assert.Equal(2, lowCap.TotalTurns);
+        Assert.Equal(2000, lowCap.TotalCost);
 
         Assert.Equal(["A", "B", "C", "D"], highCap.NodeIds);
         Assert.Equal(1, highCap.TotalTurns);
@@ -412,6 +507,446 @@ public class MapRouteServiceTests
         Assert.Equal(3000, suggestion.TotalCost);
     }
 
+    [Fact]
+    public void FindCheapestSuggestion_UnfriendlyDestination_PrefersLowerExitCostRoute()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [],
+            ["B"] = [],
+            ["C"] = [],
+            ["D"] = [],
+            ["E"] = [],
+            ["F"] = [],
+            ["G"] = [],
+            ["H"] = [],
+            ["J"] = [],
+            ["K"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3),
+            ["E"] = CreateDot("E", 0, 4),
+            ["F"] = CreateDot("F", 0, 5),
+            ["G"] = CreateDot("G", 0, 6),
+            ["H"] = CreateDot("H", 0, 7),
+            ["J"] = CreateDot("J", 0, 8),
+            ["K"] = CreateDot("K", 0, 9)
+        };
+
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "D", 2);
+        AddEdge(adjacency, "A", "C", 1);
+        AddEdge(adjacency, "C", "D", 3);
+        AddEdge(adjacency, "D", "E", 2);
+        AddEdge(adjacency, "E", "F", 4);
+        AddEdge(adjacency, "D", "G", 3);
+        AddEdge(adjacency, "G", "H", 3);
+        AddEdge(adjacency, "H", "J", 3);
+        AddEdge(adjacency, "J", "K", 5);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 5,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = railroadIndex => railroadIndex switch
+                {
+                    1 or 4 or 5 => RailroadOwnershipCategory.Public,
+                    _ => RailroadOwnershipCategory.Unfriendly
+                },
+                ResolveRailroadFee = railroadIndex => railroadIndex switch
+                {
+                    1 or 4 or 5 => 1000,
+                    _ => 5000
+                }
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal([1, 2], suggestion.Segments.Take(2).Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(6000, suggestion.TotalCost);
+        Assert.Equal(6000, suggestion.Outlook.ExitCost);
+        Assert.Equal(12000, suggestion.Outlook.CombinedCost);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_BonusOut_PrefersHigherEscapeProbabilityRoute()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = [], ["E"] = [], ["F"] = [],
+            ["G"] = [], ["H"] = [], ["I"] = [], ["X"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3),
+            ["E"] = CreateDot("E", 0, 4),
+            ["F"] = CreateDot("F", 0, 5),
+            ["G"] = CreateDot("G", 0, 6),
+            ["H"] = CreateDot("H", 0, 7),
+            ["I"] = CreateDot("I", 0, 8),
+            ["X"] = CreateDot("X", 0, 9)
+        };
+
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "X", 1);
+        AddEdge(adjacency, "X", "D", 2);
+        AddEdge(adjacency, "A", "C", 1);
+        AddEdge(adjacency, "C", "D", 3);
+        AddEdge(adjacency, "D", "E", 2);
+        AddEdge(adjacency, "E", "F", 4);
+        AddEdge(adjacency, "D", "G", 3);
+        AddEdge(adjacency, "G", "H", 3);
+        AddEdge(adjacency, "H", "I", 5);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 5,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = railroadIndex => railroadIndex switch
+                {
+                    1 or 4 or 5 => RailroadOwnershipCategory.Public,
+                    _ => RailroadOwnershipCategory.Unfriendly
+                },
+                ResolveRailroadFee = railroadIndex => railroadIndex switch
+                {
+                    1 or 4 or 5 => 1000,
+                    _ => 5000
+                },
+                BonusOutAvailable = true
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal([1, 1, 2], suggestion.Segments.Take(3).Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(6000, suggestion.TotalCost);
+        Assert.Equal(6000, suggestion.Outlook.WorstCaseExitCost);
+        Assert.Equal(1000d, suggestion.Outlook.ExpectedExitCost, 6);
+        Assert.Equal(5d / 6d, suggestion.Outlook.BonusOutProbability, 6);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_TieBreak_PrefersLowerCashOwner()
+    {
+        var service = new MapRouteService();
+        var context = CreateTieBreakContext();
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 5,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => RailroadOwnershipCategory.Unfriendly,
+                    _ => RailroadOwnershipCategory.Public
+                },
+                ResolveRailroadFee = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => 5000,
+                    _ => 1000
+                },
+                ResolveRailroadOwnerPlayerIndex = railroadIndex => railroadIndex switch
+                {
+                    2 => 1,
+                    3 => 2,
+                    _ => null
+                },
+                ResolvePlayerCash = playerIndex => playerIndex switch
+                {
+                    1 => 5000,
+                    2 => 25000,
+                    _ => int.MaxValue
+                }
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal([1, 2], suggestion.Segments.Take(2).Select(segment => segment.RailroadIndex).ToArray());
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_TieBreak_PrefersWeakerNetworkOwner()
+    {
+        var service = new MapRouteService();
+        var context = CreateTieBreakContext();
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 5,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => RailroadOwnershipCategory.Unfriendly,
+                    _ => RailroadOwnershipCategory.Public
+                },
+                ResolveRailroadFee = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => 5000,
+                    _ => 1000
+                },
+                ResolveRailroadOwnerPlayerIndex = railroadIndex => railroadIndex switch
+                {
+                    2 => 1,
+                    3 => 2,
+                    _ => null
+                },
+                ResolvePlayerCash = _ => 10000,
+                ResolvePlayerAccessibleDestinationPercent = playerIndex => playerIndex switch
+                {
+                    1 => 12.5,
+                    2 => 40.0,
+                    _ => double.MaxValue
+                },
+                ResolvePlayerMonopolyDestinationPercent = playerIndex => playerIndex switch
+                {
+                    1 => 3.5,
+                    2 => 15.0,
+                    _ => double.MaxValue
+                }
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal([1, 2], suggestion.Segments.Take(2).Select(segment => segment.RailroadIndex).ToArray());
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_TieBreak_PrefersSpreadPaymentsAcrossOwners()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = [], ["E"] = [], ["F"] = [], ["G"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3),
+            ["E"] = CreateDot("E", 0, 4),
+            ["F"] = CreateDot("F", 0, 5),
+            ["G"] = CreateDot("G", 0, 6)
+        };
+
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "C", 2);
+        AddEdge(adjacency, "C", "D", 2);
+        AddEdge(adjacency, "A", "E", 1);
+        AddEdge(adjacency, "E", "F", 2);
+        AddEdge(adjacency, "F", "D", 3);
+        AddEdge(adjacency, "D", "G", 4);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 1,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => RailroadOwnershipCategory.Unfriendly,
+                    _ => RailroadOwnershipCategory.Public
+                },
+                ResolveRailroadFee = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => 5000,
+                    _ => 1000
+                },
+                ResolveRailroadOwnerPlayerIndex = railroadIndex => railroadIndex switch
+                {
+                    2 => 1,
+                    3 => 2,
+                    _ => null
+                },
+                ResolvePlayerCash = _ => 10000,
+                ResolvePlayerAccessibleDestinationPercent = _ => 20.0,
+                ResolvePlayerMonopolyDestinationPercent = _ => 10.0
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal([1, 2, 2], suggestion.Segments.Take(3).Select(segment => segment.RailroadIndex).ToArray());
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_SafetyOutranksSpreadPaymentsTieBreak()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = [], ["E"] = [], ["F"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3),
+            ["E"] = CreateDot("E", 0, 4),
+            ["F"] = CreateDot("F", 0, 5)
+        };
+
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "D", 2);
+        AddEdge(adjacency, "A", "C", 1);
+        AddEdge(adjacency, "C", "E", 2);
+        AddEdge(adjacency, "E", "D", 3);
+        AddEdge(adjacency, "D", "F", 4);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 5,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => RailroadOwnershipCategory.Unfriendly,
+                    _ => RailroadOwnershipCategory.Public
+                },
+                ResolveRailroadFee = railroadIndex => railroadIndex switch
+                {
+                    2 or 3 => 5000,
+                    _ => 1000
+                },
+                ResolveRailroadOwnerPlayerIndex = railroadIndex => railroadIndex switch
+                {
+                    2 => 1,
+                    3 => 2,
+                    _ => null
+                },
+                ResolvePlayerCash = playerIndex => playerIndex switch
+                {
+                    1 => 1_000,
+                    2 => 50_000,
+                    _ => int.MaxValue
+                },
+                ResolvePlayerAccessibleDestinationPercent = playerIndex => playerIndex switch
+                {
+                    1 => 1.0,
+                    2 => 99.0,
+                    _ => double.MaxValue
+                },
+                ResolvePlayerMonopolyDestinationPercent = playerIndex => playerIndex switch
+                {
+                    1 => 1.0,
+                    2 => 99.0,
+                    _ => double.MaxValue
+                }
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal([1, 2], suggestion.Segments.Select(segment => segment.RailroadIndex).ToArray());
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_PrefersLowerTwoTurnCostOverStayingOnHostileRail()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = [], ["E"] = [], ["F"] = [], ["G"] = [], ["H"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3),
+            ["E"] = CreateDot("E", 0, 4),
+            ["F"] = CreateDot("F", 0, 5),
+            ["G"] = CreateDot("G", 0, 6),
+            ["H"] = CreateDot("H", 0, 7)
+        };
+
+        AddBidirectionalEdge(adjacency, "A", "B", 1);
+        AddBidirectionalEdge(adjacency, "B", "C", 1);
+        AddBidirectionalEdge(adjacency, "C", "D", 1);
+        AddBidirectionalEdge(adjacency, "D", "H", 2);
+
+        AddBidirectionalEdge(adjacency, "B", "E", 3);
+        AddBidirectionalEdge(adjacency, "E", "F", 3);
+        AddBidirectionalEdge(adjacency, "F", "G", 3);
+        AddBidirectionalEdge(adjacency, "G", "H", 3);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "H",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 2,
+                AverageFutureMovement = 7.0,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = railroadIndex => railroadIndex switch
+                {
+                    1 => RailroadOwnershipCategory.Unfriendly,
+                    _ => RailroadOwnershipCategory.Public
+                },
+                ResolveRailroadFee = railroadIndex => railroadIndex switch
+                {
+                    1 => 5000,
+                    _ => 1000
+                }
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal([1, 3, 3, 3, 3], suggestion.Segments.Select(segment => segment.RailroadIndex).ToArray());
+    }
+
     private static MapRouteContext CreateContext()
     {
         var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
@@ -439,6 +974,34 @@ public class MapRouteServiceTests
         AddEdge(adjacency, "E", "D", 1);
         AddEdge(adjacency, "A", "Z", 2);
         AddEdge(adjacency, "Z", "D", 2);
+
+        return new MapRouteContext
+        {
+            Adjacency = adjacency,
+            DotLookup = dotLookup
+        };
+    }
+
+    private static MapRouteContext CreateTieBreakContext()
+    {
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = [], ["E"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3),
+            ["E"] = CreateDot("E", 0, 4)
+        };
+
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "D", 2);
+        AddEdge(adjacency, "A", "C", 1);
+        AddEdge(adjacency, "C", "D", 3);
+        AddEdge(adjacency, "D", "E", 4);
 
         return new MapRouteContext
         {
@@ -477,5 +1040,11 @@ public class MapRouteServiceTests
             X2 = 1,
             Y2 = 1
         });
+    }
+
+    private static void AddBidirectionalEdge(Dictionary<string, List<RouteGraphEdge>> adjacency, string fromNodeId, string toNodeId, int railroadIndex)
+    {
+        AddEdge(adjacency, fromNodeId, toNodeId, railroadIndex);
+        AddEdge(adjacency, toNodeId, fromNodeId, railroadIndex);
     }
 }

@@ -372,6 +372,17 @@ public class GameService
         return await GetGameEventsAsync(gameId, lastSeenEventRowKey: null, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<EventTimelineItem>> GetRecentGameEventsAsync(string gameId, int maxEvents, CancellationToken cancellationToken)
+    {
+        if (maxEvents <= 0)
+        {
+            return [];
+        }
+
+        var events = await GetGameEventsAsync(gameId, lastSeenEventRowKey: null, cancellationToken);
+        return events.TakeLast(maxEvents).ToList();
+    }
+
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, string? lastSeenEventRowKey, CancellationToken cancellationToken)
     {
         var game = await GetGameAsync(gameId, cancellationToken);

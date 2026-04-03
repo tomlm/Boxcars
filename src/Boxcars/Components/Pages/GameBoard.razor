@@ -148,6 +148,19 @@ else
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
                               CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
                               MovementType="@CurrentMovementType"
+                              AverageFutureMovement="@CurrentAverageFutureMovement"
+                              PublicFee="@CurrentSuggestionPublicFee"
+                              PrivateFee="@CurrentSuggestionPrivateFee"
+                              UnfriendlyFee="@CurrentSuggestionUnfriendlyFee"
+                              GrandfatheredRailroadFees="@CurrentSuggestionGrandfatheredFees"
+                              BonusOutAvailable="@CurrentSuggestionBonusOutAvailable"
+                              CurrentWhiteDiceMovement="@CurrentSuggestionWhiteDiceMovement"
+                              CurrentFixedBonusMovement="@CurrentSuggestionFixedBonusMovement"
+                              BonusOutRequiresWhiteDiceArrival="@CurrentSuggestionBonusOutRequiresWhiteDiceArrival"
+                              RailroadOwnerPlayerIndices="@RailroadOwnerPlayerIndices"
+                              PlayerCashByPlayerIndex="@PlayerCashByPlayerIndex"
+                              PlayerAccessibleDestinationPercentByPlayerIndex="@PlayerAccessibleDestinationPercentByPlayerIndex"
+                              PlayerMonopolyDestinationPercentByPlayerIndex="@PlayerMonopolyDestinationPercentByPlayerIndex"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
                               PlayerOwnedRailroadIndices="@ActivePlayerOwnedRailroadIndices"
                               OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
@@ -394,6 +407,7 @@ else
     private List<PlayerMapState> _mapPlayerStates = new();
     private int _currentUserPlayerIndex = -1;
     private bool _timelineInitialized;
+    private bool _loadingRecentHistory;
     private bool _pendingRestoredRouteSelection;
     private string? _lastAutoSuggestKey;
     private string? _selectedPurchaseOptionKey;
@@ -554,6 +568,11 @@ else
         await ResolveDrawDestinationPhaseAsync();
         await AutoSuggestRouteIfNeededAsync();
         await ResolvePurchasePhaseAsync();
+
+        if (IsHistoryPurchaseTabActive)
+        {
+            await EnsureRecentHistoryLoadedAsync();
+        }
     }
 
     private async Task EndGameAsync()
@@ -793,6 +812,11 @@ else
     {
         _selectedPurchaseTab = tab;
 
+        if (tab == PurchaseExperienceTab.History)
+        {
+            await EnsureRecentHistoryLoadedAsync();
+        }
+
         if (tab == PurchaseExperienceTab.Stats)
         {
             await RefreshPlayerStatesAsync();
@@ -804,6 +828,35 @@ else
         }
 
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task EnsureRecentHistoryLoadedAsync()
+    {
+        if (_loadingRecentHistory
+            || string.IsNullOrWhiteSpace(GameId)
+            || _notificationHistory.Count > 0)
+        {
+            return;
+        }
+
+        _loadingRecentHistory = true;
+        try
+        {
+            if (_gameEngineEvents.Count == 0)
+            {
+                var recentEvents = await GameService.GetRecentGameEventsAsync(GameId, 50, CancellationToken.None);
+                ReplaceTimelineItems(recentEvents);
+            }
+            else
+            {
+                RemoveTimelineHistoryEntries();
+                MergeTimelineNotifications();
+            }
+        }
+        finally
+        {
+            _loadingRecentHistory = false;
+        }
     }
 
     private void EnsureAdvisorSession()
@@ -2009,10 +2062,10 @@ StringComparison.OrdinalIgnoreCase));
             : string.Empty;
     }
 
-    private static string ResolveBotThumbnailUrl(string? playerName)
+    private string ResolveBotThumbnailUrl(string? playerName)
     {
         var thumbnailKey = string.IsNullOrWhiteSpace(playerName)
-            ? "boxcars-bot"
+            ? $"Player{_currentUserPlayerIndex.ToString()}"
             : playerName.Trim();
 
         return $"https://robohash.org/{Uri.EscapeDataString(thumbnailKey)}";
@@ -2161,10 +2214,57 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
 
+    private int CurrentSuggestionPublicFee => _game is null
+        ? Boxcars.Engine.Persistence.GameSettings.Default.PublicFee
+        : GameSettingsResolver.Resolve(_game).Settings.PublicFee;
+
+    private int CurrentSuggestionPrivateFee => _game is null
+        ? Boxcars.Engine.Persistence.GameSettings.Default.PrivateFee
+        : GameSettingsResolver.Resolve(_game).Settings.PrivateFee;
+
+    private int CurrentSuggestionUnfriendlyFee => _game is null
+        ? Boxcars.Engine.Domain.GameEngine.GetUnfriendlyFee(Boxcars.Engine.Persistence.GameSettings.Default, false)
+        : GameEngine.GetUnfriendlyFee(GameSettingsResolver.Resolve(_game).Settings, _gameState?.AllRailroadsSold == true);
+
+    private IReadOnlyDictionary<int, int> CurrentSuggestionGrandfatheredFees => _gameState is not null
+        && _gameState.ActivePlayerIndex >= 0
+        && _gameState.ActivePlayerIndex < _gameState.Players.Count
+            ? _gameState.Players[_gameState.ActivePlayerIndex].GrandfatheredRailroadFees
+                .ToDictionary(fee => fee.RailroadIndex, fee => fee.FeeAmount)
+            : new Dictionary<int, int>();
+
+    private bool CurrentSuggestionBonusOutAvailable => _turnViewState.BonusRollAvailable;
+
+    private int CurrentSuggestionWhiteDiceMovement => Math.Max(0, _turnViewState.WhiteDieOne + _turnViewState.WhiteDieTwo);
+
+    private int CurrentSuggestionFixedBonusMovement => CurrentMovementType == PlayerMovementType.ThreeDie
+        ? Math.Max(0, _turnViewState.RedDie ?? 0)
+        : 0;
+
+    private bool CurrentSuggestionBonusOutRequiresWhiteDiceArrival => CurrentMovementType == PlayerMovementType.ThreeDie
+        && CurrentSuggestionFixedBonusMovement > 0
+        && CurrentSuggestionWhiteDiceMovement > 0;
+
+    private double CurrentAverageFutureMovement => _gameState is not null
+        && _gameState.ActivePlayerIndex >= 0
+        && _gameState.ActivePlayerIndex < _gameState.Players.Count
+            ? ResolveAverageFutureMovement(_gameState.Players[_gameState.ActivePlayerIndex].LocomotiveType)
+            : ResolveAverageFutureMovement("Freight");
+
     private bool IsPendingBonusMove => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
         && _turnViewState.RedDie.HasValue
         && _turnViewState.WhiteDieOne <= 0
         && _turnViewState.WhiteDieTwo <= 0;
+
+    private static double ResolveAverageFutureMovement(string? locomotiveType)
+    {
+        return locomotiveType?.Trim() switch
+        {
+            "Express" => 7.6d,
+            "Superchief" => 10.5d,
+            _ => 7.0d
+        };
+    }
 
     private PlayerMovementType CurrentMovementType => _turnViewState.RedDie.HasValue && (_turnViewState.WhiteDieOne > 0 || _turnViewState.WhiteDieTwo > 0)
         ? PlayerMovementType.ThreeDie
@@ -2465,6 +2565,35 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             .ToDictionary(
                 entry => entry.Key,
                 entry => _players[entry.Value!.Value].Color);
+
+    private IReadOnlyDictionary<int, int?> RailroadOwnerPlayerIndices => _gameState?.RailroadOwnership
+        ?? new Dictionary<int, int?>();
+
+    private IReadOnlyDictionary<int, int> PlayerCashByPlayerIndex => _gameState is null
+        ? new Dictionary<int, int>()
+        : _gameState.Players
+            .Select((player, index) => new { index, player.Cash })
+            .ToDictionary(entry => entry.index, entry => entry.Cash);
+
+    private IReadOnlyDictionary<int, double> PlayerAccessibleDestinationPercentByPlayerIndex => _gameState is null || _playerBoardMapDefinition is null
+        ? new Dictionary<int, double>()
+        : _gameState.Players
+            .Select((player, index) => new
+            {
+                index,
+                Snapshot = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, player.OwnedRailroadIndices)
+            })
+            .ToDictionary(entry => entry.index, entry => (double)entry.Snapshot.AccessibleDestinationPercent);
+
+    private IReadOnlyDictionary<int, double> PlayerMonopolyDestinationPercentByPlayerIndex => _gameState is null || _playerBoardMapDefinition is null
+        ? new Dictionary<int, double>()
+        : _gameState.Players
+            .Select((player, index) => new
+            {
+                index,
+                Snapshot = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, player.OwnedRailroadIndices)
+            })
+            .ToDictionary(entry => entry.index, entry => (double)entry.Snapshot.MonopolyDestinationPercent);
 
     private IReadOnlyCollection<int> SelectableRailroadIndices => _selectionMode == MapSelectionMode.Rail && _playerBoardMapDefinition is not null
         ? _playerBoardMapDefinition.Railroads.Select(railroad => railroad.Index).ToArray()
@@ -3914,7 +4043,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         _notificationHistory = _notificationHistory
             .OrderByDescending(item => item.OccurredUtc)
-            .ThenByDescending(item => item.HistoryKey, StringComparer.Ordinal)
+            .ThenBy(item => item.HistoryKey, StringComparer.Ordinal)
             .ToList();
     }
 

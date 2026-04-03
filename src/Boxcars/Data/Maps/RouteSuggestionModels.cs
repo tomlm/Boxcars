@@ -20,9 +20,31 @@ public sealed class RouteSuggestionRequest
     public required string DestinationNodeId { get; init; }
     public required PlayerMovementType MovementType { get; init; }
     public int MovementCapacity { get; init; }
+    public double AverageFutureMovement { get; init; }
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
     public required string PlayerColor { get; init; }
     public required Func<int, RailroadOwnershipCategory> ResolveRailroadOwnership { get; init; }
+    public Func<int, int>? ResolveRailroadFee { get; init; }
+    public Func<int, int?>? ResolveRailroadOwnerPlayerIndex { get; init; }
+    public Func<int, int>? ResolvePlayerCash { get; init; }
+    public Func<int, double>? ResolvePlayerAccessibleDestinationPercent { get; init; }
+    public Func<int, double>? ResolvePlayerMonopolyDestinationPercent { get; init; }
+    public bool BonusOutAvailable { get; init; }
+    public int CurrentWhiteDiceMovement { get; init; }
+    public int CurrentFixedBonusMovement { get; init; }
+    public bool BonusOutRequiresWhiteDiceArrival { get; init; }
+}
+
+public sealed class RouteSuggestionOutlook
+{
+    public int ArrivalCost { get; init; }
+    public int ExitCost { get; init; }
+    public int CombinedCost { get; init; }
+    public int WorstCaseExitCost { get; init; }
+    public int WorstCaseCombinedCost { get; init; }
+    public double ExpectedExitCost { get; init; }
+    public double ExpectedCombinedCost { get; init; }
+    public double BonusOutProbability { get; init; }
 }
 
 public enum RouteSuggestionStatus
@@ -53,6 +75,7 @@ public sealed class RouteSuggestionResult
     public List<RouteSuggestionSegment> Segments { get; init; } = [];
     public int TotalTurns { get; init; }
     public int TotalCost { get; init; }
+    public RouteSuggestionOutlook Outlook { get; init; } = new();
 }
 
 public enum RouteSuggestionHighlightType

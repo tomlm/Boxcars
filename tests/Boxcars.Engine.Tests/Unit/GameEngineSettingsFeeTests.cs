@@ -81,7 +81,7 @@ public class GameEngineSettingsFeeTests
     }
 
     [Fact]
-    public void SuggestRoute_TotalCost_UsesConfiguredPublicPrivateAndUnfriendlyFees()
+    public void DeclinePurchase_PrivateAndUnfriendlyFees_UseConfiguredAmounts()
     {
         var settings = GameSettings.Default with
         {
@@ -104,9 +104,21 @@ public class GameEngineSettingsFeeTests
         player.CurrentNodeId = "0:0";
         player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Atlanta", StringComparison.Ordinal));
         player.TripOriginCity = player.CurrentCity;
+        player.Cash = 20_000;
+        opponent.Cash = 0;
 
-        var route = engine.SuggestRoute();
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(ownedRailroad.Index);
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(opponentRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(opponentRailroad.Index);
 
-        Assert.Equal(6_500, route.TotalCost);
+        engine.DeclinePurchase();
+
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+        Assert.Equal(13_500, player.Cash);
+        Assert.Equal(6_000, opponent.Cash);
     }
 }
