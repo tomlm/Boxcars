@@ -1382,6 +1382,11 @@ else
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
 
+            if (!update.ReplaceTimeline)
+            {
+                ApplyLiveTimelineItems(update.TimelineItems);
+            }
+
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
             {
                 return;
@@ -1406,10 +1411,6 @@ else
             if (update.ReplaceTimeline)
             {
                 ReplaceTimelineItems(update.TimelineItems);
-            }
-            else
-            {
-                ApplyLiveTimelineItems(update.TimelineItems);
             }
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))

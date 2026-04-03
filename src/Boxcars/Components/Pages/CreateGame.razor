@@ -20,15 +20,6 @@
 
 <PageTitle>Create Game - BoxCars</PageTitle>
 
-@if (IsBusy)
-{
-    <MudPaper Class="pa-4 mb-4" Outlined="true">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
-            <MudText Typo="Typo.body1">@BusyMessage</MudText>
-        </MudStack>
-    </MudPaper>
-}
 
 <MudStack Spacing="6">
     <MudText Typo="Typo.h3">Create Game</MudText>
@@ -132,6 +123,16 @@
                         OnClick="GenerateRandomCitiesAsync">
                 @(_generatingRandomCities ? "Generating..." : "Generate Random Cities")
             </MudButton>
+
+            @if (IsBusy)
+            {
+                <MudPaper Class="pa-4 mb-4" Outlined="true">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
+                        <MudText Typo="Typo.body1">@BusyMessage</MudText>
+                    </MudStack>
+                </MudPaper>
+            }
 
             @if (!string.IsNullOrWhiteSpace(_cityProbabilitySummary))
             {
