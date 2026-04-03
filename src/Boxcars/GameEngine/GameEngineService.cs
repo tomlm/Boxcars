@@ -2698,12 +2698,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var suggestedRoute = state.SuggestRoute();
-        if (routeNodeIds.Count > 0
-            && !routeNodeIds.SequenceEqual(suggestedRoute.NodeIds, StringComparer.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Only the suggested route can be saved in this sample implementation.");
-        }
-
         state.SaveRoute(suggestedRoute);
     }
 

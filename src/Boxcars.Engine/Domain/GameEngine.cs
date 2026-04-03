@@ -13,6 +13,8 @@ namespace Boxcars.Engine.Domain;
 public sealed class GameEngine : ObservableBase
 {
     public const int AuctionBidIncrement = 250;
+    private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
+    private const int RoutePlanningHostileExitPenalty = 1500;
 
     private GameStatus _gameStatus;
     private Turn _currentTurn = null!;
@@ -491,7 +493,12 @@ public sealed class GameEngine : ObservableBase
             var segKey = new SegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex);
 
             if (player.UsedSegments.Contains(segKey))
-                throw new InvalidOperationException("Segment reuse violation.");
+            {
+                // Stop movement before the duplicate — the route planner should
+                // have avoided this, but treat it as the end of valid movement.
+                targetIndex = i;
+                break;
+            }
 
             player.UsedSegments.Add(segKey);
             CurrentTurn.RailroadsRiddenThisTurn.Add(segment.RailroadIndex);
@@ -511,6 +518,8 @@ public sealed class GameEngine : ObservableBase
             player.CurrentCity = city;
         }
 
+        // Recalculate in case targetIndex was reduced by segment-reuse safety net
+        actualSteps = targetIndex - currentIndex;
         CurrentTurn.MovementRemaining -= actualSteps;
     TryResolveRovers(player, traversedNodeIds);
 
@@ -2590,96 +2599,707 @@ public sealed class GameEngine : ObservableBase
 
     private Route FindCheapestRoute(string startNodeId, string destNodeId, Player player)
     {
-        // Dijkstra's algorithm with use-fee-based edge costs
-        var dist = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var prev = new Dictionary<string, (string node, RouteGraphEdge edge)>(StringComparer.OrdinalIgnoreCase);
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var pq = new PriorityQueue<string, int>();
-
-        dist[startNodeId] = 0;
-        pq.Enqueue(startNodeId, 0);
-
-        while (pq.Count > 0)
+        var movementPointsPerTurn = player.LocomotiveType == LocomotiveType.Superchief ? 3 : 2;
+        var cityCoverage = BuildRoutePlanningCityCoverage();
+        var networkMetricsByPlayerIndex = new Dictionary<int, RoutePlanningNetworkMetrics>();
+        var friendlyDestinationReachableNodes = BuildReachableNodesForRoutePlanning(
+            destNodeId,
+            edge => !IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex));
+        var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
+        var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>();
+        var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>
         {
-            var current = pq.Dequeue();
-            if (visited.Contains(current))
-                continue;
-            visited.Add(current);
+            [startState] = new RoutePlanningCostKey(0, 0, 0, 0)
+        };
+        var previous = new Dictionary<RoutePlanningState, RoutePlanningPrevious>();
+        var settledStates = new HashSet<RoutePlanningState>();
+        RoutePlanningDestinationChoice? bestDestination = null;
 
-            if (string.Equals(current, destNodeId, StringComparison.OrdinalIgnoreCase))
+        priorityQueue.Enqueue(startState, (0, 0, 0, 0));
+
+        while (priorityQueue.Count > 0)
+        {
+            var state = priorityQueue.Dequeue();
+            if (!bestCosts.TryGetValue(state, out var stateCost) || !settledStates.Add(state))
+            {
+                continue;
+            }
+
+            if (bestDestination is not null && stateCost.WeightedCost > bestDestination.Value.CombinedWeightedCost)
+            {
                 break;
+            }
 
-            if (!_adjacency.TryGetValue(current, out var edges))
+            if (string.Equals(state.NodeId, destNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                if (PathDefersFriendlyExit(player, state, previous, friendlyDestinationReachableNodes))
+                {
+                    continue;
+                }
+
+                var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, movementPointsPerTurn);
+                var tieBreakAnalysis = CalculateTieBreakAnalysis(player, startState, state, previous, cityCoverage, networkMetricsByPlayerIndex);
+                var destinationChoice = new RoutePlanningDestinationChoice(state, stateCost, exitAnalysis, tieBreakAnalysis);
+                if (bestDestination is null || IsBetterRouteDestination(destinationChoice, bestDestination.Value))
+                {
+                    bestDestination = destinationChoice;
+                }
+
                 continue;
+            }
+
+            if (!_adjacency.TryGetValue(state.NodeId, out var edges))
+            {
+                continue;
+            }
 
             foreach (var edge in edges)
             {
-                if (visited.Contains(edge.ToNodeId))
-                    continue;
-
-                // Check non-reuse
                 var segKey = new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex);
                 if (player.UsedSegments.Contains(segKey))
+                {
                     continue;
-
-                int edgeCost = 1;
-                var railroad = Railroads.FirstOrDefault(r => r.Index == edge.RailroadIndex);
-                if (railroad != null)
-                {
-                    edgeCost += GetTraversalFee(player, railroad);
                 }
 
-                int newDist = dist[current] + edgeCost;
-                if (!dist.TryGetValue(edge.ToNodeId, out var oldDist) || newDist < oldDist)
+                if (PathContainsSegment(previous, state, segKey))
                 {
-                    dist[edge.ToNodeId] = newDist;
-                    prev[edge.ToNodeId] = (current, edge);
-                    pq.Enqueue(edge.ToNodeId, newDist);
+                    continue;
                 }
+
+                var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == edge.RailroadIndex);
+                if (railroad is null)
+                {
+                    continue;
+                }
+
+                var isFirstEdge = state.LastRailroadIndex < 0;
+                var exhaustedTurnCapacity = !isFirstEdge && state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
+                var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
+                var switchedRailroad = !isFirstEdge && state.LastRailroadIndex != edge.RailroadIndex;
+                var turnsAdded = startsNewTurn ? 1 : 0;
+                var additionalCost = (startsNewTurn || switchedRailroad) ? GetTraversalFee(player, railroad) : 0;
+                var hostileExitPenalty = CalculateHostileExitPenalty(player, edges, edge, friendlyDestinationReachableNodes);
+                var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
+                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
+                var candidateCost = new RoutePlanningCostKey(
+                    TotalCost: stateCost.TotalCost + additionalCost,
+                    WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty,
+                    TotalTurns: stateCost.TotalTurns + turnsAdded,
+                    TotalSegments: stateCost.TotalSegments + 1);
+
+                if (bestCosts.TryGetValue(nextState, out var existingCost)
+                    && !IsBetterRouteCost(candidateCost, existingCost))
+                {
+                    continue;
+                }
+
+                bestCosts[nextState] = candidateCost;
+                previous[nextState] = new RoutePlanningPrevious(state, edge, additionalCost);
+                priorityQueue.Enqueue(nextState, (candidateCost.WeightedCost, candidateCost.TotalCost, candidateCost.TotalTurns, candidateCost.TotalSegments));
             }
         }
 
-        // Reconstruct route
-        if (!prev.ContainsKey(destNodeId) && !string.Equals(startNodeId, destNodeId, StringComparison.OrdinalIgnoreCase))
+        if (bestDestination is null)
         {
-            // No route found — return empty route
             return new Route(new[] { startNodeId }, Array.Empty<RouteSegment>(), 0);
         }
 
         var nodeIds = new List<string>();
         var segments = new List<RouteSegment>();
-        var current2 = destNodeId;
+        var current = bestDestination.Value.DestinationState;
 
-        while (prev.ContainsKey(current2))
+        nodeIds.Add(current.NodeId);
+
+        while (current != startState)
         {
-            var (prevNode, edge) = prev[current2];
-            nodeIds.Add(current2);
+            if (!previous.TryGetValue(current, out var previousEntry))
+            {
+                return new Route(new[] { startNodeId }, Array.Empty<RouteSegment>(), 0);
+            }
+
             segments.Add(new RouteSegment
             {
-                FromNodeId = edge.FromNodeId,
-                ToNodeId = edge.ToNodeId,
-                RailroadIndex = edge.RailroadIndex
+                FromNodeId = previousEntry.Edge.FromNodeId,
+                ToNodeId = previousEntry.Edge.ToNodeId,
+                RailroadIndex = previousEntry.Edge.RailroadIndex
             });
-            current2 = prevNode;
+            current = previousEntry.PreviousState;
+            nodeIds.Add(current.NodeId);
         }
-        nodeIds.Add(startNodeId);
 
         nodeIds.Reverse();
         segments.Reverse();
 
-        var totalCost = 0;
-        foreach (var railroadIndex in segments.Select(segment => segment.RailroadIndex).Distinct())
+        return new Route(nodeIds, segments, bestDestination.Value.ArrivalCost.TotalCost);
+    }
+
+    private static bool PathContainsSegment(
+        Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
+        RoutePlanningState state,
+        SegmentKey segmentKey)
+    {
+        var currentState = state;
+
+        while (previous.TryGetValue(currentState, out var previousEntry))
         {
-            var rr = Railroads.FirstOrDefault(r => r.Index == railroadIndex);
-            if (rr is null)
+            if (segmentKey == new SegmentKey(
+                    previousEntry.Edge.FromNodeId,
+                    previousEntry.Edge.ToNodeId,
+                    previousEntry.Edge.RailroadIndex))
+            {
+                return true;
+            }
+
+            currentState = previousEntry.PreviousState;
+        }
+
+        return false;
+    }
+
+    private HashSet<string> BuildReachableNodesForRoutePlanning(
+        string destinationNodeId,
+        Func<RouteGraphEdge, bool> canTraverse)
+    {
+        var reachableNodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(destinationNodeId))
+        {
+            return reachableNodes;
+        }
+
+        var queue = new Queue<string>();
+        if (reachableNodes.Add(destinationNodeId))
+        {
+            queue.Enqueue(destinationNodeId);
+        }
+
+        while (queue.Count > 0)
+        {
+            var nodeId = queue.Dequeue();
+            if (!_adjacency.TryGetValue(nodeId, out var outgoingEdges))
             {
                 continue;
             }
 
-            totalCost += GetTraversalFee(player, rr);
+            foreach (var edge in outgoingEdges)
+            {
+                if (!canTraverse(edge) || !reachableNodes.Add(edge.ToNodeId))
+                {
+                    continue;
+                }
+
+                queue.Enqueue(edge.ToNodeId);
+            }
         }
 
-        return new Route(nodeIds, segments, totalCost);
+        return reachableNodes;
+    }
+
+    private int CalculateHostileExitPenalty(
+        Player player,
+        IReadOnlyList<RouteGraphEdge> outgoingEdges,
+        RouteGraphEdge candidateEdge,
+        HashSet<string> friendlyDestinationReachableNodes)
+    {
+        if (friendlyDestinationReachableNodes.Count == 0
+            || !IsUnfriendlyRailroadForPlayer(player, candidateEdge.RailroadIndex))
+        {
+            return 0;
+        }
+
+        var hasFriendlyConnectedExit = outgoingEdges.Any(edge =>
+            !IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex)
+            && friendlyDestinationReachableNodes.Contains(edge.ToNodeId));
+
+        return hasFriendlyConnectedExit ? RoutePlanningHostileExitPenalty : 0;
+    }
+
+    private bool PathDefersFriendlyExit(
+        Player player,
+        RoutePlanningState destinationState,
+        Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
+        HashSet<string> friendlyDestinationReachableNodes)
+    {
+        var currentState = destinationState;
+
+        while (previous.TryGetValue(currentState, out var previousEntry))
+        {
+            if (IsUnfriendlyRailroadForPlayer(player, previousEntry.Edge.RailroadIndex)
+                && _adjacency.TryGetValue(previousEntry.PreviousState.NodeId, out var outgoingEdges)
+                && outgoingEdges.Any(edge =>
+                    !IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex)
+                    && friendlyDestinationReachableNodes.Contains(edge.ToNodeId)))
+            {
+                return true;
+            }
+
+            currentState = previousEntry.PreviousState;
+        }
+
+        return false;
+    }
+
+    private RoutePlanningExitAnalysis CalculateDestinationExitAnalysis(
+        Player player,
+        RoutePlanningState destinationState,
+        RoutePlanningCostKey arrivalCost,
+        int movementPointsPerTurn)
+    {
+        var worstCaseExitCost = CalculateDestinationExitCost(player, destinationState, movementPointsPerTurn);
+        if (worstCaseExitCost <= 0)
+        {
+            return new RoutePlanningExitAnalysis(0d, 0, 0d);
+        }
+
+        var bonusOutProbability = CalculateBonusOutProbability(player, destinationState, arrivalCost);
+        var expectedExitCost = worstCaseExitCost * (1d - bonusOutProbability);
+        return new RoutePlanningExitAnalysis(expectedExitCost, worstCaseExitCost, bonusOutProbability);
+    }
+
+    private int CalculateDestinationExitCost(Player player, RoutePlanningState destinationState, int movementPointsPerTurn)
+    {
+        if (destinationState.LastRailroadIndex < 0
+            || !IsUnfriendlyRailroadForPlayer(player, destinationState.LastRailroadIndex)
+            || !IsUnfriendlyDestinationForPlayer(player, destinationState.NodeId))
+        {
+            return 0;
+        }
+
+        var startState = new RoutePlanningState(destinationState.NodeId, destinationState.LastRailroadIndex, movementPointsPerTurn);
+        var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>();
+        var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>
+        {
+            [startState] = new RoutePlanningCostKey(0, 0, 0, 0)
+        };
+        var settledStates = new HashSet<RoutePlanningState>();
+
+        priorityQueue.Enqueue(startState, (0, 0, 0, 0));
+
+        while (priorityQueue.Count > 0)
+        {
+            var state = priorityQueue.Dequeue();
+            if (!bestCosts.TryGetValue(state, out var stateCost) || !settledStates.Add(state))
+            {
+                continue;
+            }
+
+            if (state != startState && !IsUnfriendlyRailroadForPlayer(player, state.LastRailroadIndex))
+            {
+                return stateCost.TotalCost;
+            }
+
+            if (!_adjacency.TryGetValue(state.NodeId, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == edge.RailroadIndex);
+                if (railroad is null)
+                {
+                    continue;
+                }
+
+                var exhaustedTurnCapacity = state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
+                var startsNewTurn = exhaustedTurnCapacity;
+                var switchedRailroad = state.LastRailroadIndex != edge.RailroadIndex;
+                var turnsAdded = startsNewTurn ? 1 : 0;
+                var additionalCost = (startsNewTurn || switchedRailroad) ? GetTraversalFee(player, railroad) : 0;
+                var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
+                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
+                var candidateCost = new RoutePlanningCostKey(
+                    TotalCost: stateCost.TotalCost + additionalCost,
+                    WeightedCost: stateCost.WeightedCost + additionalCost,
+                    TotalTurns: stateCost.TotalTurns + turnsAdded,
+                    TotalSegments: stateCost.TotalSegments + 1);
+
+                if (bestCosts.TryGetValue(nextState, out var existingCost)
+                    && !IsBetterRouteCost(candidateCost, existingCost))
+                {
+                    continue;
+                }
+
+                bestCosts[nextState] = candidateCost;
+                priorityQueue.Enqueue(nextState, (candidateCost.WeightedCost, candidateCost.TotalCost, candidateCost.TotalTurns, candidateCost.TotalSegments));
+            }
+        }
+
+        return int.MaxValue / 4;
+    }
+
+    private double CalculateBonusOutProbability(Player player, RoutePlanningState destinationState, RoutePlanningCostKey arrivalCost)
+    {
+        if (player != CurrentTurn.ActivePlayer
+            || CurrentTurn.Phase != TurnPhase.Move
+            || arrivalCost.TotalTurns != 1)
+        {
+            return 0d;
+        }
+
+        var minimumEscapeSegments = CalculateMinimumBonusOutSegments(player, destinationState);
+        if (!minimumEscapeSegments.HasValue)
+        {
+            return 0d;
+        }
+
+        var whiteDiceTotal = CurrentTurn.DiceResult?.WhiteDice.Sum() ?? 0;
+        if (player.LocomotiveType == LocomotiveType.Superchief
+            && CurrentTurn.DiceResult?.RedDie is int redDie
+            && whiteDiceTotal > 0)
+        {
+            return arrivalCost.TotalSegments <= whiteDiceTotal && redDie >= minimumEscapeSegments.Value
+                ? 1d
+                : 0d;
+        }
+
+        if (!CurrentTurn.BonusRollAvailable)
+        {
+            return 0d;
+        }
+
+        var successCount = Enumerable.Range(1, 6).Count(distance => distance >= minimumEscapeSegments.Value);
+        return successCount / 6d;
+    }
+
+    private int? CalculateMinimumBonusOutSegments(Player player, RoutePlanningState destinationState)
+    {
+        if (destinationState.LastRailroadIndex < 0 || !IsUnfriendlyRailroadForPlayer(player, destinationState.LastRailroadIndex))
+        {
+            return 0;
+        }
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            BuildNodeRailroadKey(destinationState.NodeId, destinationState.LastRailroadIndex)
+        };
+        var queue = new Queue<(string NodeId, int RailroadIndex, int SegmentsUsed)>();
+        queue.Enqueue((destinationState.NodeId, destinationState.LastRailroadIndex, 0));
+
+        while (queue.Count > 0)
+        {
+            var state = queue.Dequeue();
+            if (!_adjacency.TryGetValue(state.NodeId, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                var nextSegmentsUsed = state.SegmentsUsed + 1;
+                if (!IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex))
+                {
+                    return nextSegmentsUsed;
+                }
+
+                if (edge.RailroadIndex != destinationState.LastRailroadIndex)
+                {
+                    continue;
+                }
+
+                var nextStateKey = BuildNodeRailroadKey(edge.ToNodeId, edge.RailroadIndex);
+                if (visited.Add(nextStateKey))
+                {
+                    queue.Enqueue((edge.ToNodeId, edge.RailroadIndex, nextSegmentsUsed));
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsUnfriendlyDestinationForPlayer(Player player, string nodeId)
+    {
+        return _adjacency.TryGetValue(nodeId, out var edges)
+            && edges.Count > 0
+            && edges.All(edge => IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex));
+    }
+
+    private bool IsUnfriendlyRailroadForPlayer(Player player, int railroadIndex)
+    {
+        var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
+        return railroad?.Owner is not null
+            && railroad.Owner != player
+            && !player.GrandfatheredRailroadFees.ContainsKey(railroadIndex);
+    }
+
+    private RoutePlanningTieBreakAnalysis CalculateTieBreakAnalysis(
+        Player player,
+        RoutePlanningState startState,
+        RoutePlanningState destinationState,
+        Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
+        IReadOnlyList<RoutePlanningCityCoverageEntry> cityCoverage,
+        Dictionary<int, RoutePlanningNetworkMetrics> networkMetricsByPlayerIndex)
+    {
+        var ownerCounts = new Dictionary<int, int>();
+        var currentState = destinationState;
+
+        while (currentState != startState)
+        {
+            if (!previous.TryGetValue(currentState, out var previousEntry))
+            {
+                break;
+            }
+
+            if (previousEntry.TotalCostAdded > 0)
+            {
+                var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == previousEntry.Edge.RailroadIndex);
+                if (railroad?.Owner is not null && railroad.Owner != player && !player.GrandfatheredRailroadFees.ContainsKey(railroad.Index))
+                {
+                    ownerCounts[railroad.Owner.Index] = ownerCounts.GetValueOrDefault(railroad.Owner.Index) + 1;
+                }
+            }
+
+            currentState = previousEntry.PreviousState;
+        }
+
+        if (ownerCounts.Count == 0)
+        {
+            return RoutePlanningTieBreakAnalysis.Empty;
+        }
+
+        var ownerCashValues = ownerCounts.Keys
+            .Select(ownerPlayerIndex => Players[ownerPlayerIndex].Cash)
+            .OrderBy(value => value)
+            .ToArray();
+        var ownerAccessibleDestinationPercentages = ownerCounts.Keys
+            .Select(ownerPlayerIndex => GetRoutePlanningNetworkMetrics(ownerPlayerIndex, cityCoverage, networkMetricsByPlayerIndex).AccessibleDestinationPercent)
+            .OrderBy(value => value)
+            .ToArray();
+        var ownerMonopolyDestinationPercentages = ownerCounts.Keys
+            .Select(ownerPlayerIndex => GetRoutePlanningNetworkMetrics(ownerPlayerIndex, cityCoverage, networkMetricsByPlayerIndex).MonopolyDestinationPercent)
+            .OrderBy(value => value)
+            .ToArray();
+
+        return new RoutePlanningTieBreakAnalysis(
+            ownerCashValues,
+            ownerAccessibleDestinationPercentages,
+            ownerMonopolyDestinationPercentages,
+            ownerCounts.Count,
+            ownerCounts.Values.Max());
+    }
+
+    private RoutePlanningNetworkMetrics GetRoutePlanningNetworkMetrics(
+        int playerIndex,
+        IReadOnlyList<RoutePlanningCityCoverageEntry> cityCoverage,
+        Dictionary<int, RoutePlanningNetworkMetrics> networkMetricsByPlayerIndex)
+    {
+        if (networkMetricsByPlayerIndex.TryGetValue(playerIndex, out var existingMetrics))
+        {
+            return existingMetrics;
+        }
+
+        var ownedRailroadIndices = Players[playerIndex].OwnedRailroads.Select(railroad => railroad.Index).ToHashSet();
+        var metrics = new RoutePlanningNetworkMetrics(
+            AccessibleDestinationPercent: Math.Round(cityCoverage
+                .Where(entry => entry.ServingRailroads.Overlaps(ownedRailroadIndices))
+                .Sum(entry => entry.GlobalAccessPercentage), 1, MidpointRounding.AwayFromZero),
+            MonopolyDestinationPercent: Math.Round(cityCoverage
+                .Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedRailroadIndices.Contains))
+                .Sum(entry => entry.GlobalAccessPercentage), 1, MidpointRounding.AwayFromZero));
+
+        networkMetricsByPlayerIndex[playerIndex] = metrics;
+        return metrics;
+    }
+
+    private List<RoutePlanningCityCoverageEntry> BuildRoutePlanningCityCoverage()
+    {
+        var regionIndexByCode = MapDefinition.Regions
+            .ToDictionary(region => region.Code, region => region.Index, StringComparer.OrdinalIgnoreCase);
+        var globalAccessByCity = BuildRoutePlanningGlobalCityAccessPercentages(regionIndexByCode);
+        var withinRegionAccessByCity = BuildRoutePlanningWithinRegionCityAccessPercentages(regionIndexByCode);
+        var coverage = new List<RoutePlanningCityCoverageEntry>();
+
+        foreach (var city in MapDefinition.Cities)
+        {
+            if (!city.MapDotIndex.HasValue || !regionIndexByCode.TryGetValue(city.RegionCode, out var regionIndex))
+            {
+                continue;
+            }
+
+            var servingRailroads = MapDefinition.RailroadRouteSegments
+                .Where(segment => RoutePlanningSegmentTouchesCity(segment, regionIndex, city.MapDotIndex.Value))
+                .Select(segment => segment.RailroadIndex)
+                .ToHashSet();
+            var cityKey = BuildRoutePlanningCityKey(city);
+            coverage.Add(new RoutePlanningCityCoverageEntry(
+                city.RegionCode,
+                cityKey,
+                servingRailroads,
+                withinRegionAccessByCity.TryGetValue(cityKey, out var withinRegionPercentage) ? withinRegionPercentage : 0m,
+                globalAccessByCity.TryGetValue(cityKey, out var globalAccessPercentage) ? globalAccessPercentage : 0m));
+        }
+
+        return coverage;
+    }
+
+    private Dictionary<string, decimal> BuildRoutePlanningGlobalCityAccessPercentages(IReadOnlyDictionary<string, int> regionIndexByCode)
+    {
+        var regionWeights = BuildRoutePlanningRegionProbabilityByCode(regionIndexByCode);
+        var withinRegionWeights = BuildRoutePlanningWithinRegionCityAccessPercentages(regionIndexByCode);
+
+        return withinRegionWeights.ToDictionary(
+            entry => entry.Key,
+            entry =>
+            {
+                var separatorIndex = entry.Key.IndexOf(':');
+                var regionCode = separatorIndex >= 0 ? entry.Key[..separatorIndex] : string.Empty;
+                return regionWeights.TryGetValue(regionCode, out var regionWeight)
+                    ? Math.Round(regionWeight * entry.Value / 100m, 2, MidpointRounding.AwayFromZero)
+                    : 0m;
+            },
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private Dictionary<string, decimal> BuildRoutePlanningWithinRegionCityAccessPercentages(IReadOnlyDictionary<string, int> regionIndexByCode)
+    {
+        return MapDefinition.Cities
+            .Where(city => city.MapDotIndex.HasValue && regionIndexByCode.ContainsKey(city.RegionCode))
+            .GroupBy(city => city.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group =>
+            {
+                var weightedCities = group.Where(city => city.Probability.HasValue && city.Probability.Value > 0).ToList();
+                if (weightedCities.Count > 0)
+                {
+                    return group.Select(city => new KeyValuePair<string, decimal>(
+                        BuildRoutePlanningCityKey(city),
+                        city.Probability.HasValue
+                            ? Math.Round((decimal)city.Probability.Value, 2, MidpointRounding.AwayFromZero)
+                            : 0m));
+                }
+
+                var uniformWeight = group.Any()
+                    ? Math.Round(100m / group.Count(), 2, MidpointRounding.AwayFromZero)
+                    : 0m;
+                return group.Select(city => new KeyValuePair<string, decimal>(BuildRoutePlanningCityKey(city), uniformWeight));
+            })
+            .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private Dictionary<string, decimal> BuildRoutePlanningRegionProbabilityByCode(IReadOnlyDictionary<string, int> regionIndexByCode)
+    {
+        var weightedRegions = MapDefinition.Regions.Where(region => region.Probability.HasValue && region.Probability.Value > 0).ToList();
+        if (weightedRegions.Count > 0)
+        {
+            return weightedRegions.ToDictionary(
+                region => region.Code,
+                region => Math.Round((decimal)region.Probability!.Value, 3, MidpointRounding.AwayFromZero),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        var cityCountByRegion = MapDefinition.Cities
+            .Where(city => city.MapDotIndex.HasValue && regionIndexByCode.ContainsKey(city.RegionCode))
+            .GroupBy(city => city.RegionCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+        var totalCityCount = cityCountByRegion.Values.Sum();
+
+        return cityCountByRegion.ToDictionary(
+            entry => entry.Key,
+            entry => totalCityCount == 0 ? 0m : Math.Round(entry.Value * 100m / totalCityCount, 3, MidpointRounding.AwayFromZero),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool RoutePlanningSegmentTouchesCity(RailroadRouteSegmentDefinition segment, int regionIndex, int dotIndex)
+    {
+        return (segment.StartRegionIndex == regionIndex && segment.StartDotIndex == dotIndex)
+            || (segment.EndRegionIndex == regionIndex && segment.EndDotIndex == dotIndex);
+    }
+
+    private static string BuildRoutePlanningCityKey(CityDefinition city)
+    {
+        return string.Concat(city.RegionCode, ":", city.Name);
+    }
+
+    private static bool IsBetterRouteDestination(RoutePlanningDestinationChoice candidate, RoutePlanningDestinationChoice current)
+    {
+        if (candidate.CombinedWeightedCost != current.CombinedWeightedCost)
+        {
+            return candidate.CombinedWeightedCost < current.CombinedWeightedCost;
+        }
+
+        if (candidate.CombinedCost != current.CombinedCost)
+        {
+            return candidate.CombinedCost < current.CombinedCost;
+        }
+
+        if (candidate.ExitAnalysis.WorstCaseExitCost != current.ExitAnalysis.WorstCaseExitCost)
+        {
+            return candidate.ExitAnalysis.WorstCaseExitCost < current.ExitAnalysis.WorstCaseExitCost;
+        }
+
+        if (candidate.ExitAnalysis.BonusOutProbability != current.ExitAnalysis.BonusOutProbability)
+        {
+            return candidate.ExitAnalysis.BonusOutProbability > current.ExitAnalysis.BonusOutProbability;
+        }
+
+        var cashComparison = CompareVectors(candidate.TieBreakAnalysis.PaidOwnerCashValues, current.TieBreakAnalysis.PaidOwnerCashValues);
+        if (cashComparison != 0)
+        {
+            return cashComparison < 0;
+        }
+
+        var accessibleComparison = CompareVectors(candidate.TieBreakAnalysis.PaidOwnerAccessibleDestinationPercentages, current.TieBreakAnalysis.PaidOwnerAccessibleDestinationPercentages);
+        if (accessibleComparison != 0)
+        {
+            return accessibleComparison < 0;
+        }
+
+        var monopolyComparison = CompareVectors(candidate.TieBreakAnalysis.PaidOwnerMonopolyDestinationPercentages, current.TieBreakAnalysis.PaidOwnerMonopolyDestinationPercentages);
+        if (monopolyComparison != 0)
+        {
+            return monopolyComparison < 0;
+        }
+
+        if (candidate.TieBreakAnalysis.DistinctPaidOwnerCount != current.TieBreakAnalysis.DistinctPaidOwnerCount)
+        {
+            return candidate.TieBreakAnalysis.DistinctPaidOwnerCount > current.TieBreakAnalysis.DistinctPaidOwnerCount;
+        }
+
+        if (candidate.TieBreakAnalysis.MaxPaymentsToSingleOwner != current.TieBreakAnalysis.MaxPaymentsToSingleOwner)
+        {
+            return candidate.TieBreakAnalysis.MaxPaymentsToSingleOwner < current.TieBreakAnalysis.MaxPaymentsToSingleOwner;
+        }
+
+        return IsBetterRouteCost(candidate.ArrivalCost, current.ArrivalCost);
+    }
+
+    private static bool IsBetterRouteCost(RoutePlanningCostKey candidate, RoutePlanningCostKey current)
+    {
+        if (candidate.WeightedCost != current.WeightedCost)
+        {
+            return candidate.WeightedCost < current.WeightedCost;
+        }
+
+        if (candidate.TotalCost != current.TotalCost)
+        {
+            return candidate.TotalCost < current.TotalCost;
+        }
+
+        if (candidate.TotalTurns != current.TotalTurns)
+        {
+            return candidate.TotalTurns < current.TotalTurns;
+        }
+
+        return candidate.TotalSegments < current.TotalSegments;
+    }
+
+    private static string BuildNodeRailroadKey(string nodeId, int railroadIndex)
+    {
+        return string.Concat(nodeId, "|", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static int CompareVectors<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) where T : IComparable<T>
+    {
+        var count = Math.Min(left.Count, right.Count);
+        for (var index = 0; index < count; index++)
+        {
+            var comparison = left[index].CompareTo(right[index]);
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+        }
+
+        return 0;
     }
 
     #endregion
@@ -2716,3 +3336,43 @@ internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Di
     public Dictionary<int, FeeBucket> OpponentBuckets { get; } = opponentBuckets;
     public bool HasCharges => UsesPublicFee || UsesPrivateFee || OpponentBuckets.Count > 0;
 }
+
+internal readonly record struct RoutePlanningState(string NodeId, int LastRailroadIndex, int PointsUsedInCurrentTurn);
+
+internal readonly record struct RoutePlanningCostKey(int TotalCost, int WeightedCost, int TotalTurns, int TotalSegments);
+
+internal readonly record struct RoutePlanningDestinationChoice(
+    RoutePlanningState DestinationState,
+    RoutePlanningCostKey ArrivalCost,
+    RoutePlanningExitAnalysis ExitAnalysis,
+    RoutePlanningTieBreakAnalysis TieBreakAnalysis)
+{
+    public double CombinedCost => ArrivalCost.TotalCost + ExitAnalysis.ExpectedExitCost;
+    public double CombinedWeightedCost => ArrivalCost.WeightedCost + ExitAnalysis.ExpectedExitCost;
+}
+
+internal readonly record struct RoutePlanningPrevious(RoutePlanningState PreviousState, RouteGraphEdge Edge, int TotalCostAdded);
+
+internal readonly record struct RoutePlanningExitAnalysis(
+    double ExpectedExitCost,
+    int WorstCaseExitCost,
+    double BonusOutProbability);
+
+internal readonly record struct RoutePlanningTieBreakAnalysis(
+    IReadOnlyList<int> PaidOwnerCashValues,
+    IReadOnlyList<decimal> PaidOwnerAccessibleDestinationPercentages,
+    IReadOnlyList<decimal> PaidOwnerMonopolyDestinationPercentages,
+    int DistinctPaidOwnerCount,
+    int MaxPaymentsToSingleOwner)
+{
+    public static RoutePlanningTieBreakAnalysis Empty { get; } = new([], [], [], 0, 0);
+}
+
+internal readonly record struct RoutePlanningNetworkMetrics(decimal AccessibleDestinationPercent, decimal MonopolyDestinationPercent);
+
+internal readonly record struct RoutePlanningCityCoverageEntry(
+    string RegionCode,
+    string CityKey,
+    HashSet<int> ServingRailroads,
+    decimal WithinRegionPercentage,
+    decimal GlobalAccessPercentage);

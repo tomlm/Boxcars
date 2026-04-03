@@ -385,6 +385,45 @@
     public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
 
     [Parameter]
+    public double AverageFutureMovement { get; set; }
+
+    [Parameter]
+    public int PublicFee { get; set; } = 1000;
+
+    [Parameter]
+    public int PrivateFee { get; set; } = 1000;
+
+    [Parameter]
+    public int UnfriendlyFee { get; set; } = 5000;
+
+    [Parameter]
+    public IReadOnlyDictionary<int, int>? GrandfatheredRailroadFees { get; set; }
+
+    [Parameter]
+    public bool BonusOutAvailable { get; set; }
+
+    [Parameter]
+    public int CurrentWhiteDiceMovement { get; set; }
+
+    [Parameter]
+    public int CurrentFixedBonusMovement { get; set; }
+
+    [Parameter]
+    public bool BonusOutRequiresWhiteDiceArrival { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<int, int?>? RailroadOwnerPlayerIndices { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<int, int>? PlayerCashByPlayerIndex { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<int, double>? PlayerAccessibleDestinationPercentByPlayerIndex { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<int, double>? PlayerMonopolyDestinationPercentByPlayerIndex { get; set; }
+
+    [Parameter]
     public IReadOnlyCollection<int>? PlayerOwnedRailroadIndices { get; set; }
 
     [Parameter]
@@ -480,6 +519,7 @@
     private double _routeNodeRailMenuClientY;
     private string? _routeNodeRailMenuTargetNodeId;
     private string? _routeNodeRailMenuPreviousNodeId;
+    private bool _suggestedRouteSelectionDismissed;
     private bool _cameraUnavailable;
     private bool _cameraInitialized;
     private bool _suspendCameraPush;
@@ -516,6 +556,11 @@
 
             if (_routeSuggestion is not null)
             {
+                if (_selectedRouteSegments.Count == 0 && ShouldAutoApplySuggestedRouteSelection())
+                {
+                    ApplySuggestionToSelection(_routeSuggestion);
+                }
+
                 BuildSuggestionHighlights(_routeSuggestion);
             }
 
@@ -840,6 +885,7 @@
 
         _destinationNodeId = selectedOption.NodeId;
         _destinationCityName = selectedOption.CityName;
+        _suggestedRouteSelectionDismissed = false;
     }
 
     public async Task SuggestRouteAsync()
@@ -1074,6 +1120,7 @@
                 _selectedRouteSegments.Clear();
                 _selectedRouteNodeIds.Clear();
                 _selectedRouteNodeIds.Add(_routeStartNodeId);
+                _suggestedRouteSelectionDismissed = true;
                 ResetRouteCycleState();
                 _ = NotifyRoutePreviewChangedAsync();
             }
@@ -1085,6 +1132,7 @@
             else if (!string.IsNullOrWhiteSpace(_destinationNodeId))
             {
                 // No selection, no cached suggestion → recalculate and apply
+                _suggestedRouteSelectionDismissed = false;
                 _ = RecalculateRouteSuggestionAsync();
             }
 
@@ -1669,6 +1717,7 @@
 
         _destinationCityName = _destinationMenuCityName;
         _destinationNodeId = _destinationMenuNodeId;
+        _suggestedRouteSelectionDismissed = false;
         DismissDestinationMenu();
 
         if (DestinationCityChanged.HasDelegate)
@@ -1701,14 +1750,24 @@
                 DestinationNodeId = _destinationNodeId,
                 MovementType = MovementType,
                 MovementCapacity = ResolveEffectiveMovementCapacity(),
+                AverageFutureMovement = AverageFutureMovement,
                 TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
                 PlayerColor = PlayerColor,
-                ResolveRailroadOwnership = ResolveRailroadOwnershipCategory
+                ResolveRailroadOwnership = ResolveRailroadOwnershipCategory,
+                ResolveRailroadFee = ResolveRailroadFee,
+                ResolveRailroadOwnerPlayerIndex = ResolveRailroadOwnerPlayerIndex,
+                ResolvePlayerCash = ResolvePlayerCash,
+                ResolvePlayerAccessibleDestinationPercent = ResolvePlayerAccessibleDestinationPercent,
+                ResolvePlayerMonopolyDestinationPercent = ResolvePlayerMonopolyDestinationPercent,
+                BonusOutAvailable = BonusOutAvailable,
+                CurrentWhiteDiceMovement = CurrentWhiteDiceMovement,
+                CurrentFixedBonusMovement = CurrentFixedBonusMovement,
+                BonusOutRequiresWhiteDiceArrival = BonusOutRequiresWhiteDiceArrival
             });
 
         _routeSuggestion = suggestion;
 
-        if (applySuggestionToSelection)
+        if (applySuggestionToSelection && ShouldAutoApplySuggestedRouteSelection())
         {
             ApplySuggestionToSelection(suggestion);
         }
@@ -1757,6 +1816,54 @@
         return hasOwnedSegment ? RailroadOwnershipCategory.Friendly : RailroadOwnershipCategory.Public;
     }
 
+    private int ResolveRailroadFee(int railroadIndex)
+    {
+        if (GrandfatheredRailroadFees is not null
+            && GrandfatheredRailroadFees.TryGetValue(railroadIndex, out var grandfatheredFee))
+        {
+            return grandfatheredFee;
+        }
+
+        return ResolveRailroadOwnershipCategory(railroadIndex) switch
+        {
+            RailroadOwnershipCategory.Friendly => PrivateFee,
+            RailroadOwnershipCategory.Unfriendly => UnfriendlyFee,
+            _ => PublicFee
+        };
+    }
+
+    private int? ResolveRailroadOwnerPlayerIndex(int railroadIndex)
+    {
+        return RailroadOwnerPlayerIndices is not null
+            && RailroadOwnerPlayerIndices.TryGetValue(railroadIndex, out var ownerPlayerIndex)
+                ? ownerPlayerIndex
+                : null;
+    }
+
+    private int ResolvePlayerCash(int playerIndex)
+    {
+        return PlayerCashByPlayerIndex is not null
+            && PlayerCashByPlayerIndex.TryGetValue(playerIndex, out var cash)
+                ? cash
+                : int.MaxValue;
+    }
+
+    private double ResolvePlayerAccessibleDestinationPercent(int playerIndex)
+    {
+        return PlayerAccessibleDestinationPercentByPlayerIndex is not null
+            && PlayerAccessibleDestinationPercentByPlayerIndex.TryGetValue(playerIndex, out var accessibleDestinationPercent)
+                ? accessibleDestinationPercent
+                : double.MaxValue;
+    }
+
+    private double ResolvePlayerMonopolyDestinationPercent(int playerIndex)
+    {
+        return PlayerMonopolyDestinationPercentByPlayerIndex is not null
+            && PlayerMonopolyDestinationPercentByPlayerIndex.TryGetValue(playerIndex, out var monopolyDestinationPercent)
+                ? monopolyDestinationPercent
+                : double.MaxValue;
+    }
+
     private string ResolveCurrentPlayerNodeId()
     {
         return _routeStartNodeId ?? string.Empty;
@@ -1778,6 +1885,8 @@
 
             return;
         }
+
+        _suggestedRouteSelectionDismissed = false;
 
         var selectionSegmentLimit = ResolveSuggestionSelectionSegmentLimit(suggestion);
 
@@ -2320,6 +2429,7 @@
         _selectedRouteNodeIds.Clear();
         _selectedRouteNodeIds.Add(routeNode.NodeId);
         _selectedRouteSegments.Clear();
+        _suggestedRouteSelectionDismissed = false;
         _routeSuggestion = null;
         _routeSuggestionSegmentOverlays.Clear();
         ResetRouteCycleState();
@@ -2672,24 +2782,29 @@
             return (0, false);
         }
 
-        var movementPointsPerTurn = ResolveEffectiveMovementCapacity();
-        if (movementPointsPerTurn <= 0)
+        var futureTurnMovementCapacity = ResolveNormalMovementCapacity();
+        var firstTurnMovementCapacity = ResolveEffectiveMovementCapacity();
+        if (firstTurnMovementCapacity <= 0)
         {
-            movementPointsPerTurn = MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+            firstTurnMovementCapacity = futureTurnMovementCapacity;
         }
         var totalCost = 0;
         var hasUnfriendlyFee = false;
         var pointsUsedInCurrentTurn = 0;
         var lastRailroadIndex = -1;
+        var turnsStarted = 0;
 
         foreach (var segment in _selectedRouteSegments)
         {
             var ownershipCategory = ResolveRailroadOwnershipCategory(segment.RailroadIndex);
             var costPerTurn = ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 5000 : 1000;
+            var currentTurnMovementCapacity = turnsStarted <= 1
+                ? firstTurnMovementCapacity
+                : futureTurnMovementCapacity;
 
             var isFirstEdge = lastRailroadIndex < 0;
             var switchedRailroad = lastRailroadIndex >= 0 && lastRailroadIndex != segment.RailroadIndex;
-            var exhaustedTurnCapacity = lastRailroadIndex == segment.RailroadIndex && pointsUsedInCurrentTurn >= movementPointsPerTurn;
+            var exhaustedTurnCapacity = lastRailroadIndex == segment.RailroadIndex && pointsUsedInCurrentTurn >= currentTurnMovementCapacity;
             var startsNewTurn = isFirstEdge || switchedRailroad || exhaustedTurnCapacity;
 
             if (startsNewTurn)
@@ -2697,6 +2812,7 @@
                 totalCost += costPerTurn;
                 hasUnfriendlyFee |= ownershipCategory == RailroadOwnershipCategory.Unfriendly;
                 pointsUsedInCurrentTurn = 1;
+                turnsStarted++;
             }
             else
             {
@@ -2737,6 +2853,23 @@
         }
 
         return 0;
+    }
+
+    private int ResolveNormalMovementCapacity()
+    {
+        return MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+    }
+
+    private bool ShouldAutoApplySuggestedRouteSelection()
+    {
+        return CanAutoApplySuggestedRouteSelection(
+            ResolveEffectiveMovementCapacity(),
+            _suggestedRouteSelectionDismissed);
+    }
+
+    internal static bool CanAutoApplySuggestedRouteSelection(int movementCapacity, bool suggestionSelectionDismissed)
+    {
+        return movementCapacity > 0 && !suggestionSelectionDismissed;
     }
 
     private bool IsRouteSelectionAtDestination()

@@ -24,6 +24,18 @@
 				  CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
 				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
 				  MovementType="@MovementType"
+				  PublicFee="@PublicFee"
+				  PrivateFee="@PrivateFee"
+				  UnfriendlyFee="@UnfriendlyFee"
+				  GrandfatheredRailroadFees="@GrandfatheredRailroadFees"
+				  BonusOutAvailable="@BonusOutAvailable"
+				  CurrentWhiteDiceMovement="@CurrentWhiteDiceMovement"
+				  CurrentFixedBonusMovement="@CurrentFixedBonusMovement"
+				  BonusOutRequiresWhiteDiceArrival="@BonusOutRequiresWhiteDiceArrival"
+				  RailroadOwnerPlayerIndices="@RailroadOwnerPlayerIndices"
+				  PlayerCashByPlayerIndex="@PlayerCashByPlayerIndex"
+				  PlayerAccessibleDestinationPercentByPlayerIndex="@PlayerAccessibleDestinationPercentByPlayerIndex"
+				  PlayerMonopolyDestinationPercentByPlayerIndex="@PlayerMonopolyDestinationPercentByPlayerIndex"
 				  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
 				  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
 				  RailroadOwnerColors="@RailroadOwnerColors"
@@ -118,6 +130,45 @@
 
 	[Parameter]
 	public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
+
+	[Parameter]
+	public double AverageFutureMovement { get; set; }
+
+	[Parameter]
+	public int PublicFee { get; set; } = 1000;
+
+	[Parameter]
+	public int PrivateFee { get; set; } = 1000;
+
+	[Parameter]
+	public int UnfriendlyFee { get; set; } = 5000;
+
+	[Parameter]
+	public IReadOnlyDictionary<int, int>? GrandfatheredRailroadFees { get; set; }
+
+	[Parameter]
+	public bool BonusOutAvailable { get; set; }
+
+	[Parameter]
+	public int CurrentWhiteDiceMovement { get; set; }
+
+	[Parameter]
+	public int CurrentFixedBonusMovement { get; set; }
+
+	[Parameter]
+	public bool BonusOutRequiresWhiteDiceArrival { get; set; }
+
+	[Parameter]
+	public IReadOnlyDictionary<int, int?>? RailroadOwnerPlayerIndices { get; set; }
+
+	[Parameter]
+	public IReadOnlyDictionary<int, int>? PlayerCashByPlayerIndex { get; set; }
+
+	[Parameter]
+	public IReadOnlyDictionary<int, double>? PlayerAccessibleDestinationPercentByPlayerIndex { get; set; }
+
+	[Parameter]
+	public IReadOnlyDictionary<int, double>? PlayerMonopolyDestinationPercentByPlayerIndex { get; set; }
 
 	[Parameter]
 	public IReadOnlyCollection<int>? PlayerOwnedRailroadIndices { get; set; }
