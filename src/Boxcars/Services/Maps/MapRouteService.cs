@@ -7,6 +7,7 @@ namespace Boxcars.Services.Maps;
 
 public sealed class MapRouteService
 {
+    public const int RoutePlanningMaximumSuggestedSegments = 40;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
 
@@ -83,6 +84,15 @@ public sealed class MapRouteService
     }
 
     public RouteSuggestionResult FindCheapestSuggestion(MapRouteContext context, RouteSuggestionRequest request)
+    {
+        return FindCheapestSuggestionCore(context, request, requireCurrentTurnContinuation: true, emitDebug: true);
+    }
+
+    private RouteSuggestionResult FindCheapestSuggestionCore(
+        MapRouteContext context,
+        RouteSuggestionRequest request,
+        bool requireCurrentTurnContinuation,
+        bool emitDebug)
     {
         if (string.IsNullOrWhiteSpace(request.StartNodeId)
             || string.IsNullOrWhiteSpace(request.DestinationNodeId)
@@ -165,12 +175,30 @@ public sealed class MapRouteService
 
             if (string.Equals(state.NodeId, request.DestinationNodeId, StringComparison.OrdinalIgnoreCase))
             {
+                if (stateCost.TotalSegments > RoutePlanningMaximumSuggestedSegments)
+                {
+                    continue;
+                }
+
                 if (PathDefersFriendlyExit(
                         context,
                         request,
                         state,
                         previous,
                         friendlyDestinationReachableNodes))
+                {
+                    continue;
+                }
+
+                if (requireCurrentTurnContinuation
+                    && !HasCurrentTurnContinuation(
+                        context,
+                        request,
+                        startState,
+                        state,
+                        previous,
+                        firstTurnMovementCapacity,
+                        futureTurnMovementCapacity))
                 {
                     continue;
                 }
@@ -242,6 +270,11 @@ public sealed class MapRouteService
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1);
 
+                if (candidateCost.TotalSegments > RoutePlanningMaximumSuggestedSegments)
+                {
+                    continue;
+                }
+
                 if (bestCosts.TryGetValue(nextState, out var existingCost)
                     && !IsBetterCost(candidateCost, existingCost))
                 {
@@ -263,7 +296,10 @@ public sealed class MapRouteService
         if (bestDestination is not null)
         {
 #if DEBUG
-            WriteDebugCandidateTrace(request, startState, bestDestination.Value, debugCandidates, previous);
+            if (emitDebug)
+            {
+                WriteDebugCandidateTrace(request, startState, bestDestination.Value, debugCandidates, previous);
+            }
 #endif
             return ReconstructSuggestion(
                 request,
@@ -275,7 +311,10 @@ public sealed class MapRouteService
         }
 
 #if DEBUG
-        WriteDebugCandidateTrace(request, startState, bestDestination, debugCandidates, previous);
+        if (emitDebug)
+        {
+            WriteDebugCandidateTrace(request, startState, bestDestination, debugCandidates, previous);
+        }
 #endif
 
         return new RouteSuggestionResult
@@ -289,6 +328,113 @@ public sealed class MapRouteService
             TotalCost = 0,
             TotalTurns = 0
         };
+    }
+
+    private bool HasCurrentTurnContinuation(
+        MapRouteContext context,
+        RouteSuggestionRequest request,
+        RouteSuggestionState startState,
+        RouteSuggestionState destinationState,
+        Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous,
+        int firstTurnMovementCapacity,
+        int futureTurnMovementCapacity)
+    {
+        var orderedEntries = ReconstructPathEntries(startState, destinationState, previous);
+        if (orderedEntries.Count == 0)
+        {
+            return false;
+        }
+
+        var currentTurnProgress = GetCurrentTurnProgress(orderedEntries, firstTurnMovementCapacity, futureTurnMovementCapacity);
+        if (currentTurnProgress is null || currentTurnProgress.Value.ReachedDestinationThisTurn)
+        {
+            return true;
+        }
+
+        var augmentedTraveledSegmentKeys = request.TraveledSegmentKeys
+            .Concat(currentTurnProgress.Value.ConsumedSegmentKeys)
+            .Where(segmentKey => !string.IsNullOrWhiteSpace(segmentKey))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var continuation = FindCheapestSuggestionCore(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = request.PlayerId,
+                StartNodeId = currentTurnProgress.Value.EndpointNodeId,
+                DestinationNodeId = request.DestinationNodeId,
+                MovementType = request.MovementType,
+                MovementCapacity = 0,
+                AverageFutureMovement = request.AverageFutureMovement,
+                TraveledSegmentKeys = augmentedTraveledSegmentKeys,
+                PlayerColor = request.PlayerColor,
+                ResolveRailroadOwnership = request.ResolveRailroadOwnership,
+                ResolveRailroadFee = request.ResolveRailroadFee,
+                ResolveRailroadOwnerPlayerIndex = request.ResolveRailroadOwnerPlayerIndex,
+                ResolvePlayerCash = request.ResolvePlayerCash,
+                ResolvePlayerAccessibleDestinationPercent = request.ResolvePlayerAccessibleDestinationPercent,
+                ResolvePlayerMonopolyDestinationPercent = request.ResolvePlayerMonopolyDestinationPercent,
+                BonusOutAvailable = request.BonusOutAvailable,
+                CurrentWhiteDiceMovement = request.CurrentWhiteDiceMovement,
+                CurrentFixedBonusMovement = request.CurrentFixedBonusMovement,
+                BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival
+            },
+            requireCurrentTurnContinuation: false,
+            emitDebug: false);
+
+        return continuation.Status == RouteSuggestionStatus.Success;
+    }
+
+    private static RouteSuggestionCurrentTurnProgress? GetCurrentTurnProgress(
+        List<RouteSuggestionPrevious> orderedEntries,
+        int firstTurnMovementCapacity,
+        int futureTurnMovementCapacity)
+    {
+        if (orderedEntries.Count == 0)
+        {
+            return null;
+        }
+
+        var lastNodeId = orderedEntries[0].PreviousState.NodeId;
+        var lastRailroadIndex = orderedEntries[0].PreviousState.LastRailroadIndex;
+        var pointsUsedInCurrentTurn = 0;
+        var turnsStarted = 0;
+        var consumedSegmentKeys = new List<string>();
+        var consumedEntryCount = 0;
+
+        foreach (var entry in orderedEntries)
+        {
+            var currentTurnCapacity = turnsStarted <= 1 ? firstTurnMovementCapacity : futureTurnMovementCapacity;
+            var isFirstEdge = lastRailroadIndex < 0;
+            var exhaustedTurnCapacity = !isFirstEdge && pointsUsedInCurrentTurn >= currentTurnCapacity;
+            var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
+
+            if (turnsStarted >= 1 && startsNewTurn)
+            {
+                break;
+            }
+
+            if (startsNewTurn)
+            {
+                turnsStarted++;
+                pointsUsedInCurrentTurn = 1;
+            }
+            else
+            {
+                pointsUsedInCurrentTurn++;
+            }
+
+            consumedEntryCount++;
+            consumedSegmentKeys.Add(BuildSegmentKey(entry.Edge.FromNodeId, entry.Edge.ToNodeId, entry.Edge.RailroadIndex));
+            lastNodeId = entry.Edge.ToNodeId;
+            lastRailroadIndex = entry.Edge.RailroadIndex;
+        }
+
+        return new RouteSuggestionCurrentTurnProgress(
+            lastNodeId,
+            consumedSegmentKeys,
+            consumedEntryCount >= orderedEntries.Count);
     }
 
     private static RouteSuggestionResult ReconstructSuggestion(
@@ -1478,6 +1624,11 @@ public readonly record struct RouteSuggestionPrevious(
     int TurnsAdded,
     int CostPerTurn,
     int TotalCostAdded);
+
+public readonly record struct RouteSuggestionCurrentTurnProgress(
+    string EndpointNodeId,
+    IReadOnlyList<string> ConsumedSegmentKeys,
+    bool ReachedDestinationThisTurn);
 
 public readonly record struct RouteSearchLookaheadState(string NodeId, int LastRailroadIndex, int SegmentsUsed);
 

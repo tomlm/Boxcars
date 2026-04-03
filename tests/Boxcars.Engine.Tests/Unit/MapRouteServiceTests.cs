@@ -101,6 +101,49 @@ public class MapRouteServiceTests
     }
 
     [Fact]
+    public void FindCheapestSuggestion_RejectsRoutesLongerThanMaximumSuggestedSegments()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase);
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase);
+
+        for (var index = 0; index <= MapRouteService.RoutePlanningMaximumSuggestedSegments; index++)
+        {
+            var nodeId = $"N{index}";
+            adjacency[nodeId] = [];
+            dotLookup[nodeId] = CreateDot(nodeId, 0, index);
+        }
+
+        for (var index = 0; index < MapRouteService.RoutePlanningMaximumSuggestedSegments; index++)
+        {
+            AddEdge(adjacency, $"N{index}", $"N{index + 1}", 1);
+        }
+
+        var overflowNodeId = $"N{MapRouteService.RoutePlanningMaximumSuggestedSegments + 1}";
+        adjacency[overflowNodeId] = [];
+        dotLookup[overflowNodeId] = CreateDot(overflowNodeId, 0, MapRouteService.RoutePlanningMaximumSuggestedSegments + 1);
+        AddEdge(adjacency, $"N{MapRouteService.RoutePlanningMaximumSuggestedSegments}", overflowNodeId, 1);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "N0",
+                DestinationNodeId = overflowNodeId,
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 10,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
+            });
+
+        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+    }
+
+    [Fact]
     public void FindCheapestSuggestion_PrefersFriendlyExitWhenHostileRailroadCanBeLeftForDestinationPath()
     {
         var service = new MapRouteService();
