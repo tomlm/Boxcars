@@ -65,4 +65,5 @@ public class ForcedSaleStateMapperTests
                 MidpointRounding.AwayFromZero),
             firstRailroadSummary.AccessDeltaPercentAfterSale);
     }
+
 }

@@ -2286,6 +2286,12 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private ForcedSalePhaseModel? CurrentForcedSalePhase => _turnViewState.ForcedSalePhase;
 
+    private IReadOnlyList<SaleCandidateModel> OrderedForcedSaleCandidates => CurrentForcedSalePhase?.SaleCandidates
+        .OrderByDescending(candidate => candidate.BankSalePrice)
+        .ThenBy(candidate => candidate.RailroadName, StringComparer.OrdinalIgnoreCase)
+        .ToList()
+        ?? [];
+
     private ForcedSaleAuctionStateModel? CurrentAuctionState => CurrentForcedSalePhase?.AuctionState;
 
     private ForcedSaleAuctionStateModel CurrentAuctionPanelState => CurrentAuctionState ?? new ForcedSaleAuctionStateModel();
@@ -2609,10 +2615,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             .FirstOrDefault(option => string.Equals(BuildRailroadOptionKey(option.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal))
             ?.RailroadIndex;
 
-    private SaleCandidateModel? SelectedForcedSaleCandidate => CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault(candidate =>
+    private SaleCandidateModel? SelectedForcedSaleCandidate => OrderedForcedSaleCandidates.FirstOrDefault(candidate =>
             string.Equals(BuildRailroadOptionKey(candidate.RailroadIndex), _selectedPurchaseOptionKey, StringComparison.Ordinal))
-        ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == CurrentForcedSalePhase.SelectedRailroadIndex)
-        ?? CurrentForcedSalePhase?.SaleCandidates.FirstOrDefault();
+        ?? OrderedForcedSaleCandidates.LastOrDefault();
 
     private bool CanCurrentUserActInAuction => CurrentAuctionActorPlayerIndex.HasValue;
 

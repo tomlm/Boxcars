@@ -19,3 +19,4 @@
 - Always read .specify/memory/constitution.md at the start of any work session on the Boxcars project. It defines non-negotiable principles.
 - Use the .specify agent when doing work on the Boxcars project.
 - Ensure gameplay fidelity to original Rail Baron rules.
+- Treat the map as unchanging after load; cache map-derived calculations with the map.

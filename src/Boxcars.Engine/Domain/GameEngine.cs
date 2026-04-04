@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Text.Json;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Events;
@@ -13,8 +14,10 @@ namespace Boxcars.Engine.Domain;
 public sealed class GameEngine : ObservableBase
 {
     public const int AuctionBidIncrement = 250;
+    public const int RoutePlanningMaximumSegments = 40;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
+    private static TimeSpan RoutePlanningTimeLimit { get; set; } = TimeSpan.FromSeconds(10);
 
     private GameStatus _gameStatus;
     private Turn _currentTurn = null!;
@@ -28,6 +31,8 @@ public sealed class GameEngine : ObservableBase
     private Dictionary<string, CityDefinition> _cityByNodeId = null!;
     private Dictionary<string, CityDefinition> _cityByName = null!;
     private GameSettings _settings = null!;
+    private Dictionary<int, Railroad>? _railroadsByIndex;
+    private IReadOnlyList<RoutePlanningCityCoverageEntry>? _routePlanningCityCoverage;
 
     // Railroad purchase prices (based on official Rail Baron rules)
     private static readonly int[] RailroadPrices = new int[]
@@ -84,6 +89,10 @@ public sealed class GameEngine : ObservableBase
     public MapDefinition MapDefinition { get; private set; } = null!;
 
     public GameSettings Settings => _settings;
+
+    private IReadOnlyDictionary<int, Railroad> RailroadsByIndex => _railroadsByIndex ??= Railroads.ToDictionary(railroad => railroad.Index);
+
+    private IReadOnlyList<RoutePlanningCityCoverageEntry> RoutePlanningCityCoverage => _routePlanningCityCoverage ??= BuildRoutePlanningCityCoverage();
 
     #endregion
 
@@ -2599,26 +2608,34 @@ public sealed class GameEngine : ObservableBase
 
     private Route FindCheapestRoute(string startNodeId, string destNodeId, Player player)
     {
+        var routePlanningStopwatch = Stopwatch.StartNew();
         var movementPointsPerTurn = player.LocomotiveType == LocomotiveType.Superchief ? 3 : 2;
-        var cityCoverage = BuildRoutePlanningCityCoverage();
-        var networkMetricsByPlayerIndex = new Dictionary<int, RoutePlanningNetworkMetrics>();
-        var friendlyDestinationReachableNodes = BuildReachableNodesForRoutePlanning(
+        var cityCoverage = RoutePlanningCityCoverage;
+        var estimatedStateCapacity = Math.Clamp(_adjacency.Count * 2, 256, 1024);
+        var networkMetricsByPlayerIndex = new Dictionary<int, RoutePlanningNetworkMetrics>(Players.Count);
+        var friendlyDestinationReachableNodes = BuildFriendlyReachableNodesForRoutePlanning(
             destNodeId,
-            edge => !IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex));
+            player,
+            routePlanningStopwatch);
         var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
-        var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>();
-        var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>
+        var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
+        var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
         {
             [startState] = new RoutePlanningCostKey(0, 0, 0, 0)
         };
-        var previous = new Dictionary<RoutePlanningState, RoutePlanningPrevious>();
-        var settledStates = new HashSet<RoutePlanningState>();
+        var previous = new Dictionary<RoutePlanningState, RoutePlanningPrevious>(estimatedStateCapacity);
+        var settledStates = new HashSet<RoutePlanningState>(estimatedStateCapacity);
         RoutePlanningDestinationChoice? bestDestination = null;
 
         priorityQueue.Enqueue(startState, (0, 0, 0, 0));
 
         while (priorityQueue.Count > 0)
         {
+            if (routePlanningStopwatch.Elapsed >= RoutePlanningTimeLimit)
+            {
+                break;
+            }
+
             var state = priorityQueue.Dequeue();
             if (!bestCosts.TryGetValue(state, out var stateCost) || !settledStates.Add(state))
             {
@@ -2630,14 +2647,20 @@ public sealed class GameEngine : ObservableBase
                 break;
             }
 
+            if (stateCost.TotalSegments >= RoutePlanningMaximumSegments)
+            {
+                continue;
+            }
+
             if (string.Equals(state.NodeId, destNodeId, StringComparison.OrdinalIgnoreCase))
             {
-                if (PathDefersFriendlyExit(player, state, previous, friendlyDestinationReachableNodes))
+                if (stateCost.TotalSegments > RoutePlanningMaximumSegments
+                    || PathDefersFriendlyExit(player, state, previous, friendlyDestinationReachableNodes, routePlanningStopwatch))
                 {
                     continue;
                 }
 
-                var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, movementPointsPerTurn);
+                var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, movementPointsPerTurn, routePlanningStopwatch);
                 var tieBreakAnalysis = CalculateTieBreakAnalysis(player, startState, state, previous, cityCoverage, networkMetricsByPlayerIndex);
                 var destinationChoice = new RoutePlanningDestinationChoice(state, stateCost, exitAnalysis, tieBreakAnalysis);
                 if (bestDestination is null || IsBetterRouteDestination(destinationChoice, bestDestination.Value))
@@ -2655,19 +2678,23 @@ public sealed class GameEngine : ObservableBase
 
             foreach (var edge in edges)
             {
+                if (routePlanningStopwatch.Elapsed >= RoutePlanningTimeLimit)
+                {
+                    break;
+                }
+
                 var segKey = new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex);
                 if (player.UsedSegments.Contains(segKey))
                 {
                     continue;
                 }
 
-                if (PathContainsSegment(previous, state, segKey))
+                if (PathContainsSegment(previous, state, segKey, routePlanningStopwatch))
                 {
                     continue;
                 }
 
-                var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == edge.RailroadIndex);
-                if (railroad is null)
+                if (!RailroadsByIndex.TryGetValue(edge.RailroadIndex, out var railroad))
                 {
                     continue;
                 }
@@ -2687,6 +2714,11 @@ public sealed class GameEngine : ObservableBase
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1);
 
+                if (candidateCost.TotalSegments > RoutePlanningMaximumSegments)
+                {
+                    continue;
+                }
+
                 if (bestCosts.TryGetValue(nextState, out var existingCost)
                     && !IsBetterRouteCost(candidateCost, existingCost))
                 {
@@ -2699,9 +2731,22 @@ public sealed class GameEngine : ObservableBase
             }
         }
 
+        return BuildRouteFromPlanningResult(startState, bestDestination, previous);
+    }
+
+    private static bool IsRoutePlanningTimedOut(Stopwatch routePlanningStopwatch)
+    {
+        return routePlanningStopwatch.Elapsed >= RoutePlanningTimeLimit;
+    }
+
+    private static Route BuildRouteFromPlanningResult(
+        RoutePlanningState startState,
+        RoutePlanningDestinationChoice? bestDestination,
+        Dictionary<RoutePlanningState, RoutePlanningPrevious> previous)
+    {
         if (bestDestination is null)
         {
-            return new Route(new[] { startNodeId }, Array.Empty<RouteSegment>(), 0);
+            return new Route([startState.NodeId], Array.Empty<RouteSegment>(), 0);
         }
 
         var nodeIds = new List<string>();
@@ -2714,7 +2759,12 @@ public sealed class GameEngine : ObservableBase
         {
             if (!previous.TryGetValue(current, out var previousEntry))
             {
-                return new Route(new[] { startNodeId }, Array.Empty<RouteSegment>(), 0);
+                return new Route([startState.NodeId], Array.Empty<RouteSegment>(), 0);
+            }
+
+            if (segments.Count >= RoutePlanningMaximumSegments)
+            {
+                return new Route([startState.NodeId], Array.Empty<RouteSegment>(), 0);
             }
 
             segments.Add(new RouteSegment
@@ -2736,11 +2786,13 @@ public sealed class GameEngine : ObservableBase
     private static bool PathContainsSegment(
         Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
         RoutePlanningState state,
-        SegmentKey segmentKey)
+        SegmentKey segmentKey,
+        Stopwatch routePlanningStopwatch)
     {
         var currentState = state;
 
-        while (previous.TryGetValue(currentState, out var previousEntry))
+        while (!IsRoutePlanningTimedOut(routePlanningStopwatch)
+            && previous.TryGetValue(currentState, out var previousEntry))
         {
             if (segmentKey == new SegmentKey(
                     previousEntry.Edge.FromNodeId,
@@ -2756,9 +2808,10 @@ public sealed class GameEngine : ObservableBase
         return false;
     }
 
-    private HashSet<string> BuildReachableNodesForRoutePlanning(
+    private HashSet<string> BuildFriendlyReachableNodesForRoutePlanning(
         string destinationNodeId,
-        Func<RouteGraphEdge, bool> canTraverse)
+        Player player,
+        Stopwatch routePlanningStopwatch)
     {
         var reachableNodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(destinationNodeId))
@@ -2774,6 +2827,11 @@ public sealed class GameEngine : ObservableBase
 
         while (queue.Count > 0)
         {
+            if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+            {
+                break;
+            }
+
             var nodeId = queue.Dequeue();
             if (!_adjacency.TryGetValue(nodeId, out var outgoingEdges))
             {
@@ -2782,7 +2840,13 @@ public sealed class GameEngine : ObservableBase
 
             foreach (var edge in outgoingEdges)
             {
-                if (!canTraverse(edge) || !reachableNodes.Add(edge.ToNodeId))
+                if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+                {
+                    break;
+                }
+
+                if (IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex)
+                    || !reachableNodes.Add(edge.ToNodeId))
                 {
                     continue;
                 }
@@ -2806,28 +2870,26 @@ public sealed class GameEngine : ObservableBase
             return 0;
         }
 
-        var hasFriendlyConnectedExit = outgoingEdges.Any(edge =>
-            !IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex)
-            && friendlyDestinationReachableNodes.Contains(edge.ToNodeId));
-
-        return hasFriendlyConnectedExit ? RoutePlanningHostileExitPenalty : 0;
+        return HasFriendlyConnectedExit(player, outgoingEdges, friendlyDestinationReachableNodes)
+            ? RoutePlanningHostileExitPenalty
+            : 0;
     }
 
     private bool PathDefersFriendlyExit(
         Player player,
         RoutePlanningState destinationState,
         Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
-        HashSet<string> friendlyDestinationReachableNodes)
+        HashSet<string> friendlyDestinationReachableNodes,
+        Stopwatch routePlanningStopwatch)
     {
         var currentState = destinationState;
 
-        while (previous.TryGetValue(currentState, out var previousEntry))
+        while (!IsRoutePlanningTimedOut(routePlanningStopwatch)
+            && previous.TryGetValue(currentState, out var previousEntry))
         {
             if (IsUnfriendlyRailroadForPlayer(player, previousEntry.Edge.RailroadIndex)
                 && _adjacency.TryGetValue(previousEntry.PreviousState.NodeId, out var outgoingEdges)
-                && outgoingEdges.Any(edge =>
-                    !IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex)
-                    && friendlyDestinationReachableNodes.Contains(edge.ToNodeId)))
+                && HasFriendlyConnectedExit(player, outgoingEdges, friendlyDestinationReachableNodes))
             {
                 return true;
             }
@@ -2842,20 +2904,31 @@ public sealed class GameEngine : ObservableBase
         Player player,
         RoutePlanningState destinationState,
         RoutePlanningCostKey arrivalCost,
-        int movementPointsPerTurn)
+        int movementPointsPerTurn,
+        Stopwatch routePlanningStopwatch)
     {
-        var worstCaseExitCost = CalculateDestinationExitCost(player, destinationState, movementPointsPerTurn);
+        if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+        {
+            return new RoutePlanningExitAnalysis(0d, 0, 0d);
+        }
+
+        var worstCaseExitCost = CalculateDestinationExitCost(player, destinationState, movementPointsPerTurn, routePlanningStopwatch);
+        if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+        {
+            return new RoutePlanningExitAnalysis(0d, 0, 0d);
+        }
+
         if (worstCaseExitCost <= 0)
         {
             return new RoutePlanningExitAnalysis(0d, 0, 0d);
         }
 
-        var bonusOutProbability = CalculateBonusOutProbability(player, destinationState, arrivalCost);
+        var bonusOutProbability = CalculateBonusOutProbability(player, destinationState, arrivalCost, routePlanningStopwatch);
         var expectedExitCost = worstCaseExitCost * (1d - bonusOutProbability);
         return new RoutePlanningExitAnalysis(expectedExitCost, worstCaseExitCost, bonusOutProbability);
     }
 
-    private int CalculateDestinationExitCost(Player player, RoutePlanningState destinationState, int movementPointsPerTurn)
+    private int CalculateDestinationExitCost(Player player, RoutePlanningState destinationState, int movementPointsPerTurn, Stopwatch routePlanningStopwatch)
     {
         if (destinationState.LastRailroadIndex < 0
             || !IsUnfriendlyRailroadForPlayer(player, destinationState.LastRailroadIndex)
@@ -2865,17 +2938,23 @@ public sealed class GameEngine : ObservableBase
         }
 
         var startState = new RoutePlanningState(destinationState.NodeId, destinationState.LastRailroadIndex, movementPointsPerTurn);
-        var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>();
-        var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>
+        var estimatedStateCapacity = Math.Clamp(_adjacency.Count, 64, 256);
+        var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
+        var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
         {
             [startState] = new RoutePlanningCostKey(0, 0, 0, 0)
         };
-        var settledStates = new HashSet<RoutePlanningState>();
+        var settledStates = new HashSet<RoutePlanningState>(estimatedStateCapacity);
 
         priorityQueue.Enqueue(startState, (0, 0, 0, 0));
 
         while (priorityQueue.Count > 0)
         {
+            if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+            {
+                break;
+            }
+
             var state = priorityQueue.Dequeue();
             if (!bestCosts.TryGetValue(state, out var stateCost) || !settledStates.Add(state))
             {
@@ -2894,8 +2973,12 @@ public sealed class GameEngine : ObservableBase
 
             foreach (var edge in edges)
             {
-                var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == edge.RailroadIndex);
-                if (railroad is null)
+                if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+                {
+                    break;
+                }
+
+                if (!RailroadsByIndex.TryGetValue(edge.RailroadIndex, out var railroad))
                 {
                     continue;
                 }
@@ -2927,8 +3010,30 @@ public sealed class GameEngine : ObservableBase
         return int.MaxValue / 4;
     }
 
-    private double CalculateBonusOutProbability(Player player, RoutePlanningState destinationState, RoutePlanningCostKey arrivalCost)
+    private bool HasFriendlyConnectedExit(
+        Player player,
+        IReadOnlyList<RouteGraphEdge> outgoingEdges,
+        HashSet<string> friendlyDestinationReachableNodes)
     {
+        foreach (var edge in outgoingEdges)
+        {
+            if (!IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex)
+                && friendlyDestinationReachableNodes.Contains(edge.ToNodeId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private double CalculateBonusOutProbability(Player player, RoutePlanningState destinationState, RoutePlanningCostKey arrivalCost, Stopwatch routePlanningStopwatch)
+    {
+        if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+        {
+            return 0d;
+        }
+
         if (player != CurrentTurn.ActivePlayer
             || CurrentTurn.Phase != TurnPhase.Move
             || arrivalCost.TotalTurns != 1)
@@ -2936,7 +3041,7 @@ public sealed class GameEngine : ObservableBase
             return 0d;
         }
 
-        var minimumEscapeSegments = CalculateMinimumBonusOutSegments(player, destinationState);
+        var minimumEscapeSegments = CalculateMinimumBonusOutSegments(player, destinationState, routePlanningStopwatch);
         if (!minimumEscapeSegments.HasValue)
         {
             return 0d;
@@ -2961,7 +3066,7 @@ public sealed class GameEngine : ObservableBase
         return successCount / 6d;
     }
 
-    private int? CalculateMinimumBonusOutSegments(Player player, RoutePlanningState destinationState)
+    private int? CalculateMinimumBonusOutSegments(Player player, RoutePlanningState destinationState, Stopwatch routePlanningStopwatch)
     {
         if (destinationState.LastRailroadIndex < 0 || !IsUnfriendlyRailroadForPlayer(player, destinationState.LastRailroadIndex))
         {
@@ -2977,6 +3082,11 @@ public sealed class GameEngine : ObservableBase
 
         while (queue.Count > 0)
         {
+            if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+            {
+                break;
+            }
+
             var state = queue.Dequeue();
             if (!_adjacency.TryGetValue(state.NodeId, out var edges))
             {
@@ -2985,6 +3095,11 @@ public sealed class GameEngine : ObservableBase
 
             foreach (var edge in edges)
             {
+                if (IsRoutePlanningTimedOut(routePlanningStopwatch))
+                {
+                    break;
+                }
+
                 var nextSegmentsUsed = state.SegmentsUsed + 1;
                 if (!IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex))
                 {
@@ -3009,14 +3124,25 @@ public sealed class GameEngine : ObservableBase
 
     private bool IsUnfriendlyDestinationForPlayer(Player player, string nodeId)
     {
-        return _adjacency.TryGetValue(nodeId, out var edges)
-            && edges.Count > 0
-            && edges.All(edge => IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex));
+        if (!_adjacency.TryGetValue(nodeId, out var edges) || edges.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var edge in edges)
+        {
+            if (!IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private bool IsUnfriendlyRailroadForPlayer(Player player, int railroadIndex)
     {
-        var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
+        RailroadsByIndex.TryGetValue(railroadIndex, out var railroad);
         return railroad?.Owner is not null
             && railroad.Owner != player
             && !player.GrandfatheredRailroadFees.ContainsKey(railroadIndex);
@@ -3042,7 +3168,7 @@ public sealed class GameEngine : ObservableBase
 
             if (previousEntry.TotalCostAdded > 0)
             {
-                var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == previousEntry.Edge.RailroadIndex);
+                RailroadsByIndex.TryGetValue(previousEntry.Edge.RailroadIndex, out var railroad);
                 if (railroad?.Owner is not null && railroad.Owner != player && !player.GrandfatheredRailroadFees.ContainsKey(railroad.Index))
                 {
                     ownerCounts[railroad.Owner.Index] = ownerCounts.GetValueOrDefault(railroad.Owner.Index) + 1;

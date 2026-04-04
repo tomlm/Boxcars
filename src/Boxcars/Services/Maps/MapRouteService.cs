@@ -466,6 +466,19 @@ public sealed class MapRouteService
                 };
             }
 
+            if (segmentStack.Count >= RoutePlanningMaximumSuggestedSegments)
+            {
+                return new RouteSuggestionResult
+                {
+                    Status = RouteSuggestionStatus.NoRoute,
+                    Message = "Route suggestion exceeded the maximum supported depth.",
+                    StartNodeId = request.StartNodeId,
+                    DestinationNodeId = request.DestinationNodeId,
+                    NodeIds = [request.StartNodeId],
+                    Segments = []
+                };
+            }
+
             segmentStack.Push(new RouteSuggestionSegment
             {
                 FromNodeId = previousEntry.Edge.FromNodeId,

@@ -12,7 +12,7 @@
                        Label="Railroad to liquidate"
                        Dense="true"
                        Disabled="@IsBusy">
-                @foreach (var candidate in Phase.SaleCandidates)
+                @foreach (var candidate in OrderedCandidates)
                 {
                     <MudSelectItem T="int?" Value="@candidate.RailroadIndex">@candidate.RailroadName (@FormatCurrency(candidate.BankSalePrice) bank value)</MudSelectItem>
                 }
@@ -53,9 +53,13 @@
     [Parameter]
     public bool IsBusy { get; set; }
 
-    private SaleCandidateModel? SelectedCandidate => Phase.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == SelectedRailroadIndex)
-        ?? Phase.SaleCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == Phase.SelectedRailroadIndex)
-        ?? Phase.SaleCandidates.FirstOrDefault();
+    private IReadOnlyList<SaleCandidateModel> OrderedCandidates => Phase.SaleCandidates
+        .OrderByDescending(candidate => candidate.BankSalePrice)
+        .ThenBy(candidate => candidate.RailroadName, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private SaleCandidateModel? SelectedCandidate => OrderedCandidates.FirstOrDefault(candidate => candidate.RailroadIndex == SelectedRailroadIndex)
+        ?? OrderedCandidates.LastOrDefault();
 
     private bool CanSellToBank => Phase.CanSellToBank && SelectedCandidate is not null;
 

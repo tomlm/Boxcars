@@ -1,3 +1,4 @@
+using System.Reflection;
 using Boxcars.Engine.Domain;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Persistence;
@@ -55,6 +56,32 @@ public class RouteSuggestionTests
         // State should be unchanged
         Assert.Equal(phase, engine.CurrentTurn.Phase);
         Assert.Equal(playerRoute, engine.CurrentTurn.ActivePlayer.ActiveRoute);
+    }
+
+    [Fact]
+    public void SuggestRoute_WhenPlanningTimeLimitIsReached_ReturnsFallbackRoute()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine();
+        random.QueueWeightedDraw(1);
+        random.QueueWeightedDraw(0);
+        engine.DrawDestination();
+
+        var originalTimeLimit = GetRoutePlanningTimeLimit();
+
+        try
+        {
+            SetRoutePlanningTimeLimit(TimeSpan.Zero);
+
+            var route = engine.SuggestRoute();
+
+            Assert.Equal([engine.CurrentTurn.ActivePlayer.CurrentNodeId!], route.NodeIds);
+            Assert.Empty(route.Segments);
+            Assert.Equal(0, route.TotalCost);
+        }
+        finally
+        {
+            SetRoutePlanningTimeLimit(originalTimeLimit);
+        }
     }
 
     [Fact]
@@ -247,6 +274,23 @@ public class RouteSuggestionTests
     }
 
     [Fact]
+    public void SuggestRouteForPlayer_RejectsRoutesLongerThanMaximumSegments()
+    {
+        var engine = CreateLongPlanningEngine();
+        var player = engine.Players[0];
+
+        player.CurrentNodeId = "0:0";
+        player.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        player.TripOriginCity = player.CurrentCity;
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        Assert.Equal(["0:0"], route.NodeIds);
+        Assert.Empty(route.Segments);
+    }
+
+    [Fact]
     public void SuggestRouteForPlayer_TieBreak_PrefersLowerCashOwner()
     {
         var engine = CreateStrategicTieBreakEngine();
@@ -326,6 +370,25 @@ public class RouteSuggestionTests
 
         return new Boxcars.Engine.Domain.GameEngine(
             CreateUnfriendlyDestinationPlanningMap(),
+            GameEngineFixture.DefaultPlayerNames,
+            random,
+            GameSettings.Default with
+            {
+                HomeCityChoice = false,
+                HomeSwapping = false
+            });
+    }
+
+    private static Boxcars.Engine.Domain.GameEngine CreateLongPlanningEngine()
+    {
+        var random = new FixedRandomProvider();
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+
+        return new Boxcars.Engine.Domain.GameEngine(
+            CreateLongPlanningMap(),
             GameEngineFixture.DefaultPlayerNames,
             random,
             GameSettings.Default with
@@ -659,5 +722,62 @@ public class RouteSuggestionTests
         });
 
         return map;
+    }
+
+    private static MapDefinition CreateLongPlanningMap()
+    {
+        var map = new MapDefinition
+        {
+            Name = "LongPlanningMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = Boxcars.Engine.Domain.GameEngine.RoutePlanningMaximumSegments + 1 });
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "Long Line", ShortName = "LL" });
+
+        for (var dot = 0; dot <= Boxcars.Engine.Domain.GameEngine.RoutePlanningMaximumSegments + 1; dot++)
+        {
+            map.TrainDots.Add(new TrainDot
+            {
+                Id = $"0:{dot}",
+                RegionIndex = 0,
+                DotIndex = dot,
+                X = dot * 10,
+                Y = dot * 10
+            });
+        }
+
+        for (var dot = 0; dot <= Boxcars.Engine.Domain.GameEngine.RoutePlanningMaximumSegments; dot++)
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = 1,
+                StartRegionIndex = 0,
+                StartDotIndex = dot,
+                EndRegionIndex = 0,
+                EndDotIndex = dot + 1
+            });
+        }
+
+        return map;
+    }
+
+    private static TimeSpan GetRoutePlanningTimeLimit()
+    {
+        var property = typeof(Boxcars.Engine.Domain.GameEngine).GetProperty("RoutePlanningTimeLimit", BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("RoutePlanningTimeLimit was not found.");
+
+        return (TimeSpan)(property.GetValue(null)
+            ?? throw new InvalidOperationException("RoutePlanningTimeLimit returned null."));
+    }
+
+    private static void SetRoutePlanningTimeLimit(TimeSpan timeLimit)
+    {
+        var property = typeof(Boxcars.Engine.Domain.GameEngine).GetProperty("RoutePlanningTimeLimit", BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("RoutePlanningTimeLimit was not found.");
+
+        property.SetValue(null, timeLimit);
     }
 }

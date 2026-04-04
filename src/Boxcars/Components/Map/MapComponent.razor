@@ -1888,13 +1888,19 @@
 
         _suggestedRouteSelectionDismissed = false;
 
-        var selectionSegmentLimit = ResolveSuggestionSelectionSegmentLimit(suggestion);
+        var selectionSegmentLimit = Math.Min(
+            ResolveSuggestionSelectionSegmentLimit(suggestion),
+            MapRouteService.RoutePlanningMaximumSuggestedSegments);
 
         _selectedRouteNodeIds.Clear();
         _selectedRouteNodeIds.Add(suggestion.NodeIds[0]);
         _selectedRouteSegments.Clear();
 
-        for (var index = 0; index < suggestion.Segments.Count && _selectedRouteSegments.Count < selectionSegmentLimit; index++)
+        for (var index = 0;
+            index < suggestion.Segments.Count
+                && index < MapRouteService.RoutePlanningMaximumSuggestedSegments
+                && _selectedRouteSegments.Count < selectionSegmentLimit;
+            index++)
         {
             var segment = suggestion.Segments[index];
             if (!_routeContext.Adjacency.TryGetValue(segment.FromNodeId, out var adjEdges))
@@ -1957,7 +1963,9 @@
         var thisTurnSegmentCount = _selectedRouteSegments.Count;
 
         // Build segment overlays for the entire suggestion route
-        for (var index = 0; index < suggestion.Segments.Count; index++)
+        for (var index = 0;
+            index < suggestion.Segments.Count && index < MapRouteService.RoutePlanningMaximumSuggestedSegments;
+            index++)
         {
             var segment = suggestion.Segments[index];
             if (!_routeContext.Adjacency.TryGetValue(segment.FromNodeId, out var adjEdges))
