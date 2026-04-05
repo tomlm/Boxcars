@@ -911,9 +911,9 @@
         StateHasChanged();
     }
 
-    public void SetStartCity(string nodeId)
+    public void SetStartCity(string nodeId, bool quiet = false)
     {
-        SetRouteStartNode(nodeId);
+        SetRouteStartNode(nodeId, publishStartCityChanged: !quiet, publishRoutePreviewChanged: !quiet);
     }
 
     public void RestoreSelectedRoute(IReadOnlyList<string>? nodeIds, IReadOnlyList<string>? segmentKeys)

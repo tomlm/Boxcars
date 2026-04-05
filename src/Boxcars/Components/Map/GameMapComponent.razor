@@ -336,9 +336,9 @@
 		return string.Concat(Math.Round(_zoomPercent).ToString(CultureInfo.InvariantCulture), "%");
 	}
 
-	public void SetStartCity(string nodeId)
+	public void SetStartCity(string nodeId, bool quiet = false)
 	{
-		_mapComponent?.SetStartCity(nodeId);
+		_mapComponent?.SetStartCity(nodeId, quiet);
 	}
 
 		public void RestoreSelectedRoute(IReadOnlyList<string>? nodeIds, IReadOnlyList<string>? segmentKeys)

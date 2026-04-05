@@ -143,7 +143,8 @@ public class MapRouteServiceTests
                 ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
-        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Contains("Shortest-path fallback", suggestion.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -181,7 +182,8 @@ public class MapRouteServiceTests
                 MaximumExploredStates = 1
             });
 
-        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Contains("Shortest-path fallback", suggestion.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("exploration budget", suggestion.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -224,7 +226,8 @@ public class MapRouteServiceTests
                 MaximumSearchMilliseconds = 1
             });
 
-        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Contains("Shortest-path fallback", suggestion.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("timed out", suggestion.Message, StringComparison.OrdinalIgnoreCase);
     }
 

@@ -3500,6 +3500,13 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
+        if (!IsCurrentUserActivePlayer)
+        {
+            _lastAutoSuggestKey = null;
+            Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest skip: current user is not the active player", GameId);
+            return;
+        }
+
         if (!string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
         {
             _lastAutoSuggestKey = null;
@@ -3529,7 +3536,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             if (!string.IsNullOrWhiteSpace(startNodeId))
             {
-                _gameMap.SetStartCity(startNodeId);
+                _gameMap.SetStartCity(startNodeId, quiet: true);
             }
 
             var destNodeId = _gameMap.RouteCityOptions

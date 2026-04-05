@@ -3,7 +3,9 @@
     "allow": [
       "Bash(dotnet test:*)",
       "Bash(xargs grep:*)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(ls:*)",
+      "Bash(find \"S:/github/Boxcars\" -name \"*.cs\" -type f -exec grep -l \"public.*SuggestRoute\\\\|def SuggestRoute\" {} \\\\;)"
     ]
   }
 }

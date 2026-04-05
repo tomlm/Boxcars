@@ -90,12 +90,45 @@ public sealed class MapRouteService
         var cachedRequest = CreateCachedRouteSuggestionRequest(request);
         var searchBudget = CreateRouteSearchBudget(cachedRequest);
 
-        return FindCheapestSuggestionCore(
+        var result = FindCheapestSuggestionCore(
             context,
             cachedRequest,
             requireCurrentTurnContinuation: true,
             emitDebug: true,
             searchBudget);
+
+        if (result.Status == RouteSuggestionStatus.NoRoute)
+        {
+            var shortestPath = FindShortestSelectionCore(context, request.StartNodeId, request.DestinationNodeId);
+            if (shortestPath is not null && shortestPath.Segments.Count > 0)
+            {
+                Debug.WriteLine(
+                    $"[MapRouteService] Cheapest route returned NoRoute ({result.Message}); falling back to shortest path ({shortestPath.Segments.Count} segments)");
+
+                return new RouteSuggestionResult
+                {
+                    Status = RouteSuggestionStatus.Success,
+                    Message = $"Shortest-path fallback ({result.Message})",
+                    StartNodeId = request.StartNodeId,
+                    DestinationNodeId = request.DestinationNodeId,
+                    NodeIds = shortestPath.NodeIds,
+                    Segments = shortestPath.Segments.Select(edge => new RouteSuggestionSegment
+                    {
+                        FromNodeId = edge.FromNodeId,
+                        ToNodeId = edge.ToNodeId,
+                        RailroadIndex = edge.RailroadIndex,
+                        OwnershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex),
+                        Turns = 0,
+                        CostPerTurn = 0,
+                        TotalCost = 0
+                    }).ToList(),
+                    TotalCost = 0,
+                    TotalTurns = 0
+                };
+            }
+        }
+
+        return result;
     }
 
     private static RouteSearchBudget CreateRouteSearchBudget(RouteSuggestionRequest request)
