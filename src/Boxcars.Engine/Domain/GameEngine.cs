@@ -2731,7 +2731,85 @@ public sealed class GameEngine : ObservableBase
             }
         }
 
-        return BuildRouteFromPlanningResult(startState, bestDestination, previous);
+        if (bestDestination is not null)
+        {
+            return BuildRouteFromPlanningResult(startState, bestDestination, previous);
+        }
+
+        // Cheapest route failed — fall back to simple shortest path (BFS)
+        var fallbackRoute = FindShortestRoute(startNodeId, destNodeId, player);
+        return fallbackRoute ?? new Route([startState.NodeId], Array.Empty<RouteSegment>(), 0);
+    }
+
+    private Route? FindShortestRoute(string startNodeId, string destNodeId, Player player)
+    {
+        if (string.Equals(startNodeId, destNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return new Route([startNodeId], Array.Empty<RouteSegment>(), 0);
+        }
+
+        var queue = new Queue<string>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var prev = new Dictionary<string, RouteGraphEdge>(StringComparer.OrdinalIgnoreCase);
+
+        queue.Enqueue(startNodeId);
+        visited.Add(startNodeId);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (string.Equals(current, destNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            if (!_adjacency.TryGetValue(current, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                if (!visited.Add(edge.ToNodeId))
+                {
+                    continue;
+                }
+
+                prev[edge.ToNodeId] = edge;
+                queue.Enqueue(edge.ToNodeId);
+            }
+        }
+
+        if (!visited.Contains(destNodeId))
+        {
+            return null;
+        }
+
+        var segmentStack = new Stack<RouteSegment>();
+        var currentNode = destNodeId;
+
+        while (!string.Equals(currentNode, startNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!prev.TryGetValue(currentNode, out var edge))
+            {
+                return null;
+            }
+
+            segmentStack.Push(new RouteSegment { FromNodeId = edge.FromNodeId, ToNodeId = edge.ToNodeId, RailroadIndex = edge.RailroadIndex });
+            currentNode = edge.FromNodeId;
+        }
+
+        var nodeIds = new List<string> { startNodeId };
+        var segments = new List<RouteSegment>();
+
+        while (segmentStack.Count > 0)
+        {
+            var segment = segmentStack.Pop();
+            segments.Add(segment);
+            nodeIds.Add(segment.ToNodeId);
+        }
+
+        return new Route(nodeIds, segments, 0);
     }
 
     private static bool IsRoutePlanningTimedOut(Stopwatch routePlanningStopwatch)

@@ -74,8 +74,9 @@ public class RouteSuggestionTests
 
             var route = engine.SuggestRoute();
 
-            Assert.Equal([engine.CurrentTurn.ActivePlayer.CurrentNodeId!], route.NodeIds);
-            Assert.Empty(route.Segments);
+            // Cheapest route times out, but BFS fallback should still find a path
+            Assert.StartsWith(engine.CurrentTurn.ActivePlayer.CurrentNodeId!, route.NodeIds[0]);
+            Assert.True(route.Segments.Count > 0, "BFS fallback should produce a non-empty route");
             Assert.Equal(0, route.TotalCost);
         }
         finally
@@ -286,8 +287,9 @@ public class RouteSuggestionTests
 
         var route = engine.SuggestRouteForPlayer(player.Index);
 
-        Assert.Equal(["0:0"], route.NodeIds);
-        Assert.Empty(route.Segments);
+        // Cheapest route exceeds max segments, but BFS fallback should find a path
+        Assert.Equal("0:0", route.NodeIds[0]);
+        Assert.True(route.Segments.Count > 0, "BFS fallback should produce a non-empty route");
     }
 
     [Fact]
