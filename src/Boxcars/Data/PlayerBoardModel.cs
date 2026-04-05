@@ -133,6 +133,9 @@ public sealed class PlayerBoardModel
     /// <summary>Locomotive type label (e.g. "Freight", "Express", "Superchief").</summary>
     public string LocomotiveLabel { get; init; } = "Freight";
 
+    /// <summary>Number of railroads owned by this player.</summary>
+    public int OwnedRailroadCount { get; init; }
+
     /// <summary>Coverage metrics shown in the player tooltip.</summary>
     public IReadOnlyList<RailroadOverlayMetricRow> CoverageMetrics { get; init; } = [];
 

@@ -33,6 +33,15 @@
                viewBox="@GetMapViewBoxValue()"
                preserveAspectRatio="xMidYMid meet"
              aria-label="Rail Baron game board">
+            <defs>
+                <filter id="network-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="1.0" result="blur" />
+                    <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                </filter>
+            </defs>
             <g class="game-map-camera" transform="@GetCameraTransform()">
                 <g class="game-map-aspect-correction" transform="@GetAspectCorrectionTransform()">
                 <g class="game-map-regions">
@@ -74,6 +83,22 @@
                                 @onclick:stopPropagation="@(SelectionMode == MapSelectionMode.Rail)" />
                     }
                 </g>
+
+                @if (HighlightedRailroadIndices is { Count: > 0 })
+                {
+                    <g class="game-map-network-highlight" filter="url(#network-glow)">
+                        @foreach (var segment in _renderModel.RailroadSegments)
+                        {
+                            if (HighlightedRailroadIndices.Contains(segment.RailroadIndex))
+                            {
+                                <line x1="@segment.X1" y1="@segment.Y1"
+                                      x2="@segment.X2" y2="@segment.Y2"
+                                      stroke="@GetRailroadSegmentStrokeColor(segment)"
+                                      class="game-map-network-highlight-segment" />
+                            }
+                        }
+                    </g>
+                }
 
                 <g class="game-map-city-labels">
                     @foreach (var city in _renderModel.Cities)
@@ -438,6 +463,9 @@
 
     [Parameter]
     public int? SelectedRailroadIndex { get; set; }
+
+    [Parameter]
+    public IReadOnlyCollection<int>? HighlightedRailroadIndices { get; set; }
 
     [Parameter]
     public EventCallback<RailroadSelectionEvent> RailroadSelected { get; set; }

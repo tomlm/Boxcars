@@ -111,6 +111,8 @@ else
             <PlayerBoard Players="_players"
                      OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
                      OnFocusPlayer="OnFocusPlayerAsync"
+                     HighlightedPlayerIndex="@_highlightedNetworkPlayerIndex"
+                     OnToggleNetworkHighlight="OnToggleNetworkHighlight"
                      />
         </MudStack>
     </MudPaper>
@@ -169,6 +171,7 @@ else
                               RailroadOwnerColors="@RailroadOwnerColors"
                               SelectableRailroadIndices="@SelectableRailroadIndices"
                               SelectedRailroadIndex="@SelectedRailroadIndex"
+                              HighlightedRailroadIndices="@HighlightedNetworkRailroadIndices"
                               RailroadSelected="OnRailroadSelectedAsync"
                               AutoZoomEnabled="@_autoZoomEnabled"
                               AutoZoomEnabledChanged="OnAutoZoomEnabledChangedAsync"
@@ -415,6 +418,7 @@ else
     private string? _lastAutoSuggestKey;
     private string? _selectedPurchaseOptionKey;
     private int? _activeAuctionRailroadIndex;
+    private int? _highlightedNetworkPlayerIndex;
     private string? _dismissedRailroadOverlayOptionKey;
     private string? _lastPurchaseResolutionKey;
     private double? _selectedRailroadOverlayClientX;
@@ -1778,6 +1782,7 @@ else
                         : GameBoardStateMapper.GetBotControlStatusLabel(latestBotAssignment, latestBotName),
                     HasMissingBotDefinition = string.Equals(latestBotAssignment?.BotControlStatus, BotControlStatuses.MissingDefinition, StringComparison.OrdinalIgnoreCase),
                     LocomotiveLabel = player.LocomotiveType,
+                    OwnedRailroadCount = player.OwnedRailroadIndices.Count,
                     BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
                     FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index, resolvedSettings) : 0,
                     CoverageMetrics = BuildPlayerCoverageMetricRows(player)
@@ -2708,6 +2713,43 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private IReadOnlyCollection<int> ActivePlayerOwnedRailroadIndices => _gameState is null
         ? Array.Empty<int>()
         : _gameState.Players[_gameState.ActivePlayerIndex].OwnedRailroadIndices;
+
+    private HashSet<int> HighlightedNetworkRailroadIndices
+    {
+        get
+        {
+            var indices = new HashSet<int>();
+
+            if (_highlightedNetworkPlayerIndex.HasValue && _gameState is not null
+                && _highlightedNetworkPlayerIndex.Value >= 0
+                && _highlightedNetworkPlayerIndex.Value < _gameState.Players.Count)
+            {
+                foreach (var idx in _gameState.Players[_highlightedNetworkPlayerIndex.Value].OwnedRailroadIndices)
+                    indices.Add(idx);
+            }
+
+            if (string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
+                && _gameState is not null)
+            {
+                foreach (var idx in _gameState.Players[_gameState.ActivePlayerIndex].OwnedRailroadIndices)
+                    indices.Add(idx);
+            }
+
+            if (CurrentAuctionState is not null && _gameState is not null)
+            {
+                foreach (var idx in _gameState.Players[_gameState.ActivePlayerIndex].OwnedRailroadIndices)
+                    indices.Add(idx);
+                indices.Add(CurrentAuctionState.RailroadIndex);
+            }
+
+            return indices;
+        }
+    }
+
+    private void OnToggleNetworkHighlight(int? playerIndex)
+    {
+        _highlightedNetworkPlayerIndex = playerIndex;
+    }
 
     private IReadOnlyCollection<int> OtherOwnedRailroadIndices => _gameState is null
         ? Array.Empty<int>()
@@ -3687,6 +3729,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                         : player.BotControlStatusLabel,
                     HasMissingBotDefinition = player.HasMissingBotDefinition,
                     LocomotiveLabel = player.LocomotiveLabel,
+                    OwnedRailroadCount = player.OwnedRailroadCount,
                     FeesOwed = player.FeesOwed,
                     BonusPendingLabel = player.BonusPendingLabel,
                     CoverageMetrics = player.CoverageMetrics

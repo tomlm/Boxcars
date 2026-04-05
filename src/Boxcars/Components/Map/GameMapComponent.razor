@@ -42,6 +42,7 @@
 				  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
 				  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
 				  RailroadOwnerColors="@RailroadOwnerColors"
+				  HighlightedRailroadIndices="@HighlightedRailroadIndices"
 				  SelectableRailroadIndices="@SelectableRailroadIndices"
 				  SelectedRailroadIndex="@SelectedRailroadIndex"
 				  RailroadSelected="@RailroadSelected"
@@ -178,6 +179,9 @@
 
 	[Parameter]
 	public IReadOnlyCollection<int>? OtherOwnedRailroadIndices { get; set; }
+
+	[Parameter]
+	public IReadOnlyCollection<int>? HighlightedRailroadIndices { get; set; }
 
 	[Parameter]
 	public IReadOnlyDictionary<int, string>? RailroadOwnerColors { get; set; }
