@@ -10,8 +10,8 @@ public sealed class MapRouteService
     public const int RoutePlanningMaximumSuggestedSegments = 40;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
-    private const int RoutePlanningMaximumExploredStates = 50000;
-    private const int RoutePlanningMaximumSearchMilliseconds = 150;
+    private const int RoutePlanningMaximumExploredStates = 500000;
+    private const int RoutePlanningMaximumSearchMilliseconds = 3000;
 
     public MapRouteContext BuildContext(MapDefinition mapDefinition)
     {
@@ -205,7 +205,9 @@ public sealed class MapRouteService
             return CreateBudgetExceededSuggestion(request, searchBudget);
         }
 
-        var futureTurnMovementCapacity = request.MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
+        var futureTurnMovementCapacity = request.AverageFutureMovement > 0
+            ? (int)Math.Round(request.AverageFutureMovement, MidpointRounding.AwayFromZero)
+            : request.MovementType == PlayerMovementType.ThreeDie ? 11 : 7;
         var firstTurnMovementCapacity = request.MovementCapacity > 0
             ? request.MovementCapacity
             : futureTurnMovementCapacity;

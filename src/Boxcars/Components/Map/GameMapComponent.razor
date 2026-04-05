@@ -4,6 +4,8 @@
 
 @using System.Globalization
 @using MudBlazor
+@using Microsoft.Extensions.Logging
+@inject ILogger<GameMapComponent> Logger
 
 <div class="game-map-shell">
 	<div class="game-map-host">
@@ -339,9 +341,12 @@
 	{
 		if (_mapComponent is null)
 		{
+			Logger.LogWarning("[GameMapComponent] SuggestRouteAsync skip: _mapComponent is null");
 			return;
 		}
 
+		Logger.LogWarning("[GameMapComponent] SuggestRouteAsync calling _mapComponent.SuggestRouteAsync");
 		await _mapComponent.SuggestRouteAsync();
+		Logger.LogWarning("[GameMapComponent] SuggestRouteAsync complete");
 	}
 }

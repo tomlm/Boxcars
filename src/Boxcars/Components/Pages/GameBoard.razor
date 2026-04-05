@@ -45,7 +45,7 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
-@if (_game is null)
+@if (_game is null || (!IsLobbyGame && _gameState is null))
 {
     <MudStack Style="min-height: 16rem" Justify="Justify.Center" AlignItems="AlignItems.Center">
         <MudProgressCircular Indeterminate="true" Color="MudBlazor.Color.Primary" />
@@ -392,6 +392,7 @@ else
     private GameEntity? _game;
     private GameMapComponent? _gameMap;
     private bool _gameStateSubscriptionInitialized;
+    private bool _gameStateLoadInProgress;
     private RailBaronGameState? _gameState;
     private MapDefinition? _playerBoardMapDefinition;
     private MapAnalysisReport? _mapAnalysisReport;
@@ -512,15 +513,18 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync start", GameId);
         GamePresenceService.PresenceChanged += OnPresenceChanged;
 
         if (AuthState is null)
         {
+            Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync exit: no AuthState", GameId);
             return;
         }
 
         var state = await AuthState;
         _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync auth resolved user={UserId}", GameId, _currentUserId ?? "(none)");
 
         if (!string.IsNullOrWhiteSpace(_currentUserId))
         {
@@ -539,17 +543,23 @@ else
             SharedGameEngine.OnActionFailed += OnSharedGameActionFailed;
         }
 
+        Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync RefreshGameEntityAsync", GameId);
         await RefreshGameEntityAsync();
+        Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync LoadPlayerProfilesAsync", GameId);
         await LoadPlayerProfilesAsync(CancellationToken.None);
+        Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync EnsurePlayerBoardMapDefinitionAsync", GameId);
         await EnsurePlayerBoardMapDefinitionAsync(CancellationToken.None);
         if (IsLobbyGame)
         {
+            Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync lobby game — skipping state load", GameId);
             ReevaluatePlayerPresenceState();
         }
         else
         {
+            Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync LoadGameStateAsync", GameId);
             await LoadGameStateAsync(refreshGameEntity: false);
         }
+        Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync complete", GameId);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -564,15 +574,29 @@ else
 
         if (firstRender)
         {
+            LogBoardDebug($"OnAfterRenderAsync #{renderSequence} EnsureGameHubConnectionAsync");
             await EnsureGameHubConnectionAsync();
+            LogBoardDebug($"OnAfterRenderAsync #{renderSequence} RegisterPagePresence");
             RegisterPagePresence();
+            LogBoardDebug($"OnAfterRenderAsync #{renderSequence} StartPresenceHeartbeatAsync");
             await StartPresenceHeartbeatAsync();
+            LogBoardDebug($"OnAfterRenderAsync #{renderSequence} RefreshAuthoritativeStateAfterInitialPresenceAsync");
             await RefreshAuthoritativeStateAfterInitialPresenceAsync();
+            LogBoardDebug($"OnAfterRenderAsync #{renderSequence} firstRender init complete — deferring to next render");
+            // Return after initialization — let the component tree fully render with
+            // the loaded state before attempting route suggestions, purchase resolution, etc.
+            // The StateHasChanged from ApplyGameState will trigger the next OnAfterRenderAsync.
+            StateHasChanged();
+            return;
         }
 
+        LogBoardDebug($"OnAfterRenderAsync #{renderSequence} TryRestoreRouteSelection");
         TryRestoreRouteSelection();
+        LogBoardDebug($"OnAfterRenderAsync #{renderSequence} ResolveDrawDestinationPhaseAsync");
         await ResolveDrawDestinationPhaseAsync();
+        LogBoardDebug($"OnAfterRenderAsync #{renderSequence} AutoSuggestRouteIfNeededAsync");
         await AutoSuggestRouteIfNeededAsync();
+        LogBoardDebug($"OnAfterRenderAsync #{renderSequence} ResolvePurchasePhaseAsync");
         await ResolvePurchasePhaseAsync();
 
         if (IsHistoryPurchaseTabActive)
@@ -608,16 +632,53 @@ else
             return;
         }
 
+        // If OnInitializedAsync already loaded the game state, skip entirely.
+        if (_gameState is not null)
+        {
+            Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState skip: state already loaded (phase={Phase})", GameId, _gameState.Turn.Phase);
+            return;
+        }
+
+        // If OnInitializedAsync has a GetCurrentStateAsync in flight, wait for that
+        // instead of polling IsGameBusy — its in-flight call is what makes the game
+        // appear "busy," so polling here just deadlocks for the full timeout.
+        if (_gameStateLoadInProgress)
+        {
+            Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState waiting for in-progress load", GameId);
+            const int maxWaitAttempts = 40;
+            const int waitDelayMilliseconds = 75;
+            for (var attempt = 0; attempt < maxWaitAttempts; attempt++)
+            {
+                await Task.Delay(waitDelayMilliseconds);
+                if (_gameState is not null)
+                {
+                    Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState in-progress load completed at attempt {Attempt}", GameId, attempt);
+                    return;
+                }
+            }
+
+            Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState in-progress load timed out, falling through to own load", GameId);
+        }
+
         const int maxAttempts = 20;
         const int delayMilliseconds = 75;
 
         var sawBusyState = false;
+        Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState polling start (max {MaxAttempts} x {DelayMs}ms)", GameId, maxAttempts, delayMilliseconds);
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            if (!SharedGameEngine.IsGameBusy(GameId))
+            if (_gameState is not null)
+            {
+                Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState state arrived during polling at attempt {Attempt}", GameId, attempt);
+                return;
+            }
+
+            var isBusy = SharedGameEngine.IsGameBusy(GameId);
+            if (!isBusy)
             {
                 if (sawBusyState)
                 {
+                    Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState game no longer busy after {Attempt} attempts", GameId, attempt);
                     break;
                 }
             }
@@ -626,10 +687,17 @@ else
                 sawBusyState = true;
             }
 
+            if (attempt == 0 || attempt == maxAttempts - 1)
+            {
+                Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState poll attempt={Attempt} busy={IsBusy} sawBusy={SawBusy}", GameId, attempt, isBusy, sawBusyState);
+            }
+
             await Task.Delay(delayMilliseconds);
         }
 
+        Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState polling done, loading state", GameId);
         await LoadGameStateAsync(refreshGameEntity: false);
+        Logger.LogDebug("[GameBoard:{GameId}] RefreshAuthoritativeState complete", GameId);
     }
 
     private async Task PlayAgainAsync()
@@ -1300,6 +1368,7 @@ else
 
     private async Task LoadGameStateAsync(bool refreshGameEntity = true)
     {
+        Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync start refreshGameEntity={Refresh}", GameId, refreshGameEntity);
         if (refreshGameEntity)
         {
             await RefreshGameEntityAsync();
@@ -1307,17 +1376,39 @@ else
 
         if (IsLobbyGame)
         {
+            Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync exit: lobby game", GameId);
             _gameState = null;
             ReevaluatePlayerPresenceState();
             return;
         }
 
-        _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+        Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync GetCurrentStateAsync", GameId);
+        _gameStateLoadInProgress = true;
+        try
+        {
+            _gameState = await SharedGameEngine.GetCurrentStateAsync(GameId, CancellationToken.None);
+        }
+        finally
+        {
+            _gameStateLoadInProgress = false;
+        }
+        Logger.LogDebug(
+            "[GameBoard:{GameId}] LoadGameStateAsync state loaded phase={Phase} turn={Turn} movementRemaining={MovementRemaining} movementAllowance={MovementAllowance} activeIndex={ActiveIndex}",
+            GameId,
+            _gameState?.Turn.Phase ?? "(null)",
+            _gameState?.TurnNumber ?? -1,
+            _gameState?.Turn.MovementRemaining ?? -1,
+            _gameState?.Turn.MovementAllowance ?? -1,
+            _gameState?.ActivePlayerIndex ?? -1);
 
         await RefreshBotDisplayNamesAsync();
-        ApplyGameState(_gameState);
+        Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync ApplyGameState", GameId);
+        ApplyGameState(_gameState!);
+        Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync SyncRouteSelectionToActivePlayer", GameId);
         SyncRouteSelectionToActivePlayer();
+        Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync RefreshTimelineAsync", GameId);
         await RefreshTimelineAsync();
+        Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync complete", GameId);
     }
 
     private async Task EnsureGameHubConnectionAsync()
@@ -2275,7 +2366,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentTurnMovementAllowance => Math.Max(0, _turnViewState.MovementAllowance);
 
-    private int CurrentTurnMovementRemaining => Math.Max(0, _turnViewState.MovementRemaining);
+    private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
 
     private int CurrentSuggestionPublicFee => _game is null
         ? Boxcars.Engine.Persistence.GameSettings.Default.PublicFee
@@ -3358,18 +3449,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         if (_gameMap is null || _gameState is null)
         {
+            Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest skip: gameMap={HasMap} gameState={HasState}", GameId, _gameMap is not null, _gameState is not null);
             return;
         }
 
         if (!string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
         {
             _lastAutoSuggestKey = null;
+            Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest skip: phase={Phase} (not Move)", GameId, _turnViewState.TurnPhase);
             return;
         }
 
         var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
         if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
         {
+            Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest skip: no destination", GameId);
             return;
         }
 
@@ -3403,6 +3497,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             if (_gameMap.CanSuggestRoute != true)
             {
+                Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest skip: map still can't suggest after priming", GameId);
                 return;
             }
         }
@@ -3418,11 +3513,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal))
         {
+            Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest skip: key unchanged", GameId);
             return;
         }
 
+        Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest computing route key={Key} movementRemaining={MovementRemaining}", GameId, autoSuggestKey, _gameState.Turn.MovementRemaining);
         _lastAutoSuggestKey = autoSuggestKey;
-        await _gameMap.SuggestRouteAsync();
+        try
+        {
+            await _gameMap.SuggestRouteAsync();
+            Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest route computation complete", GameId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[GameBoard:{GameId}] AutoSuggest route computation FAILED", GameId);
+        }
         await InvokeAsync(StateHasChanged);
     }
 

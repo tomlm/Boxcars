@@ -15,6 +15,7 @@
 @inject IHubContext<DashboardHub> HubContext
 @inject IWebHostEnvironment HostEnvironment
 @inject IJSRuntime JavaScriptRuntime
+@inject ILogger<MapComponent> Logger
 @implements IAsyncDisposable
 
 <div class="game-map-viewport"
@@ -557,7 +558,9 @@
 
             if (_routeSuggestion is not null)
             {
-                if (_selectedRouteSegments.Count == 0 && ShouldAutoApplySuggestedRouteSelection())
+                if (_selectedRouteSegments.Count == 0
+                    && _routeSuggestion.Status == RouteSuggestionStatus.Success
+                    && ShouldAutoApplySuggestedRouteSelection())
                 {
                     ApplySuggestionToSelection(_routeSuggestion);
                 }
@@ -899,11 +902,16 @@
 
         if (!CanSuggestRoute)
         {
+            Logger.LogWarning("[MapComponent] SuggestRouteAsync skip: CanSuggestRoute=false (context={HasContext} start={Start} dest={Dest})",
+                _routeContext is not null, _routeStartNodeId ?? "(null)", _destinationNodeId ?? "(null)");
             return;
         }
 
+        Logger.LogWarning("[MapComponent] SuggestRouteAsync calling RecalculateRouteSuggestionAsync");
         await RecalculateRouteSuggestionAsync();
+        Logger.LogWarning("[MapComponent] SuggestRouteAsync calling InvokeAsync(StateHasChanged)");
         await InvokeAsync(StateHasChanged);
+        Logger.LogWarning("[MapComponent] SuggestRouteAsync complete");
     }
 
     private async Task NotifyViewportChanged()
@@ -1736,15 +1744,23 @@
     {
         if (_routeContext is null || string.IsNullOrWhiteSpace(_destinationNodeId))
         {
+            Logger.LogWarning("[MapComponent] RecalculateRoute skip: context={HasContext} dest={Dest}", _routeContext is not null, _destinationNodeId ?? "(null)");
             return;
         }
 
         var startNodeId = ResolveCurrentPlayerNodeId();
         if (string.IsNullOrWhiteSpace(startNodeId))
         {
+            Logger.LogWarning("[MapComponent] RecalculateRoute skip: no startNodeId");
             return;
         }
 
+        var movementCapacity = ResolveEffectiveMovementCapacity();
+        var traveledKeys = GetActivePlayerTraveledSegmentKeys();
+        Logger.LogWarning("[MapComponent] RecalculateRoute FindCheapestSuggestion start={Start} dest={Dest} capacity={Capacity} movementType={Type} avgFuture={AvgFuture} traveledSegments={TraveledCount} whiteDice={White} redDie={Red} bonusOut={BonusOut}",
+            startNodeId, _destinationNodeId, movementCapacity, MovementType, AverageFutureMovement, traveledKeys.Count, CurrentWhiteDiceMovement, CurrentFixedBonusMovement, BonusOutAvailable);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var suggestion = MapRouteService.FindCheapestSuggestion(
             _routeContext,
             new RouteSuggestionRequest
@@ -1753,7 +1769,7 @@
                 StartNodeId = startNodeId,
                 DestinationNodeId = _destinationNodeId,
                 MovementType = MovementType,
-                MovementCapacity = ResolveEffectiveMovementCapacity(),
+                MovementCapacity = movementCapacity,
                 AverageFutureMovement = AverageFutureMovement,
                 TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
                 PlayerColor = PlayerColor,
@@ -1768,26 +1784,36 @@
                 CurrentFixedBonusMovement = CurrentFixedBonusMovement,
                 BonusOutRequiresWhiteDiceArrival = BonusOutRequiresWhiteDiceArrival
             });
+        sw.Stop();
+        Logger.LogWarning("[MapComponent] RecalculateRoute FindCheapestSuggestion done in {ElapsedMs}ms status={Status} segments={Segments} message={Message}",
+            sw.ElapsedMilliseconds, suggestion.Status, suggestion.Segments.Count, suggestion.Message ?? "(none)");
 
         _routeSuggestion = suggestion;
 
         if (applySuggestionToSelection && ShouldAutoApplySuggestedRouteSelection())
         {
+            Logger.LogWarning("[MapComponent] RecalculateRoute applying suggestion to selection");
             ApplySuggestionToSelection(suggestion);
         }
 
+        Logger.LogWarning("[MapComponent] RecalculateRoute BuildSuggestionHighlights");
         BuildSuggestionHighlights(suggestion);
+        Logger.LogWarning("[MapComponent] RecalculateRoute BuildSuggestionHighlights done");
 
         if (!notifySuggestionChange)
         {
             return;
         }
 
+        Logger.LogWarning("[MapComponent] RecalculateRoute PublishRouteSuggestionUpdateAsync");
         await PublishRouteSuggestionUpdateAsync(suggestion);
+        Logger.LogWarning("[MapComponent] RecalculateRoute PublishRouteSuggestionUpdateAsync done");
 
         if (RouteSuggestionChanged.HasDelegate)
         {
+            Logger.LogWarning("[MapComponent] RecalculateRoute invoking RouteSuggestionChanged");
             await RouteSuggestionChanged.InvokeAsync(suggestion);
+            Logger.LogWarning("[MapComponent] RecalculateRoute RouteSuggestionChanged complete");
         }
     }
 
@@ -1895,6 +1921,7 @@
     {
         if (_routeContext is null || suggestion.Status != RouteSuggestionStatus.Success)
         {
+            Logger.LogWarning("[MapComponent] ApplySuggestion: clearing selection (status={Status})", suggestion.Status);
             _selectedRouteSegments.Clear();
             _selectedRouteNodeIds.Clear();
 
@@ -1903,7 +1930,9 @@
                 _selectedRouteNodeIds.Add(_routeStartNodeId);
             }
 
+            Logger.LogWarning("[MapComponent] ApplySuggestion: calling NotifyRoutePreviewChangedAsync (fire-and-forget)");
             _ = NotifyRoutePreviewChangedAsync();
+            Logger.LogWarning("[MapComponent] ApplySuggestion: done (NoRoute path)");
 
             return;
         }

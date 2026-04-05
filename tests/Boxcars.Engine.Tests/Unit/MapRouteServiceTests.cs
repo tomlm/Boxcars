@@ -623,6 +623,7 @@ public class MapRouteServiceTests
                 DestinationNodeId = "F",
                 MovementType = PlayerMovementType.TwoDie,
                 MovementCapacity = 2,
+                AverageFutureMovement = 2.0,
                 PlayerColor = "#000000",
                 ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
