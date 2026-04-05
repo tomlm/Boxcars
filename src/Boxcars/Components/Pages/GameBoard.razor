@@ -4447,16 +4447,24 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool ShouldShowDisconnectedControlToggle(int playerIndex, string? slotUserId)
     {
-        return _gameState is not null
-            && !string.IsNullOrWhiteSpace(slotUserId)
-            && playerIndex >= 0
-            && playerIndex < _gameState.Players.Count
-            && _gameState.Players[playerIndex].IsActive
-            && !IsBotUser(slotUserId)
-            && IsCurrentUserInGameRoster()
-            && (IsCurrentUserGameAdmin()
-                || (!IsPlayerConnected(slotUserId)
-                    && !PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId)));
+        if (_gameState is null
+            || string.IsNullOrWhiteSpace(slotUserId)
+            || playerIndex < 0
+            || playerIndex >= _gameState.Players.Count
+            || !_gameState.Players[playerIndex].IsActive
+            || !IsCurrentUserInGameRoster())
+        {
+            return false;
+        }
+
+        if (IsBotUser(slotUserId))
+        {
+            return IsCurrentUserGameAdmin();
+        }
+
+        return IsCurrentUserGameAdmin()
+            || (!IsPlayerConnected(slotUserId)
+                && !PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId));
     }
 
     private bool CanCurrentUserSelectManualControl(int playerIndex, string? slotUserId, SeatControllerState controllerState)
@@ -4511,6 +4519,15 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         if (!ShouldShowDisconnectedControlToggle(playerIndex, slotUserId))
         {
             return [];
+        }
+
+        if (IsBotUser(slotUserId))
+        {
+            return
+            [
+                new PlayerControlOptionModel(DisconnectedSeatControlModes.Manual, "Admin"),
+                new PlayerControlOptionModel(DisconnectedSeatControlModes.AI, "AI")
+            ];
         }
 
         return
