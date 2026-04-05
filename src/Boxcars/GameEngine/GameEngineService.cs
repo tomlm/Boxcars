@@ -2014,7 +2014,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             _ => $"{actorName} performed {action.Kind}"
         };
 
-        return string.Concat(description, BuildActionAttributionSuffix(gameEntity, playerStates, action, snapshotBeforeAction));
+        var suffix = action is MoveAction
+            ? string.Empty
+            : BuildActionAttributionSuffix(gameEntity, playerStates, action, snapshotBeforeAction);
+        return string.Concat(description, suffix);
     }
 
     private string BuildActionAttributionSuffix(
@@ -2188,15 +2191,30 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private static string DescribeMove(string actorName, MoveAction action, RailBaronGameState snapshot)
     {
         var moveAmount = Math.Max(0, action.PointsTaken.Count - 1);
-        var isBonusMove = snapshot.Turn.DiceResult?.WhiteDice is { Length: >= 2 } whiteDice
+        var diceResult = snapshot.Turn.DiceResult;
+        var isBonusMove = diceResult?.WhiteDice is { Length: >= 2 } whiteDice
             && whiteDice.All(value => value == 0)
-            && snapshot.Turn.DiceResult.RedDie.HasValue
-            && snapshot.Turn.MovementAllowance == snapshot.Turn.DiceResult.RedDie.Value;
+            && diceResult.RedDie.HasValue
+            && snapshot.Turn.MovementAllowance == diceResult.RedDie.Value;
         var spaceLabel = moveAmount == 1 ? "space" : "spaces";
 
-        return isBonusMove
-            ? $"{actorName} moved {moveAmount} bonus {spaceLabel}"
-            : $"{actorName} moved {moveAmount} {spaceLabel}";
+        if (isBonusMove)
+        {
+            return $"{actorName} rolled bonus ({diceResult!.RedDie!.Value}) and moved {moveAmount} {spaceLabel}.";
+        }
+
+        if (diceResult?.WhiteDice is { Length: >= 2 } dice)
+        {
+            var diceText = string.Join("+", dice.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+            if (diceResult.RedDie.HasValue)
+            {
+                diceText = string.Concat(diceText, $" (+{diceResult.RedDie.Value})");
+            }
+
+            return $"{actorName} rolled {diceText} and moved {moveAmount} {spaceLabel}.";
+        }
+
+        return $"{actorName} moved {moveAmount} {spaceLabel}.";
     }
 
     private static int? ResolvePlayerIndex(PlayerAction action, RailBaronGameState snapshot)
