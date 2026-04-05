@@ -135,13 +135,27 @@
                 @if (SelectionMode == MapSelectionMode.Route && _selectedRouteSegments.Count > 0)
                 {
                     <g class="game-map-route-suggestion-segments">
-                        @foreach (var overlay in GetSelectedSegmentOverlays())
+                        <style>
+                            @@keyframes route-cascade-pulse {
+                                0% { stroke-opacity: 1.0; }
+                                100% { stroke-opacity: 0.4; }
+                            }
+                        </style>
+                        @{
+                            var segmentOverlays = GetSelectedSegmentOverlays().ToList();
+                            var segmentCount = segmentOverlays.Count;
+                            var slotDuration = 0.5 / segmentCount;
+                        }
+                        @for (var i = 0; i < segmentCount; i++)
                         {
+                            var overlay = segmentOverlays[i];
+                            var delay = i * slotDuration;
                             <line x1="@overlay.X1"
                                   y1="@overlay.Y1"
                                   x2="@overlay.X2"
                                   y2="@overlay.Y2"
                                   stroke="@overlay.BorderColor"
+                                  style="@($"animation: route-cascade-pulse 0.5s ease-out {delay.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}s infinite")"
                                   class="game-map-route-suggestion-segment game-map-route-suggestion-segment-border" />
                             <line x1="@overlay.X1"
                                   y1="@overlay.Y1"

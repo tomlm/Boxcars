@@ -175,14 +175,8 @@
 
 .game-map-route-suggestion-segment-border {
     stroke-width: 2.6;
-    stroke-opacity: 1.0;
+    stroke-opacity: 0.4;
     stroke-linecap: butt;
-    animation: route-border-pulse 1s ease-in-out infinite;
-}
-
-@keyframes route-border-pulse {
-    0%, 100% { stroke-opacity: 1.0; }
-    50% { stroke-opacity: 0.15; }
 }
 
 .game-map-route-suggestion-segment-fill {
