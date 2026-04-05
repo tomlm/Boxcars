@@ -655,7 +655,7 @@
             {
                 await InitializeCameraInteropAsync();
             }
-            catch (JSException)
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or ObjectDisposedException)
             {
                 _cameraUnavailable = true;
                 _cameraInitialized = false;

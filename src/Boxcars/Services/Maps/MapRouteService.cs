@@ -382,6 +382,17 @@ public sealed class MapRouteService
                     continue;
                 }
 
+                // Prevent immediate backtracking: don't traverse a segment that was
+                // used to reach the current state (same physical segment in reverse).
+                if (previous.TryGetValue(state, out var predecessor)
+                    && string.Equals(predecessor.Edge.SegmentKey, edge.SegmentKey, StringComparison.OrdinalIgnoreCase))
+                {
+#if DEBUG
+                    debugStats.ReusedSegmentPrunes++;
+#endif
+                    continue;
+                }
+
                 var ownershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex);
                 var costPerTurn = ResolveRailroadFee(request, edge.RailroadIndex, ownershipCategory);
 
@@ -635,7 +646,9 @@ public sealed class MapRouteService
     {
         var nodeStack = new Stack<string>();
         var segmentStack = new Stack<RouteSuggestionSegment>();
+        var usedSegmentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var currentState = destinationState;
+        var hasSegmentReuse = false;
 
         nodeStack.Push(currentState.NodeId);
 
@@ -667,6 +680,11 @@ public sealed class MapRouteService
                 };
             }
 
+            if (!usedSegmentKeys.Add(previousEntry.Edge.SegmentKey))
+            {
+                hasSegmentReuse = true;
+            }
+
             segmentStack.Push(new RouteSuggestionSegment
             {
                 FromNodeId = previousEntry.Edge.FromNodeId,
@@ -679,6 +697,21 @@ public sealed class MapRouteService
             });
             currentState = previousEntry.PreviousState;
             nodeStack.Push(currentState.NodeId);
+        }
+
+        // If the path reuses a segment (backtracking), reject it — the engine
+        // would not allow traversing the same physical segment twice in a trip.
+        if (hasSegmentReuse)
+        {
+            return new RouteSuggestionResult
+            {
+                Status = RouteSuggestionStatus.NoRoute,
+                Message = "Best route contained segment reuse (backtracking); rejected.",
+                StartNodeId = request.StartNodeId,
+                DestinationNodeId = request.DestinationNodeId,
+                NodeIds = [request.StartNodeId],
+                Segments = []
+            };
         }
 
         return new RouteSuggestionResult
