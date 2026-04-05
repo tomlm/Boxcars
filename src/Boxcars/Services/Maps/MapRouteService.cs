@@ -7,7 +7,7 @@ namespace Boxcars.Services.Maps;
 
 public sealed class MapRouteService
 {
-    public const int RoutePlanningMaximumSuggestedSegments = 40;
+    public const int RoutePlanningMaximumSuggestedSegments = 100;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
     private const int RoutePlanningMaximumExploredStates = 500000;
@@ -410,14 +410,6 @@ public sealed class MapRouteService
                     WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty,
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1);
-
-                if (candidateCost.TotalSegments > RoutePlanningMaximumSuggestedSegments)
-                {
-#if DEBUG
-                    debugStats.SegmentCapPrunes++;
-#endif
-                    continue;
-                }
 
                 if (bestCosts.TryGetValue(nextState, out var existingCost)
                     && !IsBetterCost(candidateCost, existingCost))
