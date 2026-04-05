@@ -1272,36 +1272,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return Task.CompletedTask;
     }
 
-    private static Task PersistSeatStateControlChangeAsync(
-        GameSeatState originalPlayerState,
-        GameSeatState updatedPlayerState,
-        CancellationToken cancellationToken)
-    {
-        _ = originalPlayerState;
-        _ = updatedPlayerState;
-        _ = cancellationToken;
-        return Task.CompletedTask;
-    }
-
-    private static TableEntity BuildSeatStateControlUpdateEntity(
-        GameSeatState persistedPlayerState,
-        GameSeatState updatedPlayerState)
-    {
-        return new TableEntity(persistedPlayerState.PartitionKey, persistedPlayerState.RowKey)
-        {
-            [nameof(GameSeatState.ControllerMode)] = updatedPlayerState.ControllerMode,
-            [nameof(GameSeatState.ControllerUserId)] = updatedPlayerState.ControllerUserId,
-            [nameof(GameSeatState.AuctionPlanTurnNumber)] = updatedPlayerState.AuctionPlanTurnNumber,
-            [nameof(GameSeatState.AuctionPlanRailroadIndex)] = updatedPlayerState.AuctionPlanRailroadIndex,
-            [nameof(GameSeatState.AuctionPlanStartingPrice)] = updatedPlayerState.AuctionPlanStartingPrice,
-            [nameof(GameSeatState.AuctionPlanMaximumBid)] = updatedPlayerState.AuctionPlanMaximumBid,
-            [nameof(GameSeatState.BotControlActivatedUtc)] = updatedPlayerState.BotControlActivatedUtc,
-            [nameof(GameSeatState.BotControlClearedUtc)] = updatedPlayerState.BotControlClearedUtc,
-            [nameof(GameSeatState.BotControlStatus)] = updatedPlayerState.BotControlStatus,
-            [nameof(GameSeatState.BotControlClearReason)] = updatedPlayerState.BotControlClearReason
-        };
-    }
-
     private static void ApplySeatAndControlMetadata(
         RailBaronGameState snapshot,
         GameEntity gameEntity,

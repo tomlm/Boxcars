@@ -498,6 +498,7 @@
     private readonly List<PlayerNodeMarker> _playerDestinationCityMarkers = new();
     private readonly List<PlayerNodeMarker> _playerCurrentLocationMarkers = new();
     private readonly List<PlayerNodeMarker> _playerTraveledSegmentMarkers = new();
+    private readonly HashSet<int> _projectedOwnedRailroadIndices = [];
     private MapRouteContext? _routeContext;
     private RouteSuggestionResult? _routeSuggestion;
     private string? _routeStartNodeId;
@@ -666,6 +667,7 @@
         {
             _mapDefinition = null;
             _renderModel = null;
+            _projectedOwnedRailroadIndices.Clear();
             _errors.Add($"Configured map file '{configuredMapFile}' was not found.");
             return;
         }
@@ -677,6 +679,7 @@
         {
             _mapDefinition = null;
             _renderModel = null;
+            _projectedOwnedRailroadIndices.Clear();
             _errors.AddRange(parseResult.Errors);
             _warnings.AddRange(parseResult.Warnings);
             return;
@@ -687,6 +690,7 @@
 
         var projectionResult = BoardProjectionService.Project(_mapDefinition);
         _renderModel = projectionResult.Model;
+        RebuildProjectedOwnedRailroadIndices();
         _warnings.AddRange(projectionResult.Warnings);
         PopulateRailroadStrokeColors();
 
@@ -1811,9 +1815,27 @@
             return RailroadOwnershipCategory.Friendly;
         }
 
-        var hasOwnedSegment = _renderModel?.RailroadSegments.Any(segment =>
-            segment.RailroadIndex == railroadIndex && segment.IsOwned) == true;
-        return hasOwnedSegment ? RailroadOwnershipCategory.Friendly : RailroadOwnershipCategory.Public;
+        return _projectedOwnedRailroadIndices.Contains(railroadIndex)
+            ? RailroadOwnershipCategory.Friendly
+            : RailroadOwnershipCategory.Public;
+    }
+
+    private void RebuildProjectedOwnedRailroadIndices()
+    {
+        _projectedOwnedRailroadIndices.Clear();
+
+        if (_renderModel is null)
+        {
+            return;
+        }
+
+        foreach (var segment in _renderModel.RailroadSegments)
+        {
+            if (segment.IsOwned)
+            {
+                _projectedOwnedRailroadIndices.Add(segment.RailroadIndex);
+            }
+        }
     }
 
     private int ResolveRailroadFee(int railroadIndex)

@@ -29,6 +29,8 @@ public sealed class RouteSuggestionRequest
     public Func<int, int>? ResolvePlayerCash { get; init; }
     public Func<int, double>? ResolvePlayerAccessibleDestinationPercent { get; init; }
     public Func<int, double>? ResolvePlayerMonopolyDestinationPercent { get; init; }
+    public int MaximumExploredStates { get; init; }
+    public int MaximumSearchMilliseconds { get; init; }
     public bool BonusOutAvailable { get; init; }
     public int CurrentWhiteDiceMovement { get; init; }
     public int CurrentFixedBonusMovement { get; init; }

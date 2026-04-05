@@ -1,6 +1,8 @@
 using Boxcars.Data.Maps;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Services.Maps;
+using System.Globalization;
+using System.Threading;
 
 namespace Boxcars.Engine.Tests.Unit;
 
@@ -89,6 +91,7 @@ public class MapRouteServiceTests
                 MovementType = PlayerMovementType.ThreeDie,
                 MovementCapacity = 10,
                 PlayerColor = "#000000",
+                MaximumSearchMilliseconds = 5000,
                 ResolveRailroadOwnership = rr => rr == 1
                     ? RailroadOwnershipCategory.Friendly
                     : RailroadOwnershipCategory.Public,
@@ -141,6 +144,88 @@ public class MapRouteServiceTests
             });
 
         Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_StopsWhenExplorationBudgetIsExceeded()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2)
+        };
+
+        AddBidirectionalEdge(adjacency, "A", "B", 1);
+        AddBidirectionalEdge(adjacency, "B", "C", 1);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "C",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 2,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public,
+                MaximumExploredStates = 1
+            });
+
+        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Contains("exploration budget", suggestion.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_StopsWhenSearchTimesOut()
+    {
+        var service = new MapRouteService();
+
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2)
+        };
+
+        AddBidirectionalEdge(adjacency, "A", "B", 1);
+        AddBidirectionalEdge(adjacency, "B", "C", 1);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "C",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 2,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = static railroadIndex =>
+                {
+                    Thread.Sleep(25);
+                    return RailroadOwnershipCategory.Public;
+                },
+                MaximumSearchMilliseconds = 1
+            });
+
+        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Contains("timed out", suggestion.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1077,6 +1162,9 @@ public class MapRouteServiceTests
         {
             FromNodeId = fromNodeId,
             ToNodeId = toNodeId,
+            SegmentKey = string.Compare(fromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase) <= 0
+                ? string.Concat(fromNodeId, "-", toNodeId, ":", railroadIndex.ToString(CultureInfo.InvariantCulture))
+                : string.Concat(toNodeId, "-", fromNodeId, ":", railroadIndex.ToString(CultureInfo.InvariantCulture)),
             RailroadIndex = railroadIndex,
             X1 = 0,
             Y1 = 0,

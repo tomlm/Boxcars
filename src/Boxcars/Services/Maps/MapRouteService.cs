@@ -10,6 +10,8 @@ public sealed class MapRouteService
     public const int RoutePlanningMaximumSuggestedSegments = 40;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
+    private const int RoutePlanningMaximumExploredStates = 50000;
+    private const int RoutePlanningMaximumSearchMilliseconds = 150;
 
     public MapRouteContext BuildContext(MapDefinition mapDefinition)
     {
@@ -18,7 +20,6 @@ public sealed class MapRouteService
             dot => dot,
             StringComparer.OrdinalIgnoreCase);
 
-        var edges = new List<RouteGraphEdge>();
         var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var segment in mapDefinition.RailroadRouteSegments)
@@ -33,10 +34,13 @@ public sealed class MapRouteService
                 continue;
             }
 
+            var segmentKey = BuildSegmentKey(fromNodeId, toNodeId, segment.RailroadIndex);
+
             var forward = new RouteGraphEdge
             {
                 FromNodeId = fromNodeId,
                 ToNodeId = toNodeId,
+                SegmentKey = segmentKey,
                 RailroadIndex = segment.RailroadIndex,
                 X1 = fromDot.X,
                 Y1 = fromDot.Y,
@@ -48,15 +52,13 @@ public sealed class MapRouteService
             {
                 FromNodeId = toNodeId,
                 ToNodeId = fromNodeId,
+                SegmentKey = segmentKey,
                 RailroadIndex = segment.RailroadIndex,
                 X1 = toDot.X,
                 Y1 = toDot.Y,
                 X2 = fromDot.X,
                 Y2 = fromDot.Y
             };
-
-            edges.Add(forward);
-            edges.Add(reverse);
 
             AddAdjacency(adjacency, forward);
             AddAdjacency(adjacency, reverse);
@@ -85,14 +87,76 @@ public sealed class MapRouteService
 
     public RouteSuggestionResult FindCheapestSuggestion(MapRouteContext context, RouteSuggestionRequest request)
     {
-        return FindCheapestSuggestionCore(context, request, requireCurrentTurnContinuation: true, emitDebug: true);
+        var cachedRequest = CreateCachedRouteSuggestionRequest(request);
+        var searchBudget = CreateRouteSearchBudget(cachedRequest);
+
+        return FindCheapestSuggestionCore(
+            context,
+            cachedRequest,
+            requireCurrentTurnContinuation: true,
+            emitDebug: true,
+            searchBudget);
+    }
+
+    private static RouteSearchBudget CreateRouteSearchBudget(RouteSuggestionRequest request)
+    {
+        var maximumExploredStates = request.MaximumExploredStates > 0
+            ? request.MaximumExploredStates
+            : RoutePlanningMaximumExploredStates;
+        var maximumSearchMilliseconds = request.MaximumSearchMilliseconds > 0
+            ? request.MaximumSearchMilliseconds
+            : RoutePlanningMaximumSearchMilliseconds;
+
+        return new RouteSearchBudget(maximumExploredStates, TimeSpan.FromMilliseconds(maximumSearchMilliseconds));
+    }
+
+    private static RouteSuggestionRequest CreateCachedRouteSuggestionRequest(RouteSuggestionRequest request)
+    {
+        Dictionary<int, RailroadOwnershipCategory>? ownershipCache = null;
+
+        RailroadOwnershipCategory ResolveRailroadOwnershipCached(int railroadIndex)
+        {
+            ownershipCache ??= [];
+            if (!ownershipCache.TryGetValue(railroadIndex, out var ownershipCategory))
+            {
+                ownershipCategory = request.ResolveRailroadOwnership(railroadIndex);
+                ownershipCache[railroadIndex] = ownershipCategory;
+            }
+
+            return ownershipCategory;
+        }
+
+        return new RouteSuggestionRequest
+        {
+            PlayerId = request.PlayerId,
+            StartNodeId = request.StartNodeId,
+            DestinationNodeId = request.DestinationNodeId,
+            MovementType = request.MovementType,
+            MovementCapacity = request.MovementCapacity,
+            AverageFutureMovement = request.AverageFutureMovement,
+            TraveledSegmentKeys = request.TraveledSegmentKeys,
+            PlayerColor = request.PlayerColor,
+            ResolveRailroadOwnership = ResolveRailroadOwnershipCached,
+            ResolveRailroadFee = request.ResolveRailroadFee,
+            ResolveRailroadOwnerPlayerIndex = request.ResolveRailroadOwnerPlayerIndex,
+            ResolvePlayerCash = request.ResolvePlayerCash,
+            ResolvePlayerAccessibleDestinationPercent = request.ResolvePlayerAccessibleDestinationPercent,
+            ResolvePlayerMonopolyDestinationPercent = request.ResolvePlayerMonopolyDestinationPercent,
+            MaximumExploredStates = request.MaximumExploredStates,
+            MaximumSearchMilliseconds = request.MaximumSearchMilliseconds,
+            BonusOutAvailable = request.BonusOutAvailable,
+            CurrentWhiteDiceMovement = request.CurrentWhiteDiceMovement,
+            CurrentFixedBonusMovement = request.CurrentFixedBonusMovement,
+            BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival
+        };
     }
 
     private RouteSuggestionResult FindCheapestSuggestionCore(
         MapRouteContext context,
         RouteSuggestionRequest request,
         bool requireCurrentTurnContinuation,
-        bool emitDebug)
+        bool emitDebug,
+        RouteSearchBudget searchBudget)
     {
         if (string.IsNullOrWhiteSpace(request.StartNodeId)
             || string.IsNullOrWhiteSpace(request.DestinationNodeId)
@@ -122,20 +186,34 @@ public sealed class MapRouteService
             };
         }
 
-        var traveledSegmentKeys = request.TraveledSegmentKeys
-            .Where(segmentKey => !string.IsNullOrWhiteSpace(segmentKey))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var traveledSegmentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var segmentKey in request.TraveledSegmentKeys)
+        {
+            if (!string.IsNullOrWhiteSpace(segmentKey))
+            {
+                traveledSegmentKeys.Add(segmentKey);
+            }
+        }
         var friendlyDestinationReachableNodes = BuildReachableNodesForRoutePlanning(
             context,
             request.DestinationNodeId,
-            edge => request.ResolveRailroadOwnership(edge.RailroadIndex) != RailroadOwnershipCategory.Unfriendly);
+            edge => request.ResolveRailroadOwnership(edge.RailroadIndex) != RailroadOwnershipCategory.Unfriendly,
+            searchBudget);
+
+        if (searchBudget.IsExceeded)
+        {
+            return CreateBudgetExceededSuggestion(request, searchBudget);
+        }
 
         var futureTurnMovementCapacity = request.MovementType == PlayerMovementType.ThreeDie ? 3 : 2;
         var firstTurnMovementCapacity = request.MovementCapacity > 0
             ? request.MovementCapacity
             : futureTurnMovementCapacity;
 
-        var startState = new RouteSuggestionState(request.StartNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
+        var startState = new RouteSuggestionState(
+            request.StartNodeId,
+            LastRailroadIndex: -1,
+            PointsUsedInCurrentTurn: 0);
         var priorityQueue = new PriorityQueue<RouteSuggestionState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>();
         var bestCosts = new Dictionary<RouteSuggestionState, RouteSuggestionCostKey>();
         var previous = new Dictionary<RouteSuggestionState, RouteSuggestionPrevious>();
@@ -143,6 +221,7 @@ public sealed class MapRouteService
         RouteSuggestionDestinationChoice? bestDestination = null;
 #if DEBUG
         var debugCandidates = new List<RouteSuggestionDestinationChoice>();
+        var debugStats = new RouteSuggestionDebugStats();
 #endif
 
         var startCost = new RouteSuggestionCostKey(
@@ -156,20 +235,45 @@ public sealed class MapRouteService
 
         while (priorityQueue.Count > 0)
         {
+            if (!searchBudget.TryStartState())
+            {
+#if DEBUG
+                ApplyBudgetExceededDebugStats(debugStats, searchBudget);
+#endif
+                return CreateBudgetExceededSuggestion(request, searchBudget);
+            }
+
             var state = priorityQueue.Dequeue();
+
+#if DEBUG
+            debugStats.DequeuedStates++;
+#endif
 
             if (!bestCosts.TryGetValue(state, out var stateCost))
             {
+#if DEBUG
+                debugStats.MissingStateCostSkips++;
+#endif
                 continue;
             }
 
             if (!settledStates.Add(state))
             {
+#if DEBUG
+                debugStats.AlreadySettledSkips++;
+#endif
                 continue;
             }
 
+#if DEBUG
+            debugStats.SettledStates++;
+#endif
+
             if (bestDestination is not null && stateCost.TotalCost > bestDestination.Value.CombinedCost)
             {
+#if DEBUG
+                debugStats.StoppedByBestCostBound = true;
+#endif
                 break;
             }
 
@@ -177,16 +281,9 @@ public sealed class MapRouteService
             {
                 if (stateCost.TotalSegments > RoutePlanningMaximumSuggestedSegments)
                 {
-                    continue;
-                }
-
-                if (PathDefersFriendlyExit(
-                        context,
-                        request,
-                        state,
-                        previous,
-                        friendlyDestinationReachableNodes))
-                {
+#if DEBUG
+                    debugStats.DestinationRejectedBySegmentCap++;
+#endif
                     continue;
                 }
 
@@ -198,12 +295,30 @@ public sealed class MapRouteService
                         state,
                         previous,
                         firstTurnMovementCapacity,
-                        futureTurnMovementCapacity))
+                        futureTurnMovementCapacity,
+                        searchBudget))
                 {
+#if DEBUG
+                    if (searchBudget.IsExceeded)
+                    {
+                        ApplyBudgetExceededDebugStats(debugStats, searchBudget);
+                        return CreateBudgetExceededSuggestion(request, searchBudget);
+                    }
+
+                    debugStats.DestinationRejectedByContinuation++;
+#endif
                     continue;
                 }
 
-                var exitAnalysis = CalculateDestinationExitAnalysis(context, request, state, stateCost);
+                var exitAnalysis = CalculateDestinationExitAnalysis(context, request, state, stateCost, searchBudget);
+                if (searchBudget.IsExceeded)
+                {
+#if DEBUG
+                    ApplyBudgetExceededDebugStats(debugStats, searchBudget);
+#endif
+                    return CreateBudgetExceededSuggestion(request, searchBudget);
+                }
+
                 var lookaheadPenalty = CalculateTwoTurnHostileExposurePenalty(
                     context,
                     request,
@@ -212,7 +327,16 @@ public sealed class MapRouteService
                     previous,
                     friendlyDestinationReachableNodes,
                     firstTurnMovementCapacity,
-                    futureTurnMovementCapacity);
+                    futureTurnMovementCapacity,
+                    searchBudget);
+                if (searchBudget.IsExceeded)
+                {
+#if DEBUG
+                    ApplyBudgetExceededDebugStats(debugStats, searchBudget);
+#endif
+                    return CreateBudgetExceededSuggestion(request, searchBudget);
+                }
+
                 var tieBreakAnalysis = CalculateTieBreakAnalysis(request, startState, state, previous);
                 var destinationChoice = new RouteSuggestionDestinationChoice(state, stateCost, exitAnalysis, tieBreakAnalysis, lookaheadPenalty);
 #if DEBUG
@@ -229,18 +353,30 @@ public sealed class MapRouteService
 
             if (!context.Adjacency.TryGetValue(state.NodeId, out var outgoingEdges))
             {
+#if DEBUG
+                debugStats.StatesWithoutOutgoingEdges++;
+#endif
                 continue;
             }
 
             foreach (var edge in outgoingEdges)
             {
-                if (traveledSegmentKeys.Contains(BuildSegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex)))
+                if (!searchBudget.TryContinue())
                 {
-                    continue;
+#if DEBUG
+                    ApplyBudgetExceededDebugStats(debugStats, searchBudget);
+#endif
+                    return CreateBudgetExceededSuggestion(request, searchBudget);
                 }
 
-                if (PathContainsSegment(previous, state, edge))
+#if DEBUG
+                debugStats.EdgesConsidered++;
+#endif
+                if (traveledSegmentKeys.Contains(edge.SegmentKey))
                 {
+#if DEBUG
+                    debugStats.TraveledSegmentPrunes++;
+#endif
                     continue;
                 }
 
@@ -263,7 +399,10 @@ public sealed class MapRouteService
                 var additionalCost = (startsNewTurn || switchedRailroad) ? costPerTurn : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
 
-                var nextState = new RouteSuggestionState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
+                var nextState = new RouteSuggestionState(
+                    edge.ToNodeId,
+                    edge.RailroadIndex,
+                    nextPointsUsed);
                 var candidateCost = new RouteSuggestionCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty,
@@ -272,12 +411,18 @@ public sealed class MapRouteService
 
                 if (candidateCost.TotalSegments > RoutePlanningMaximumSuggestedSegments)
                 {
+#if DEBUG
+                    debugStats.SegmentCapPrunes++;
+#endif
                     continue;
                 }
 
                 if (bestCosts.TryGetValue(nextState, out var existingCost)
                     && !IsBetterCost(candidateCost, existingCost))
                 {
+#if DEBUG
+                    debugStats.DominatedCostPrunes++;
+#endif
                     continue;
                 }
 
@@ -298,7 +443,7 @@ public sealed class MapRouteService
 #if DEBUG
             if (emitDebug)
             {
-                WriteDebugCandidateTrace(request, startState, bestDestination.Value, debugCandidates, previous);
+                WriteDebugCandidateTrace(request, startState, bestDestination.Value, debugCandidates, previous, debugStats);
             }
 #endif
             return ReconstructSuggestion(
@@ -313,7 +458,21 @@ public sealed class MapRouteService
 #if DEBUG
         if (emitDebug)
         {
-            WriteDebugCandidateTrace(request, startState, bestDestination, debugCandidates, previous);
+            WriteDebugCandidateTrace(request, startState, bestDestination, debugCandidates, previous, debugStats);
+
+            var shortestSelection = FindShortestSelection(context, request.StartNodeId, request.DestinationNodeId);
+            if (shortestSelection is null)
+            {
+                Debug.WriteLine("[MapRouteService] Baseline shortest path: none (destination unreachable even without route-suggestion constraints).");
+            }
+            else
+            {
+                var shortestRailroads = shortestSelection.Segments
+                    .Select(segment => segment.RailroadIndex.ToString(CultureInfo.InvariantCulture))
+                    .ToArray();
+                Debug.WriteLine(
+                    $"[MapRouteService] Baseline shortest path: segments={shortestSelection.Segments.Count}, nodes={string.Join("->", shortestSelection.NodeIds)}, rr={string.Join(",", shortestRailroads)}");
+            }
         }
 #endif
 
@@ -337,7 +496,8 @@ public sealed class MapRouteService
         RouteSuggestionState destinationState,
         Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous,
         int firstTurnMovementCapacity,
-        int futureTurnMovementCapacity)
+        int futureTurnMovementCapacity,
+        RouteSearchBudget searchBudget)
     {
         var orderedEntries = ReconstructPathEntries(startState, destinationState, previous);
         if (orderedEntries.Count == 0)
@@ -351,11 +511,22 @@ public sealed class MapRouteService
             return true;
         }
 
-        var augmentedTraveledSegmentKeys = request.TraveledSegmentKeys
-            .Concat(currentTurnProgress.Value.ConsumedSegmentKeys)
-            .Where(segmentKey => !string.IsNullOrWhiteSpace(segmentKey))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var augmentedTraveledSegmentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var segmentKey in request.TraveledSegmentKeys)
+        {
+            if (!string.IsNullOrWhiteSpace(segmentKey))
+            {
+                augmentedTraveledSegmentKeys.Add(segmentKey);
+            }
+        }
+
+        foreach (var segmentKey in currentTurnProgress.Value.ConsumedSegmentKeys)
+        {
+            if (!string.IsNullOrWhiteSpace(segmentKey))
+            {
+                augmentedTraveledSegmentKeys.Add(segmentKey);
+            }
+        }
 
         var continuation = FindCheapestSuggestionCore(
             context,
@@ -367,7 +538,7 @@ public sealed class MapRouteService
                 MovementType = request.MovementType,
                 MovementCapacity = 0,
                 AverageFutureMovement = request.AverageFutureMovement,
-                TraveledSegmentKeys = augmentedTraveledSegmentKeys,
+                TraveledSegmentKeys = [.. augmentedTraveledSegmentKeys],
                 PlayerColor = request.PlayerColor,
                 ResolveRailroadOwnership = request.ResolveRailroadOwnership,
                 ResolveRailroadFee = request.ResolveRailroadFee,
@@ -375,15 +546,38 @@ public sealed class MapRouteService
                 ResolvePlayerCash = request.ResolvePlayerCash,
                 ResolvePlayerAccessibleDestinationPercent = request.ResolvePlayerAccessibleDestinationPercent,
                 ResolvePlayerMonopolyDestinationPercent = request.ResolvePlayerMonopolyDestinationPercent,
+                MaximumExploredStates = request.MaximumExploredStates,
+                MaximumSearchMilliseconds = request.MaximumSearchMilliseconds,
                 BonusOutAvailable = request.BonusOutAvailable,
                 CurrentWhiteDiceMovement = request.CurrentWhiteDiceMovement,
                 CurrentFixedBonusMovement = request.CurrentFixedBonusMovement,
                 BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival
             },
             requireCurrentTurnContinuation: false,
-            emitDebug: false);
+            emitDebug: false,
+            searchBudget);
 
         return continuation.Status == RouteSuggestionStatus.Success;
+    }
+
+    private static RouteSuggestionResult CreateBudgetExceededSuggestion(RouteSuggestionRequest request, RouteSearchBudget searchBudget)
+    {
+        return new RouteSuggestionResult
+        {
+            Status = RouteSuggestionStatus.NoRoute,
+            Message = searchBudget.StopReason switch
+            {
+                RouteSearchBudgetStopReason.ExplorationBudget => "Route search exceeded the exploration budget before a safe suggestion could be found.",
+                RouteSearchBudgetStopReason.Timeout => "Route search timed out before a safe suggestion could be found.",
+                _ => "Route search stopped before a safe suggestion could be found."
+            },
+            StartNodeId = request.StartNodeId,
+            DestinationNodeId = request.DestinationNodeId,
+            NodeIds = [request.StartNodeId],
+            Segments = [],
+            TotalCost = 0,
+            TotalTurns = 0
+        };
     }
 
     private static RouteSuggestionCurrentTurnProgress? GetCurrentTurnProgress(
@@ -426,7 +620,7 @@ public sealed class MapRouteService
             }
 
             consumedEntryCount++;
-            consumedSegmentKeys.Add(BuildSegmentKey(entry.Edge.FromNodeId, entry.Edge.ToNodeId, entry.Edge.RailroadIndex));
+            consumedSegmentKeys.Add(entry.Edge.SegmentKey);
             lastNodeId = entry.Edge.ToNodeId;
             lastRailroadIndex = entry.Edge.RailroadIndex;
         }
@@ -658,15 +852,16 @@ public sealed class MapRouteService
         MapRouteContext context,
         RouteSuggestionRequest request,
         RouteSuggestionState destinationState,
-        RouteSuggestionCostKey arrivalCost)
+        RouteSuggestionCostKey arrivalCost,
+        RouteSearchBudget searchBudget)
     {
-        var worstCaseExitCost = CalculateDestinationExitCost(context, request, destinationState);
+        var worstCaseExitCost = CalculateDestinationExitCost(context, request, destinationState, searchBudget);
         if (worstCaseExitCost <= 0)
         {
             return new RouteSuggestionExitAnalysis(0d, 0, 0d);
         }
 
-        var bonusOutProbability = CalculateBonusOutProbability(context, request, destinationState, arrivalCost);
+        var bonusOutProbability = CalculateBonusOutProbability(context, request, destinationState, arrivalCost, searchBudget);
         var expectedExitCost = worstCaseExitCost * (1d - bonusOutProbability);
         return new RouteSuggestionExitAnalysis(expectedExitCost, worstCaseExitCost, bonusOutProbability);
     }
@@ -674,7 +869,8 @@ public sealed class MapRouteService
     private static int CalculateDestinationExitCost(
         MapRouteContext context,
         RouteSuggestionRequest request,
-        RouteSuggestionState destinationState)
+        RouteSuggestionState destinationState,
+        RouteSearchBudget searchBudget)
     {
         if (destinationState.LastRailroadIndex < 0
             || request.ResolveRailroadOwnership(destinationState.LastRailroadIndex) != RailroadOwnershipCategory.Unfriendly
@@ -696,6 +892,11 @@ public sealed class MapRouteService
 
         while (queue.Count > 0)
         {
+            if (!searchBudget.TryStartState())
+            {
+                return int.MaxValue / 4;
+            }
+
             var state = queue.Dequeue();
             if (!bestCosts.TryGetValue(state, out var stateCost) || !settledStates.Add(state))
             {
@@ -716,6 +917,11 @@ public sealed class MapRouteService
 
             foreach (var edge in outgoingEdges)
             {
+                if (!searchBudget.TryContinue())
+                {
+                    return int.MaxValue / 4;
+                }
+
                 var ownershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex);
                 var costPerTurn = ResolveRailroadFee(request, edge.RailroadIndex, ownershipCategory);
                 var exhaustedTurnCapacity = state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
@@ -749,7 +955,8 @@ public sealed class MapRouteService
         MapRouteContext context,
         RouteSuggestionRequest request,
         RouteSuggestionState destinationState,
-        RouteSuggestionCostKey arrivalCost)
+        RouteSuggestionCostKey arrivalCost,
+        RouteSearchBudget searchBudget)
     {
         if (arrivalCost.TotalTurns != 1)
         {
@@ -766,7 +973,7 @@ public sealed class MapRouteService
             return 0d;
         }
 
-        var minimumEscapeSegments = CalculateMinimumBonusOutSegments(context, request, destinationState);
+        var minimumEscapeSegments = CalculateMinimumBonusOutSegments(context, request, destinationState, searchBudget);
         if (!minimumEscapeSegments.HasValue)
         {
             return 0d;
@@ -777,14 +984,24 @@ public sealed class MapRouteService
             return request.CurrentFixedBonusMovement >= minimumEscapeSegments.Value ? 1d : 0d;
         }
 
-        var successCount = Enumerable.Range(1, 6).Count(distance => distance >= minimumEscapeSegments.Value);
-        return successCount / 6d;
+        if (minimumEscapeSegments.Value <= 1)
+        {
+            return 1d;
+        }
+
+        if (minimumEscapeSegments.Value > 6)
+        {
+            return 0d;
+        }
+
+        return (7 - minimumEscapeSegments.Value) / 6d;
     }
 
     private static int? CalculateMinimumBonusOutSegments(
         MapRouteContext context,
         RouteSuggestionRequest request,
-        RouteSuggestionState destinationState)
+        RouteSuggestionState destinationState,
+        RouteSearchBudget searchBudget)
     {
         if (destinationState.LastRailroadIndex < 0
             || request.ResolveRailroadOwnership(destinationState.LastRailroadIndex) != RailroadOwnershipCategory.Unfriendly)
@@ -801,6 +1018,11 @@ public sealed class MapRouteService
 
         while (queue.Count > 0)
         {
+            if (!searchBudget.TryStartState())
+            {
+                return null;
+            }
+
             var state = queue.Dequeue();
             if (!context.Adjacency.TryGetValue(state.NodeId, out var outgoingEdges))
             {
@@ -809,6 +1031,11 @@ public sealed class MapRouteService
 
             foreach (var edge in outgoingEdges)
             {
+                if (!searchBudget.TryContinue())
+                {
+                    return null;
+                }
+
                 var nextSegmentsUsed = state.SegmentsUsed + 1;
                 var ownershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex);
                 if (ownershipCategory != RailroadOwnershipCategory.Unfriendly)
@@ -834,9 +1061,21 @@ public sealed class MapRouteService
 
     private static bool IsUnfriendlyDestination(MapRouteContext context, RouteSuggestionRequest request, string nodeId)
     {
-        return context.Adjacency.TryGetValue(nodeId, out var outgoingEdges)
-            && outgoingEdges.Count > 0
-            && outgoingEdges.All(edge => request.ResolveRailroadOwnership(edge.RailroadIndex) == RailroadOwnershipCategory.Unfriendly);
+        if (!context.Adjacency.TryGetValue(nodeId, out var outgoingEdges)
+            || outgoingEdges.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var edge in outgoingEdges)
+        {
+            if (request.ResolveRailroadOwnership(edge.RailroadIndex) != RailroadOwnershipCategory.Unfriendly)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static int ResolveRailroadFee(
@@ -852,34 +1091,11 @@ public sealed class MapRouteService
         return ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 5000 : 1000;
     }
 
-    private static bool PathContainsSegment(
-        Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous,
-        RouteSuggestionState state,
-        RouteGraphEdge edge)
-    {
-        var candidateSegmentKey = BuildSegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex);
-        var currentState = state;
-
-        while (previous.TryGetValue(currentState, out var previousEntry))
-        {
-            if (string.Equals(
-                    candidateSegmentKey,
-                    BuildSegmentKey(previousEntry.Edge.FromNodeId, previousEntry.Edge.ToNodeId, previousEntry.Edge.RailroadIndex),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            currentState = previousEntry.PreviousState;
-        }
-
-        return false;
-    }
-
     private static HashSet<string> BuildReachableNodesForRoutePlanning(
         MapRouteContext context,
         string destinationNodeId,
-        Func<RouteGraphEdge, bool> canTraverse)
+        Func<RouteGraphEdge, bool> canTraverse,
+        RouteSearchBudget searchBudget)
     {
         var reachableNodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(destinationNodeId))
@@ -895,6 +1111,11 @@ public sealed class MapRouteService
 
         while (queue.Count > 0)
         {
+            if (!searchBudget.TryStartState())
+            {
+                return reachableNodes;
+            }
+
             var nodeId = queue.Dequeue();
             if (!context.Adjacency.TryGetValue(nodeId, out var outgoingEdges))
             {
@@ -903,6 +1124,11 @@ public sealed class MapRouteService
 
             foreach (var edge in outgoingEdges)
             {
+                if (!searchBudget.TryContinue())
+                {
+                    return reachableNodes;
+                }
+
                 if (!canTraverse(edge) || !reachableNodes.Add(edge.ToNodeId))
                 {
                     continue;
@@ -927,9 +1153,16 @@ public sealed class MapRouteService
             return 0;
         }
 
-        var hasFriendlyConnectedExit = outgoingEdges.Any(edge =>
-            request.ResolveRailroadOwnership(edge.RailroadIndex) != RailroadOwnershipCategory.Unfriendly
-            && friendlyDestinationReachableNodes.Contains(edge.ToNodeId));
+        var hasFriendlyConnectedExit = false;
+        foreach (var edge in outgoingEdges)
+        {
+            if (request.ResolveRailroadOwnership(edge.RailroadIndex) != RailroadOwnershipCategory.Unfriendly
+                && friendlyDestinationReachableNodes.Contains(edge.ToNodeId))
+            {
+                hasFriendlyConnectedExit = true;
+                break;
+            }
+        }
 
         return hasFriendlyConnectedExit ? RoutePlanningHostileExitPenalty : 0;
     }
@@ -942,7 +1175,8 @@ public sealed class MapRouteService
         Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous,
         HashSet<string> friendlyDestinationReachableNodes,
         int firstTurnMovementCapacity,
-        int futureTurnMovementCapacity)
+        int futureTurnMovementCapacity,
+        RouteSearchBudget searchBudget)
     {
         if (request.AverageFutureMovement <= 0d)
         {
@@ -969,7 +1203,8 @@ public sealed class MapRouteService
             currentTurnEndpoint.Value.NodeId,
             currentTurnEndpoint.Value.RailroadIndex,
             averageNextTurnSegments,
-            friendlyDestinationReachableNodes);
+            friendlyDestinationReachableNodes,
+            searchBudget);
 
         return estimatedEscapeCost;
     }
@@ -1047,7 +1282,8 @@ public sealed class MapRouteService
         string startNodeId,
         int startingRailroadIndex,
         int averageNextTurnSegments,
-        HashSet<string> friendlyDestinationReachableNodes)
+        HashSet<string> friendlyDestinationReachableNodes,
+        RouteSearchBudget searchBudget)
     {
         var startState = new RouteSearchLookaheadState(startNodeId, startingRailroadIndex, 0);
         var queue = new PriorityQueue<RouteSearchLookaheadState, (int TotalCost, int SegmentsUsed)>();
@@ -1060,6 +1296,11 @@ public sealed class MapRouteService
 
         while (queue.Count > 0)
         {
+            if (!searchBudget.TryStartState())
+            {
+                return ResolveRailroadFee(request, startingRailroadIndex, RailroadOwnershipCategory.Unfriendly) + RoutePlanningHostileExitPenalty;
+            }
+
             var state = queue.Dequeue();
             if (!bestCosts.TryGetValue(state, out var stateCost))
             {
@@ -1073,6 +1314,11 @@ public sealed class MapRouteService
 
             foreach (var edge in outgoingEdges)
             {
+                if (!searchBudget.TryContinue())
+                {
+                    return ResolveRailroadFee(request, startingRailroadIndex, RailroadOwnershipCategory.Unfriendly) + RoutePlanningHostileExitPenalty;
+                }
+
                 var nextSegmentsUsed = state.SegmentsUsed + 1;
                 if (nextSegmentsUsed > averageNextTurnSegments)
                 {
@@ -1109,31 +1355,7 @@ public sealed class MapRouteService
         return ResolveRailroadFee(request, startingRailroadIndex, RailroadOwnershipCategory.Unfriendly) + RoutePlanningHostileExitPenalty;
     }
 
-    private static bool PathDefersFriendlyExit(
-        MapRouteContext context,
-        RouteSuggestionRequest request,
-        RouteSuggestionState destinationState,
-        Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous,
-        HashSet<string> friendlyDestinationReachableNodes)
-    {
-        var currentState = destinationState;
 
-        while (previous.TryGetValue(currentState, out var previousEntry))
-        {
-            if (previousEntry.OwnershipCategory == RailroadOwnershipCategory.Unfriendly
-                && context.Adjacency.TryGetValue(previousEntry.PreviousState.NodeId, out var outgoingEdges)
-                && outgoingEdges.Any(edge =>
-                    request.ResolveRailroadOwnership(edge.RailroadIndex) != RailroadOwnershipCategory.Unfriendly
-                    && friendlyDestinationReachableNodes.Contains(edge.ToNodeId)))
-            {
-                return true;
-            }
-
-            currentState = previousEntry.PreviousState;
-        }
-
-        return false;
-    }
 
     private static bool IsBetterCost(RouteSuggestionCostKey candidate, RouteSuggestionCostKey current)
     {
@@ -1161,7 +1383,8 @@ public sealed class MapRouteService
         RouteSuggestionState startState,
         RouteSuggestionDestinationChoice? bestDestination,
         List<RouteSuggestionDestinationChoice> candidates,
-        Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous)
+        Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous,
+        RouteSuggestionDebugStats debugStats)
     {
         var rankedCandidates = candidates
             .Distinct()
@@ -1170,6 +1393,12 @@ public sealed class MapRouteService
 
         Debug.WriteLine($"[MapRouteService] Route suggestion debug {request.StartNodeId} -> {request.DestinationNodeId}");
         Debug.WriteLine($"[MapRouteService] Candidates evaluated: {rankedCandidates.Count}");
+        Debug.WriteLine(
+            $"[MapRouteService] Search stats: dequeued={debugStats.DequeuedStates}, settled={debugStats.SettledStates}, edges={debugStats.EdgesConsidered}, missingCost={debugStats.MissingStateCostSkips}, alreadySettled={debugStats.AlreadySettledSkips}, noOutgoing={debugStats.StatesWithoutOutgoingEdges}");
+        Debug.WriteLine(
+            $"[MapRouteService] Pruning stats: traveled={debugStats.TraveledSegmentPrunes}, reused={debugStats.ReusedSegmentPrunes}, segmentCap={debugStats.SegmentCapPrunes}, dominated={debugStats.DominatedCostPrunes}, destSegmentCap={debugStats.DestinationRejectedBySegmentCap}, friendlyExit={debugStats.DestinationRejectedByFriendlyExit}, continuation={debugStats.DestinationRejectedByContinuation}, stoppedByBestCost={debugStats.StoppedByBestCostBound}");
+        Debug.WriteLine(
+            $"[MapRouteService] Budget stats: explored={debugStats.ExploredStates}, timeout={debugStats.StoppedByTimeout}, explorationBudget={debugStats.StoppedByExplorationBudget}");
 
         if (bestDestination.HasValue)
         {
@@ -1213,6 +1442,50 @@ public sealed class MapRouteService
             $"lookahead={candidate.LookaheadPenalty:F2}",
             $"turns={candidate.ArrivalCost.TotalTurns}",
             $"segments={candidate.ArrivalCost.TotalSegments}");
+    }
+
+    private static void ApplyBudgetExceededDebugStats(RouteSuggestionDebugStats debugStats, RouteSearchBudget searchBudget)
+    {
+        debugStats.ExploredStates = searchBudget.ExploredStates;
+        debugStats.StoppedByTimeout = searchBudget.StopReason == RouteSearchBudgetStopReason.Timeout;
+        debugStats.StoppedByExplorationBudget = searchBudget.StopReason == RouteSearchBudgetStopReason.ExplorationBudget;
+    }
+
+    private sealed class RouteSuggestionDebugStats
+    {
+        public int ExploredStates { get; set; }
+
+        public int DequeuedStates { get; set; }
+
+        public int SettledStates { get; set; }
+
+        public int EdgesConsidered { get; set; }
+
+        public int MissingStateCostSkips { get; set; }
+
+        public int AlreadySettledSkips { get; set; }
+
+        public int StatesWithoutOutgoingEdges { get; set; }
+
+        public int TraveledSegmentPrunes { get; set; }
+
+        public int ReusedSegmentPrunes { get; set; }
+
+        public int SegmentCapPrunes { get; set; }
+
+        public int DominatedCostPrunes { get; set; }
+
+        public int DestinationRejectedBySegmentCap { get; set; }
+
+        public int DestinationRejectedByFriendlyExit { get; set; }
+
+        public int DestinationRejectedByContinuation { get; set; }
+
+        public bool StoppedByBestCostBound { get; set; }
+
+        public bool StoppedByTimeout { get; set; }
+
+        public bool StoppedByExplorationBudget { get; set; }
     }
 #endif
 
@@ -1645,6 +1918,64 @@ public readonly record struct RouteSuggestionCurrentTurnProgress(
 
 public readonly record struct RouteSearchLookaheadState(string NodeId, int LastRailroadIndex, int SegmentsUsed);
 
+public enum RouteSearchBudgetStopReason
+{
+    ExplorationBudget,
+    Timeout
+}
+
+public sealed class RouteSearchBudget
+{
+    private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+    private readonly int _maximumExploredStates;
+    private readonly TimeSpan _maximumSearchDuration;
+
+    public RouteSearchBudget(int maximumExploredStates, TimeSpan maximumSearchDuration)
+    {
+        _maximumExploredStates = maximumExploredStates;
+        _maximumSearchDuration = maximumSearchDuration;
+    }
+
+    public int ExploredStates { get; private set; }
+
+    public RouteSearchBudgetStopReason? StopReason { get; private set; }
+
+    public bool IsExceeded => StopReason.HasValue;
+
+    public bool TryStartState()
+    {
+        if (!TryContinue())
+        {
+            return false;
+        }
+
+        ExploredStates++;
+        if (ExploredStates > _maximumExploredStates)
+        {
+            StopReason = RouteSearchBudgetStopReason.ExplorationBudget;
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool TryContinue()
+    {
+        if (StopReason.HasValue)
+        {
+            return false;
+        }
+
+        if (_stopwatch.Elapsed >= _maximumSearchDuration)
+        {
+            StopReason = RouteSearchBudgetStopReason.Timeout;
+            return false;
+        }
+
+        return true;
+    }
+}
+
 public sealed class MapRouteContext
 {
     public required IReadOnlyDictionary<string, List<RouteGraphEdge>> Adjacency { get; init; }
@@ -1655,12 +1986,14 @@ public sealed class RouteGraphEdge
 {
     public required string FromNodeId { get; init; }
     public required string ToNodeId { get; init; }
+    public required string SegmentKey { get; init; }
     public required int RailroadIndex { get; init; }
     public required double X1 { get; init; }
     public required double Y1 { get; init; }
     public required double X2 { get; init; }
     public required double Y2 { get; init; }
 }
+
 
 public sealed class RouteSelection
 {

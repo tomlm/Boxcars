@@ -14,6 +14,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.Logging
 @using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.JSInterop
 @using MudBlazor
@@ -40,6 +41,7 @@
 @inject GameBoardAdviceService GameBoardAdviceService
 @inject GameSettingsResolver GameSettingsResolver
 @inject MapRouteService RouteService
+@inject ILogger<GameBoard> Logger
 
 <PageTitle>Game - BoxCars</PageTitle>
 
@@ -500,6 +502,7 @@ else
     private DotNetObjectReference<GameBoard>? _presenceHeartbeatReference;
     private HubConnection? _gameHubConnection;
     private long _latestSharedStateChangeVersion;
+    private long _debugRenderSequence;
 
     [Parameter]
     public string GameId { get; set; } = string.Empty;
@@ -551,6 +554,9 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        var renderSequence = Interlocked.Increment(ref _debugRenderSequence);
+        LogBoardDebug($"OnAfterRenderAsync start #{renderSequence} firstRender={firstRender}");
+
         if (string.IsNullOrWhiteSpace(GameId))
         {
             return;
@@ -573,6 +579,8 @@ else
         {
             await EnsureRecentHistoryLoadedAsync();
         }
+
+        LogBoardDebug($"OnAfterRenderAsync complete #{renderSequence}");
     }
 
     private async Task EndGameAsync()
@@ -810,6 +818,7 @@ else
 
     private async Task OnPurchaseTabSelected(PurchaseExperienceTab tab)
     {
+        LogBoardDebug($"OnPurchaseTabSelected -> {tab}");
         _selectedPurchaseTab = tab;
 
         if (tab == PurchaseExperienceTab.History)
@@ -1285,6 +1294,7 @@ else
     private async Task OnGameMapReadyAsync()
     {
         _lastAutoSuggestKey = null;
+        LogBoardDebug("Map reported ready");
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1317,6 +1327,8 @@ else
             return;
         }
 
+        LogBoardDebug("EnsureGameHubConnectionAsync creating connection");
+
         _gameHubConnection = new HubConnectionBuilder()
             .WithUrl(Navigation.ToAbsoluteUri("/hubs/game"))
             .WithAutomaticReconnect()
@@ -1324,17 +1336,25 @@ else
 
         _gameHubConnection.On<GameStateUpdate>(GameHubEvents.StateUpdated, async update =>
         {
+            Logger.LogDebug(
+                "[GameBoard:{GameId}] SignalR StateUpdated received replaceTimeline={ReplaceTimeline} phase={TurnPhase} activeIndex={ActivePlayerIndex}",
+                GameId,
+                update.ReplaceTimeline,
+                update.State.Turn.Phase,
+                update.State.ActivePlayerIndex);
             await SharedGameEngine.SynchronizeStateAsync(GameId, update.State, CancellationToken.None);
             OnSharedGameStateChanged(GameId, update);
         });
 
         _gameHubConnection.On(GameHubEvents.PresenceUpdated, () =>
         {
+            LogBoardDebug("SignalR PresenceUpdated received");
             OnPresenceChanged(new GamePresenceChange(GameId));
         });
 
         _gameHubConnection.Reconnected += async _ =>
         {
+            LogBoardDebug("SignalR reconnected");
             await JoinGameHubGroupAsync();
             await LoadGameStateAsync();
             await InvokeAsync(StateHasChanged);
@@ -1343,10 +1363,12 @@ else
         try
         {
             await _gameHubConnection.StartAsync();
+            LogBoardDebug("SignalR connection started");
             await JoinGameHubGroupAsync();
         }
         catch
         {
+            Logger.LogWarning("[GameBoard:{GameId}] EnsureGameHubConnectionAsync failed to start SignalR connection.", GameId);
             // Without the game hub connection, same-instance updates still work; cross-instance sync will not.
         }
     }
@@ -1360,6 +1382,7 @@ else
             return;
         }
 
+        LogBoardDebug("Joining SignalR game group");
         await _gameHubConnection.InvokeAsync(GameHubEvents.JoinGame, GameId);
     }
 
@@ -1371,6 +1394,12 @@ else
         }
 
         var state = update.State;
+        Logger.LogDebug(
+            "[GameBoard:{GameId}] OnSharedGameStateChanged queued replaceTimeline={ReplaceTimeline} phase={TurnPhase} activeIndex={ActivePlayerIndex}",
+            gameId,
+            update.ReplaceTimeline,
+            state.Turn.Phase,
+            state.ActivePlayerIndex);
 
         var stateChangeVersion = Interlocked.Increment(ref _latestSharedStateChangeVersion);
 
@@ -1393,6 +1422,7 @@ else
             }
 
             ApplyGameState(state);
+            LogBoardDebug($"OnSharedGameStateChanged applied version={stateChangeVersion}");
 
             if (_autoZoomEnabled
                 && _gameMap is not null
@@ -1432,6 +1462,11 @@ else
         _ = InvokeAsync(() =>
         {
             _awaitingAuthoritativeUpdate = false;
+            Logger.LogWarning(
+                "[GameBoard:{GameId}] OnSharedGameActionFailed kind={ActionKind} message={Message}",
+                gameId,
+                failure.ActionKind,
+                failure.Message);
             if (!ShouldSuppressStaleActionFailure(failure.Message))
             {
                 ShowNotification(failure.Message, Severity.Error);
@@ -1444,12 +1479,17 @@ else
     private void MarkAuthoritativeUpdatePending()
     {
         _awaitingAuthoritativeUpdate = true;
+        LogBoardDebug("MarkAuthoritativeUpdatePending");
         StateHasChanged();
     }
 
     private void HandleActionDispatchFailure(Exception exception)
     {
         _awaitingAuthoritativeUpdate = false;
+        Logger.LogWarning(
+            exception,
+            "[GameBoard:{GameId}] HandleActionDispatchFailure awaiting reset",
+            GameId);
 
         var message = string.IsNullOrWhiteSpace(exception.Message)
             ? "Unable to submit that action right now."
@@ -1464,6 +1504,16 @@ else
         const int maxAttempts = 20;
         const int retryDelayMilliseconds = 75;
 
+        Logger.LogDebug(
+            "[GameBoard:{GameId}] EnqueueBoardActionAsync start kind={ActionKind} playerId={PlayerId} playerIndex={PlayerIndex} actorUserId={ActorUserId} awaiting={Awaiting} markedPending={ActionAlreadyMarkedPending}",
+            GameId,
+            action.Kind,
+            action.PlayerId,
+            action.PlayerIndex,
+            action.ActorUserId,
+            _awaitingAuthoritativeUpdate,
+            actionAlreadyMarkedPending);
+
         if (!actionAlreadyMarkedPending)
         {
             MarkAuthoritativeUpdatePending();
@@ -1474,10 +1524,20 @@ else
             try
             {
                 await SharedGameEngine.EnqueueActionAsync(GameId, action, CancellationToken.None);
+                Logger.LogDebug(
+                    "[GameBoard:{GameId}] EnqueueBoardActionAsync success kind={ActionKind} attempt={Attempt}",
+                    GameId,
+                    action.Kind,
+                    attempt + 1);
                 return;
             }
             catch (InvalidOperationException exception) when (IsGameBusyDispatchFailure(exception) && attempt < maxAttempts - 1)
             {
+                Logger.LogDebug(
+                    "[GameBoard:{GameId}] EnqueueBoardActionAsync busy retry kind={ActionKind} attempt={Attempt}",
+                    GameId,
+                    action.Kind,
+                    attempt + 1);
                 await Task.Delay(retryDelayMilliseconds);
             }
             catch (Exception exception)
@@ -1637,6 +1697,8 @@ else
         _playerUserIdsByIndex = resolvedUserIdsByIndex
             .Select((resolvedUserId, index) => new KeyValuePair<int, string?>(index, resolvedUserId))
             .ToDictionary(pair => pair.Key, pair => pair.Value);
+
+        LogActivePlayerControlState("ApplyGameState", state, resolvedUserIdsByIndex);
 
         _selectionMode = ResolveSelectionMode(_turnViewState, CanInspectRailroadsWhileWaiting);
         _auctionBidAmount = CurrentAuctionState?.MinimumBid ?? 0;
@@ -2211,9 +2273,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentRouteFees => _turnViewState.PreviewFee;
 
-    private int CurrentTurnMovementAllowance => Math.Max(0, _gameState?.Turn.MovementAllowance ?? 0);
+    private int CurrentTurnMovementAllowance => Math.Max(0, _turnViewState.MovementAllowance);
 
-    private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
+    private int CurrentTurnMovementRemaining => Math.Max(0, _turnViewState.MovementRemaining);
 
     private int CurrentSuggestionPublicFee => _game is null
         ? Boxcars.Engine.Persistence.GameSettings.Default.PublicFee
@@ -3354,8 +3416,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             _gameState.Turn.MovementAllowance.ToString(CultureInfo.InvariantCulture),
             activePlayer.DestinationCityName);
 
-        var hasCurrentSuggestion = _gameMap.RouteSuggestion?.Status == RouteSuggestionStatus.Success;
-        if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal) && hasCurrentSuggestion)
+        if (string.Equals(_lastAutoSuggestKey, autoSuggestKey, StringComparison.Ordinal))
         {
             return;
         }
@@ -4417,6 +4478,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
+        LogBoardDebug("ResolvePurchasePhaseAsync auto-resolving purchase phase");
+
         var purchaseResolutionKey = string.Join(
             ':',
             _gameState.TurnNumber.ToString(CultureInfo.InvariantCulture),
@@ -4515,6 +4578,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
             if (IsGameBusy)
             {
+            LogBoardDebug("ResolveDrawDestinationPhaseAsync saw busy game");
                 await Task.Delay(75);
                 await InvokeAsync(StateHasChanged);
                 return;
@@ -4544,6 +4608,55 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         {
             _resolvingDrawDestinationPhase = false;
         }
+    }
+
+    private void LogBoardDebug(string message)
+    {
+        Logger.LogDebug(
+            "[GameBoard:{GameId}] {Message} | user={UserId} awaiting={Awaiting} phase={TurnPhase} activeIndex={ActivePlayerIndex} activeName={ActivePlayerName} selection={SelectionMode} tab={SelectedTab}",
+            GameId,
+            message,
+            _currentUserId ?? string.Empty,
+            _awaitingAuthoritativeUpdate,
+            _turnViewState.TurnPhase,
+            _gameState?.ActivePlayerIndex ?? -1,
+            _turnViewState.ActivePlayerName,
+            _selectionMode,
+            _selectedPurchaseTab);
+    }
+
+    private void LogActivePlayerControlState(string context, RailBaronGameState state, IReadOnlyList<string> resolvedUserIdsByIndex)
+    {
+        if (state.ActivePlayerIndex < 0 || state.ActivePlayerIndex >= state.Players.Count)
+        {
+            Logger.LogDebug("[GameBoard:{GameId}] {Context} active player unavailable", GameId, context);
+            return;
+        }
+
+        var activeSlotUserId = state.ActivePlayerIndex < resolvedUserIdsByIndex.Count
+            ? resolvedUserIdsByIndex[state.ActivePlayerIndex]
+            : null;
+        var delegatedControllerUserId = ResolveControllerUserId(activeSlotUserId);
+        var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(activeSlotUserId, _currentUserId);
+        var isDelegatedController = PlayerControlRules.IsDelegatedController(delegatedControllerUserId, _currentUserId);
+        var hasActiveBotAssignment = PlayerHasActiveBotAssignment(activeSlotUserId);
+        var canControl = (isDirectlyBound || isDelegatedController)
+            && !(isDelegatedController && hasActiveBotAssignment);
+
+        Logger.LogDebug(
+            "[GameBoard:{GameId}] {Context} active control player={PlayerName} slotUser={SlotUserId} controllerUser={ControllerUserId} direct={IsDirectlyBound} delegated={IsDelegatedController} botAssigned={HasActiveBotAssignment} canControl={CanControl} move={MovementRemaining}/{MovementAllowance} phase={TurnPhase}",
+            GameId,
+            context,
+            state.Players[state.ActivePlayerIndex].Name,
+            activeSlotUserId,
+            delegatedControllerUserId,
+            isDirectlyBound,
+            isDelegatedController,
+            hasActiveBotAssignment,
+            canControl,
+            state.Turn.MovementRemaining,
+            state.Turn.MovementAllowance,
+            state.Turn.Phase);
     }
 
     private void ClearPendingDrawDestinationDecision()
