@@ -2728,13 +2728,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     indices.Add(idx);
             }
 
-            if (string.Equals(_turnViewState.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase)
-                && _gameState is not null)
-            {
-                foreach (var idx in _gameState.Players[_gameState.ActivePlayerIndex].OwnedRailroadIndices)
-                    indices.Add(idx);
-            }
-
             if (CurrentAuctionState is not null && _gameState is not null)
             {
                 foreach (var idx in _gameState.Players[_gameState.ActivePlayerIndex].OwnedRailroadIndices)
