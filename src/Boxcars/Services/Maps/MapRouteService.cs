@@ -221,6 +221,7 @@ public sealed class MapRouteService
         var previous = new Dictionary<RouteSuggestionState, RouteSuggestionPrevious>();
         var settledStates = new HashSet<RouteSuggestionState>();
         RouteSuggestionDestinationChoice? bestDestination = null;
+        var rankedDestinations = new List<RouteSuggestionDestinationChoice>();
 #if DEBUG
         var debugCandidates = new List<RouteSuggestionDestinationChoice>();
         var debugStats = new RouteSuggestionDebugStats();
@@ -350,6 +351,9 @@ public sealed class MapRouteService
                     bestDestination = destinationChoice;
                 }
 
+                // Track all candidates so we can fall back if the best has segment reuse
+                rankedDestinations.Add(destinationChoice);
+
                 continue;
             }
 
@@ -443,21 +447,34 @@ public sealed class MapRouteService
             }
         }
 
-        if (bestDestination is not null)
+        if (rankedDestinations.Count > 0)
         {
+            // Sort candidates by quality (best first) and try reconstruction
+            // on each until we find one without segment reuse (backtracking).
+            rankedDestinations.Sort((a, b) => IsBetterDestination(a, b) ? -1 : IsBetterDestination(b, a) ? 1 : 0);
+
 #if DEBUG
             if (emitDebug)
             {
-                WriteDebugCandidateTrace(request, startState, bestDestination.Value, debugCandidates, previous, debugStats);
+                WriteDebugCandidateTrace(request, startState, bestDestination, debugCandidates, previous, debugStats);
             }
 #endif
-            return ReconstructSuggestion(
-                request,
-                startState,
-                bestDestination.Value.DestinationState,
-                bestDestination.Value.ArrivalCost,
-                bestDestination.Value.ExitAnalysis,
-                previous);
+
+            foreach (var candidate in rankedDestinations)
+            {
+                var result = ReconstructSuggestion(
+                    request,
+                    startState,
+                    candidate.DestinationState,
+                    candidate.ArrivalCost,
+                    candidate.ExitAnalysis,
+                    previous);
+
+                if (result.Status == RouteSuggestionStatus.Success)
+                {
+                    return result;
+                }
+            }
         }
 
 #if DEBUG
