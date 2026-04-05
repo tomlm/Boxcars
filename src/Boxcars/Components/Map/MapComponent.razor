@@ -2581,8 +2581,14 @@
 
     private void ApplyPendingRestoredRouteSelection()
     {
-        if (_routeContext is null || _pendingRestoredRouteNodeIds.Count == 0)
+        if (_pendingRestoredRouteNodeIds.Count == 0)
         {
+            return;
+        }
+
+        if (_routeContext is null)
+        {
+            // Keep pending data — it will be applied once the route context is ready.
             return;
         }
 

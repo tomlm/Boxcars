@@ -1531,6 +1531,10 @@ else
             if (!wasAuthenticatedUserActivePlayer && IsAuthenticatedUserActivePlayer)
             {
                 _lastAutoSuggestKey = null;
+            }
+
+            if (IsCurrentUserActivePlayer)
+            {
                 SyncRouteSelectionToActivePlayer();
             }
 
@@ -2270,7 +2274,7 @@ StringComparison.OrdinalIgnoreCase));
         {
             if (!string.Equals(_gameMap.RouteStartNodeId, startNodeId, StringComparison.OrdinalIgnoreCase))
             {
-                _gameMap.SetStartCity(startNodeId);
+                _gameMap.SetStartCity(startNodeId, quiet: true);
             }
         }
         else
@@ -2284,7 +2288,7 @@ StringComparison.OrdinalIgnoreCase));
                 startNodeId = startCity.NodeId;
                 if (!string.Equals(_gameMap.RouteStartNodeId, startCity.NodeId, StringComparison.OrdinalIgnoreCase))
                 {
-                    _gameMap.SetStartCity(startCity.NodeId);
+                    _gameMap.SetStartCity(startCity.NodeId, quiet: true);
                 }
             }
         }
