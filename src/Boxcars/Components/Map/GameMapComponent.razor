@@ -298,6 +298,16 @@
 		await _mapComponent.FocusRouteAsync(nodeIds);
 	}
 
+	public async Task LocatePlayerAsync(int playerIndex)
+	{
+		if (_mapComponent is null)
+		{
+			return;
+		}
+
+		await _mapComponent.LocatePlayerAsync(playerIndex);
+	}
+
 	private async Task OnZoomPercentChangedAsync(double zoomPercent)
 	{
 		_zoomPercent = zoomPercent;

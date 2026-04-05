@@ -225,6 +225,34 @@
     filter: drop-shadow(0 0 .2px black);
 }
 
+.game-map-player-current-location-located {
+    animation: game-map-player-locate-pulse 0.6s ease-in-out 5;
+    pointer-events: none;
+}
+
+@keyframes game-map-player-locate-pulse {
+    0% {
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(2);
+        opacity: 1;
+    }
+
+    100% {
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
 .game-map-current-route-endpoint {
     stroke-width: 0.3;
     animation: game-map-player-current-location-pulse 1.15s ease-in-out infinite;

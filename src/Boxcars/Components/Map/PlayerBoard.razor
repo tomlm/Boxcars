@@ -62,6 +62,13 @@
                                                        OnClick="@(() => OnToggleNetworkHighlight.InvokeAsync(HighlightedPlayerIndex == player.Index ? null : player.Index))" />
                                     </MudTooltip>
                                 }
+                                <MudTooltip Text="Locate on map">
+                                    <MudIconButton Icon="@Icons.Material.Filled.LocationOn"
+                                                   Size="Size.Small"
+                                                   Color="MudBlazor.Color.Default"
+                                                   Style="padding: 2px; min-width: 0; min-height: 0"
+                                                   OnClick="@(() => OnLocatePlayer.InvokeAsync(player.Index))" />
+                                </MudTooltip>
                             </div>
                             <MudStack Class="d-inline-flex flex-shrink-0" Style="position: relative" Spacing="0">
                                 @if (player.IsWinner)
@@ -194,6 +201,9 @@
 
     [Parameter]
     public EventCallback<int?> OnToggleNetworkHighlight { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnLocatePlayer { get; set; }
 
     private static string GetInitial(string name)
     {

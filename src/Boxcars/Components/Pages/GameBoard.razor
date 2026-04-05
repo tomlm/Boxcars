@@ -113,6 +113,7 @@ else
                      OnFocusPlayer="OnFocusPlayerAsync"
                      HighlightedPlayerIndex="@_highlightedNetworkPlayerIndex"
                      OnToggleNetworkHighlight="OnToggleNetworkHighlight"
+                     OnLocatePlayer="OnLocatePlayerAsync"
                      />
         </MudStack>
     </MudPaper>
@@ -2081,6 +2082,17 @@ destinationPayoutIndex)
         }
 
         await _gameMap.FocusRouteAsync([focusNodeId]);
+    }
+
+    private async Task OnLocatePlayerAsync(int playerIndex)
+    {
+        if (_gameMap is null)
+        {
+            return;
+        }
+
+        await OnFocusPlayerAsync(playerIndex);
+        await _gameMap.LocatePlayerAsync(playerIndex);
     }
 
     private async Task<IReadOnlyList<EventTimelineItem>> LoadTimelineEventsAsync(bool waitForNewItems)

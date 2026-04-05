@@ -527,6 +527,8 @@
     private readonly List<PlayerNodeMarker> _playerDestinationCityMarkers = new();
     private readonly List<PlayerNodeMarker> _playerCurrentLocationMarkers = new();
     private readonly List<PlayerNodeMarker> _playerTraveledSegmentMarkers = new();
+    private int? _locatedPlayerIndex;
+    private CancellationTokenSource? _locateCts;
     private readonly HashSet<int> _projectedOwnedRailroadIndices = [];
     private MapRouteContext? _routeContext;
     private RouteSuggestionResult? _routeSuggestion;
@@ -883,6 +885,29 @@
 
         _viewport = BoardViewportService.FitToPoints(_mapDefinition, focusPoints, effectiveAspectRatio, maxZoomPercent);
         await NotifyViewportChanged();
+        StateHasChanged();
+    }
+
+    public async Task LocatePlayerAsync(int playerIndex)
+    {
+        _locateCts?.Cancel();
+        _locateCts?.Dispose();
+        _locateCts = new CancellationTokenSource();
+        var token = _locateCts.Token;
+
+        _locatedPlayerIndex = playerIndex;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(3000, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        _locatedPlayerIndex = null;
         StateHasChanged();
     }
 
@@ -2173,7 +2198,7 @@
             if (!string.IsNullOrWhiteSpace(currentNodeId)
                 && _routeContext.DotLookup.TryGetValue(currentNodeId, out var currentDot))
             {
-                _playerCurrentLocationMarkers.Add(new PlayerNodeMarker(currentDot.X, currentDot.Y, color, playerState.IsActiveTurn));
+                _playerCurrentLocationMarkers.Add(new PlayerNodeMarker(currentDot.X, currentDot.Y, color, playerState.IsActiveTurn, playerIndex));
             }
 
             foreach (var segmentKey in playerState.TraveledSegmentKeys)
@@ -2782,11 +2807,18 @@
             : "game-map-route-suggestion-segment game-map-route-suggestion-segment-future";
     }
 
-    private static string GetPlayerCurrentLocationClass(PlayerNodeMarker marker)
+    private string GetPlayerCurrentLocationClass(PlayerNodeMarker marker)
     {
-        return marker.IsHighlighted
+        var cls = marker.IsHighlighted
             ? "game-map-player-current-location game-map-player-current-location-active"
             : "game-map-player-current-location";
+
+        if (_locatedPlayerIndex == marker.PlayerIndex)
+        {
+            cls += " game-map-player-current-location-located";
+        }
+
+        return cls;
     }
 
     private string GetCityFillColor(string cityName)
@@ -2989,10 +3021,12 @@
             }
         }
 
+        _locateCts?.Cancel();
+        _locateCts?.Dispose();
         _mapBoardReference?.Dispose();
     }
 
     public readonly record struct RouteRailMenuOption(int RailroadIndex, string DisplayName);
     public readonly record struct RouteCityOption(string CityName, string NodeId);
-    private readonly record struct PlayerNodeMarker(double X, double Y, string Color, bool IsHighlighted = false);
+    private readonly record struct PlayerNodeMarker(double X, double Y, string Color, bool IsHighlighted = false, int PlayerIndex = -1);
 }
