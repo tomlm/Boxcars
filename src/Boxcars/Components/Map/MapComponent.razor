@@ -479,6 +479,12 @@
     public bool BonusOutRequiresWhiteDiceArrival { get; set; }
 
     [Parameter]
+    public IReadOnlyList<string> DeclaredPlayerRouteNodeIds { get; set; } = [];
+
+    [Parameter]
+    public string? DeclaredPlayerCurrentNodeId { get; set; }
+
+    [Parameter]
     public IReadOnlyDictionary<int, int?>? RailroadOwnerPlayerIndices { get; set; }
 
     [Parameter]
@@ -1879,7 +1885,9 @@
                 BonusOutAvailable = BonusOutAvailable,
                 CurrentWhiteDiceMovement = CurrentWhiteDiceMovement,
                 CurrentFixedBonusMovement = CurrentFixedBonusMovement,
-                BonusOutRequiresWhiteDiceArrival = BonusOutRequiresWhiteDiceArrival
+                BonusOutRequiresWhiteDiceArrival = BonusOutRequiresWhiteDiceArrival,
+                DeclaredPlayerRouteNodeIds = DeclaredPlayerRouteNodeIds,
+                DeclaredPlayerCurrentNodeId = DeclaredPlayerCurrentNodeId
             });
         sw.Stop();
         Logger.LogWarning("[MapComponent] RecalculateRoute FindCheapestSuggestion done in {ElapsedMs}ms status={Status} segments={Segments} message={Message}",
@@ -2275,26 +2283,16 @@
 
     private string? ResolveNodeIdForCurrentLocation(PlayerMapState playerState)
     {
-        var hasTraveledForCurrentTrip = playerState.TraveledSegmentKeys.Count > 0;
-
-        if (!hasTraveledForCurrentTrip)
-        {
-            var currentCityNodeId = ResolveNodeIdForCityName(playerState.CurrentCityName);
-            if (!string.IsNullOrWhiteSpace(currentCityNodeId))
-            {
-                return currentCityNodeId;
-            }
-        }
-
+        // Trust CurrentNodeId first — it reflects the player's actual position on the graph.
         if (!string.IsNullOrWhiteSpace(playerState.CurrentNodeId))
         {
             return playerState.CurrentNodeId;
         }
 
-        var fallbackCurrentCityNodeId = ResolveNodeIdForCityName(playerState.CurrentCityName);
-        if (!string.IsNullOrWhiteSpace(fallbackCurrentCityNodeId))
+        var currentCityNodeId = ResolveNodeIdForCityName(playerState.CurrentCityName);
+        if (!string.IsNullOrWhiteSpace(currentCityNodeId))
         {
-            return fallbackCurrentCityNodeId;
+            return currentCityNodeId;
         }
 
         return ResolveNodeIdForCityName(playerState.HomeCityName);

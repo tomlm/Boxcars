@@ -162,6 +162,8 @@ else
                               CurrentWhiteDiceMovement="@CurrentSuggestionWhiteDiceMovement"
                               CurrentFixedBonusMovement="@CurrentSuggestionFixedBonusMovement"
                               BonusOutRequiresWhiteDiceArrival="@CurrentSuggestionBonusOutRequiresWhiteDiceArrival"
+                              DeclaredPlayerRouteNodeIds="@DeclaredPlayerRouteNodeIds"
+                              DeclaredPlayerCurrentNodeId="@DeclaredPlayerCurrentNodeId"
                               RailroadOwnerPlayerIndices="@RailroadOwnerPlayerIndices"
                               PlayerCashByPlayerIndex="@PlayerCashByPlayerIndex"
                               PlayerAccessibleDestinationPercentByPlayerIndex="@PlayerAccessibleDestinationPercentByPlayerIndex"
@@ -620,7 +622,7 @@ else
             return;
         }
 
-        var result = await GameService.EndGameAsync(_currentUserId, GameId, CancellationToken.None);
+        var result = await GameService.DeleteGameAsync(_currentUserId, GameId, CancellationToken.None);
         if (!result.Success)
         {
             ShowNotification(result.Reason ?? "Unable to end game.", Severity.Error);
@@ -741,7 +743,7 @@ else
                 Players = GameSeatStateProjection.BuildSeatSelections(playerStates)
             });
 
-            var result = await GameService.EndGameAsync(_currentUserId, GameId, CancellationToken.None);
+            var result = await GameService.DeleteGameAsync(_currentUserId, GameId, CancellationToken.None);
             if (!result.Success)
             {
                 ShowNotification(result.Reason ?? "Unable to prepare replay.", Severity.Error);
@@ -817,30 +819,13 @@ else
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
-    private bool CanCommitMoveAction
-    {
-        get
-        {
-            var result = !string.IsNullOrWhiteSpace(GameId)
-                && _gameState is not null
-                && !_awaitingAuthoritativeUpdate
-                && IsCurrentUserActivePlayer
-                && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
-                && CurrentRouteMoveCount > 0
-                && CanCommitMoveSelection();
-
-            if (!result && _gameState is not null && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
-            {
-                var selectedSegmentCount = _gameMap?.GetSelectedRouteMoveCount() ?? CurrentRouteMoveCount;
-                var movementRemaining = Math.Max(0, _gameState.Turn.MovementRemaining);
-                Logger.LogDebug(
-                    "[GameBoard:{GameId}] CanCommitMoveAction=false: awaiting={Awaiting} busy={Busy} activePlayer={Active} moveCount={MoveCount} selectedSegments={Selected} movementRemaining={Remaining} reachesDest={ReachesDest} isBonusMove={IsBonus}",
-                    GameId, _awaitingAuthoritativeUpdate, IsGameBusy, IsCurrentUserActivePlayer, CurrentRouteMoveCount, selectedSegmentCount, movementRemaining, SelectionReachesDestination(), IsPendingBonusMove);
-            }
-
-            return result;
-        }
-    }
+    private bool CanCommitMoveAction => !string.IsNullOrWhiteSpace(GameId)
+        && _gameState is not null
+        && !_awaitingAuthoritativeUpdate
+        && IsCurrentUserActivePlayer
+        && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+        && CurrentRouteMoveCount > 0
+        && CanCommitMoveSelection();
 
     private string ObserverTurnMessage => string.IsNullOrWhiteSpace(_turnViewState.ActivePlayerName)
             ? "Loading..."
@@ -1533,7 +1518,13 @@ else
                 return;
             }
 
+            if (update.ReplaceTimeline)
+            {
+                _lastAutoSuggestKey = null;
+            }
+
             ApplyGameState(state);
+
             LogBoardDebug($"OnSharedGameStateChanged applied version={stateChangeVersion}");
 
             if (_autoZoomEnabled
@@ -2308,7 +2299,14 @@ StringComparison.OrdinalIgnoreCase));
         if (isBonusMove)
         {
             // Bonus move continues the same trip — don't clear the existing route selection.
-            // Auto-suggest will recompute and apply the correct selection for the bonus movement.
+            // But do update the start city to the current position so the map shows the right location.
+            var bonusStartNodeId = activePlayer.CurrentNodeId;
+            if (!string.IsNullOrWhiteSpace(bonusStartNodeId)
+                && !string.Equals(_gameMap.RouteStartNodeId, bonusStartNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                _gameMap.SetStartCity(bonusStartNodeId, quiet: true);
+            }
+
             _pendingRestoredRouteSelection = false;
             return;
         }
@@ -2464,6 +2462,70 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private bool CurrentSuggestionBonusOutRequiresWhiteDiceArrival => CurrentMovementType == PlayerMovementType.ThreeDie
         && CurrentSuggestionFixedBonusMovement > 0
         && CurrentSuggestionWhiteDiceMovement > 0;
+
+    private int? DeclaredPlayerIndexToRover
+    {
+        get
+        {
+            if (_gameState is null)
+            {
+                return null;
+            }
+
+            for (var i = 0; i < _gameState.Players.Count; i++)
+            {
+                if (i == _gameState.ActivePlayerIndex || IsActivePlayerSameOwner(i))
+                {
+                    continue;
+                }
+
+                if (_gameState.Players[i].HasDeclared)
+                {
+                    return i;
+                }
+            }
+
+            return null;
+        }
+    }
+
+    private bool IsActivePlayerSameOwner(int otherPlayerIndex)
+    {
+        var activeUserId = _playerUserIdsByIndex.GetValueOrDefault(_gameState!.ActivePlayerIndex);
+        var otherUserId = _playerUserIdsByIndex.GetValueOrDefault(otherPlayerIndex);
+        return !string.IsNullOrWhiteSpace(activeUserId)
+            && string.Equals(activeUserId, otherUserId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private IReadOnlyList<string> DeclaredPlayerRouteNodeIds
+    {
+        get
+        {
+            if (DeclaredPlayerIndexToRover is not int idx)
+            {
+                return [];
+            }
+
+            var player = _gameState!.Players[idx];
+            return player.ActiveRoute is { NodeIds.Count: > 0 }
+                ? player.ActiveRoute.NodeIds
+                : [];
+        }
+    }
+
+    private string? DeclaredPlayerCurrentNodeId
+    {
+        get
+        {
+            if (DeclaredPlayerIndexToRover is not int idx)
+            {
+                return null;
+            }
+
+            var player = _gameState!.Players[idx];
+            return string.IsNullOrWhiteSpace(player.CurrentNodeId) ? null : player.CurrentNodeId;
+        }
+    }
 
     private double CurrentAverageFutureMovement => _gameState is not null
         && _gameState.ActivePlayerIndex >= 0
@@ -3613,7 +3675,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
-        Logger.LogDebug("[GameBoard:{GameId}] AutoSuggest computing route key={Key} movementRemaining={MovementRemaining}", GameId, autoSuggestKey, _gameState.Turn.MovementRemaining);
+        Logger.LogDebug(
+            "[GameBoard:{GameId}] AutoSuggest computing route key={Key} movementRemaining={MovementRemaining}",
+            GameId, autoSuggestKey, _gameState.Turn.MovementRemaining);
         _lastAutoSuggestKey = autoSuggestKey;
         try
         {
@@ -4167,9 +4231,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         {
             EventTimelineKind.NewDestination => true,
             EventTimelineKind.CashAnnouncement => true,
+            EventTimelineKind.DiceRoll => true,
             EventTimelineKind.Move => true,
             EventTimelineKind.Arrival => true,
             EventTimelineKind.PayFees => true,
+            EventTimelineKind.PurchaseOpportunity => true,
             EventTimelineKind.Purchase => true,
             EventTimelineKind.DeclinedPurchase => true,
             _ => false
@@ -4231,6 +4297,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         return item.EventKind switch
         {
+            EventTimelineKind.DiceRoll => Icons.Material.Filled.Casino,
             EventTimelineKind.Move => Icons.Material.Filled.DirectionsRailway,
             EventTimelineKind.NewDestination => Icons.Material.Filled.DirectionsRailway,
             EventTimelineKind.CashAnnouncement => Icons.Material.Filled.Campaign,

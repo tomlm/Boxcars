@@ -1038,7 +1038,7 @@ public class GameService
             : whiteDiceText;
     }
 
-    public async Task<GameActionResult> EndGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
+    public async Task<GameActionResult> DeleteGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
     {
         var game = await GetGameAsync(gameId, cancellationToken);
         if (game is null)
@@ -1158,9 +1158,25 @@ public class GameService
             return true;
         }
 
-        var latestSnapshot = await GetLatestSnapshotAsync(game.GameId, cancellationToken);
-        return latestSnapshot is null
-            || !string.Equals(latestSnapshot.GameStatus, Boxcars.Engine.Domain.GameStatus.Completed.ToString(), StringComparison.OrdinalIgnoreCase);
+        var latestEvent = await GetLatestEventAsync(game.GameId, cancellationToken);
+        if (latestEvent is null || string.IsNullOrWhiteSpace(latestEvent.SerializedGameState))
+        {
+            return true;
+        }
+
+        var latestSnapshot = GameEventSerialization.DeserializeSnapshot(latestEvent.SerializedGameState);
+        if (!string.Equals(latestSnapshot.GameStatus, Boxcars.Engine.Domain.GameStatus.Completed.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Show finished games on the dashboard if they completed today
+        if (latestEvent.Timestamp.HasValue && latestEvent.Timestamp.Value.Date == DateTimeOffset.UtcNow.Date)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private static string BuildFallbackGameName(GameEntity game)

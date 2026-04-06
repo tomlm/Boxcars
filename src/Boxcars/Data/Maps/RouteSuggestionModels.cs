@@ -35,6 +35,8 @@ public sealed class RouteSuggestionRequest
     public int CurrentWhiteDiceMovement { get; init; }
     public int CurrentFixedBonusMovement { get; init; }
     public bool BonusOutRequiresWhiteDiceArrival { get; init; }
+    public IReadOnlyList<string> DeclaredPlayerRouteNodeIds { get; init; } = [];
+    public string? DeclaredPlayerCurrentNodeId { get; init; }
 }
 
 public sealed class RouteSuggestionOutlook

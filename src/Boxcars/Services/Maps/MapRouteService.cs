@@ -87,7 +87,43 @@ public sealed class MapRouteService
 
     public RouteSuggestionResult FindCheapestSuggestion(MapRouteContext context, RouteSuggestionRequest request)
     {
-        var cachedRequest = CreateCachedRouteSuggestionRequest(request);
+        // When a declared player exists, route directly to their position to rover them.
+        // After rovering, the route will recompute to the actual destination.
+        var effectiveRequest = request;
+        if (!string.IsNullOrWhiteSpace(request.DeclaredPlayerCurrentNodeId)
+            && !string.Equals(request.DeclaredPlayerCurrentNodeId, request.StartNodeId, StringComparison.OrdinalIgnoreCase)
+            && context.Adjacency.ContainsKey(request.DeclaredPlayerCurrentNodeId))
+        {
+            Debug.WriteLine(
+                $"[MapRouteService] Rover mode: rerouting from {request.StartNodeId} to declared player at {request.DeclaredPlayerCurrentNodeId} (original dest={request.DestinationNodeId})");
+            effectiveRequest = new RouteSuggestionRequest
+            {
+                PlayerId = request.PlayerId,
+                StartNodeId = request.StartNodeId,
+                DestinationNodeId = request.DeclaredPlayerCurrentNodeId,
+                MovementType = request.MovementType,
+                MovementCapacity = request.MovementCapacity,
+                AverageFutureMovement = request.AverageFutureMovement,
+                TraveledSegmentKeys = request.TraveledSegmentKeys,
+                PlayerColor = request.PlayerColor,
+                ResolveRailroadOwnership = request.ResolveRailroadOwnership,
+                ResolveRailroadFee = request.ResolveRailroadFee,
+                ResolveRailroadOwnerPlayerIndex = request.ResolveRailroadOwnerPlayerIndex,
+                ResolvePlayerCash = request.ResolvePlayerCash,
+                ResolvePlayerAccessibleDestinationPercent = request.ResolvePlayerAccessibleDestinationPercent,
+                ResolvePlayerMonopolyDestinationPercent = request.ResolvePlayerMonopolyDestinationPercent,
+                MaximumExploredStates = request.MaximumExploredStates,
+                MaximumSearchMilliseconds = request.MaximumSearchMilliseconds,
+                BonusOutAvailable = request.BonusOutAvailable,
+                CurrentWhiteDiceMovement = request.CurrentWhiteDiceMovement,
+                CurrentFixedBonusMovement = request.CurrentFixedBonusMovement,
+                BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival,
+                DeclaredPlayerRouteNodeIds = [],
+                DeclaredPlayerCurrentNodeId = null
+            };
+        }
+
+        var cachedRequest = CreateCachedRouteSuggestionRequest(effectiveRequest);
         var searchBudget = CreateRouteSearchBudget(cachedRequest);
 
         var result = FindCheapestSuggestionCore(
@@ -99,7 +135,7 @@ public sealed class MapRouteService
 
         if (result.Status == RouteSuggestionStatus.NoRoute)
         {
-            var shortestPath = FindShortestSelectionCore(context, request.StartNodeId, request.DestinationNodeId);
+            var shortestPath = FindShortestSelectionCore(context, effectiveRequest.StartNodeId, effectiveRequest.DestinationNodeId);
             if (shortestPath is not null && shortestPath.Segments.Count > 0)
             {
                 Debug.WriteLine(
@@ -109,8 +145,8 @@ public sealed class MapRouteService
                 {
                     Status = RouteSuggestionStatus.Success,
                     Message = $"Shortest-path fallback ({result.Message})",
-                    StartNodeId = request.StartNodeId,
-                    DestinationNodeId = request.DestinationNodeId,
+                    StartNodeId = effectiveRequest.StartNodeId,
+                    DestinationNodeId = effectiveRequest.DestinationNodeId,
                     NodeIds = shortestPath.NodeIds,
                     Segments = shortestPath.Segments.Select(edge => new RouteSuggestionSegment
                     {
@@ -180,7 +216,9 @@ public sealed class MapRouteService
             BonusOutAvailable = request.BonusOutAvailable,
             CurrentWhiteDiceMovement = request.CurrentWhiteDiceMovement,
             CurrentFixedBonusMovement = request.CurrentFixedBonusMovement,
-            BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival
+            BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival,
+            DeclaredPlayerRouteNodeIds = request.DeclaredPlayerRouteNodeIds,
+            DeclaredPlayerCurrentNodeId = request.DeclaredPlayerCurrentNodeId
         };
     }
 

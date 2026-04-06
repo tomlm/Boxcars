@@ -252,7 +252,7 @@ else
                         return (false, "Unable to identify the active game.");
                     }
 
-                    var result = await GameService.EndGameAsync(_currentUserId, gameId, ct);
+                    var result = await GameService.DeleteGameAsync(_currentUserId, gameId, ct);
                     return (result.Success, result.Reason);
                 }
             }

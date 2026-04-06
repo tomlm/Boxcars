@@ -949,6 +949,21 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             ActingPlayerIndex = actingPlayerIndex ?? (eventData is PlayerAction actingAction ? actingAction.PlayerIndex : null)
         };
 
+#pragma warning disable CA1873
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+        if (string.Equals(eventKind, "EndTurn", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventKind, "Move", StringComparison.OrdinalIgnoreCase))
+        {
+            for (var pi = 0; pi < snapshot.Players.Count; pi++)
+            {
+                var sp = snapshot.Players[pi];
+                _logger.LogDebug("[PersistEvent] {RowKey} kind={Kind} player[{Index}]={Name} node={NodeId} city={City}",
+                    rowKey, eventKind, pi, sp.Name, sp.CurrentNodeId, sp.CurrentCityName);
+            }
+        }
+#pragma warning restore CA1873
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+
         await _gamesTable.AddEntityAsync(entity, cancellationToken);
 
         return entity;
