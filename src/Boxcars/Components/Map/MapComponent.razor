@@ -132,6 +132,33 @@
                     </g>
                 }
 
+                @if (_moveAnimationSegments.Count > 0)
+                {
+                    <g class="game-map-move-animation">
+                        <style>
+                            @@keyframes move-cascade-pulse {
+                                0% { stroke-opacity: 1.0; }
+                                100% { stroke-opacity: 0.0; }
+                            }
+                        </style>
+                        @{
+                            var moveSegCount = _moveAnimationSegments.Count;
+                            var moveSlotDuration = 0.5 / moveSegCount;
+                        }
+                        @for (var i = 0; i < moveSegCount; i++)
+                        {
+                            var seg = _moveAnimationSegments[i];
+                            var moveDelay = i * moveSlotDuration;
+                            <line x1="@seg.X1" y1="@seg.Y1" x2="@seg.X2" y2="@seg.Y2"
+                                  stroke="@_moveAnimationColor"
+                                  stroke-width="3.2"
+                                  stroke-linecap="round"
+                                  stroke-opacity="0"
+                                  style="@($"animation: move-cascade-pulse 1s ease-out {moveDelay.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}s 1 normal forwards")" />
+                        }
+                    </g>
+                }
+
                 @if (SelectionMode == MapSelectionMode.Route && _selectedRouteSegments.Count > 0)
                 {
                     <g class="game-map-route-suggestion-segments">
@@ -541,6 +568,9 @@
     private readonly List<PlayerNodeMarker> _playerDestinationCityMarkers = new();
     private readonly List<PlayerNodeMarker> _playerCurrentLocationMarkers = new();
     private readonly List<PlayerNodeMarker> _playerTraveledSegmentMarkers = new();
+    private readonly List<MoveAnimationSegment> _moveAnimationSegments = new();
+    private string _moveAnimationColor = string.Empty;
+    private int _moveAnimationVersion;
     private int? _locatedPlayerIndex;
     private CancellationTokenSource? _locateCts;
     private readonly HashSet<int> _projectedOwnedRailroadIndices = [];
@@ -3027,6 +3057,55 @@
 
         return RoutePreviewChanged.InvokeAsync(BuildSelectedRoutePreview());
     }
+
+    public void ShowMoveAnimation(IReadOnlyList<string> segmentKeys, string playerColor)
+    {
+        _moveAnimationSegments.Clear();
+
+        if (_renderModel is null || segmentKeys.Count == 0)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        var segmentLookup = new Dictionary<string, RailroadRenderSegment>(StringComparer.OrdinalIgnoreCase);
+        foreach (var seg in _renderModel.RailroadSegments)
+        {
+            var fromNodeId = $"{seg.StartRegionIndex}:{seg.StartDotIndex}";
+            var toNodeId = $"{seg.EndRegionIndex}:{seg.EndDotIndex}";
+            var key1 = $"{fromNodeId}|{toNodeId}|{seg.RailroadIndex}";
+            var key2 = $"{toNodeId}|{fromNodeId}|{seg.RailroadIndex}";
+            segmentLookup.TryAdd(key1, seg);
+            segmentLookup.TryAdd(key2, seg);
+        }
+
+        foreach (var segmentKey in segmentKeys)
+        {
+            if (segmentLookup.TryGetValue(segmentKey, out var renderSeg))
+            {
+                _moveAnimationSegments.Add(new MoveAnimationSegment(renderSeg.X1, renderSeg.Y1, renderSeg.X2, renderSeg.Y2));
+            }
+        }
+
+        _moveAnimationColor = string.IsNullOrWhiteSpace(playerColor) ? "#ffffff" : playerColor;
+        var version = Interlocked.Increment(ref _moveAnimationVersion);
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(2000);
+            if (Volatile.Read(ref _moveAnimationVersion) == version)
+            {
+                await InvokeAsync(() =>
+                {
+                    _moveAnimationSegments.Clear();
+                    StateHasChanged();
+                });
+            }
+        });
+    }
+
+    internal readonly record struct MoveAnimationSegment(double X1, double Y1, double X2, double Y2);
 
     public async ValueTask DisposeAsync()
     {

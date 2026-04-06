@@ -2149,6 +2149,32 @@ destinationPayoutIndex)
         _gameEngineEvents.AddRange(newItems);
         _timelineInitialized = true;
         NotifyNewTimelineItems(previousEventIds);
+        TriggerMoveAnimationForNewItems(newItems);
+    }
+
+    private void TriggerMoveAnimationForNewItems(IReadOnlyList<EventTimelineItem> newItems)
+    {
+        if (_gameMap is null || _gameState is null)
+        {
+            return;
+        }
+
+        var moveItem = newItems.FirstOrDefault(item =>
+            item.EventKind == EventTimelineKind.Move
+            && item.MovedSegmentKeys.Count > 0);
+
+        if (moveItem is null)
+        {
+            return;
+        }
+
+        var playerColor = moveItem.ActingPlayerIndex is int playerIndex
+            && playerIndex >= 0
+            && playerIndex < _players.Count
+                ? _players[playerIndex].Color
+                : "#ffffff";
+
+        _gameMap.ShowMoveAnimation(moveItem.MovedSegmentKeys, playerColor);
     }
 
     private void ReplaceTimelineItems(IReadOnlyList<EventTimelineItem> timelineItems)

@@ -105,6 +105,8 @@ public sealed record EventTimelineItem
     public string BotControllerMode { get; init; } = string.Empty;
     public string BotDecisionSource { get; init; } = string.Empty;
     public string BotFallbackReason { get; init; } = string.Empty;
+    public IReadOnlyList<string> MovedNodeIds { get; init; } = [];
+    public IReadOnlyList<string> MovedSegmentKeys { get; init; } = [];
 }
 
 public static class GamePlayerSelectionSerialization

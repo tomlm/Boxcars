@@ -704,6 +704,7 @@ public class GameService
         PlayerAction? playerAction = null,
         int? actingPlayerIndexOverride = null)
     {
+        var moveAction = playerAction as MoveAction;
         return new EventTimelineItem
         {
             EventId = eventId,
@@ -720,7 +721,9 @@ public class GameService
             BotName = playerAction?.BotMetadata?.BotName ?? string.Empty,
             BotControllerMode = playerAction?.BotMetadata?.ControllerMode ?? string.Empty,
             BotDecisionSource = playerAction?.BotMetadata?.DecisionSource ?? string.Empty,
-            BotFallbackReason = playerAction?.BotMetadata?.FallbackReason ?? string.Empty
+            BotFallbackReason = playerAction?.BotMetadata?.FallbackReason ?? string.Empty,
+            MovedNodeIds = moveAction?.PointsTaken ?? [],
+            MovedSegmentKeys = moveAction?.SelectedSegmentKeys ?? []
         };
     }
 

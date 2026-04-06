@@ -363,4 +363,9 @@
 		await _mapComponent.SuggestRouteAsync();
 		Logger.LogWarning("[GameMapComponent] SuggestRouteAsync complete");
 	}
+
+	public void ShowMoveAnimation(IReadOnlyList<string> segmentKeys, string playerColor)
+	{
+		_mapComponent?.ShowMoveAnimation(segmentKeys, playerColor);
+	}
 }
