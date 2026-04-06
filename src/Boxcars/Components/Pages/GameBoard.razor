@@ -817,14 +817,30 @@ else
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
-    private bool CanCommitMoveAction => !string.IsNullOrWhiteSpace(GameId)
-        && _gameState is not null
-        && !_awaitingAuthoritativeUpdate
-        && !IsGameBusy
-        && IsCurrentUserActivePlayer
-        && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
-        && CurrentRouteMoveCount > 0
-        && CanCommitMoveSelection();
+    private bool CanCommitMoveAction
+    {
+        get
+        {
+            var result = !string.IsNullOrWhiteSpace(GameId)
+                && _gameState is not null
+                && !_awaitingAuthoritativeUpdate
+                && IsCurrentUserActivePlayer
+                && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+                && CurrentRouteMoveCount > 0
+                && CanCommitMoveSelection();
+
+            if (!result && _gameState is not null && string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase))
+            {
+                var selectedSegmentCount = _gameMap?.GetSelectedRouteMoveCount() ?? CurrentRouteMoveCount;
+                var movementRemaining = Math.Max(0, _gameState.Turn.MovementRemaining);
+                Logger.LogDebug(
+                    "[GameBoard:{GameId}] CanCommitMoveAction=false: awaiting={Awaiting} busy={Busy} activePlayer={Active} moveCount={MoveCount} selectedSegments={Selected} movementRemaining={Remaining} reachesDest={ReachesDest} isBonusMove={IsBonus}",
+                    GameId, _awaitingAuthoritativeUpdate, IsGameBusy, IsCurrentUserActivePlayer, CurrentRouteMoveCount, selectedSegmentCount, movementRemaining, SelectionReachesDestination(), IsPendingBonusMove);
+            }
+
+            return result;
+        }
+    }
 
     private string ObserverTurnMessage => string.IsNullOrWhiteSpace(_turnViewState.ActivePlayerName)
             ? "Loading..."
@@ -2262,12 +2278,17 @@ StringComparison.OrdinalIgnoreCase));
 
         var activePlayer = _gameState.Players[_gameState.ActivePlayerIndex];
         var isBonusMove = _turnViewState.RedDie.HasValue && _turnViewState.WhiteDieOne <= 0 && _turnViewState.WhiteDieTwo <= 0;
-        var restoredPreviewNodeIds = isBonusMove
-            ? Array.Empty<string>()
-            : _turnViewState.SelectedRoutePreview.NodeIds;
-        var restoredPreviewSegmentKeys = isBonusMove
-            ? Array.Empty<string>()
-            : _turnViewState.SelectedRoutePreview.SegmentKeys;
+
+        if (isBonusMove)
+        {
+            // Bonus move continues the same trip — don't clear the existing route selection.
+            // Auto-suggest will recompute and apply the correct selection for the bonus movement.
+            _pendingRestoredRouteSelection = false;
+            return;
+        }
+
+        var restoredPreviewNodeIds = _turnViewState.SelectedRoutePreview.NodeIds;
+        var restoredPreviewSegmentKeys = _turnViewState.SelectedRoutePreview.SegmentKeys;
         var startNodeId = activePlayer.CurrentNodeId ?? restoredPreviewNodeIds.FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(startNodeId))
@@ -2293,11 +2314,9 @@ StringComparison.OrdinalIgnoreCase));
             }
         }
 
-        var restoredNodeIds = !string.IsNullOrWhiteSpace(startNodeId) && isBonusMove
-            ? [startNodeId]
-            : !string.IsNullOrWhiteSpace(startNodeId) && string.IsNullOrWhiteSpace(activePlayer.DestinationCityName)
-                ? [startNodeId]
-                : restoredPreviewNodeIds;
+        var restoredNodeIds = !string.IsNullOrWhiteSpace(startNodeId) && string.IsNullOrWhiteSpace(activePlayer.DestinationCityName)
+            ? new[] { startNodeId }
+            : restoredPreviewNodeIds;
 
         if (string.IsNullOrWhiteSpace(activePlayer.DestinationCityName))
         {
