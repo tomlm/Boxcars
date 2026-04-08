@@ -1,9 +1,12 @@
-﻿@using Boxcars.Components.Account.Shared
+@inject NavigationManager Navigation
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
             <NotAuthorized>
-                <RedirectToLogin />
+                @{
+                    var returnUrl = Uri.EscapeDataString(new Uri(Navigation.Uri).PathAndQuery);
+                    Navigation.NavigateTo($"/login?returnUrl={returnUrl}", forceLoad: true);
+                }
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1, .mud-typography-h4, .mud-typography-h5" />

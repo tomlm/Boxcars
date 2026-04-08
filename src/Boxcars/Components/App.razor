@@ -33,7 +33,5 @@
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
 
-    private IComponentRenderMode? PageRenderMode => HttpContext.Request.Path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase)
-        ? null
-        : InteractiveServerWithoutPrerender;
+    private IComponentRenderMode? PageRenderMode => InteractiveServerWithoutPrerender;
 }

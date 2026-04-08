@@ -10,21 +10,15 @@ public class ApplicationUser : ITableEntity
     public DateTimeOffset? Timestamp { get; set; }
     public ETag ETag { get; set; }
 
-    // Computed property for Identity compatibility
+    // Computed alias used by services that historically referred to "Id"
     public string Id => RowKey;
 
-    // Identity/profile properties
+    // Identity / profile properties
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string NormalizedEmail { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;
     public string NormalizedUserName { get; set; } = string.Empty;
-    public string PasswordHash { get; set; } = string.Empty;
-    public string SecurityStamp { get; set; } = string.Empty;
-    public bool EmailConfirmed { get; set; }
-    public DateTimeOffset? LockoutEnd { get; set; }
-    public bool LockoutEnabled { get; set; }
-    public int AccessFailedCount { get; set; }
 
     // Profile properties
     public string Nickname { get; set; } = string.Empty;
@@ -38,10 +32,7 @@ public class ApplicationUser : ITableEntity
     public string ModifiedByUserId { get; set; } = string.Empty;
     public DateTimeOffset ModifiedUtc { get; set; }
 
-    // Scaffold-compatibility properties (not actively used but required by some Identity pages)
-    public string ConcurrencyStamp { get; set; } = Guid.NewGuid().ToString();
-    public string? PhoneNumber { get; set; }
-    public bool PhoneNumberConfirmed { get; set; }
-    public bool TwoFactorEnabled { get; set; }
+    // External login provenance (set on first sign-in)
+    public string ExternalLoginProvider { get; set; } = string.Empty;
+    public string ExternalLoginKey { get; set; } = string.Empty;
 }
-
