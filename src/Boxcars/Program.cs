@@ -1,4 +1,5 @@
 using Azure.Data.Tables;
+using Azure.Storage.Blobs;
 using Boxcars.Auth;
 using Boxcars.Components;
 using Boxcars.Data;
@@ -7,7 +8,9 @@ using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OAuth.Claims;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -65,6 +68,7 @@ public class Program
                 options.ClientSecret = googleClientSecret;
                 options.CallbackPath = "/signin-google";
                 options.SaveTokens = false;
+                options.ClaimActions.MapJsonKey(ExternalLoginProvisioner.ExternalPictureClaimType, "picture", "url");
                 options.Events.OnTicketReceived = async ctx =>
                 {
                     var provisioner = ctx.HttpContext.RequestServices.GetRequiredService<ExternalLoginProvisioner>();
@@ -80,11 +84,28 @@ public class Program
                 options.ClientId = microsoftClientId;
                 options.ClientSecret = microsoftClientSecret;
                 options.CallbackPath = "/signin-microsoft";
-                options.SaveTokens = false;
+                options.SaveTokens = true;
+                options.Scope.Add("User.Read");
                 options.Events.OnTicketReceived = async ctx =>
                 {
-                    var provisioner = ctx.HttpContext.RequestServices.GetRequiredService<ExternalLoginProvisioner>();
-                    await provisioner.EnsureUserAsync(ctx, ctx.HttpContext.RequestAborted);
+                    var services = ctx.HttpContext.RequestServices;
+                    var provisioner = services.GetRequiredService<ExternalLoginProvisioner>();
+                    string? thumbnailUrl = null;
+                    var photo = await GraphPhotoFetcher.TryFetchAsync(
+                        ctx.Properties?.GetTokenValue("access_token"),
+                        services.GetRequiredService<IHttpClientFactory>(),
+                        ctx.HttpContext.RequestAborted);
+                    if (photo is { } p)
+                    {
+                        var emailForKey = ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                            ?? ctx.Principal?.FindFirst("preferred_username")?.Value
+                            ?? ctx.Principal?.FindFirst("email")?.Value
+                            ?? string.Empty;
+                        var blobKey = emailForKey.Trim().ToLowerInvariant();
+                        thumbnailUrl = await services.GetRequiredService<UserPhotoStorage>()
+                            .UploadAsync(blobKey, p.Bytes, p.ContentType, ctx.HttpContext.RequestAborted);
+                    }
+                    await provisioner.EnsureUserAsync(ctx, thumbnailUrl, ctx.HttpContext.RequestAborted);
                 };
             });
         }
@@ -93,6 +114,10 @@ public class Program
         var tableStorageConnectionString = builder.Configuration["AzureTableStorage:ConnectionString"]
             ?? throw new InvalidOperationException("AzureTableStorage:ConnectionString not found.");
         builder.Services.AddSingleton(new TableServiceClient(tableStorageConnectionString));
+        builder.Services.AddSingleton(new BlobServiceClient(
+            tableStorageConnectionString,
+            new BlobClientOptions(BlobClientOptions.ServiceVersion.V2025_01_05)));
+        builder.Services.AddSingleton<UserPhotoStorage>();
 
         builder.Services.AddOptions<BotOptions>()
             .Configure(options =>

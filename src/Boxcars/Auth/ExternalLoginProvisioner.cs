@@ -21,12 +21,23 @@ public sealed class ExternalLoginProvisioner
         _usersTable = tableServiceClient.GetTableClient(TableNames.UsersTable);
     }
 
-    public async Task EnsureUserAsync(TicketReceivedContext context, CancellationToken cancellationToken)
+    public const string ExternalPictureClaimType = "urn:boxcars:external_picture";
+
+    public Task EnsureUserAsync(TicketReceivedContext context, CancellationToken cancellationToken)
+        => EnsureUserAsync(context, externalThumbnailUrl: null, cancellationToken);
+
+    public async Task EnsureUserAsync(TicketReceivedContext context, string? externalThumbnailUrl, CancellationToken cancellationToken)
     {
         var principal = context.Principal;
         if (principal?.Identity is not ClaimsIdentity identity)
         {
             return;
+        }
+
+        if (string.IsNullOrWhiteSpace(externalThumbnailUrl))
+        {
+            externalThumbnailUrl = principal.FindFirstValue(ExternalPictureClaimType)
+                ?? principal.FindFirstValue("picture");
         }
 
         var email = principal.FindFirstValue(ClaimTypes.Email)
@@ -74,6 +85,7 @@ public sealed class ExternalLoginProvisioner
                 NormalizedNickname = nicknameSeed.ToUpperInvariant(),
                 ExternalLoginProvider = providerName,
                 ExternalLoginKey = providerKey,
+                ThumbnailUrl = externalThumbnailUrl ?? string.Empty,
                 CreatedByUserId = rowKey,
                 CreatedUtc = now,
                 ModifiedByUserId = rowKey,
