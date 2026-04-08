@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using Azure;
-using Boxcars.Components.Account.Pages.Manage;
 using Boxcars.Data;
 
 namespace Boxcars.Services;
@@ -222,12 +221,6 @@ public class PlayerProfileService
             NormalizedEmail = user.NormalizedEmail,
             UserName = user.UserName,
             NormalizedUserName = user.NormalizedUserName,
-            PasswordHash = user.PasswordHash,
-            SecurityStamp = user.SecurityStamp,
-            EmailConfirmed = user.EmailConfirmed,
-            LockoutEnd = user.LockoutEnd,
-            LockoutEnabled = user.LockoutEnabled,
-            AccessFailedCount = user.AccessFailedCount,
             Nickname = user.Nickname,
             NormalizedNickname = user.NormalizedNickname,
             ThumbnailUrl = user.ThumbnailUrl,
@@ -238,10 +231,8 @@ public class PlayerProfileService
             CreatedUtc = user.CreatedUtc,
             ModifiedByUserId = user.ModifiedByUserId,
             ModifiedUtc = user.ModifiedUtc,
-            ConcurrencyStamp = user.ConcurrencyStamp,
-            PhoneNumber = user.PhoneNumber,
-            PhoneNumberConfirmed = user.PhoneNumberConfirmed,
-            TwoFactorEnabled = user.TwoFactorEnabled
+            ExternalLoginProvider = user.ExternalLoginProvider,
+            ExternalLoginKey = user.ExternalLoginKey
         };
     }
 

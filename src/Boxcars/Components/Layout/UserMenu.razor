@@ -87,12 +87,12 @@
 
     private void NavigateToAccountSettings()
     {
-        Navigation.NavigateTo("/Account/Manage/Preferences");
+        Navigation.NavigateTo("/preferences");
     }
 
     private void SignOut()
     {
-        Navigation.NavigateTo("/Account/Logout", forceLoad: true);
+        Navigation.NavigateTo("/logout", forceLoad: true);
     }
 
     private static string GetInitials(string name)

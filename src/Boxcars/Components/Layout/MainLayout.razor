@@ -40,7 +40,8 @@
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
-    private bool IsAccountRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("Account", StringComparison.OrdinalIgnoreCase);
+    private bool IsAccountRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("preferences", StringComparison.OrdinalIgnoreCase)
+        || Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("login", StringComparison.OrdinalIgnoreCase);
 
     private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
 
@@ -77,7 +78,7 @@
         var returnUrl = string.IsNullOrWhiteSpace(relativeUri)
             ? "/dashboard"
             : string.Concat("/", relativeUri);
-        var redirectUri = Navigation.GetUriWithQueryParameters("/Account/Manage/Preferences", new Dictionary<string, object?>
+        var redirectUri = Navigation.GetUriWithQueryParameters("/preferences", new Dictionary<string, object?>
         {
             ["requiredStrategy"] = true,
             ["returnUrl"] = returnUrl

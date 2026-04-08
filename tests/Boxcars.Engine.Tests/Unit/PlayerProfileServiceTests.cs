@@ -218,12 +218,6 @@ public class PlayerProfileServiceTests
             NormalizedEmail = entity.NormalizedEmail,
             UserName = entity.UserName,
             NormalizedUserName = entity.NormalizedUserName,
-            PasswordHash = entity.PasswordHash,
-            SecurityStamp = entity.SecurityStamp,
-            EmailConfirmed = entity.EmailConfirmed,
-            LockoutEnd = entity.LockoutEnd,
-            LockoutEnabled = entity.LockoutEnabled,
-            AccessFailedCount = entity.AccessFailedCount,
             Nickname = entity.Nickname,
             NormalizedNickname = entity.NormalizedNickname,
             ThumbnailUrl = entity.ThumbnailUrl,
@@ -233,11 +227,7 @@ public class PlayerProfileServiceTests
             CreatedByUserId = entity.CreatedByUserId,
             CreatedUtc = entity.CreatedUtc,
             ModifiedByUserId = entity.ModifiedByUserId,
-            ModifiedUtc = entity.ModifiedUtc,
-            ConcurrencyStamp = entity.ConcurrencyStamp,
-            PhoneNumber = entity.PhoneNumber,
-            PhoneNumberConfirmed = entity.PhoneNumberConfirmed,
-            TwoFactorEnabled = entity.TwoFactorEnabled
+            ModifiedUtc = entity.ModifiedUtc
         };
     }
 

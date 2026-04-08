@@ -2,6 +2,7 @@ using Azure;
 using Azure.Data.Tables;
 using Boxcars.Data;
 using Boxcars.Identity;
+// (Identity namespace retained for TableNames only)
 
 namespace Boxcars.Services;
 
@@ -191,9 +192,7 @@ public sealed class UserDirectoryService
             CreatedByUserId = actingUserId,
             CreatedUtc = now,
             ModifiedByUserId = actingUserId,
-            ModifiedUtc = now,
-            SecurityStamp = Guid.NewGuid().ToString(),
-            EmailConfirmed = true
+            ModifiedUtc = now
         };
 
         await AddUserAsync(user, cancellationToken);
@@ -257,18 +256,10 @@ public sealed class UserDirectoryService
             CreatedUtc = existing.CreatedUtc,
             ModifiedByUserId = actingUserId,
             ModifiedUtc = DateTimeOffset.UtcNow,
-            SecurityStamp = existing.SecurityStamp,
-            EmailConfirmed = existing.EmailConfirmed,
-            PasswordHash = existing.PasswordHash,
-            LockoutEnd = existing.LockoutEnd,
-            LockoutEnabled = existing.LockoutEnabled,
-            AccessFailedCount = existing.AccessFailedCount,
-            ConcurrencyStamp = existing.ConcurrencyStamp,
-            PhoneNumber = existing.PhoneNumber,
-            PhoneNumberConfirmed = existing.PhoneNumberConfirmed,
-            TwoFactorEnabled = existing.TwoFactorEnabled,
             PreferredColor = existing.PreferredColor,
-            ThumbnailUrl = existing.ThumbnailUrl
+            ThumbnailUrl = existing.ThumbnailUrl,
+            ExternalLoginProvider = existing.ExternalLoginProvider,
+            ExternalLoginKey = existing.ExternalLoginKey
         };
 
         try
@@ -349,12 +340,6 @@ public sealed class UserDirectoryService
             NormalizedEmail = user.NormalizedEmail,
             UserName = user.UserName,
             NormalizedUserName = user.NormalizedUserName,
-            PasswordHash = user.PasswordHash,
-            SecurityStamp = user.SecurityStamp,
-            EmailConfirmed = user.EmailConfirmed,
-            LockoutEnd = user.LockoutEnd,
-            LockoutEnabled = user.LockoutEnabled,
-            AccessFailedCount = user.AccessFailedCount,
             Nickname = user.Nickname,
             NormalizedNickname = user.NormalizedNickname,
             ThumbnailUrl = user.ThumbnailUrl,
@@ -365,10 +350,8 @@ public sealed class UserDirectoryService
             CreatedUtc = user.CreatedUtc,
             ModifiedByUserId = user.ModifiedByUserId,
             ModifiedUtc = user.ModifiedUtc,
-            ConcurrencyStamp = user.ConcurrencyStamp,
-            PhoneNumber = user.PhoneNumber,
-            PhoneNumberConfirmed = user.PhoneNumberConfirmed,
-            TwoFactorEnabled = user.TwoFactorEnabled
+            ExternalLoginProvider = user.ExternalLoginProvider,
+            ExternalLoginKey = user.ExternalLoginKey
         };
     }
 

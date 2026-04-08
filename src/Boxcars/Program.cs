@@ -1,16 +1,19 @@
 using Azure.Data.Tables;
+using Boxcars.Auth;
 using Boxcars.Components;
-using Boxcars.Components.Account;
 using Boxcars.Data;
 using Boxcars.GameEngine;
 using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.Extensions.Options;
-using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Identity;
 using MudBlazor;
 using MudBlazor.Services;
 
@@ -28,16 +31,63 @@ public class Program
 
         builder.Services.AddCascadingAuthenticationState();
         builder.Services.AddHttpContextAccessor();
-        builder.Services.AddScoped<IdentityUserAccessor>();
-        builder.Services.AddScoped<IdentityRedirectManager>();
-        builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
+        builder.Services.AddScoped<AuthenticationStateProvider, ServerAuthenticationStateProvider>();
+        builder.Services.AddAuthorization();
 
-        builder.Services.AddAuthentication(options =>
+        builder.Services.AddSingleton<ExternalLoginProvisioner>();
+
+        var googleClientId = builder.Configuration["Auth:Google:ClientId"];
+        var googleClientSecret = builder.Configuration["Auth:Google:ClientSecret"];
+        var microsoftClientId = builder.Configuration["Auth:Microsoft:ClientId"];
+        var microsoftClientSecret = builder.Configuration["Auth:Microsoft:ClientSecret"];
+
+        var authBuilder = builder.Services.AddAuthentication(options =>
             {
-                options.DefaultScheme = IdentityConstants.ApplicationScheme;
-                options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+                options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
             })
-            .AddIdentityCookies();
+            .AddCookie(options =>
+            {
+                options.Cookie.Name = "Boxcars.Auth";
+                options.LoginPath = "/login";
+                options.LogoutPath = "/logout";
+                options.AccessDeniedPath = "/login";
+                options.ExpireTimeSpan = TimeSpan.FromDays(30);
+                options.SlidingExpiration = true;
+            });
+
+        if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(googleClientSecret))
+        {
+            authBuilder.AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
+            {
+                options.ClientId = googleClientId;
+                options.ClientSecret = googleClientSecret;
+                options.CallbackPath = "/signin-google";
+                options.SaveTokens = false;
+                options.Events.OnTicketReceived = async ctx =>
+                {
+                    var provisioner = ctx.HttpContext.RequestServices.GetRequiredService<ExternalLoginProvisioner>();
+                    await provisioner.EnsureUserAsync(ctx, ctx.HttpContext.RequestAborted);
+                };
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(microsoftClientId) && !string.IsNullOrWhiteSpace(microsoftClientSecret))
+        {
+            authBuilder.AddMicrosoftAccount(MicrosoftAccountDefaults.AuthenticationScheme, options =>
+            {
+                options.ClientId = microsoftClientId;
+                options.ClientSecret = microsoftClientSecret;
+                options.CallbackPath = "/signin-microsoft";
+                options.SaveTokens = false;
+                options.Events.OnTicketReceived = async ctx =>
+                {
+                    var provisioner = ctx.HttpContext.RequestServices.GetRequiredService<ExternalLoginProvisioner>();
+                    await provisioner.EnsureUserAsync(ctx, ctx.HttpContext.RequestAborted);
+                };
+            });
+        }
 
         // Azure Table Storage
         var tableStorageConnectionString = builder.Configuration["AzureTableStorage:ConnectionString"]
@@ -81,15 +131,6 @@ public class Program
             config.SnackbarConfiguration.VisibleStateDuration = 7000;
         });
         builder.Services.AddMudMarkdownServices();
-
-        // Identity (custom table storage stores, no EF Core)
-        builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = false)
-            .AddSignInManager()
-            .AddDefaultTokenProviders();
-
-        builder.Services.AddScoped<IUserStore<ApplicationUser>, TableStorageUserStore>();
-
-        builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 
         // SignalR
         builder.Services.AddSignalR();
@@ -187,9 +228,7 @@ public class Program
                 CreatedByUserId = "system",
                 CreatedUtc = now,
                 ModifiedByUserId = "system",
-                ModifiedUtc = now,
-                SecurityStamp = Guid.NewGuid().ToString(),
-                EmailConfirmed = true
+                ModifiedUtc = now
             });
         }
 
@@ -203,6 +242,8 @@ public class Program
         app.UseHttpsRedirection();
 
         app.UseStaticFiles();
+        app.UseAuthentication();
+        app.UseAuthorization();
         app.UseAntiforgery();
 
         app.MapRazorComponents<App>()
@@ -212,8 +253,8 @@ public class Program
         app.MapHub<DashboardHub>("/hubs/dashboard");
         app.MapHub<GameHub>("/hubs/game");
 
-        // Add additional endpoints required by the Identity /Account Razor components.
-        app.MapAdditionalIdentityEndpoints();
+        // Auth endpoints (login challenge / logout)
+        app.MapAuthEndpoints();
 
         app.Run();
     }
