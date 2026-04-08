@@ -28,8 +28,10 @@ else if (_profile == null)
                 @message
             </MudAlert>
         }
-        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadProfileAsync"
-                   Style="margin-top: 1rem">Retry</MudButton>
+        <MudStack Row="true" Justify="Justify.Center" Spacing="2" Style="margin-top: 1rem">
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="@LoadProfileAsync">Retry</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Secondary" Href="/logout">Sign Out</MudButton>
+        </MudStack>
     </MudPaper>
 }
 else
