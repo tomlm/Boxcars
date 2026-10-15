@@ -8,11 +8,9 @@ on:
     paths:
     - src/**
     - tests/**
+  # Every PR, not just src/tests changes: "build" is a required check, and one that never runs blocks the merge.
   pull_request:
     branches: [ "main" ]
-    paths:
-    - src/**
-    - tests/**
     
 jobs:
   build:
