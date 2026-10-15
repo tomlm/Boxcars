@@ -2029,10 +2029,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             _ => $"{actorName} performed {action.Kind}"
         };
 
-        var suffix = action is MoveAction
-            ? string.Empty
-            : BuildActionAttributionSuffix(gameEntity, playerStates, action, snapshotBeforeAction);
-        return string.Concat(description, suffix);
+        return string.Concat(description, BuildActionAttributionSuffix(gameEntity, playerStates, action, snapshotBeforeAction));
     }
 
     private string BuildActionAttributionSuffix(

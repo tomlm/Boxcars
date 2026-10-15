@@ -177,7 +177,7 @@ public class BotActionHistoryTests
 
         var summary = InvokeDescribeAction(service, CreateGameEntity(), CreatePlayerStates(), action, snapshotBeforeAction, snapshotAfterAction, engine);
 
-        Assert.Equal("Alice moved 1 space [TOM]", summary);
+        Assert.Equal("Alice rolled 3+4 and moved 1 space. [TOM]", summary);
     }
 
     [Fact]
