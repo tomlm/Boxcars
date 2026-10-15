@@ -17,7 +17,7 @@
 
             @if (VisibleMetricRows.Count > 0)
             {
-                <MudTable T="RailroadOverlayMetricRow" Items="VisibleMetricRows" Dense="true" Hover="true">
+                <MudTable T="RailroadOverlayMetricRow" FixedHeader="true" Height="50vh" Items="VisibleMetricRows" Dense="true" Hover="true">
                     <HeaderContent>
                         <MudTh><strong>Area</strong></MudTh>
                         <MudTh><strong>Access</strong></MudTh>
