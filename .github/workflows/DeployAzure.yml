@@ -26,7 +26,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Test
-        run: dotnet test src/Boxcars.slnx -c Release
+        run: dotnet test Boxcars.slnx -c Release
 
       - name: Publish
         run: dotnet publish src/Boxcars/Boxcars.csproj -c Release -o publish
