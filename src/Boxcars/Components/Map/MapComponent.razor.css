@@ -132,7 +132,9 @@
 }
 
 .game-map-city-labels text {
+    font-family: Verdana, sans-serif;
     font-size: 4px;
+    font-weight: 700;
     paint-order: stroke;
     stroke-width: 0.4;
     dominant-baseline: hanging;
