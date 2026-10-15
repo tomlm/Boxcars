@@ -196,7 +196,7 @@ else
             <MudStack Class="@AnalysisAreaClass" Style="@AnalysisAreaStyle">
                 @if (IsNetworkPurchaseTabActive)
                 {
-                    <MudStack Spacing="2">
+                    <MudStack Spacing="2" Class="flex-grow-1 overflow-hidden">
                         <NetworkTabPanel NetworkTab="CurrentDisplayNetworkTab" />
                         @if (CurrentForcedSaleImpact is not null)
                         {
