@@ -21,7 +21,7 @@
     }
     else
     {
-        <MudTable T="NetworkRailroadSummaryModel" Items="NetworkTab.RailroadSummaries" Dense="true" Hover="true" Style="width: fit-content; max-width: 100%">
+        <MudTable T="NetworkRailroadSummaryModel" FixedHeader="true" Height="calc(100vh - 24rem)" Items="NetworkTab.RailroadSummaries" Dense="true" Hover="true" Style="width: fit-content; max-width: 100%">
             <HeaderContent>
                 <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.RailroadName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.OriginalPurchasePrice)"><strong>Original Value</strong></MudTableSortLabel></MudTh>
