@@ -483,7 +483,8 @@ public class GameService
                     string.IsNullOrWhiteSpace(actingPlayer?.DestinationCityName)
                         ? $"{actingPlayerName} has a new destination."
                         : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}",
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "ChooseDestinationRegion":
@@ -496,18 +497,20 @@ public class GameService
                             ? $"{actingPlayerName} chose a replacement destination region."
                             : $"{actingPlayerName} has a new destination: {actingPlayer.DestinationCityName}"
                         : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "Declare":
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:declare",
-                    EventTimelineKind.NewDestination,
+                    EventTimelineKind.Declaration,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} declared for home."
                         : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "RollDice":
@@ -516,7 +519,8 @@ public class GameService
                     $"{gameEvent.RowKey}:roll",
                     EventTimelineKind.DiceRoll,
                     $"{actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}",
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "Move":
@@ -539,7 +543,8 @@ public class GameService
                     $"{gameEvent.RowKey}:arrival",
                     EventTimelineKind.Arrival,
                         DescribeArrival(actingPlayerName, snapshot.Turn.ArrivalResolution),
-                        playerAction));
+                        playerAction,
+                        isPlayByPlay: true));
 
                 if (snapshot.Turn.ArrivalResolution.PurchaseOpportunityAvailable)
                 {
@@ -554,7 +559,7 @@ public class GameService
                 break;
 
             case "EndTurn":
-                var payFeesDescription = DescribePayFees(gameEvent, previousSnapshot);
+                var (payFeesDescription, payFeesIsPlayByPlay) = DescribePayFees(gameEvent, previousSnapshot);
                 if (!string.IsNullOrWhiteSpace(payFeesDescription))
                 {
                     timelineItems.Add(CreateTimelineItem(
@@ -562,7 +567,8 @@ public class GameService
                         $"{gameEvent.RowKey}:fees",
                         EventTimelineKind.PayFees,
                         payFeesDescription,
-                        playerAction));
+                        playerAction,
+                        isPlayByPlay: payFeesIsPlayByPlay));
                 }
                 break;
 
@@ -574,7 +580,8 @@ public class GameService
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} sold a railroad to raise cash for fees."
                         : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "StartAuction":
@@ -585,7 +592,8 @@ public class GameService
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} started a railroad auction."
                         : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "Bid":
@@ -596,7 +604,8 @@ public class GameService
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} placed an auction bid."
                         : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "AuctionPass":
@@ -607,7 +616,8 @@ public class GameService
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} passed in the auction."
                         : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "AuctionDropOut":
@@ -618,7 +628,8 @@ public class GameService
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary)
                         ? $"{actingPlayerName} dropped out of the auction."
                         : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "AuctionResolved":
@@ -627,7 +638,8 @@ public class GameService
                     $"{gameEvent.RowKey}:auction-resolved",
                     EventTimelineKind.PayFees,
                     gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "PurchaseRailroad":
@@ -636,7 +648,8 @@ public class GameService
                     $"{gameEvent.RowKey}:purchase",
                     EventTimelineKind.Purchase,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A railroad was purchased." : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "BuyEngine":
@@ -646,7 +659,8 @@ public class GameService
                     $"{gameEvent.RowKey}:purchase",
                     EventTimelineKind.Purchase,
                     string.IsNullOrWhiteSpace(gameEvent.ChangeSummary) ? "A locomotive was upgraded." : gameEvent.ChangeSummary,
-                    playerAction));
+                    playerAction,
+                    isPlayByPlay: true));
                 break;
 
             case "DeclinePurchase":
@@ -702,13 +716,15 @@ public class GameService
         EventTimelineKind eventKind,
         string? description,
         PlayerAction? playerAction = null,
-        int? actingPlayerIndexOverride = null)
+        int? actingPlayerIndexOverride = null,
+        bool isPlayByPlay = false)
     {
         var moveAction = playerAction as MoveAction;
         return new EventTimelineItem
         {
             EventId = eventId,
             EventKind = eventKind,
+            IsPlayByPlay = isPlayByPlay,
             Description = string.IsNullOrWhiteSpace(description)
                 ? gameEvent.EventKind
                 : description,
@@ -733,7 +749,7 @@ public class GameService
         {
             "PickDestination" => EventTimelineKind.NewDestination,
             "ChooseDestinationRegion" => EventTimelineKind.NewDestination,
-            "Declare" => EventTimelineKind.NewDestination,
+            "Declare" => EventTimelineKind.Declaration,
             "RollDice" => EventTimelineKind.DiceRoll,
             "Move" => EventTimelineKind.Move,
             "EndTurn" => EventTimelineKind.PayFees,
@@ -785,7 +801,8 @@ public class GameService
                 EventTimelineKind.CashAnnouncement,
                 $"Player {playerName} announces they have ${currentPlayer.Cash:N0}.",
                 playerAction,
-                playerIndex));
+                playerIndex,
+                isPlayByPlay: true));
         }
 
         return timelineItems;
@@ -854,16 +871,18 @@ public class GameService
                         EventTimelineKind.PayFees,
                         $"{roveringPlayerName} rovered {roveredPlayerName} for ${roverAmount:N0}.",
                         playerAction,
-                        roveringPlayerIndex >= 0 ? roveringPlayerIndex : gameEvent.ActingPlayerIndex));
+                        roveringPlayerIndex >= 0 ? roveringPlayerIndex : gameEvent.ActingPlayerIndex,
+                        isPlayByPlay: true));
                 }
 
                 timelineItems.Add(CreateTimelineItem(
                     gameEvent,
                     $"{gameEvent.RowKey}:rover-alternate:{playerIndex}",
                     EventTimelineKind.NewDestination,
-                    $"{roveredPlayerName} must go to to alternate destination {currentPlayer.DestinationCityName}.",
+                    $"{roveredPlayerName} must go to alternate destination {currentPlayer.DestinationCityName}.",
                     playerAction,
-                    playerIndex));
+                    playerIndex,
+                    isPlayByPlay: true));
             }
         }
 
@@ -925,11 +944,15 @@ public class GameService
         return $"{actingPlayerName} reached {arrivalResolution.DestinationCityName}.";
     }
 
-    private static string? DescribePayFees(GameEventEntity gameEvent, GameState? previousSnapshot)
+    /// <summary>
+    /// Describes the fees paid at the end of a turn. Bankruptcies and payments to another player are play-by-play;
+    /// bank-only fees are history only.
+    /// </summary>
+    private static (string? Description, bool IsPlayByPlay) DescribePayFees(GameEventEntity gameEvent, GameState? previousSnapshot)
     {
         if (previousSnapshot is null)
         {
-            return null;
+            return (null, false);
         }
 
         var actingPlayer = ResolveActingPlayer(previousSnapshot, gameEvent.ActingPlayerIndex);
@@ -937,17 +960,18 @@ public class GameService
 
         if (previousSnapshot.Turn.ForcedSale?.EliminationTriggered == true || actingPlayer?.IsBankrupt == true)
         {
-            return $"{actingPlayerName} could not cover the required fees and is now spectating.";
+            return ($"{actingPlayerName} could not cover the required fees and is now spectating.", true);
         }
 
-        var feeSummary = DescribeFeeSummary(previousSnapshot, gameEvent.ActingPlayerIndex);
+        var feeSummary = DescribeFeeSummary(previousSnapshot, gameEvent.ActingPlayerIndex, out var paidAnotherPlayer);
         return string.IsNullOrWhiteSpace(feeSummary)
-            ? null
-            : $"{actingPlayerName} paid {feeSummary}.";
+            ? (null, false)
+            : ($"{actingPlayerName} paid {feeSummary}.", paidAnotherPlayer);
     }
 
-    private static string DescribeFeeSummary(GameState snapshot, int? actingPlayerIndex)
+    private static string DescribeFeeSummary(GameState snapshot, int? actingPlayerIndex, out bool paidAnotherPlayer)
     {
+        paidAnotherPlayer = false;
         var resolvedPlayerIndex = actingPlayerIndex ?? snapshot.ActivePlayerIndex;
         if (resolvedPlayerIndex < 0 || resolvedPlayerIndex >= snapshot.Players.Count)
         {
@@ -996,6 +1020,7 @@ public class GameService
             feeParts.Add("$1,000 fees");
         }
 
+        paidAnotherPlayer = opposingOwnerRates.Count > 0;
         var opponentRate = snapshot.AllRailroadsSold ? 10000 : 5000;
         foreach (var ownerRate in opposingOwnerRates.OrderBy(entry => entry.Key))
         {
