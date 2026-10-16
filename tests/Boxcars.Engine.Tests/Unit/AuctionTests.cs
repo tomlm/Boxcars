@@ -217,7 +217,7 @@ public class AuctionTests
     }
 
     [Fact]
-    public void SubmitAuctionBid_NextBidMustIncreaseByTwoHundredFifty()
+    public void SubmitAuctionBid_NextBidMustUseFiveHundredDollarIncrements()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
         GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
@@ -234,10 +234,36 @@ public class AuctionTests
         engine.AuctionRailroad(rr);
         engine.SubmitAuctionBid(rr, bidderOne, rr.PurchasePrice / 2);
 
+        var minimumBid = engine.CurrentTurn.AuctionState!.CurrentBid + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement;
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            engine.SubmitAuctionBid(rr, bidderTwo, engine.CurrentTurn.AuctionState!.CurrentBid + 1));
+            engine.SubmitAuctionBid(rr, bidderTwo, minimumBid + 1));
 
-        Assert.Contains((engine.CurrentTurn.AuctionState!.CurrentBid + global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement).ToString(), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(minimumBid.ToString(), exception.Message, StringComparison.Ordinal);
+        Assert.Contains("increments of 500", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SubmitAuctionBid_AllowsMultipleOfFiveHundredDollarIncrement()
+    {
+        var (engine, random) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        GameEngineFixture.AdvanceToPhase(engine, random, TurnPhase.Purchase);
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var bidderOne = engine.Players[1];
+        var bidderTwo = engine.Players[2];
+        var rr = engine.Railroads[0];
+        rr.Owner = seller;
+        seller.OwnedRailroads.Add(rr);
+        bidderOne.Cash = 20_000;
+        bidderTwo.Cash = 20_000;
+
+        engine.AuctionRailroad(rr);
+        engine.SubmitAuctionBid(rr, bidderOne, rr.PurchasePrice / 2);
+
+        var bidAmount = engine.CurrentTurn.AuctionState!.CurrentBid + (2 * global::Boxcars.Engine.Domain.GameEngine.AuctionBidIncrement);
+        engine.SubmitAuctionBid(rr, bidderTwo, bidAmount);
+
+        Assert.Equal(bidAmount, engine.CurrentTurn.AuctionState!.CurrentBid);
     }
 
     [Fact]
