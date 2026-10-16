@@ -81,6 +81,9 @@ public enum RailroadOverlayValueKind
     Sale
 }
 
+/// <summary>A railroad in the purchase comparison row; each pick gets a new entry id so it animates in again.</summary>
+public sealed record ComparedRailroadCard(int EntryId, RailroadOverlayInfo Overlay);
+
 public sealed class RailroadOverlayMetricRow
 {
     public string Label { get; init; } = string.Empty;

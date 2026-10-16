@@ -1,0 +1,17 @@
+/* A newly picked railroad grows in at the front, pushing the others to the right. */
+.railroad-comparison-card {
+    overflow: hidden;
+    animation: railroad-comparison-enter 350ms ease-out;
+}
+
+@keyframes railroad-comparison-enter {
+    from {
+        max-width: 0;
+        opacity: 0;
+    }
+
+    to {
+        max-width: 40rem;
+        opacity: 1;
+    }
+}

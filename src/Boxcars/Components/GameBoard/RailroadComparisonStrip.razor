@@ -1,0 +1,22 @@
+@using Boxcars.Data
+
+@* Most recently viewed railroad first; scrolls sideways when the cards don't fit. *@
+<div class="d-flex align-center gap-2 flex-grow-1 overflow-x-auto">
+    @foreach (var card in Cards)
+    {
+        <div @key="card.EntryId"
+             class="railroad-comparison-card flex-shrink-0 cursor-pointer"
+             title="Select @card.Overlay.RailroadName"
+             @onclick="() => RailroadSelected.InvokeAsync(card.Overlay.RailroadIndex)">
+            <RailroadPurchaseOverlay Overlay="card.Overlay" Compact="true" />
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<ComparedRailroadCard> Cards { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<int> RailroadSelected { get; set; }
+}
