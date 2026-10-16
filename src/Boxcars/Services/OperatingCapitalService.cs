@@ -8,7 +8,7 @@ namespace Boxcars.Services;
 
 /// <summary>
 /// How much cash a player can safely spend: fees they owe this turn, fees opponents are about to pay them, and the
-/// operating reserve they should keep to reach their next destination given where they are and what their network reaches.
+/// operating reserve they should keep given where they are.
 /// Shared by purchase recommendations and bots.
 /// </summary>
 public static class OperatingCapitalService
@@ -90,73 +90,52 @@ public static class OperatingCapitalService
     }
 
     /// <summary>
-    /// Cash to keep on hand: an engine-based floor, the fees owed, and a buffer that grows with how likely the next
-    /// destination is in a far-away region the player's network doesn't reach.
+    /// Cash to keep on hand after buying: one opponent's fee if the player can leave their current city without
+    /// paying an opponent (on their own or an unowned railroad), two if every railroad there belongs to an opponent.
+    /// With default settings that's $5,000 / $10,000 while railroads are left and $10,000 / $20,000 once all are sold.
+    /// Fees already owed this turn are not included.
     /// </summary>
-    public static OperatingReserveProfile BuildOperatingReserve(
-        MapDefinition mapDefinition,
-        string currentRegionCode,
-        LocomotiveType locomotiveType,
-        NetworkCoverageSnapshot coverage,
-        int feesOwed)
+    public static OperatingReserve CalculateOperatingReserve(MapDefinition mapDefinition, GameState state, int playerIndex, GameSettings settings)
     {
         ArgumentNullException.ThrowIfNull(mapDefinition);
-        ArgumentNullException.ThrowIfNull(coverage);
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(settings);
 
-        var regionProbabilityLookup = BuildRegionProbabilityLookup(mapDefinition);
-        var ownedRegionAccessByCode = coverage.RegionAccess
-            .ToDictionary(region => region.RegionCode, region => region.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
-        var regionHopCounts = BuildRegionHopCounts(mapDefinition, currentRegionCode);
-        var engineRiskMultiplier = GetEngineRiskMultiplier(locomotiveType);
+        var opponentFee = RailBaronGameEngine.GetUnfriendlyFee(settings, state.AllRailroadsSold);
+        var atFriendlyCity = playerIndex < 0
+            || playerIndex >= state.Players.Count
+            || IsFriendlyCity(mapDefinition, state, playerIndex, state.Players[playerIndex].CurrentCityName);
 
-        var regionPressures = mapDefinition.Regions
-            .Where(region => !string.Equals(region.Code, currentRegionCode, StringComparison.OrdinalIgnoreCase))
-            .Select(region =>
-            {
-                var probabilityPercent = regionProbabilityLookup.TryGetValue(region.Code, out var probabilityValue)
-                    ? probabilityValue
-                    : 0m;
-                var ownedAccessPercent = ownedRegionAccessByCode.TryGetValue(region.Code, out var accessValue)
-                    ? accessValue
-                    : 0m;
-                var accessGapPercent = Math.Max(0m, 100m - ownedAccessPercent);
-                var regionHopCount = regionHopCounts.TryGetValue(region.Code, out var hopCount)
-                    ? hopCount
-                    : Math.Max(1, mapDefinition.Regions.Count);
-                var hopMultiplier = 1m + Math.Max(0, regionHopCount - 1) * 0.35m;
-                var weightedReservePressure = Math.Round(
-                    probabilityPercent * accessGapPercent / 100m * hopMultiplier,
-                    2,
-                    MidpointRounding.AwayFromZero);
+        return new OperatingReserve(atFriendlyCity ? opponentFee : 2 * opponentFee, atFriendlyCity, opponentFee);
+    }
 
-                return new OperatingReservePressure(
-                    region.Code,
-                    region.Name,
-                    probabilityPercent,
-                    ownedAccessPercent,
-                    accessGapPercent,
-                    regionHopCount,
-                    hopMultiplier,
-                    weightedReservePressure);
-            })
-            .OrderByDescending(pressure => pressure.WeightedReservePressure)
-            .ThenByDescending(pressure => pressure.ProbabilityPercent)
-            .ThenBy(pressure => pressure.RegionCode, StringComparer.OrdinalIgnoreCase)
+    /// <summary>
+    /// Whether a railroad serving the city lets the player leave without paying an opponent. Unknown cities count
+    /// as friendly so the reserve never jumps on missing map data.
+    /// </summary>
+    private static bool IsFriendlyCity(MapDefinition mapDefinition, GameState state, int playerIndex, string cityName)
+    {
+        var city = mapDefinition.Cities.FirstOrDefault(candidate => string.Equals(candidate.Name, cityName, StringComparison.OrdinalIgnoreCase));
+        var region = city is null
+            ? null
+            : mapDefinition.Regions.FirstOrDefault(candidate => string.Equals(candidate.Code, city.RegionCode, StringComparison.OrdinalIgnoreCase));
+        if (city?.MapDotIndex is not int dotIndex || region is null)
+        {
+            return true;
+        }
+
+        var servingRailroads = mapDefinition.RailroadRouteSegments
+            .Where(segment => (segment.StartRegionIndex == region.Index && segment.StartDotIndex == dotIndex)
+                || (segment.EndRegionIndex == region.Index && segment.EndDotIndex == dotIndex))
+            .Select(segment => segment.RailroadIndex)
+            .Distinct()
             .ToList();
 
-        var weightedReservePressure = regionPressures.Sum(pressure => pressure.WeightedReservePressure);
-        var engineReserveFloor = GetReserveFloor(locomotiveType);
-        var variableReserve = weightedReservePressure * 55m * engineRiskMultiplier;
-        var recommendedOperatingReserveCash = RoundUpToNearest(
-            decimal.ToInt32(Math.Ceiling(engineReserveFloor + feesOwed + variableReserve)),
-            500);
-
-        return new OperatingReserveProfile(
-            currentRegionCode,
-            recommendedOperatingReserveCash,
-            engineRiskMultiplier,
-            weightedReservePressure,
-            regionPressures);
+        return servingRailroads.Count == 0
+            || servingRailroads.Any(railroadIndex =>
+                !state.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex)
+                || ownerIndex is null
+                || ownerIndex.Value == playerIndex);
     }
 
     public static Dictionary<string, decimal> BuildRegionProbabilityLookup(MapDefinition mapDefinition)
@@ -202,108 +181,9 @@ public static class OperatingCapitalService
             }
             : FreightDotsPerTurn;
     }
-
-    private static decimal GetEngineRiskMultiplier(LocomotiveType locomotiveType)
-    {
-        return locomotiveType switch
-        {
-            LocomotiveType.Freight => 1.3m,
-            LocomotiveType.Express => 1.1m,
-            LocomotiveType.Superchief => 0.9m,
-            _ => 1m
-        };
-    }
-
-    private static int GetReserveFloor(LocomotiveType locomotiveType)
-    {
-        return locomotiveType switch
-        {
-            LocomotiveType.Freight => 10_000,
-            LocomotiveType.Express => 8_000,
-            LocomotiveType.Superchief => 6_000,
-            _ => 8_000
-        };
-    }
-
-    private static Dictionary<string, int> BuildRegionHopCounts(MapDefinition mapDefinition, string originRegionCode)
-    {
-        var regionCodeByIndex = mapDefinition.Regions
-            .ToDictionary(region => region.Index, region => region.Code);
-        var adjacencyByRegion = mapDefinition.Regions
-            .ToDictionary(
-                region => region.Code,
-                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                StringComparer.OrdinalIgnoreCase);
-
-        foreach (var segment in mapDefinition.RailroadRouteSegments)
-        {
-            if (!regionCodeByIndex.TryGetValue(segment.StartRegionIndex, out var startRegionCode)
-                || !regionCodeByIndex.TryGetValue(segment.EndRegionIndex, out var endRegionCode)
-                || string.Equals(startRegionCode, endRegionCode, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            adjacencyByRegion[startRegionCode].Add(endRegionCode);
-            adjacencyByRegion[endRegionCode].Add(startRegionCode);
-        }
-
-        var hopCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-        {
-            [originRegionCode] = 0
-        };
-        var queue = new Queue<string>();
-        queue.Enqueue(originRegionCode);
-
-        while (queue.Count > 0)
-        {
-            var regionCode = queue.Dequeue();
-            var currentHopCount = hopCounts[regionCode];
-
-            if (!adjacencyByRegion.TryGetValue(regionCode, out var neighbors))
-            {
-                continue;
-            }
-
-            foreach (var neighbor in neighbors)
-            {
-                if (hopCounts.ContainsKey(neighbor))
-                {
-                    continue;
-                }
-
-                hopCounts[neighbor] = currentHopCount + 1;
-                queue.Enqueue(neighbor);
-            }
-        }
-
-        return hopCounts;
-    }
-
-    private static int RoundUpToNearest(int amount, int increment)
-    {
-        if (amount <= 0)
-        {
-            return 0;
-        }
-
-        return ((amount + increment - 1) / increment) * increment;
-    }
 }
 
-public sealed record OperatingReserveProfile(
-    string CurrentRegionCode,
-    int RecommendedOperatingReserveCash,
-    decimal EngineRiskMultiplier,
-    decimal WeightedReservePressure,
-    IReadOnlyList<OperatingReservePressure> RegionPressures);
-
-public sealed record OperatingReservePressure(
-    string RegionCode,
-    string RegionName,
-    decimal ProbabilityPercent,
-    decimal OwnedAccessPercent,
-    decimal AccessGapPercent,
-    int RegionHopCount,
-    decimal HopMultiplier,
-    decimal WeightedReservePressure);
+/// <param name="Amount">Cash to keep after buying.</param>
+/// <param name="AtFriendlyCity">The player can leave their current city without paying an opponent.</param>
+/// <param name="OpponentFee">The fee for riding an opponent's railroad right now.</param>
+public sealed record OperatingReserve(int Amount, bool AtFriendlyCity, int OpponentFee);

@@ -66,8 +66,8 @@ public class PurchaseRecommendationServiceTests
     [Fact]
     public void BuildRecommendations_SkipsRailroadsThatWouldBreakTheOperatingReserve()
     {
-        // Freight keeps a $10,000 reserve on this one-region map; $35,000 can't cover the $30,000 big-city line and the reserve.
-        var result = BuildSet(new PurchaseFinances(35_000, 0, "RG", LocomotiveType.Freight, _ => 0));
+        // $35,000 can't cover the $30,000 big-city line and a $10,000 reserve.
+        var result = BuildSet(new PurchaseFinances(35_000, 0, 10_000, _ => 0));
 
         Assert.Equal(10_000, result.OperatingReserve);
         Assert.DoesNotContain(result.Recommendations, r => r.RailroadIndex == BigCity);
@@ -79,8 +79,8 @@ public class PurchaseRecommendationServiceTests
     [Fact]
     public void BuildRecommendations_FeesOwedReduceWhatCanBeSpent()
     {
-        var withoutFees = BuildSet(new PurchaseFinances(45_000, 0, "RG", LocomotiveType.Freight, _ => 0));
-        var withFees = BuildSet(new PurchaseFinances(45_000, 10_000, "RG", LocomotiveType.Freight, _ => 0));
+        var withoutFees = BuildSet(new PurchaseFinances(45_000, 0, 10_000, _ => 0));
+        var withFees = BuildSet(new PurchaseFinances(45_000, 10_000, 10_000, _ => 0));
 
         Assert.Contains(withoutFees.Recommendations, r => r.RailroadIndex == BigCity);
         Assert.DoesNotContain(withFees.Recommendations, r => r.RailroadIndex == BigCity);
@@ -91,7 +91,7 @@ public class PurchaseRecommendationServiceTests
     public void BuildRecommendations_IncomingFeesCountTowardWhatCanBeSpent()
     {
         // An opponent is about to ride the big-city line, so owning it brings in a $5,000 fee.
-        var result = BuildSet(new PurchaseFinances(35_000, 0, "RG", LocomotiveType.Freight, owned => owned.Contains(BigCity) ? 5_000 : 0));
+        var result = BuildSet(new PurchaseFinances(35_000, 0, 10_000, owned => owned.Contains(BigCity) ? 5_000 : 0));
 
         var access = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Access);
         Assert.Equal(BigCity, access.RailroadIndex);
@@ -101,7 +101,7 @@ public class PurchaseRecommendationServiceTests
     [Fact]
     public void BuildRecommendations_NothingFits_ReportsTheBudgetWithoutRecommendations()
     {
-        var result = BuildSet(new PurchaseFinances(5_000, 1_000, "RG", LocomotiveType.Freight, _ => 0));
+        var result = BuildSet(new PurchaseFinances(5_000, 1_000, 10_000, _ => 0));
 
         Assert.Empty(result.Recommendations);
         Assert.Equal(5_000, result.Cash);
@@ -141,6 +141,68 @@ public class PurchaseRecommendationServiceTests
         Assert.Equal(1_000 + 5_000, OperatingCapitalService.CalculateFeesOwed(state, 0, GameSettings.Default));
     }
 
+    [Theory]
+    // Bob owns RR1; RR2 is unowned, so Start is friendly: one opponent fee.
+    [InlineData(new[] { 1 }, false, 5_000, true)]
+    [InlineData(new[] { 1 }, true, 10_000, true)]
+    // Bob owns both railroads at Start: two opponent fees.
+    [InlineData(new[] { 1, 2 }, false, 10_000, false)]
+    [InlineData(new[] { 1, 2 }, true, 20_000, false)]
+    public void CalculateOperatingReserve_KeepsOneOpponentFeeAtAFriendlyCityAndTwoAtAnUnfriendlyOne(
+        int[] railroadsOwnedByOpponent, bool allRailroadsSold, int expectedReserve, bool expectedFriendly)
+    {
+        var state = CreateReserveState(allRailroadsSold, railroadsOwnedByOpponent.ToDictionary(index => index, _ => (int?)1));
+
+        var reserve = OperatingCapitalService.CalculateOperatingReserve(CreateReserveMap(), state, 0, GameSettings.Default);
+
+        Assert.Equal(expectedReserve, reserve.Amount);
+        Assert.Equal(expectedFriendly, reserve.AtFriendlyCity);
+    }
+
+    [Fact]
+    public void CalculateOperatingReserve_TheBuyersOwnRailroadMakesTheCityFriendly()
+    {
+        var state = CreateReserveState(allRailroadsSold: true, new Dictionary<int, int?> { [1] = 1, [2] = 0 });
+
+        var reserve = OperatingCapitalService.CalculateOperatingReserve(CreateReserveMap(), state, 0, GameSettings.Default);
+
+        Assert.True(reserve.AtFriendlyCity);
+        Assert.Equal(10_000, reserve.Amount);
+    }
+
+    private static GameState CreateReserveState(bool allRailroadsSold, Dictionary<int, int?> ownership)
+    {
+        return new GameState
+        {
+            Players = [new PlayerState { Name = "Buyer", CurrentCityName = "Start" }, new PlayerState { Name = "Bob" }],
+            RailroadOwnership = ownership,
+            AllRailroadsSold = allRailroadsSold
+        };
+    }
+
+    private static MapDefinition CreateReserveMap()
+    {
+        // Start (dot 0) is served by RR1 and RR2; RR3 runs elsewhere.
+        var map = new MapDefinition { Name = "Reserve Test Map", Version = "1.0" };
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 100d });
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 100d, PayoutIndex = 0, MapDotIndex = 0 });
+
+        foreach (var (railroad, start, end) in new[] { (1, 0, 1), (2, 2, 0), (3, 1, 2) })
+        {
+            map.Railroads.Add(new RailroadDefinition { Index = railroad, Name = $"Line {railroad}", ShortName = $"L{railroad}" });
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroad,
+                StartRegionIndex = 0,
+                StartDotIndex = start,
+                EndRegionIndex = 0,
+                EndDotIndex = end
+            });
+        }
+
+        return map;
+    }
+
     private static PlayerState CreateTraveler(string name, int[] railroadIndices, int routeProgressIndex)
     {
         return new PlayerState
@@ -157,7 +219,7 @@ public class PurchaseRecommendationServiceTests
 
     private static IReadOnlyList<PurchaseRecommendation> Build(int[]? candidateIndices = null)
     {
-        return BuildSet(new PurchaseFinances(200_000, 0, "RG", LocomotiveType.Freight, _ => 0), candidateIndices).Recommendations;
+        return BuildSet(new PurchaseFinances(200_000, 0, 0, _ => 0), candidateIndices).Recommendations;
     }
 
     private static PurchaseRecommendationSet BuildSet(PurchaseFinances finances, int[]? candidateIndices = null)

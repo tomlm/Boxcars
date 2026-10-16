@@ -717,8 +717,7 @@ public sealed class GameBoardStateMapper(
         var finances = new PurchaseFinances(
             cashAvailable,
             OperatingCapitalService.CalculateFeesOwed(state, buyerPlayerIndex, settings),
-            mapDefinition.Cities.FirstOrDefault(city => string.Equals(city.Name, buyer.CurrentCityName, StringComparison.OrdinalIgnoreCase))?.RegionCode ?? string.Empty,
-            ParseLocomotiveType(buyer.LocomotiveType),
+            OperatingCapitalService.CalculateOperatingReserve(mapDefinition, state, buyerPlayerIndex, settings).Amount,
             ownedRailroadIndices => OperatingCapitalService.EstimateIncomingFees(state, buyerPlayerIndex, ownedRailroadIndices, settings));
         var candidates = railroadOptions
             .Where(option => option.IsAffordable)
