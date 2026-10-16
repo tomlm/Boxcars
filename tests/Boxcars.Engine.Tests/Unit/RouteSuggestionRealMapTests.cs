@@ -1,8 +1,10 @@
 using System.Runtime.CompilerServices;
+using Boxcars.Data.Maps;
 using Boxcars.Engine.Data.Maps;
 using Boxcars.Engine.Domain;
 using Boxcars.Engine.Persistence;
 using Boxcars.Engine.Tests.TestDoubles;
+using Boxcars.Services.Maps;
 using Xunit.Abstractions;
 
 namespace Boxcars.Engine.Tests.Unit;
@@ -19,14 +21,7 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         // All railroads sold. El Cheapo (Superchief) is at Los Angeles with 1 dot of bonus left, has ridden
         // railroad 14 this turn, and is headed to Atlanta, which their SAL serves. The planner used to reject every
         // way into Atlanta and fall back to the fee-blind shortest path, reported as costing $0.
-        var engine = CreateEngine(
-            new Dictionary<string, string[]>
-            {
-                ["thermous"] = ["B&O", "SOU", "CB&Q", "T&P", "SP", "CRI&P", "WP", "GN"],
-                ["Balenco"] = ["MP", "C&NW", "L&N", "UP", "SLSF"],
-                ["El Cheapo"] = ["NYC", "PA", "B&M", "NYNH&H", "SAL", "N&W", "GM&O", "NP"],
-                ["Pooper"] = ["C&O", "ACL", "RF&P", "IC", "AT&SF", "CMStP&P", "D&RGW"]
-            });
+        var engine = CreateEngine(StandardGameOwners);
         var player = PlaceActivePlayer(engine, "El Cheapo", "Los Angeles", "Atlanta", LocomotiveType.Superchief, movementRemaining: 1);
         engine.CurrentTurn.RailroadsRiddenThisTurn.Add(14);
 
@@ -36,6 +31,83 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         // AT&SF (Pooper) for one turn, then thermous's SP, CRI&P and SOU for two: one owner per turn.
         Assert.Equal(FindCityNode(engine, "Atlanta"), route.NodeIds[^1]);
         Assert.Equal(30_000, route.TotalCost);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_KansasCityToColumbus_StaysOnOwnRailroadsUntilTheLastDot()
+    {
+        // thermous (Superchief) is on CRI&P west of Kansas City with 8 to move (white 3, red 5), headed to
+        // Columbus, which only opponents serve. The suggestion used to exhaust its search budget and fall back to
+        // the fee-blind shortest path, hopping onto Pooper's AT&SF for the last dot of the turn.
+        var engine = CreateEngine(StandardGameOwners);
+        var map = engine.MapDefinition;
+        var player = engine.Players.First(candidate => candidate.Name == "thermous");
+        // Track already ridden on this trip (from San Diego), which can't be ridden again.
+        var traveledSegmentKeys = new[]
+        {
+            "7:41|7:42|14", "7:42|7:68|14", "7:68|7:43|14", "7:43|7:35|21", "7:35|7:40|21", "7:40|7:39|21",
+            "7:39|7:38|21", "7:38|7:37|21", "7:37|7:36|21", "7:36|7:17|21", "7:17|7:15|21", "7:15|7:14|21",
+            "7:14|7:7|21", "7:7|7:8|21", "7:8|7:9|21", "7:9|7:2|21", "7:2|4:68|23", "4:68|4:66|11"
+        }.Select(NormalizeSegmentKey).ToList();
+
+        RailroadOwnershipCategory Ownership(int railroadIndex)
+        {
+            var owner = engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner;
+            return owner is null ? RailroadOwnershipCategory.Public
+                : owner == player ? RailroadOwnershipCategory.Friendly
+                : RailroadOwnershipCategory.Unfriendly;
+        }
+
+        var service = new MapRouteService();
+        var suggestion = service.FindCheapestSuggestion(
+            service.BuildContext(map),
+            new RouteSuggestionRequest
+            {
+                PlayerId = player.Name,
+                StartNodeId = "4:66",
+                DestinationNodeId = FindCityNode(engine, "Columbus"),
+                MovementType = PlayerMovementType.ThreeDie,
+                MovementCapacity = 8,
+                AverageFutureMovement = 10.5,
+                TraveledSegmentKeys = traveledSegmentKeys,
+                PlayerColor = "blue",
+                ResolveRailroadOwnership = Ownership,
+                ResolveRailroadFee = railroadIndex => Ownership(railroadIndex) == RailroadOwnershipCategory.Unfriendly ? 10_000 : 1_000,
+                ResolveRailroadOwnerPlayerIndex = railroadIndex => engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner?.Index,
+                CurrentWhiteDiceMovement = 3,
+                CurrentFixedBonusMovement = 5,
+                BonusOutRequiresWhiteDiceArrival = true
+            });
+
+        output.WriteLine($"{suggestion.Status} {suggestion.Message} {suggestion.Segments.Count} dots, cost {suggestion.TotalCost:N0}");
+        foreach (var segment in suggestion.Segments)
+        {
+            output.WriteLine($"  {segment.FromNodeId}->{segment.ToNodeId} {engine.Railroads.First(railroad => railroad.Index == segment.RailroadIndex).ShortName} ({segment.OwnershipCategory})");
+        }
+
+        // All 8 dots this turn stay on thermous's own railroads; the only opponent fee is the final dot into Columbus.
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Empty(suggestion.Message);
+        Assert.All(suggestion.Segments.Take(8), segment => Assert.Equal(RailroadOwnershipCategory.Friendly, segment.OwnershipCategory));
+        Assert.Single(suggestion.Segments, segment => segment.OwnershipCategory == RailroadOwnershipCategory.Unfriendly);
+        Assert.Equal(12_000, suggestion.TotalCost);
+    }
+
+    // Owners in the game both positions come from (all railroads sold).
+    private static readonly Dictionary<string, string[]> StandardGameOwners = new()
+    {
+        ["thermous"] = ["B&O", "SOU", "CB&Q", "T&P", "SP", "CRI&P", "WP", "GN"],
+        ["Balenco"] = ["MP", "C&NW", "L&N", "UP", "SLSF"],
+        ["El Cheapo"] = ["NYC", "PA", "B&M", "NYNH&H", "SAL", "N&W", "GM&O", "NP"],
+        ["Pooper"] = ["C&O", "ACL", "RF&P", "IC", "AT&SF", "CMStP&P", "D&RGW"]
+    };
+
+    private static string NormalizeSegmentKey(string selectedSegmentKey)
+    {
+        var parts = selectedSegmentKey.Split('|');
+        return string.Compare(parts[0], parts[1], StringComparison.OrdinalIgnoreCase) <= 0
+            ? $"{parts[0]}-{parts[1]}:{parts[2]}"
+            : $"{parts[1]}-{parts[0]}:{parts[2]}";
     }
 
     private void WriteRoute(Boxcars.Engine.Domain.GameEngine engine, Player player, Route route)

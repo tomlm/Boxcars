@@ -10,7 +10,6 @@ public sealed class MapRouteService
     public const int RoutePlanningMaximumSuggestedSegments = 100;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
-    private const int RoutePlanningMaximumExploredStates = 500000;
     private const int RoutePlanningMaximumSearchMilliseconds = 3000;
     private const int PublicFeeGroup = -1;
     private const int PrivateFeeGroup = -2;
@@ -173,9 +172,10 @@ public sealed class MapRouteService
 
     private static RouteSearchBudget CreateRouteSearchBudget(RouteSuggestionRequest request)
     {
+        // The search is limited by time; a state limit applies only when the caller sets one.
         var maximumExploredStates = request.MaximumExploredStates > 0
             ? request.MaximumExploredStates
-            : RoutePlanningMaximumExploredStates;
+            : int.MaxValue;
         var maximumSearchMilliseconds = request.MaximumSearchMilliseconds > 0
             ? request.MaximumSearchMilliseconds
             : RoutePlanningMaximumSearchMilliseconds;
@@ -274,8 +274,7 @@ public sealed class MapRouteService
         // Fee groups already owed this turn (e.g. the railroad the player arrived on before moving on with bonus
         // movement). Riding them again before the turn ends costs nothing extra.
         var feeGroupsOwedThisTurn = request.RailroadsRiddenThisTurn
-            .Select(railroadIndex => ResolveFeeGroup(request, railroadIndex))
-            .ToHashSet();
+            .Aggregate(0L, (paid, railroadIndex) => paid | ResolveFeeGroupFlag(request, railroadIndex));
         var friendlyDestinationReachableNodes = BuildReachableNodesForRoutePlanning(
             context,
             request.DestinationNodeId,
@@ -297,7 +296,8 @@ public sealed class MapRouteService
         var startState = new RouteSuggestionState(
             request.StartNodeId,
             LastRailroadIndex: -1,
-            PointsUsedInCurrentTurn: 0);
+            PointsUsedInCurrentTurn: 0,
+            PaidFeeGroups: feeGroupsOwedThisTurn);
         var priorityQueue = new PriorityQueue<RouteSuggestionState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>();
         var bestCosts = new Dictionary<RouteSuggestionState, RouteSuggestionCostKey>();
         var previous = new Dictionary<RouteSuggestionState, RouteSuggestionPrevious>();
@@ -488,31 +488,30 @@ public sealed class MapRouteService
                 var isFirstEdge = state.LastRailroadIndex < 0;
                 var exhaustedTurnCapacity = !isFirstEdge && state.PointsUsedInCurrentTurn >= currentTurnMovementCapacity;
                 var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
-                var switchedRailroad = !isFirstEdge && state.LastRailroadIndex != edge.RailroadIndex;
                 var hostileExitPenalty = CalculateHostileExitPenalty(request, outgoingEdges, edge, friendlyDestinationReachableNodes);
 
                 // Rail Baron cost model: each turn pays one public fee, one private fee, and one fee per opponent
-                // owner whose railroad it uses, so switching between railroads in the same fee group (e.g. two
-                // public railroads) is free. Ordering: fees first, then directness
-                // (RoutePlanningDirectnessPenaltyPerSegment per segment) via WeightedCost, so a shorter route wins
-                // whenever it doesn't cost an extra fee. Switching railroads does NOT end the turn or reset movement points.
+                // owner whose railroad it uses, however often the route leaves and rejoins that group. Ordering: fees
+                // first, then directness (RoutePlanningDirectnessPenaltyPerSegment per segment) via WeightedCost, so a
+                // shorter route wins whenever it doesn't cost an extra fee. Switching railroads does NOT end the turn
+                // or reset movement points.
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var isInCurrentTurn = isFirstEdge || (stateCost.TotalTurns <= 1 && !exhaustedTurnCapacity);
-                var feeAlreadyOwed = isInCurrentTurn && feeGroupsOwedThisTurn.Contains(ResolveFeeGroup(request, edge.RailroadIndex));
-                var additionalCost = !feeAlreadyOwed && ChargesFee(request, edge.RailroadIndex, state.LastRailroadIndex, startsNewTurn, switchedRailroad)
-                    ? costPerTurn
-                    : 0;
+                var feeGroupFlag = ResolveFeeGroupFlag(request, edge.RailroadIndex);
+                var paidFeeGroups = exhaustedTurnCapacity ? 0L : state.PaidFeeGroups;
+                var additionalCost = (paidFeeGroups & feeGroupFlag) == 0 ? costPerTurn : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
 
                 var nextState = new RouteSuggestionState(
                     edge.ToNodeId,
                     edge.RailroadIndex,
-                    nextPointsUsed);
+                    nextPointsUsed,
+                    paidFeeGroups | feeGroupFlag);
                 var candidateCost = new RouteSuggestionCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty,
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
-                    TotalSegments: stateCost.TotalSegments + 1);
+                    TotalSegments: stateCost.TotalSegments + 1,
+                    UnfriendlySegments: stateCost.UnfriendlySegments + (ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 1 : 0));
 
                 if (bestCosts.TryGetValue(nextState, out var existingCost)
                     && !IsBetterCost(candidateCost, existingCost))
@@ -617,6 +616,16 @@ public sealed class MapRouteService
 
         var currentTurnProgress = GetCurrentTurnProgress(orderedEntries, firstTurnMovementCapacity, futureTurnMovementCapacity);
         if (currentTurnProgress is null || currentTurnProgress.Value.ReachedDestinationThisTurn)
+        {
+            return true;
+        }
+
+        // The route already continues from this turn's endpoint; it only needs another search when that
+        // continuation rides track used this turn (which the player can't ride again).
+        var consumedThisTurn = currentTurnProgress.Value.ConsumedSegmentKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (orderedEntries
+            .Skip(currentTurnProgress.Value.ConsumedSegmentKeys.Count)
+            .All(entry => !consumedThisTurn.Contains(entry.Edge.SegmentKey)))
         {
             return true;
         }
@@ -1059,11 +1068,12 @@ public sealed class MapRouteService
                 var costPerTurn = ResolveRailroadFee(request, edge.RailroadIndex, ownershipCategory);
                 var exhaustedTurnCapacity = state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
                 var startsNewTurn = exhaustedTurnCapacity;
-                var switchedRailroad = state.LastRailroadIndex != edge.RailroadIndex;
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var additionalCost = (startsNewTurn || switchedRailroad) ? costPerTurn : 0;
+                var feeGroupFlag = ResolveFeeGroupFlag(request, edge.RailroadIndex);
+                var paidFeeGroups = startsNewTurn ? 0L : state.PaidFeeGroups;
+                var additionalCost = (paidFeeGroups & feeGroupFlag) == 0 ? costPerTurn : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
-                var nextState = new RouteSuggestionState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
+                var nextState = new RouteSuggestionState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed, paidFeeGroups | feeGroupFlag);
                 var candidateCost = new RouteSuggestionCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + additionalCost,
@@ -1242,14 +1252,19 @@ public sealed class MapRouteService
     }
 
     /// <summary>
-    /// A fee is charged when a turn starts or when the route switches into a different fee group, so switching
-    /// between railroads in the same group (e.g. two public railroads) is free. Returning to a group used earlier
-    /// in the same turn is charged again; that over-estimate is rare and keeps the search state small.
+    /// A bit per fee group, so the groups already paid in a turn fit in the search state: public, private, then one
+    /// per opponent; opponents with no known owner index get a bit by railroad.
     /// </summary>
-    private static bool ChargesFee(RouteSuggestionRequest request, int railroadIndex, int previousRailroadIndex, bool startsNewTurn, bool switchedRailroad)
+    private static long ResolveFeeGroupFlag(RouteSuggestionRequest request, int railroadIndex)
     {
-        return startsNewTurn
-            || (switchedRailroad && ResolveFeeGroup(request, railroadIndex) != ResolveFeeGroup(request, previousRailroadIndex));
+        var feeGroup = ResolveFeeGroup(request, railroadIndex);
+        return feeGroup switch
+        {
+            PublicFeeGroup => 1L,
+            PrivateFeeGroup => 1L << 1,
+            >= 0 and < UnknownOwnerFeeGroupOffset => 1L << (2 + (feeGroup % 8)),
+            _ => 1L << (10 + (railroadIndex % 54))
+        };
     }
 
     private static HashSet<string> BuildReachableNodesForRoutePlanning(
@@ -1533,6 +1548,12 @@ public sealed class MapRouteService
         if (candidate.TotalTurns != current.TotalTurns)
         {
             return candidate.TotalTurns < current.TotalTurns;
+        }
+
+        // Same cost and turns: stay on friendly railroads as long as possible.
+        if (candidate.UnfriendlySegments != current.UnfriendlySegments)
+        {
+            return candidate.UnfriendlySegments < current.UnfriendlySegments;
         }
 
         return candidate.TotalSegments < current.TotalSegments;
@@ -2034,9 +2055,11 @@ public sealed class MapRouteService
     }
 }
 
-public readonly record struct RouteSuggestionState(string NodeId, int LastRailroadIndex, int PointsUsedInCurrentTurn);
+/// <param name="PaidFeeGroups">Fee groups already paid in the current turn (see <c>ResolveFeeGroupFlag</c>).</param>
+public readonly record struct RouteSuggestionState(string NodeId, int LastRailroadIndex, int PointsUsedInCurrentTurn, long PaidFeeGroups = 0);
 
-public readonly record struct RouteSuggestionCostKey(int TotalCost, int WeightedCost, int TotalTurns, int TotalSegments);
+/// <param name="UnfriendlySegments">Dots ridden on opponents' railroads; fewer wins a tie.</param>
+public readonly record struct RouteSuggestionCostKey(int TotalCost, int WeightedCost, int TotalTurns, int TotalSegments, int UnfriendlySegments = 0);
 
 public readonly record struct RouteSuggestionDestinationChoice(
     RouteSuggestionState DestinationState,
