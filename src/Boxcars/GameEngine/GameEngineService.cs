@@ -1994,7 +1994,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             PickDestinationAction => DescribeDestinationPick(actorName, action, snapshotAfterAction),
             DeclareAction => DescribeDeclaration(actorName, action, snapshotAfterAction),
             ChooseDestinationRegionAction chooseDestinationRegionAction => DescribeDestinationRegionChoice(actorName, chooseDestinationRegionAction, snapshotAfterAction),
-            RollDiceAction => $"{actorName} rolled {FormatDiceRoll(snapshotAfterAction.Turn.DiceResult, snapshotAfterAction.Turn.BonusRollAvailable, action as RollDiceAction)}",
+            RollDiceAction rollDiceAction => DiceRollDescriptions.DescribeRoll(
+                actorName,
+                ResolveRolledDice(snapshotAfterAction.Turn.DiceResult, rollDiceAction),
+                snapshotAfterAction.Turn.BonusRollAvailable),
             ChooseRouteAction => string.Empty,
             MoveAction moveAction => DescribeMove(actorName, moveAction, snapshotBeforeAction),
             PurchaseRailroadAction purchaseAction => $"{actorName} bought the {GetRailroadDisplayName(FindRailroad(gameEngine, purchaseAction.RailroadIndex))} railroad for {FormatCurrency(ResolveAmountPaid(purchaseAction.AmountPaid, FindRailroad(gameEngine, purchaseAction.RailroadIndex).PurchasePrice))}",
@@ -2009,19 +2012,20 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 snapshotBeforeAction,
                 snapshotAfterAction,
                 gameEngine,
-                $"{actorName} bid {FormatCurrency(bidAction.AmountBid)} for the {GetRailroadDisplayName(FindRailroad(gameEngine, bidAction.RailroadIndex))} railroad"),
+                // The auction start already names the railroad, so bids, passes and drop-outs don't repeat it.
+                $"{actorName} bid {FormatCurrency(bidAction.AmountBid)}"),
             AuctionPassAction passAction => DescribeAuctionAction(
                 passAction,
                 snapshotBeforeAction,
                 snapshotAfterAction,
                 gameEngine,
-                $"{actorName} passed in the auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, passAction.RailroadIndex))} railroad"),
+                $"{actorName} passed"),
             AuctionDropOutAction dropOutAction => DescribeAuctionAction(
                 dropOutAction,
                 snapshotBeforeAction,
                 snapshotAfterAction,
                 gameEngine,
-                $"{actorName} dropped out of the auction for the {GetRailroadDisplayName(FindRailroad(gameEngine, dropOutAction.RailroadIndex))} railroad"),
+                $"{actorName} dropped out"),
             SellRailroadAction sellAction => DescribeRailroadSale(actorName, sellAction, gameEngine),
             BuyEngineAction buyEngineAction => $"{actorName} bought a {buyEngineAction.EngineType} for {FormatCurrency(buyEngineAction.AmountPaid)}",
             DeclinePurchaseAction => $"{actorName} declined the purchase opportunity",
@@ -2406,40 +2410,17 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return amount.ToString("$#,0", CultureInfo.InvariantCulture);
     }
 
-    private static string FormatDiceRoll(Boxcars.Engine.Persistence.DiceResultState? diceResult, bool bonusRollAvailable, RollDiceAction? fallbackAction = null)
+    /// <summary>The dice in the snapshot, or the dice recorded on the action when the snapshot doesn't have them.</summary>
+    private static Boxcars.Engine.Persistence.DiceResultState? ResolveRolledDice(Boxcars.Engine.Persistence.DiceResultState? diceResult, RollDiceAction action)
     {
-        if (diceResult is { RedDie: not null, WhiteDice.Length: >= 2 }
-            && diceResult.WhiteDice.All(value => value == 0))
+        if (diceResult?.WhiteDice is { Length: >= 2 } whiteDice && whiteDice.Any(value => value > 0))
         {
-            return string.Concat("Bonus (", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")");
+            return diceResult;
         }
 
-        if (diceResult?.WhiteDice is { Length: >= 2 })
-        {
-            var whiteDiceText = string.Join("+", diceResult.WhiteDice.Select(value => value.ToString(CultureInfo.InvariantCulture)));
-            if (bonusRollAvailable && !diceResult.RedDie.HasValue)
-            {
-                return string.Concat(whiteDiceText, "+(Bonus)");
-            }
-
-            return diceResult.RedDie.HasValue
-                ? string.Concat(whiteDiceText, "+(", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")")
-                : whiteDiceText;
-        }
-
-        if (fallbackAction is not null && fallbackAction.WhiteDieOne > 0 && fallbackAction.WhiteDieTwo > 0)
-        {
-            var whiteDiceText = string.Concat(
-                fallbackAction.WhiteDieOne.ToString(CultureInfo.InvariantCulture),
-                "+",
-                fallbackAction.WhiteDieTwo.ToString(CultureInfo.InvariantCulture));
-
-            return fallbackAction.RedDie.HasValue
-                ? string.Concat(whiteDiceText, "+(", fallbackAction.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")")
-                : whiteDiceText;
-        }
-
-        return "0";
+        return action.WhiteDieOne > 0 && action.WhiteDieTwo > 0
+            ? new Boxcars.Engine.Persistence.DiceResultState { WhiteDice = [action.WhiteDieOne, action.WhiteDieTwo], RedDie = action.RedDie }
+            : diceResult;
     }
 
     private static void ValidateGameId(string gameId)
