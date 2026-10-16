@@ -254,6 +254,26 @@ public class RouteSuggestionTests
     }
 
     [Fact]
+    public void SuggestRouteForPlayer_PrefersDirectRouteAcrossPublicRailroadsOverLongerSingleRailroad()
+    {
+        var engine = CreatePublicSwitchPlanningEngine();
+        var player = engine.Players[0];
+
+        player.LocomotiveType = LocomotiveType.Superchief;
+        player.CurrentNodeId = "0:0";
+        player.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        player.TripOriginCity = player.CurrentCity;
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Both routes fit in one turn and every railroad is public, so the turn pays one public fee either way.
+        Assert.Equal([1, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(["0:0", "0:1", "0:4"], route.NodeIds);
+        Assert.Equal(1000, route.TotalCost);
+    }
+
+    [Fact]
     public void SuggestRouteForPlayer_PrefersFriendlyExitWhenHostileRailroadCanBeLeftForDestinationPath()
     {
         var engine = CreateHostileExitPlanningEngine();
@@ -418,6 +438,26 @@ public class RouteSuggestionTests
                 HomeSwapping = false,
                 PublicFee = 3000,
                 PrivateFee = 1000
+            });
+    }
+
+    private static Boxcars.Engine.Domain.GameEngine CreatePublicSwitchPlanningEngine()
+    {
+        var random = new FixedRandomProvider();
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(0);
+        random.QueueWeightedDraw(1);
+
+        return new Boxcars.Engine.Domain.GameEngine(
+            CreatePublicSwitchPlanningMap(),
+            GameEngineFixture.DefaultPlayerNames,
+            random,
+            GameSettings.Default with
+            {
+                HomeCityChoice = false,
+                HomeSwapping = false,
+                PublicFee = 1000
             });
     }
 
@@ -658,6 +698,52 @@ public class RouteSuggestionTests
             EndRegionIndex = 0,
             EndDotIndex = 6
         });
+
+        return map;
+    }
+
+    private static MapDefinition CreatePublicSwitchPlanningMap()
+    {
+        // 0 --[RR1]--> 1 --[RR2]--> 4           (direct, 2 segments, switches public railroads)
+        // 0 --[RR3]--> 2 --[RR3]--> 3 --[RR3]--> 4 (detour, 3 segments, one public railroad)
+        var map = new MapDefinition
+        {
+            Name = "PublicSwitchPlanningMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 4 });
+
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "First Public", ShortName = "FP" });
+        map.Railroads.Add(new RailroadDefinition { Index = 2, Name = "Second Public", ShortName = "SP" });
+        map.Railroads.Add(new RailroadDefinition { Index = 3, Name = "Single Detour", ShortName = "SD" });
+
+        for (var dot = 0; dot <= 4; dot++)
+        {
+            map.TrainDots.Add(new TrainDot
+            {
+                Id = $"0:{dot}",
+                RegionIndex = 0,
+                DotIndex = dot,
+                X = dot * 10,
+                Y = dot * 10
+            });
+        }
+
+        foreach (var (railroadIndex, startDot, endDot) in new[] { (1, 0, 1), (2, 1, 4), (3, 0, 2), (3, 2, 3), (3, 3, 4) })
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroadIndex,
+                StartRegionIndex = 0,
+                StartDotIndex = startDot,
+                EndRegionIndex = 0,
+                EndDotIndex = endDot
+            });
+        }
 
         return map;
     }
