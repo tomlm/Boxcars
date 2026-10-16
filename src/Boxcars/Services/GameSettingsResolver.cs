@@ -46,6 +46,11 @@ public sealed class GameSettingsResolver
             throw new InvalidOperationException("Engine upgrade prices must be greater than zero.");
         }
 
+        if (settings.MinimumRailroadPrice < 0)
+        {
+            throw new InvalidOperationException("Minimum railroad price can't be negative.");
+        }
+
         if (!Enum.IsDefined(settings.StartEngine))
         {
             throw new InvalidOperationException("Start engine must be Freight, Express, or Superchief.");
@@ -93,6 +98,24 @@ public sealed class GameSettingsResolver
             return value.Value;
         }
 
+        // Like ResolveInt, but zero is valid (no floor).
+        int ResolveNonNegativeInt(int? value, int defaultValue, string name)
+        {
+            if (!value.HasValue)
+            {
+                missingValueCount++;
+                return defaultValue;
+            }
+
+            if (value.Value < 0)
+            {
+                warnings.Add($"Persisted setting '{name}' had invalid value '{value.Value}'. Using default.");
+                return defaultValue;
+            }
+
+            return value.Value;
+        }
+
         bool ResolveBool(bool? value, bool defaultValue)
         {
             if (!value.HasValue)
@@ -120,10 +143,11 @@ public sealed class GameSettingsResolver
             StartEngine = startEngine,
             SuperchiefPrice = ResolveInt(gameEntity.SuperchiefPrice, defaults.SuperchiefPrice, nameof(GameEntity.SuperchiefPrice)),
             ExpressPrice = ResolveInt(gameEntity.ExpressPrice, defaults.ExpressPrice, nameof(GameEntity.ExpressPrice)),
+            MinimumRailroadPrice = ResolveNonNegativeInt(gameEntity.MinimumRailroadPrice, defaults.MinimumRailroadPrice, nameof(GameEntity.MinimumRailroadPrice)),
             SchemaVersion = gameEntity.SettingsSchemaVersion.GetValueOrDefault(defaults.SchemaVersion)
         });
 
-        var totalSettingCount = 14;
+        var totalSettingCount = 15;
         var source = missingValueCount switch
         {
             <= 0 => "Persisted",
@@ -154,6 +178,7 @@ public sealed class GameSettingsResolver
         gameEntity.StartEngine = normalized.StartEngine.ToString();
         gameEntity.SuperchiefPrice = normalized.SuperchiefPrice;
         gameEntity.ExpressPrice = normalized.ExpressPrice;
+        gameEntity.MinimumRailroadPrice = normalized.MinimumRailroadPrice;
         gameEntity.SettingsSchemaVersion = normalized.SchemaVersion;
     }
 }

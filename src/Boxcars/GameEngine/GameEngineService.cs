@@ -912,7 +912,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             throw new InvalidOperationException("The game map definition has not been initialized yet.");
         }
 
-        return MapProbabilityService.ApplyCityProbabilities(_mapDefinition, gameEntity.CityProbabilityOverrides, gameEntity.RailroadPriceOverrides);
+        return MapProbabilityService.ApplyCityProbabilities(_mapDefinition, gameEntity.CityProbabilityOverrides, gameEntity.RailroadPriceOverrides, gameEntity.MinimumRailroadPrice);
     }
 
     private async Task<GameEventEntity> PersistEventAsync(

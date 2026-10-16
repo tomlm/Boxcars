@@ -6,30 +6,47 @@ namespace Boxcars.Engine.Tests.Unit;
 
 public class MapRailroadPricingServiceTests
 {
+    [Theory]
+    // Income and price pairs published in RBP reports for U21.
+    [InlineData(16_852d, 63_000)]
+    [InlineData(14_470d, 54_000)]
+    [InlineData(638d, 2_000)]
+    [InlineData(560d, 2_000)]
+    [InlineData(277d, 1_000)]
+    [InlineData(59d, 0)]
+    public void PriceFromIncome_MatchesRbpPriceRule(double income, int expectedPrice)
+    {
+        Assert.Equal(expectedPrice, MapRailroadPricingService.PriceFromIncome(income));
+    }
+
     [Fact]
-    public void CalculatePurchasePrices_ReturnsPositiveRoundedPricesForEveryRailroad()
+    public void CalculatePurchasePrices_PricesEachRailroadFromItsIncomeAboveTheMinimum()
     {
         var map = CreateProbabilityShiftPricingMap();
 
-        var prices = MapRailroadPricingService.CalculatePurchasePrices(map);
+        var prices = MapRailroadPricingService.CalculatePurchasePrices(map, minimumRailroadPrice: 4_000);
+        var incomes = MapRailroadPricingService.CalculateEstimatedIncome(map);
 
         Assert.Equal(map.Railroads.Count, prices.Count);
-        Assert.All(prices.Values, price =>
+        Assert.All(map.Railroads, railroad =>
         {
-            Assert.InRange(price, 2_000, 65_000);
-            Assert.Equal(0, price % 500);
+            Assert.Equal(Math.Max(4_000, MapRailroadPricingService.PriceFromIncome(incomes[railroad.Index])), prices[railroad.Index]);
+            Assert.Equal(0, prices[railroad.Index] % 500);
         });
     }
 
     [Fact]
-    public void CalculatePurchasePrices_ScalesResultsIntoExpectedGameRange()
+    public void CalculatePurchasePrices_MinimumRailroadPriceIsAFloor()
     {
-        var map = CreateProbabilityShiftPricingMap();
+        var map = CreateMonopolySpurPricingMap();
 
-        var prices = MapRailroadPricingService.CalculatePurchasePrices(map).Values.OrderBy(price => price).ToArray();
+        var unfloored = MapRailroadPricingService.CalculatePurchasePrices(map, minimumRailroadPrice: 0);
+        var floor = unfloored.Values.Max();
+        var floored = MapRailroadPricingService.CalculatePurchasePrices(map, minimumRailroadPrice: floor);
 
-        Assert.Equal(2_000, prices.First());
-        Assert.InRange(prices.Last(), 50_000, 65_000);
+        // Raising the floor to the most expensive railroad lifts every cheaper one to it.
+        Assert.Contains(unfloored.Values, price => price < floor);
+        Assert.All(floored.Values, price => Assert.Equal(floor, price));
     }
 
     [Fact]

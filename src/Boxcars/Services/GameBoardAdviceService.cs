@@ -49,7 +49,7 @@ public sealed class GameBoardAdviceService(
 
         var playerStates = await gameService.GetGameSeatStatesAsync(gameId, cancellationToken);
         var gameState = await gameEngine.GetCurrentStateAsync(gameId, cancellationToken);
-        var mapDefinition = await LoadMapDefinitionAsync(game.MapFileName, game.CityProbabilityOverrides, game.RailroadPriceOverrides, cancellationToken);
+        var mapDefinition = await LoadMapDefinitionAsync(game.MapFileName, game.CityProbabilityOverrides, game.RailroadPriceOverrides, game.MinimumRailroadPrice, cancellationToken);
         var settings = new GameSettingsResolver().Resolve(game).Settings;
 
         // Resolve the controlled player's strategy text from their profile
@@ -649,6 +649,7 @@ public sealed class GameBoardAdviceService(
         string? mapFileName,
         IReadOnlyList<CityProbabilityOverride> cityProbabilityOverrides,
         IReadOnlyList<RailroadPriceOverride>? railroadPriceOverrides,
+        int? minimumRailroadPrice,
         CancellationToken cancellationToken)
     {
         var resolvedMapFileName = string.IsNullOrWhiteSpace(mapFileName)
@@ -669,7 +670,7 @@ public sealed class GameBoardAdviceService(
             throw new InvalidOperationException($"Unable to load map '{resolvedMapFileName}': {errors}");
         }
 
-        return MapProbabilityService.ApplyCityProbabilities(loadResult.Definition!, cityProbabilityOverrides, railroadPriceOverrides);
+        return MapProbabilityService.ApplyCityProbabilities(loadResult.Definition!, cityProbabilityOverrides, railroadPriceOverrides, minimumRailroadPrice);
     }
 
     private static string ResolveTripStartCityName(PlayerStateSnapshot player)

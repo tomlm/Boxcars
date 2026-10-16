@@ -21,7 +21,8 @@ public static class GameSettingsTestData
         LocomotiveType? startEngine = null,
         int? superchiefPrice = null,
         int? expressPrice = null,
-        int? schemaVersion = null)
+        int? schemaVersion = null,
+        int? minimumRailroadPrice = null)
     {
         var defaults = GameSettings.Default;
 
@@ -41,6 +42,7 @@ public static class GameSettingsTestData
             StartEngine = startEngine ?? defaults.StartEngine,
             SuperchiefPrice = superchiefPrice ?? defaults.SuperchiefPrice,
             ExpressPrice = expressPrice ?? defaults.ExpressPrice,
+            MinimumRailroadPrice = minimumRailroadPrice ?? defaults.MinimumRailroadPrice,
             SchemaVersion = schemaVersion ?? defaults.SchemaVersion
         };
     }
@@ -73,6 +75,7 @@ public static class GameSettingsTestData
             StartEngine = resolvedSettings.StartEngine.ToString(),
             SuperchiefPrice = resolvedSettings.SuperchiefPrice,
             ExpressPrice = resolvedSettings.ExpressPrice,
+            MinimumRailroadPrice = resolvedSettings.MinimumRailroadPrice,
             SettingsSchemaVersion = resolvedSettings.SchemaVersion
         };
     }

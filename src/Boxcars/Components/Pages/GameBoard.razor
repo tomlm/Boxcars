@@ -2001,7 +2001,7 @@ else
         var loadResult = await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream, cancellationToken);
         if (loadResult.Succeeded)
         {
-            var mapDefinition = MapProbabilityService.ApplyCityProbabilities(loadResult.Definition!, _game?.CityProbabilityOverrides, _game?.RailroadPriceOverrides);
+            var mapDefinition = MapProbabilityService.ApplyCityProbabilities(loadResult.Definition!, _game?.CityProbabilityOverrides, _game?.RailroadPriceOverrides, _game?.MinimumRailroadPrice);
             _playerBoardMapDefinition = mapDefinition;
             _mapAnalysisReport = MapAnalysisService.BuildReport(mapDefinition);
         }

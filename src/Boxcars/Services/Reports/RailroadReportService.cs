@@ -1,7 +1,6 @@
 using System.Globalization;
 using Boxcars.Data;
 using Boxcars.Engine.Data.Maps;
-using Boxcars.Engine.Persistence;
 using Boxcars.Services.Maps;
 
 namespace Boxcars.Services.Reports;
@@ -31,20 +30,18 @@ public sealed class RailroadReportService(
 
         var mapDefinition = await LoadMapDefinitionAsync(game.Entity, cancellationToken);
         var report = mapAnalysisService.BuildReport(mapDefinition);
-        var income = new RailroadIncomeEstimate(
-            mapAnalysisService.BuildExpectedFeePaymentsPerTurn(mapDefinition),
-            game.Entity?.UnfriendlyFee1 ?? GameSettings.Default.UnfriendlyFee1,
-            game.Entity?.UnfriendlyFee2 ?? GameSettings.Default.UnfriendlyFee2);
-        return TextPdfWriter.Write(BuildReportLines(report, income, DateTimeOffset.UtcNow));
+        var estimatedIncome = MapRailroadPricingService.CalculateEstimatedIncome(mapDefinition);
+        return TextPdfWriter.Write(BuildReportLines(report, estimatedIncome, DateTimeOffset.UtcNow));
     }
 
+    /// <param name="estimatedIncome">The pricing model's estimated income by railroad index (the INCOME column).</param>
     public static IReadOnlyList<string> BuildReportLines(
         MapAnalysisReport report,
-        RailroadIncomeEstimate income,
+        IReadOnlyDictionary<int, double> estimatedIncome,
         DateTimeOffset generatedAtUtc)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentNullException.ThrowIfNull(income);
+        ArgumentNullException.ThrowIfNull(estimatedIncome);
 
         var lines = new List<string>
         {
@@ -52,7 +49,7 @@ public sealed class RailroadReportService(
             string.Empty
         };
 
-        AddRailroadSummary(lines, report.RailroadRows, income);
+        AddRailroadSummary(lines, report.RailroadRows, estimatedIncome);
         lines.Add(string.Empty);
         AddCityAccess(lines, report.CityAccessRows);
         lines.Add(string.Empty);
@@ -69,19 +66,17 @@ public sealed class RailroadReportService(
     private static void AddRailroadSummary(
         List<string> lines,
         IReadOnlyList<RailroadAnalysisRow> railroads,
-        RailroadIncomeEstimate income)
+        IReadOnlyDictionary<int, double> estimatedIncome)
     {
-        decimal Pays(RailroadAnalysisRow railroad) => income.ExpectedPaymentsPerTurn.GetValueOrDefault(railroad.RailroadIndex) * income.GameTurns;
-        string Income(decimal payments) => FormatCurrency((int)Math.Round(payments * income.AverageFee));
+        int Income(RailroadAnalysisRow railroad) => (int)Math.Round(estimatedIncome.GetValueOrDefault(railroad.RailroadIndex));
 
         lines.Add(Center("HANDY REFERENCE/SUMMARY CHART"));
-        lines.Add(FormattableString.Invariant($"{"RR",-8}{"FULL NAME",-RailroadNameWidth}{"PRICE",9}{"#CITY",6}{"SERV%",7}{"MONOP%",8}{"RRCON",7}{"PAYS",6}{"INCOME",11}"));
+        lines.Add(FormattableString.Invariant($"{"RR",-8}{"FULL NAME",-RailroadNameWidth}{"PRICE",9}{"#CITY",6}{"SERV%",7}{"MONOP%",8}{"RRCON",7}{"INCOME",9}"));
 
         foreach (var railroad in railroads)
         {
-            var pays = Pays(railroad);
             lines.Add(FormattableString.Invariant(
-                $"{Truncate(railroad.RailroadCode, 7),-8}{Truncate(railroad.FullName, RailroadNameWidth - 1),-RailroadNameWidth}{FormatCurrency(railroad.PurchasePrice),9}{railroad.CitiesServedCount,6}{railroad.ServicePercentage,7:N2}{railroad.MonopolyPercentage,8:N2}{railroad.ConnectionCount,7}{pays,6:N1}{Income(pays),11}"));
+                $"{Truncate(railroad.RailroadCode, 7),-8}{Truncate(railroad.FullName, RailroadNameWidth - 1),-RailroadNameWidth}{FormatCurrency(railroad.PurchasePrice),9}{railroad.CitiesServedCount,6}{railroad.ServicePercentage,7:N2}{railroad.MonopolyPercentage,8:N2}{railroad.ConnectionCount,7}{FormatCurrency(Income(railroad)),9}"));
         }
 
         if (railroads.Count == 0)
@@ -89,13 +84,10 @@ public sealed class RailroadReportService(
             return;
         }
 
-        var averagePays = railroads.Average(Pays);
         lines.Add(FormattableString.Invariant(
-            $"{string.Empty,-8}{$"{railroads.Count} RR Averages",-RailroadNameWidth}{FormatCurrency((int)Math.Round(railroads.Average(railroad => railroad.PurchasePrice))),9}{railroads.Average(railroad => railroad.CitiesServedCount),6:N1}{railroads.Average(railroad => railroad.ServicePercentage),7:N2}{railroads.Average(railroad => railroad.MonopolyPercentage),8:N2}{railroads.Average(railroad => railroad.ConnectionCount),7:N1}{averagePays,6:N1}{Income(averagePays),11}"));
-        lines.Add(FormattableString.Invariant(
-            $"PAYS: expected fee payments in an average {income.GameTurns}-turn game (one per rider turn on the RR)."));
-        lines.Add(FormattableString.Invariant(
-            $"INCOME: PAYS x {FormatCurrency(income.AverageFee)} (half the game at {FormatCurrency(income.FeeBeforeAllSold)}, half at {FormatCurrency(income.FeeAfterAllSold)} after all RRs sell)."));
+            $"{string.Empty,-8}{$"{railroads.Count} RR Averages",-RailroadNameWidth}{FormatCurrency((int)Math.Round(railroads.Average(railroad => railroad.PurchasePrice))),9}{railroads.Average(railroad => railroad.CitiesServedCount),6:N1}{railroads.Average(railroad => railroad.ServicePercentage),7:N2}{railroads.Average(railroad => railroad.MonopolyPercentage),8:N2}{railroads.Average(railroad => railroad.ConnectionCount),7:N1}{FormatCurrency((int)Math.Round(railroads.Average(Income))),9}"));
+        lines.Add("INCOME: estimated income from destinations served and routes carried. Computed prices");
+        lines.Add("        are INCOME x 3.75 rounded down to $500, never below the game's minimum railroad price.");
     }
 
     private static void AddCityAccess(List<string> lines, IReadOnlyList<CityAccessRow> cities)
@@ -164,14 +156,13 @@ public sealed class RailroadReportService(
             throw new InvalidOperationException($"Unable to load map '{resolvedMapFileName}': {string.Join("; ", loadResult.Errors)}");
         }
 
-        return MapProbabilityService.ApplyCityProbabilities(loadResult.Definition, cityProbabilityOverrides, railroadPriceOverrides);
+        return MapProbabilityService.ApplyCityProbabilities(loadResult.Definition, cityProbabilityOverrides, railroadPriceOverrides, game?.MinimumRailroadPrice);
     }
 
     private static string FormatCurrency(int value)
     {
         return string.Concat("$", value.ToString("N0", CultureInfo.InvariantCulture));
     }
-
 
     private static string Truncate(string value, int maxLength)
     {
@@ -180,28 +171,9 @@ public sealed class RailroadReportService(
 
     private static string Center(string text)
     {
-        const int reportWidth = 92;
+        const int reportWidth = 84;
         return text.Length >= reportWidth
             ? text
             : new string(' ', (reportWidth - text.Length) / 2) + text;
     }
-}
-
-/// <summary>
-/// Potential fee income for a railroad's owner over a typical game: expected payments per turn of rider travel,
-/// over <see cref="GameTurns"/> turns, with half the game at each fee.
-/// </summary>
-/// <param name="ExpectedPaymentsPerTurn">Expected fee payments to each railroad's owner per turn of travel, by railroad index.</param>
-/// <param name="FeeBeforeAllSold">Fee per payment while railroads are still for sale.</param>
-/// <param name="FeeAfterAllSold">Fee per payment once every railroad has been sold.</param>
-public sealed record RailroadIncomeEstimate(
-    IReadOnlyDictionary<int, decimal> ExpectedPaymentsPerTurn,
-    int FeeBeforeAllSold,
-    int FeeAfterAllSold)
-{
-    public const int AverageGameTurns = 80;
-
-    public int GameTurns { get; init; } = AverageGameTurns;
-
-    public int AverageFee => (FeeBeforeAllSold + FeeAfterAllSold) / 2;
 }

@@ -1,72 +1,80 @@
 using Boxcars.Engine.Data.Maps;
+using Boxcars.Engine.Persistence;
 
 namespace Boxcars.Services.Maps;
 
+/// <summary>
+/// Prices railroads the way Rail Baron Player (RBP) does: a railroad's price is 3.75 times its estimated income,
+/// rounded down to a multiple of $500. RBP's income formula isn't published; this estimates it from the two things
+/// that best reproduce RBP's published incomes on U21 (R^2 ~= 0.8 across four RBP reports):
+/// <list type="bullet">
+/// <item>destination share: each city's destination probability, split evenly among the railroads serving it;</item>
+/// <item>route share: over every trip, weighted by its probability, the fraction of its shortest route on the railroad.</item>
+/// </list>
+/// </summary>
 public static class MapRailroadPricingService
 {
-    private const double RentalRate = 0.15d;
-    private const int CoverageAdjacencyDepth = 1;
-    private const double NearShortestPathFactor = 1.10d;
-    // Each score is scaled against the best railroad on the map, so these weights are shares of the total.
-    // Tuned so computed prices track the original U21 prices (r = 0.91 versus 0.85 previously); choke points
-    // (routes a railroad monopolizes) still add value but no longer dominate the price of small spur lines.
-    private const double ExpectedRentalIncomeWeight = 0.35d;
-    private const double CoverageWeight = 0.55d;
-    private const double ChokePointWeight = 0.10d;
-    private const int MinimumRailroadPrice = 2_000;
-    private const int MaximumRailroadPrice = 65_000;
+    // Income = weight x component, least-squares fit to RBP's INCOME column across four U21 reports (112 railroads).
+    private const double DestinationShareIncomeWeight = 88_325d;
+    private const double RouteShareIncomeWeight = 43_375d;
+    private const double PricePerDollarOfIncome = 3.75d;
+    private const int PriceIncrement = 500;
 
-    public static IReadOnlyDictionary<int, int> CalculatePurchasePrices(MapDefinition mapDefinition)
+    /// <param name="minimumRailroadPrice">Floor for every computed price (the game's minimum railroad price setting).</param>
+    public static IReadOnlyDictionary<int, int> CalculatePurchasePrices(MapDefinition mapDefinition, int? minimumRailroadPrice = null)
     {
         ArgumentNullException.ThrowIfNull(mapDefinition);
 
-        if (mapDefinition.Railroads.Count == 0)
+        var floor = Math.Max(0, minimumRailroadPrice ?? GameSettings.Default.MinimumRailroadPrice);
+        return CalculateEstimatedIncome(mapDefinition).ToDictionary(
+            pair => pair.Key,
+            pair => Math.Max(floor, PriceFromIncome(pair.Value)));
+    }
+
+    /// <summary>RBP's price rule: 3.75 times income, rounded down to a multiple of $500.</summary>
+    public static int PriceFromIncome(double income)
+    {
+        return (int)(Math.Floor(Math.Max(0d, income) * PricePerDollarOfIncome / PriceIncrement) * PriceIncrement);
+    }
+
+    public static IReadOnlyDictionary<int, double> CalculateEstimatedIncome(MapDefinition mapDefinition)
+    {
+        return CalculateIncomeComponents(mapDefinition).ToDictionary(
+            pair => pair.Key,
+            pair => (DestinationShareIncomeWeight * pair.Value.DestinationShare) + (RouteShareIncomeWeight * pair.Value.RouteShare));
+    }
+
+    public static IReadOnlyDictionary<int, RailroadIncomeComponents> CalculateIncomeComponents(MapDefinition mapDefinition)
+    {
+        ArgumentNullException.ThrowIfNull(mapDefinition);
+
+        var cityEntries = BuildCityEntries(mapDefinition);
+        var servingRailroadsByNode = BuildServingRailroadsByNode(mapDefinition);
+        var destinationShares = mapDefinition.Railroads.ToDictionary(railroad => railroad.Index, _ => 0d);
+        var routeShares = mapDefinition.Railroads.ToDictionary(railroad => railroad.Index, _ => 0d);
+
+        foreach (var city in cityEntries)
         {
-            return new Dictionary<int, int>();
+            if (!servingRailroadsByNode.TryGetValue(city.NodeId, out var servingRailroads) || servingRailroads.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var railroadIndex in servingRailroads.Where(destinationShares.ContainsKey))
+            {
+                destinationShares[railroadIndex] += city.ProbabilityFraction / servingRailroads.Count;
+            }
         }
 
-        var componentsByRailroad = CalculateScoreComponents(mapDefinition);
-        var maxExpectedRentalIncome = componentsByRailroad.Values.Max(components => components.ExpectedRentalIncome);
-        var maxCoverage = componentsByRailroad.Values.Max(components => components.Coverage);
-        var maxChokePoint = componentsByRailroad.Values.Max(components => components.ChokePoint);
-
-        var rawScoresByRailroad = componentsByRailroad.ToDictionary(
-            pair => pair.Key,
-            pair =>
-                (ExpectedRentalIncomeWeight * NormalizeToMax(pair.Value.ExpectedRentalIncome, maxExpectedRentalIncome))
-                + (CoverageWeight * NormalizeToMax(pair.Value.Coverage, maxCoverage))
-                + (ChokePointWeight * NormalizeToMax(pair.Value.ChokePoint, maxChokePoint)));
-
-        return ScaleScoresToPriceBand(rawScoresByRailroad);
-    }
-
-    private static double NormalizeToMax(double value, double maxValue)
-    {
-        return maxValue > 0d && value > 0d
-            ? value / maxValue
-            : 0d;
-    }
-
-    private static Dictionary<int, RailroadScoreComponents> CalculateScoreComponents(MapDefinition mapDefinition)
-    {
         var routeService = new MapRouteService();
         var routeContext = routeService.BuildContext(mapDefinition);
-        var cityEntries = BuildCityEntries(mapDefinition);
-        var railroadNodeSets = BuildRailroadNodeSets(mapDefinition);
-        var railroadCoverageScores = BuildCoverageScores(cityEntries, railroadNodeSets, routeContext.Adjacency);
-        var expectedRentalIncomeScores = mapDefinition.Railroads.ToDictionary(railroad => railroad.Index, _ => 0d);
-        var chokePointScores = mapDefinition.Railroads.ToDictionary(railroad => railroad.Index, _ => 0d);
-
+        var totalTripProbability = 0d;
         foreach (var origin in cityEntries)
         {
             foreach (var destination in cityEntries)
             {
-                if (string.Equals(origin.NodeId, destination.NodeId, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (!mapDefinition.TryGetPayout(origin.PayoutIndex, destination.PayoutIndex, out var payout))
+                var tripProbability = origin.ProbabilityFraction * destination.ProbabilityFraction;
+                if (tripProbability <= 0d || string.Equals(origin.NodeId, destination.NodeId, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -77,22 +85,12 @@ public static class MapRailroadPricingService
                     continue;
                 }
 
-                var tripProbability = origin.ProbabilityFraction * destination.ProbabilityFraction;
-                var totalDistance = shortestSelection.Segments.Count;
-                var nearShortestDistanceLimit = (int)Math.Ceiling(totalDistance * NearShortestPathFactor);
-
+                totalTripProbability += tripProbability;
                 foreach (var railroadGroup in shortestSelection.Segments.GroupBy(segment => segment.RailroadIndex))
                 {
-                    var routeFractionOnRailroad = (double)railroadGroup.Count() / totalDistance;
-                    expectedRentalIncomeScores[railroadGroup.Key] += payout * RentalRate * routeFractionOnRailroad * tripProbability;
-                }
-
-                foreach (var railroad in mapDefinition.Railroads)
-                {
-                    var distanceWithoutRailroad = FindShortestDistanceWithoutRailroad(routeContext.Adjacency, origin.NodeId, destination.NodeId, railroad.Index);
-                    if (distanceWithoutRailroad is null || distanceWithoutRailroad.Value > nearShortestDistanceLimit)
+                    if (routeShares.ContainsKey(railroadGroup.Key))
                     {
-                        chokePointScores[railroad.Index] += tripProbability * 100d;
+                        routeShares[railroadGroup.Key] += tripProbability * railroadGroup.Count() / shortestSelection.Segments.Count;
                     }
                 }
             }
@@ -100,10 +98,33 @@ public static class MapRailroadPricingService
 
         return mapDefinition.Railroads.ToDictionary(
             railroad => railroad.Index,
-            railroad => new RailroadScoreComponents(
-                expectedRentalIncomeScores[railroad.Index],
-                railroadCoverageScores.GetValueOrDefault(railroad.Index),
-                chokePointScores[railroad.Index]));
+            railroad => new RailroadIncomeComponents(
+                destinationShares[railroad.Index],
+                totalTripProbability > 0d ? routeShares[railroad.Index] / totalTripProbability : 0d));
+    }
+
+    private static Dictionary<string, HashSet<int>> BuildServingRailroadsByNode(MapDefinition mapDefinition)
+    {
+        var servingRailroads = new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var segment in mapDefinition.RailroadRouteSegments)
+        {
+            foreach (var nodeId in new[]
+                     {
+                         MapRouteService.NodeKey(segment.StartRegionIndex, segment.StartDotIndex),
+                         MapRouteService.NodeKey(segment.EndRegionIndex, segment.EndDotIndex)
+                     })
+            {
+                if (!servingRailroads.TryGetValue(nodeId, out var railroads))
+                {
+                    railroads = [];
+                    servingRailroads[nodeId] = railroads;
+                }
+
+                railroads.Add(segment.RailroadIndex);
+            }
+        }
+
+        return servingRailroads;
     }
 
     private static List<PricedCityEntry> BuildCityEntries(MapDefinition mapDefinition)
@@ -113,7 +134,6 @@ public static class MapRailroadPricingService
 
         return mapDefinition.Cities
             .Where(city => city.MapDotIndex.HasValue
-                && city.PayoutIndex.HasValue
                 && regionIndexByCode.ContainsKey(city.RegionCode)
                 && probabilitiesByCityKey.ContainsKey(BuildCityKey(city.RegionCode, city.Name)))
             .Select(city =>
@@ -121,7 +141,6 @@ public static class MapRailroadPricingService
                 var regionIndex = regionIndexByCode[city.RegionCode];
                 return new PricedCityEntry(
                     MapRouteService.NodeKey(regionIndex, city.MapDotIndex!.Value),
-                    city.PayoutIndex!.Value,
                     probabilitiesByCityKey[BuildCityKey(city.RegionCode, city.Name)]);
             })
             .ToList();
@@ -212,157 +231,16 @@ public static class MapRailroadPricingService
             StringComparer.OrdinalIgnoreCase);
     }
 
-    private static Dictionary<int, HashSet<string>> BuildRailroadNodeSets(MapDefinition mapDefinition)
-    {
-        var railroadNodeSets = mapDefinition.Railroads.ToDictionary(
-            railroad => railroad.Index,
-            _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-
-        foreach (var segment in mapDefinition.RailroadRouteSegments)
-        {
-            railroadNodeSets[segment.RailroadIndex].Add(MapRouteService.NodeKey(segment.StartRegionIndex, segment.StartDotIndex));
-            railroadNodeSets[segment.RailroadIndex].Add(MapRouteService.NodeKey(segment.EndRegionIndex, segment.EndDotIndex));
-        }
-
-        return railroadNodeSets;
-    }
-
-    private static Dictionary<int, double> BuildCoverageScores(
-        IReadOnlyList<PricedCityEntry> cityEntries,
-        IReadOnlyDictionary<int, HashSet<string>> railroadNodeSets,
-        IReadOnlyDictionary<string, List<RouteGraphEdge>> adjacency)
-    {
-        var coverageScores = railroadNodeSets.ToDictionary(pair => pair.Key, _ => 0d);
-
-        foreach (var railroadNodeSet in railroadNodeSets)
-        {
-            var coveredNodes = ExpandNodes(railroadNodeSet.Value, adjacency, CoverageAdjacencyDepth);
-            coverageScores[railroadNodeSet.Key] = cityEntries
-                .Where(city => coveredNodes.Contains(city.NodeId))
-                .Sum(city => city.ProbabilityFraction * 100d);
-        }
-
-        return coverageScores;
-    }
-
-    private static HashSet<string> ExpandNodes(
-        IReadOnlySet<string> startingNodes,
-        IReadOnlyDictionary<string, List<RouteGraphEdge>> adjacency,
-        int maxDepth)
-    {
-        var visited = new HashSet<string>(startingNodes, StringComparer.OrdinalIgnoreCase);
-        var queue = new Queue<(string NodeId, int Depth)>(startingNodes.Select(nodeId => (nodeId, 0)));
-
-        while (queue.Count > 0)
-        {
-            var (nodeId, depth) = queue.Dequeue();
-            if (depth >= maxDepth || !adjacency.TryGetValue(nodeId, out var edges))
-            {
-                continue;
-            }
-
-            foreach (var edge in edges)
-            {
-                if (!visited.Add(edge.ToNodeId))
-                {
-                    continue;
-                }
-
-                queue.Enqueue((edge.ToNodeId, depth + 1));
-            }
-        }
-
-        return visited;
-    }
-
-    private static int? FindShortestDistanceWithoutRailroad(
-        IReadOnlyDictionary<string, List<RouteGraphEdge>> adjacency,
-        string startNodeId,
-        string destinationNodeId,
-        int blockedRailroadIndex)
-    {
-        if (string.Equals(startNodeId, destinationNodeId, StringComparison.OrdinalIgnoreCase))
-        {
-            return 0;
-        }
-
-        var queue = new Queue<(string NodeId, int Distance)>();
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { startNodeId };
-        queue.Enqueue((startNodeId, 0));
-
-        while (queue.Count > 0)
-        {
-            var (nodeId, distance) = queue.Dequeue();
-            if (!adjacency.TryGetValue(nodeId, out var edges))
-            {
-                continue;
-            }
-
-            foreach (var edge in edges)
-            {
-                if (edge.RailroadIndex == blockedRailroadIndex || !visited.Add(edge.ToNodeId))
-                {
-                    continue;
-                }
-
-                var nextDistance = distance + 1;
-                if (string.Equals(edge.ToNodeId, destinationNodeId, StringComparison.OrdinalIgnoreCase))
-                {
-                    return nextDistance;
-                }
-
-                queue.Enqueue((edge.ToNodeId, nextDistance));
-            }
-        }
-
-        return null;
-    }
-
-    private static Dictionary<int, int> ScaleScoresToPriceBand(IReadOnlyDictionary<int, double> rawScoresByRailroad)
-    {
-        if (rawScoresByRailroad.Count == 0)
-        {
-            return new Dictionary<int, int>();
-        }
-
-        var minScore = rawScoresByRailroad.Values.Min();
-        var maxScore = rawScoresByRailroad.Values.Max();
-
-        if (Math.Abs(maxScore - minScore) < 0.000001d)
-        {
-            return rawScoresByRailroad.ToDictionary(
-                pair => pair.Key,
-                _ => MinimumRailroadPrice);
-        }
-
-        return rawScoresByRailroad.ToDictionary(
-            pair => pair.Key,
-            pair =>
-            {
-                var normalizedScore = (pair.Value - minScore) / (maxScore - minScore);
-                var scaledValue = MinimumRailroadPrice + (normalizedScore * (MaximumRailroadPrice - MinimumRailroadPrice));
-                return RoundPrice(scaledValue);
-            });
-    }
-
-    private static int RoundPrice(double value)
-    {
-        var rounded = (int)(Math.Round(Math.Max(MinimumRailroadPrice, value) / 500d, MidpointRounding.AwayFromZero) * 500d);
-        return Math.Clamp(rounded, MinimumRailroadPrice, MaximumRailroadPrice);
-    }
-
     private static string BuildCityKey(string regionCode, string cityName)
     {
         return string.Concat(regionCode.Trim(), "::", cityName.Trim());
     }
 
-    private sealed record RailroadScoreComponents(
-        double ExpectedRentalIncome,
-        double Coverage,
-        double ChokePoint);
-
     private sealed record PricedCityEntry(
         string NodeId,
-        int PayoutIndex,
         double ProbabilityFraction);
 }
+
+/// <param name="DestinationShare">Sum of each served city's destination probability divided by its number of railroads (0-1).</param>
+/// <param name="RouteShare">Probability-weighted fraction of every trip's shortest route on the railroad (0-1).</param>
+public sealed record RailroadIncomeComponents(double DestinationShare, double RouteShare);
