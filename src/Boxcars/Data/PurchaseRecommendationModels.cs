@@ -36,12 +36,12 @@ public sealed record PurchaseCandidate(int RailroadIndex, string RailroadName, i
 public sealed record RecommendationOpponent(string Name, int Cash, IReadOnlyCollection<int> OwnedRailroadIndices);
 
 /// <summary>What the buyer can safely spend.</summary>
+/// <param name="OperatingReserve">Cash to keep after buying (see <c>OperatingCapitalService.CalculateOperatingReserve</c>).</param>
 /// <param name="EstimateIncomingFees">Fees opponents are about to pay for a given set of owned railroads.</param>
 public sealed record PurchaseFinances(
     int Cash,
     int FeesOwed,
-    string CurrentRegionCode,
-    Boxcars.Engine.Domain.LocomotiveType LocomotiveType,
+    int OperatingReserve,
     Func<IReadOnlyCollection<int>, int> EstimateIncomingFees);
 
 /// <summary>A recommendation ready for the purchase bar, with the option key that selects it.</summary>
