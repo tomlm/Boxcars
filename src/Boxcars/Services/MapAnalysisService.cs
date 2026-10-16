@@ -7,6 +7,9 @@ namespace Boxcars.Services;
 
 public sealed class MapAnalysisService(MapRouteService mapRouteService)
 {
+    // Average roll of two dice.
+    public const int AverageTwoDieDotsPerTurn = 7;
+
     public MapAnalysisReport BuildReport(MapDefinition mapDefinition)
     {
         ArgumentNullException.ThrowIfNull(mapDefinition);
@@ -26,6 +29,63 @@ public sealed class MapAnalysisService(MapRouteService mapRouteService)
             AveragePayoff = BuildAveragePayoff(mapDefinition, cityEntries),
             AveragePayoffPerDot = BuildAveragePayoffPerDot(mapDefinition, cityEntries, mapContext)
         };
+    }
+
+    /// <summary>
+    /// Expected number of times a rider pays a railroad's owner per turn of travel. Fees are charged once per turn
+    /// per railroad ridden, so each trip's shortest route is split into turns of <paramref name="dotsPerTurn"/> and
+    /// every turn that uses the railroad counts as one payment. Trips are weighted by their draw probability, and
+    /// the total is divided by the expected number of turns travelled.
+    /// </summary>
+    public IReadOnlyDictionary<int, decimal> BuildExpectedFeePaymentsPerTurn(MapDefinition mapDefinition, int dotsPerTurn = AverageTwoDieDotsPerTurn)
+    {
+        ArgumentNullException.ThrowIfNull(mapDefinition);
+        ArgumentOutOfRangeException.ThrowIfLessThan(dotsPerTurn, 1);
+
+        var cityEntries = BuildCityEntries(mapDefinition);
+        var cityWeights = BuildExactCityWeights(mapDefinition, cityEntries);
+        var mapContext = mapRouteService.BuildContext(mapDefinition);
+        var weightedPayments = mapDefinition.Railroads.ToDictionary(railroad => railroad.Index, _ => 0m);
+        var weightedTurns = 0m;
+
+        foreach (var origin in cityEntries)
+        {
+            foreach (var destination in cityEntries)
+            {
+                var tripWeight = cityWeights.GetValueOrDefault(BuildCityKey(origin.RegionCode, origin.Name))
+                    * cityWeights.GetValueOrDefault(BuildCityKey(destination.RegionCode, destination.Name));
+                if (tripWeight <= 0m
+                    || string.Equals(origin.NodeId, destination.NodeId, StringComparison.OrdinalIgnoreCase)
+                    || !mapContext.Adjacency.ContainsKey(origin.NodeId)
+                    || !mapContext.Adjacency.ContainsKey(destination.NodeId))
+                {
+                    continue;
+                }
+
+                var selection = mapRouteService.FindShortestSelection(mapContext, origin.NodeId, destination.NodeId);
+                if (selection is null || selection.Segments.Count == 0)
+                {
+                    continue;
+                }
+
+                weightedTurns += tripWeight * (((selection.Segments.Count - 1) / dotsPerTurn) + 1);
+                var paymentsByRailroad = selection.Segments
+                    .Select((segment, segmentIndex) => (segment.RailroadIndex, Turn: segmentIndex / dotsPerTurn))
+                    .Distinct()
+                    .GroupBy(turnOnRailroad => turnOnRailroad.RailroadIndex);
+                foreach (var payments in paymentsByRailroad)
+                {
+                    if (weightedPayments.ContainsKey(payments.Key))
+                    {
+                        weightedPayments[payments.Key] += tripWeight * payments.Count();
+                    }
+                }
+            }
+        }
+
+        return weightedPayments.ToDictionary(
+            pair => pair.Key,
+            pair => weightedTurns > 0m ? pair.Value / weightedTurns : 0m);
     }
 
     private static List<RailroadAnalysisRow> BuildRailroadRows(
