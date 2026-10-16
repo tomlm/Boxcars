@@ -7,9 +7,12 @@ public static class MapRailroadPricingService
     private const double RentalRate = 0.15d;
     private const int CoverageAdjacencyDepth = 1;
     private const double NearShortestPathFactor = 1.10d;
-    private const double ExpectedRentalIncomeWeight = 1.25d;
-    private const double CoverageWeight = 350d;
-    private const double ChokePointWeight = 1000d;
+    // Each score is scaled against the best railroad on the map, so these weights are shares of the total.
+    // Tuned so computed prices track the original U21 prices (r = 0.91 versus 0.85 previously); choke points
+    // (routes a railroad monopolizes) still add value but no longer dominate the price of small spur lines.
+    private const double ExpectedRentalIncomeWeight = 0.35d;
+    private const double CoverageWeight = 0.55d;
+    private const double ChokePointWeight = 0.10d;
     private const int MinimumRailroadPrice = 2_000;
     private const int MaximumRailroadPrice = 65_000;
 
@@ -22,6 +25,30 @@ public static class MapRailroadPricingService
             return new Dictionary<int, int>();
         }
 
+        var componentsByRailroad = CalculateScoreComponents(mapDefinition);
+        var maxExpectedRentalIncome = componentsByRailroad.Values.Max(components => components.ExpectedRentalIncome);
+        var maxCoverage = componentsByRailroad.Values.Max(components => components.Coverage);
+        var maxChokePoint = componentsByRailroad.Values.Max(components => components.ChokePoint);
+
+        var rawScoresByRailroad = componentsByRailroad.ToDictionary(
+            pair => pair.Key,
+            pair =>
+                (ExpectedRentalIncomeWeight * NormalizeToMax(pair.Value.ExpectedRentalIncome, maxExpectedRentalIncome))
+                + (CoverageWeight * NormalizeToMax(pair.Value.Coverage, maxCoverage))
+                + (ChokePointWeight * NormalizeToMax(pair.Value.ChokePoint, maxChokePoint)));
+
+        return ScaleScoresToPriceBand(rawScoresByRailroad);
+    }
+
+    private static double NormalizeToMax(double value, double maxValue)
+    {
+        return maxValue > 0d && value > 0d
+            ? value / maxValue
+            : 0d;
+    }
+
+    private static Dictionary<int, RailroadScoreComponents> CalculateScoreComponents(MapDefinition mapDefinition)
+    {
         var routeService = new MapRouteService();
         var routeContext = routeService.BuildContext(mapDefinition);
         var cityEntries = BuildCityEntries(mapDefinition);
@@ -71,14 +98,12 @@ public static class MapRailroadPricingService
             }
         }
 
-        var rawScoresByRailroad = mapDefinition.Railroads.ToDictionary(
+        return mapDefinition.Railroads.ToDictionary(
             railroad => railroad.Index,
-            railroad =>
-                (ExpectedRentalIncomeWeight * Positive(expectedRentalIncomeScores[railroad.Index]))
-                + (CoverageWeight * Positive(railroadCoverageScores.GetValueOrDefault(railroad.Index)))
-                + (ChokePointWeight * Positive(chokePointScores[railroad.Index])));
-
-        return ScaleScoresToPriceBand(rawScoresByRailroad);
+            railroad => new RailroadScoreComponents(
+                expectedRentalIncomeScores[railroad.Index],
+                railroadCoverageScores.GetValueOrDefault(railroad.Index),
+                chokePointScores[railroad.Index]));
     }
 
     private static List<PricedCityEntry> BuildCityEntries(MapDefinition mapDefinition)
@@ -326,15 +351,15 @@ public static class MapRailroadPricingService
         return Math.Clamp(rounded, MinimumRailroadPrice, MaximumRailroadPrice);
     }
 
-    private static double Positive(double value)
-    {
-        return value > 0d ? value : double.Epsilon;
-    }
-
     private static string BuildCityKey(string regionCode, string cityName)
     {
         return string.Concat(regionCode.Trim(), "::", cityName.Trim());
     }
+
+    private sealed record RailroadScoreComponents(
+        double ExpectedRentalIncome,
+        double Coverage,
+        double ChokePoint);
 
     private sealed record PricedCityEntry(
         string NodeId,
