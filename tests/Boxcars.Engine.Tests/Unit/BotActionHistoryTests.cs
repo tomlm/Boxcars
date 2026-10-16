@@ -282,7 +282,7 @@ public class BotActionHistoryTests
         var timelineItems = InvokeBuildTimelineItems(roverEvent.currentEvent, roverEvent.previousEvent);
 
         Assert.Contains(timelineItems, item => item.Description == "Bob rovered Alice for $50,000.");
-        Assert.Contains(timelineItems, item => item.Description == "Alice must go to to alternate destination Atlanta.");
+        Assert.Contains(timelineItems, item => item.Description == "Alice must go to alternate destination Atlanta.");
     }
 
     [Fact]

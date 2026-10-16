@@ -1,0 +1,45 @@
+/* Fixed height so the map doesn't shift as messages come and go. */
+.play-by-play-band {
+    height: 2.5rem;
+    flex-shrink: 0;
+}
+
+.play-by-play-item {
+    flex-shrink: 0;
+    margin-right: 0.5rem;
+}
+
+/* New messages travel in from the right edge to their place at the end of the line. */
+.play-by-play-enter {
+    animation: play-by-play-slide-in 550ms ease-out;
+}
+
+/* The oldest message fades and collapses so the rest slide left into its place. */
+.play-by-play-leave {
+    overflow: hidden;
+    animation: play-by-play-collapse 550ms ease-in-out forwards;
+}
+
+@keyframes play-by-play-slide-in {
+    from {
+        transform: translateX(100vw);
+    }
+
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes play-by-play-collapse {
+    from {
+        max-width: 25rem;
+        margin-right: 0.5rem;
+        opacity: 1;
+    }
+
+    to {
+        max-width: 0;
+        margin-right: 0;
+        opacity: 0;
+    }
+}

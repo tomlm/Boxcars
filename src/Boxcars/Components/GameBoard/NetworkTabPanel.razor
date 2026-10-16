@@ -2,7 +2,7 @@
 @using MudBlazor
 @using System.Globalization
 
-<MudStack Spacing="2">
+<MudStack Spacing="2" Class="flex-grow-1 overflow-hidden">
     <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <MudText Typo="Typo.h6">Network</MudText>
         <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@BuildOwnerLabel()</MudChip>
@@ -21,7 +21,7 @@
     }
     else
     {
-        <MudTable T="NetworkRailroadSummaryModel" FixedHeader="true" Height="calc(100vh - 24rem)" Items="NetworkTab.RailroadSummaries" Dense="true" Hover="true" Style="width: fit-content; max-width: 100%">
+        <MudTable T="NetworkRailroadSummaryModel" FixedHeader="true" Height="100%" Class="flex-grow-1 overflow-hidden" Items="NetworkTab.RailroadSummaries" Dense="true" Hover="true" Style="width: fit-content; max-width: 100%">
             <HeaderContent>
                 <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.RailroadName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="NetworkRailroadSummaryModel" SortBy="@(row => row.OriginalPurchasePrice)"><strong>Original Value</strong></MudTableSortLabel></MudTh>

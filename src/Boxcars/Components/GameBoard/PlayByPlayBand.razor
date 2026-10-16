@@ -1,0 +1,99 @@
+@using Boxcars.Data
+@using MudBlazor
+@implements IDisposable
+
+<div class="play-by-play-band d-flex align-center overflow-hidden px-3 cursor-pointer"
+     title="Open history"
+     @onclick="OnBandClicked">
+    @foreach (var entry in _visible)
+    {
+        <div @key="entry.Id" class="@(entry.Leaving ? "play-by-play-item play-by-play-leave" : "play-by-play-item play-by-play-enter")">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Style="@BuildAccentStyle(entry.Message.AccentColorHex)">
+                <MudIcon Icon="@entry.Message.Icon" Color="@entry.Message.IconColor" Size="Size.Small" />
+                <MudText Typo="Typo.body2">@entry.Message.Text</MudText>
+            </MudStack>
+        </div>
+    }
+</div>
+
+@code {
+    private const int StepMs = 600;
+
+    private readonly List<BandEntry> _visible = new();
+    private readonly Queue<PlayByPlayMessage> _pending = new();
+    private readonly CancellationTokenSource _disposeCancellation = new();
+    private int _nextEntryId;
+    private bool _running;
+
+    /// <summary>How many of the most recent messages stay in the band.</summary>
+    [Parameter]
+    public int MaxVisible { get; set; } = 6;
+
+    [Parameter]
+    public EventCallback OnClick { get; set; }
+
+    public void Enqueue(PlayByPlayMessage message)
+    {
+        _pending.Enqueue(message);
+        if (!_running)
+        {
+            _ = RunAsync();
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        _running = true;
+        try
+        {
+            // One message per step so a burst of events still reads as individual arrivals.
+            while (_pending.TryDequeue(out var message))
+            {
+                var current = _visible.Where(entry => !entry.Leaving).ToList();
+                if (current.Count >= MaxVisible)
+                {
+                    current[0].Leaving = true;
+                }
+
+                _visible.Add(new BandEntry(_nextEntryId++, message));
+                StateHasChanged();
+
+                await Task.Delay(StepMs, _disposeCancellation.Token);
+                _visible.RemoveAll(entry => entry.Leaving);
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+
+    private Task OnBandClicked()
+    {
+        return OnClick.InvokeAsync();
+    }
+
+    private static string BuildAccentStyle(string? colorHex)
+    {
+        return string.IsNullOrWhiteSpace(colorHex)
+            ? "border: 1px solid var(--mud-palette-divider); border-radius: 0.85rem; padding: 0.15rem 0.75rem; background: var(--mud-palette-surface)"
+            : $"border-radius: 0.85rem; padding: 0.15rem 0.75rem; border: 1px solid color-mix(in srgb, {colorHex} 78%, black 22%); background: color-mix(in srgb, {colorHex} 72%, rgb(15 18 24) 28%); color: #fff";
+    }
+
+    public void Dispose()
+    {
+        _disposeCancellation.Cancel();
+        _disposeCancellation.Dispose();
+    }
+
+    private sealed class BandEntry(int id, PlayByPlayMessage message)
+    {
+        public int Id { get; } = id;
+        public PlayByPlayMessage Message { get; } = message;
+        public bool Leaving { get; set; }
+    }
+}
