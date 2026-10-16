@@ -13,7 +13,7 @@ namespace Boxcars.Engine.Domain;
 /// </summary>
 public sealed class GameEngine : ObservableBase
 {
-    public const int AuctionBidIncrement = 250;
+    public const int AuctionBidIncrement = 500;
     public const int RoutePlanningMaximumSegments = 40;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
@@ -761,8 +761,8 @@ public sealed class GameEngine : ObservableBase
         int requiredBid = auctionState.CurrentBid > 0
             ? auctionState.CurrentBid + AuctionBidIncrement
             : auctionState.StartingPrice;
-        if (winningBid < requiredBid)
-            throw new InvalidOperationException($"Bid must be at least {requiredBid}.");
+        if (winningBid < requiredBid || (winningBid - requiredBid) % AuctionBidIncrement != 0)
+            throw new InvalidOperationException($"Bid must be at least {requiredBid} and increase in increments of {AuctionBidIncrement}.");
 
         var updatedParticipants = auctionState.Participants
             .Select(participant => new AuctionParticipant
