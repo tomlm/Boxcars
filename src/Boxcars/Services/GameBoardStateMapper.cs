@@ -656,6 +656,9 @@ public sealed class GameBoardStateMapper(
             ? $"{activePlayer.Name} can't afford to purchase anything"
             : null;
         var hasActivePurchaseControls = canAffordAnyPurchase;
+        var recommendations = mapDefinition is null
+            ? PurchaseRecommendationsModel.Empty
+            : BuildPurchaseRecommendations(state, mapDefinition, activePlayerIndex, activePlayer, cashAfterPayout, railroadOptions, gameEntity);
 
         return new PurchasePhaseModel
         {
@@ -694,7 +697,67 @@ public sealed class GameBoardStateMapper(
                     unownedRailroads.Select(railroad => railroad.Index),
                     allEligibleEngineTypes,
                     currentCoverage,
-                    projectedCoverageByRailroad)
+                    projectedCoverageByRailroad),
+            Recommendations = recommendations
+        };
+    }
+
+    private PurchaseRecommendationsModel BuildPurchaseRecommendations(
+        RailBaronGameState state,
+        MapDefinition mapDefinition,
+        int buyerPlayerIndex,
+        PlayerStateSnapshot buyer,
+        int cashAvailable,
+        IReadOnlyList<RailroadPurchaseOption> railroadOptions,
+        GameEntity? gameEntity)
+    {
+        var settings = gameEntity is null
+            ? GameSettings.Default
+            : (gameSettingsResolver ?? new GameSettingsResolver()).Resolve(gameEntity).Settings;
+        var finances = new PurchaseFinances(
+            cashAvailable,
+            OperatingCapitalService.CalculateFeesOwed(state, buyerPlayerIndex, settings),
+            mapDefinition.Cities.FirstOrDefault(city => string.Equals(city.Name, buyer.CurrentCityName, StringComparison.OrdinalIgnoreCase))?.RegionCode ?? string.Empty,
+            ParseLocomotiveType(buyer.LocomotiveType),
+            ownedRailroadIndices => OperatingCapitalService.EstimateIncomingFees(state, buyerPlayerIndex, ownedRailroadIndices, settings));
+        var candidates = railroadOptions
+            .Where(option => option.IsAffordable)
+            .Select(option => new PurchaseCandidate(option.RailroadIndex, option.RailroadName, option.PurchasePrice))
+            .ToList();
+        var opponents = state.Players
+            .Select((player, index) => (Player: player, Index: index))
+            .Where(entry => entry.Index != buyerPlayerIndex && !entry.Player.IsBankrupt)
+            .Select(entry => new RecommendationOpponent(entry.Player.Name, entry.Player.Cash, entry.Player.OwnedRailroadIndices))
+            .ToList();
+
+        var result = PurchaseRecommendationService.BuildRecommendations(mapDefinition, buyer.OwnedRailroadIndices, candidates, opponents, finances);
+        return new PurchaseRecommendationsModel(
+            result.Recommendations
+                .Select(recommendation => new PurchaseRecommendationModel(
+                    GetRecommendationLabel(recommendation.Category),
+                    BuildRailroadOptionKey(recommendation.RailroadIndex),
+                    recommendation.RailroadName,
+                    recommendation.PurchasePrice,
+                    recommendation.Reason,
+                    recommendation.SpareCash))
+                .ToList(),
+            result.Cash,
+            result.FeesOwed,
+            result.IncomingFees,
+            result.OperatingReserve);
+    }
+
+    private static string GetRecommendationLabel(PurchaseRecommendationCategory category)
+    {
+        return category switch
+        {
+            PurchaseRecommendationCategory.Blended => "Best overall",
+            PurchaseRecommendationCategory.Access => "Best access",
+            PurchaseRecommendationCategory.Connectivity => "Best connectivity",
+            PurchaseRecommendationCategory.Monopoly => "Best monopoly",
+            PurchaseRecommendationCategory.Strategy => "Block the leader",
+            PurchaseRecommendationCategory.LowPrice => "Best low price",
+            _ => category.ToString()
         };
     }
 

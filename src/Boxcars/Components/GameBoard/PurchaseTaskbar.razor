@@ -24,6 +24,40 @@
                     DECLINE
                 </MudButton>
             </MudButtonGroup>
+
+            @if (ShowRecommendations)
+            {
+                <MudMenu Dense="true" AnchorOrigin="Origin.TopLeft" TransformOrigin="Origin.BottomLeft" Disabled="IsBusy">
+                    <ActivatorContent>
+                        <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Secondary" StartIcon="@Icons.Material.Filled.Lightbulb" Disabled="IsBusy">
+                            RECOMMENDATIONS
+                        </MudButton>
+                    </ActivatorContent>
+                    <ChildContent>
+                        <MudMenuItem Disabled="true">
+                            <MudText Typo="Typo.caption" Style="white-space: nowrap">
+                                Cash @FormatCurrency(Recommendations.Cash) · Fees owed @FormatCurrency(Recommendations.FeesOwed) · Fees coming in @FormatCurrency(Recommendations.IncomingFees) · Reserve @FormatCurrency(Recommendations.OperatingReserve)
+                            </MudText>
+                        </MudMenuItem>
+                        @if (Recommendations.Recommendations.Count == 0)
+                        {
+                            <MudMenuItem Disabled="true">
+                                <MudText Typo="Typo.body2">Nothing fits your operating reserve.</MudText>
+                            </MudMenuItem>
+                        }
+                        @foreach (var recommendation in Recommendations.Recommendations)
+                        {
+                            <MudMenuItem OnClick="@(() => OnSelectedOptionChangedAsync(recommendation.OptionKey))">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Style="font-weight: 700">@recommendation.CategoryLabel</MudText>
+                                    <MudText Typo="Typo.body2" Style="white-space: nowrap">@recommendation.RailroadName (@FormatCurrency(recommendation.PurchasePrice))</MudText>
+                                    <MudText Typo="Typo.caption" Style="white-space: nowrap">@recommendation.Reason · @FormatCurrency(recommendation.SpareCash) over reserve</MudText>
+                                </MudStack>
+                            </MudMenuItem>
+                        }
+                    </ChildContent>
+                </MudMenu>
+            }
         </MudStack>
     </MudStack>
 
@@ -56,6 +90,14 @@
 
     [Parameter]
     public EngineUpgradeOption? SelectedEngineOption { get; set; }
+
+    /// <summary>Best railroad per category and the budget behind it; picking one selects it.</summary>
+    [Parameter]
+    public PurchaseRecommendationsModel Recommendations { get; set; } = PurchaseRecommendationsModel.Empty;
+
+    /// <summary>Only the player whose turn it is sees recommendations.</summary>
+    [Parameter]
+    public bool ShowRecommendations { get; set; }
 
     private async Task OnSelectedOptionChangedAsync(string? optionKey)
     {
