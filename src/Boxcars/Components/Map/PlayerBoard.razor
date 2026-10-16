@@ -126,13 +126,13 @@
                             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
                                 @if (player.IsAtDestination)
                                 {
-                                    <MudText Typo="Typo.subtitle2">At Destination:</MudText>
-                                    <MudText Typo="Typo.caption">@player.TripDestinationLabel</MudText>
+                                    <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">At Destination:</MudText>
+                                    <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripDestinationLabel</MudText>
                                 }
                                 else
                                 {
-                                    <MudText Typo="Typo.subtitle2">Trip:</MudText>
-                                    <MudText Typo="Typo.caption">@player.TripStartLabel @("=>") @player.TripDestinationLabel</MudText>
+                                    <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">Trip:</MudText>
+                                    <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripStartLabel @("=>") @player.TripDestinationLabel</MudText>
                                 }
                             </MudStack>
                             @if (!player.IsAtDestination)
@@ -209,6 +209,9 @@
     {
         return string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
     }
+
+    // The trip line is the most-read part of the card, so it stands out from the other details.
+    private const string TripLineStyle = "color: #fff; font-weight: 700";
 
     private static string GetCardStyle(PlayerBoardModel player)
     {
