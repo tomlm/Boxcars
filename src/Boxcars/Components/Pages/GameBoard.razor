@@ -159,6 +159,7 @@ else
                               UnfriendlyFee="@CurrentSuggestionUnfriendlyFee"
                               GrandfatheredRailroadFees="@CurrentSuggestionGrandfatheredFees"
                               BonusOutAvailable="@CurrentSuggestionBonusOutAvailable"
+                              RailroadsRiddenThisTurn="@CurrentRailroadsRiddenThisTurn"
                               CurrentWhiteDiceMovement="@CurrentSuggestionWhiteDiceMovement"
                               CurrentFixedBonusMovement="@CurrentSuggestionFixedBonusMovement"
                               BonusOutRequiresWhiteDiceArrival="@CurrentSuggestionBonusOutRequiresWhiteDiceArrival"
@@ -2455,6 +2456,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             : new Dictionary<int, int>();
 
     private bool CurrentSuggestionBonusOutAvailable => _turnViewState.BonusRollAvailable;
+
+    private IReadOnlyCollection<int> CurrentRailroadsRiddenThisTurn => _gameState?.Turn.RailroadsRiddenThisTurn ?? [];
 
     private int CurrentSuggestionWhiteDiceMovement => Math.Max(0, _turnViewState.WhiteDieOne + _turnViewState.WhiteDieTwo);
 

@@ -510,6 +510,81 @@ public class MapRouteServiceTests
     }
 
     [Fact]
+    public void FindCheapestSuggestion_BonusMovement_StaysOnRailroadAlreadyPaidThisTurn()
+    {
+        var service = new MapRouteService();
+        var context = CreateBonusOutContext();
+
+        // The player arrived at S on opponent 0's RR1, so that fee is already owed this turn.
+        // Staying on RR1 to P and taking public RR3 to T adds only the public fee; the shorter
+        // S→T on opponent 1's RR2 would add a second $5,000 opponent fee.
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            CreateBonusOutRequest(movementCapacity: 2, railroadsRiddenThisTurn: [1]));
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["S", "P", "T"], suggestion.NodeIds);
+        Assert.Equal(1000, suggestion.TotalCost);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_WithoutRailroadsRiddenThisTurn_ChargesTheArrivalRailroadAgain()
+    {
+        var service = new MapRouteService();
+        var context = CreateBonusOutContext();
+
+        // At the start of a turn nothing is owed yet, so RR1 costs $5,000 like RR2 and the direct route wins.
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            CreateBonusOutRequest(movementCapacity: 2, railroadsRiddenThisTurn: []));
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["S", "T"], suggestion.NodeIds);
+        Assert.Equal(5000, suggestion.TotalCost);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_RailroadRiddenThisTurn_IsChargedAgainNextTurn()
+    {
+        var service = new MapRouteService();
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["S"] = [], ["P"] = [], ["T"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["S"] = CreateDot("S", 0, 0),
+            ["P"] = CreateDot("P", 0, 1),
+            ["T"] = CreateDot("T", 0, 2)
+        };
+
+        AddBidirectionalEdge(adjacency, "S", "P", 1);
+        AddBidirectionalEdge(adjacency, "P", "T", 1);
+
+        var context = new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup };
+
+        // One space of bonus movement covers S→P on the already-paid RR1; P→T happens next turn and pays again.
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "S",
+                DestinationNodeId = "T",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 1,
+                RailroadsRiddenThisTurn = [1],
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = _ => RailroadOwnershipCategory.Unfriendly,
+                ResolveRailroadOwnerPlayerIndex = _ => 0
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["S", "P", "T"], suggestion.NodeIds);
+        Assert.Equal(5000, suggestion.TotalCost);
+    }
+
+    [Fact]
     public void FindCheapestSuggestion_NeverRevisitsNode()
     {
         var service = new MapRouteService();
@@ -1197,6 +1272,58 @@ public class MapRouteServiceTests
         {
             Adjacency = adjacency,
             DotLookup = dotLookup
+        };
+    }
+
+    private static MapRouteContext CreateBonusOutContext()
+    {
+        // S --[RR1, opponent 0]--> P --[RR3, public]--> T   (stays on the arrival railroad, then public)
+        // S --[RR2, opponent 1]--> T                        (shorter, but a different opponent's railroad)
+        // T --[RR3, public]--> U                            (friendly exit, so T isn't an unfriendly dead end)
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["S"] = [], ["P"] = [], ["T"] = [], ["U"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["S"] = CreateDot("S", 0, 0),
+            ["P"] = CreateDot("P", 0, 1),
+            ["T"] = CreateDot("T", 0, 2),
+            ["U"] = CreateDot("U", 0, 3)
+        };
+
+        AddEdge(adjacency, "S", "P", 1);
+        AddEdge(adjacency, "P", "T", 3);
+        AddEdge(adjacency, "S", "T", 2);
+        AddEdge(adjacency, "T", "U", 3);
+
+        return new MapRouteContext
+        {
+            Adjacency = adjacency,
+            DotLookup = dotLookup
+        };
+    }
+
+    private static RouteSuggestionRequest CreateBonusOutRequest(int movementCapacity, IReadOnlyCollection<int> railroadsRiddenThisTurn)
+    {
+        return new RouteSuggestionRequest
+        {
+            PlayerId = "player-1",
+            StartNodeId = "S",
+            DestinationNodeId = "T",
+            MovementType = PlayerMovementType.TwoDie,
+            MovementCapacity = movementCapacity,
+            RailroadsRiddenThisTurn = railroadsRiddenThisTurn,
+            PlayerColor = "#000000",
+            ResolveRailroadOwnership = rr => rr == 3
+                ? RailroadOwnershipCategory.Public
+                : RailroadOwnershipCategory.Unfriendly,
+            ResolveRailroadOwnerPlayerIndex = rr => rr switch
+            {
+                1 => 0,
+                2 => 1,
+                _ => null
+            }
         };
     }
 
