@@ -17,6 +17,12 @@ public sealed class GameEngine : ObservableBase
     public const int RoutePlanningMaximumSegments = 40;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
     private const int RoutePlanningHostileExitPenalty = 1500;
+    // Added to a route's ranking (not its cost) for each fee paid to the clear leader, so bots take a route that
+    // pays a laggard instead when it costs no more in fees or turns and is at most 3 dots longer (3 x 250).
+    // Kept below the smallest fee so avoiding the leader never means paying an extra fee or taking an extra turn.
+    private const int RoutePlanningClearLeaderPaymentPenalty = 3 * RoutePlanningDirectnessPenaltyPerSegment;
+    // The strongest opponent is the clear leader when their strength is at least this many times the next one's.
+    private const decimal RoutePlanningClearLeaderStrengthRatio = 1.25m;
     private static TimeSpan RoutePlanningTimeLimit { get; set; } = TimeSpan.FromSeconds(10);
 
     private GameStatus _gameStatus;
@@ -2635,6 +2641,8 @@ public sealed class GameEngine : ObservableBase
                 .Select(railroadIndex => GetFeeGroup(player, RailroadsByIndex[railroadIndex]))
                 .ToHashSet()
             : [];
+        var opponentStrengths = BuildOpponentStrengths(player, cityCoverage, networkMetricsByPlayerIndex);
+        var clearLeaderPlayerIndex = FindClearLeader(opponentStrengths);
         var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
         var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
@@ -2679,7 +2687,7 @@ public sealed class GameEngine : ObservableBase
                 }
 
                 var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, movementPointsPerTurn, routePlanningStopwatch);
-                var tieBreakAnalysis = CalculateTieBreakAnalysis(player, startState, state, previous, cityCoverage, networkMetricsByPlayerIndex);
+                var tieBreakAnalysis = CalculateTieBreakAnalysis(player, startState, state, previous, opponentStrengths);
                 var destinationChoice = new RoutePlanningDestinationChoice(state, stateCost, exitAnalysis, tieBreakAnalysis);
                 if (bestDestination is null || IsBetterRouteDestination(destinationChoice, bestDestination.Value))
                 {
@@ -2732,11 +2740,14 @@ public sealed class GameEngine : ObservableBase
                     ? GetTraversalFee(player, railroad)
                     : 0;
                 var hostileExitPenalty = CalculateHostileExitPenalty(player, edges, edge, friendlyDestinationReachableNodes);
+                var clearLeaderPenalty = additionalCost > 0 && railroad.Owner is not null && railroad.Owner.Index == clearLeaderPlayerIndex
+                    ? RoutePlanningClearLeaderPaymentPenalty
+                    : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
                 var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
-                    WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty,
+                    WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty,
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1);
 
@@ -3257,8 +3268,7 @@ public sealed class GameEngine : ObservableBase
         RoutePlanningState startState,
         RoutePlanningState destinationState,
         Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
-        IReadOnlyList<RoutePlanningCityCoverageEntry> cityCoverage,
-        Dictionary<int, RoutePlanningNetworkMetrics> networkMetricsByPlayerIndex)
+        Dictionary<int, decimal> opponentStrengths)
     {
         var ownerCounts = new Dictionary<int, int>();
         var currentState = destinationState;
@@ -3287,25 +3297,50 @@ public sealed class GameEngine : ObservableBase
             return RoutePlanningTieBreakAnalysis.Empty;
         }
 
-        var ownerCashValues = ownerCounts.Keys
-            .Select(ownerPlayerIndex => Players[ownerPlayerIndex].Cash)
-            .OrderBy(value => value)
-            .ToArray();
-        var ownerAccessibleDestinationPercentages = ownerCounts.Keys
-            .Select(ownerPlayerIndex => GetRoutePlanningNetworkMetrics(ownerPlayerIndex, cityCoverage, networkMetricsByPlayerIndex).AccessibleDestinationPercent)
-            .OrderBy(value => value)
-            .ToArray();
-        var ownerMonopolyDestinationPercentages = ownerCounts.Keys
-            .Select(ownerPlayerIndex => GetRoutePlanningNetworkMetrics(ownerPlayerIndex, cityCoverage, networkMetricsByPlayerIndex).MonopolyDestinationPercent)
-            .OrderBy(value => value)
+        // One entry per payment, strongest owner first, so routes compare by how much they feed the front runners.
+        var paidOwnerStrengths = ownerCounts
+            .SelectMany(pair => Enumerable.Repeat(opponentStrengths.GetValueOrDefault(pair.Key), pair.Value))
+            .OrderByDescending(strength => strength)
             .ToArray();
 
-        return new RoutePlanningTieBreakAnalysis(
-            ownerCashValues,
-            ownerAccessibleDestinationPercentages,
-            ownerMonopolyDestinationPercentages,
-            ownerCounts.Count,
-            ownerCounts.Values.Max());
+        return new RoutePlanningTieBreakAnalysis(paidOwnerStrengths, ownerCounts.Values.Max());
+    }
+
+    /// <summary>
+    /// Each opponent's strength: their share of all opponents' cash plus their share of all opponents' network
+    /// access (both 0-1), so a player who is rich in cash or in railroads counts as strong.
+    /// </summary>
+    private Dictionary<int, decimal> BuildOpponentStrengths(
+        Player player,
+        IReadOnlyList<RoutePlanningCityCoverageEntry> cityCoverage,
+        Dictionary<int, RoutePlanningNetworkMetrics> networkMetricsByPlayerIndex)
+    {
+        var opponents = Players
+            .Where(opponent => opponent != player && !opponent.IsBankrupt)
+            .Select(opponent => (
+                opponent.Index,
+                Cash: (decimal)Math.Max(0, opponent.Cash),
+                Access: GetRoutePlanningNetworkMetrics(opponent.Index, cityCoverage, networkMetricsByPlayerIndex).AccessibleDestinationPercent))
+            .ToList();
+        var totalCash = opponents.Sum(opponent => opponent.Cash);
+        var totalAccess = opponents.Sum(opponent => opponent.Access);
+
+        return opponents.ToDictionary(
+            opponent => opponent.Index,
+            opponent => (totalCash > 0m ? opponent.Cash / totalCash : 0m) + (totalAccess > 0m ? opponent.Access / totalAccess : 0m));
+    }
+
+    private static int? FindClearLeader(Dictionary<int, decimal> opponentStrengths)
+    {
+        if (opponentStrengths.Count < 2)
+        {
+            return null;
+        }
+
+        var ranked = opponentStrengths.OrderByDescending(pair => pair.Value).ToList();
+        return ranked[0].Value >= ranked[1].Value * RoutePlanningClearLeaderStrengthRatio
+            ? ranked[0].Key
+            : null;
     }
 
     private RoutePlanningNetworkMetrics GetRoutePlanningNetworkMetrics(
@@ -3461,29 +3496,14 @@ public sealed class GameEngine : ObservableBase
             return candidate.ExitAnalysis.BonusOutProbability > current.ExitAnalysis.BonusOutProbability;
         }
 
-        var cashComparison = CompareVectors(candidate.TieBreakAnalysis.PaidOwnerCashValues, current.TieBreakAnalysis.PaidOwnerCashValues);
-        if (cashComparison != 0)
+        // Prefer paying weaker opponents: compare payments strongest owner first (fewer payments wins a tie).
+        var strengthComparison = ComparePaidOwnerStrengths(candidate.TieBreakAnalysis.PaidOwnerStrengths, current.TieBreakAnalysis.PaidOwnerStrengths);
+        if (strengthComparison != 0)
         {
-            return cashComparison < 0;
+            return strengthComparison < 0;
         }
 
-        var accessibleComparison = CompareVectors(candidate.TieBreakAnalysis.PaidOwnerAccessibleDestinationPercentages, current.TieBreakAnalysis.PaidOwnerAccessibleDestinationPercentages);
-        if (accessibleComparison != 0)
-        {
-            return accessibleComparison < 0;
-        }
-
-        var monopolyComparison = CompareVectors(candidate.TieBreakAnalysis.PaidOwnerMonopolyDestinationPercentages, current.TieBreakAnalysis.PaidOwnerMonopolyDestinationPercentages);
-        if (monopolyComparison != 0)
-        {
-            return monopolyComparison < 0;
-        }
-
-        if (candidate.TieBreakAnalysis.DistinctPaidOwnerCount != current.TieBreakAnalysis.DistinctPaidOwnerCount)
-        {
-            return candidate.TieBreakAnalysis.DistinctPaidOwnerCount > current.TieBreakAnalysis.DistinctPaidOwnerCount;
-        }
-
+        // A true toss-up between equally strong owners: spread the payments rather than paying one owner twice.
         if (candidate.TieBreakAnalysis.MaxPaymentsToSingleOwner != current.TieBreakAnalysis.MaxPaymentsToSingleOwner)
         {
             return candidate.TieBreakAnalysis.MaxPaymentsToSingleOwner < current.TieBreakAnalysis.MaxPaymentsToSingleOwner;
@@ -3517,7 +3537,8 @@ public sealed class GameEngine : ObservableBase
         return string.Concat(nodeId, "|", railroadIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    private static int CompareVectors<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) where T : IComparable<T>
+    /// <summary>Compares strongest-first owner strengths; when one list is a prefix of the other, fewer payments is lower.</summary>
+    private static int ComparePaidOwnerStrengths(IReadOnlyList<decimal> left, IReadOnlyList<decimal> right)
     {
         var count = Math.Min(left.Count, right.Count);
         for (var index = 0; index < count; index++)
@@ -3529,7 +3550,7 @@ public sealed class GameEngine : ObservableBase
             }
         }
 
-        return 0;
+        return left.Count.CompareTo(right.Count);
     }
 
     #endregion
@@ -3608,14 +3629,12 @@ internal readonly record struct RoutePlanningExitAnalysis(
     int WorstCaseExitCost,
     double BonusOutProbability);
 
+/// <param name="PaidOwnerStrengths">Strength of the owner for each fee payment on the route, strongest first.</param>
 internal readonly record struct RoutePlanningTieBreakAnalysis(
-    IReadOnlyList<int> PaidOwnerCashValues,
-    IReadOnlyList<decimal> PaidOwnerAccessibleDestinationPercentages,
-    IReadOnlyList<decimal> PaidOwnerMonopolyDestinationPercentages,
-    int DistinctPaidOwnerCount,
+    IReadOnlyList<decimal> PaidOwnerStrengths,
     int MaxPaymentsToSingleOwner)
 {
-    public static RoutePlanningTieBreakAnalysis Empty { get; } = new([], [], [], 0, 0);
+    public static RoutePlanningTieBreakAnalysis Empty { get; } = new([], 0);
 }
 
 internal readonly record struct RoutePlanningNetworkMetrics(decimal AccessibleDestinationPercent, decimal MonopolyDestinationPercent);

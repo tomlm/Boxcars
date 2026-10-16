@@ -406,6 +406,129 @@ public class RouteSuggestionTests
         Assert.Equal([1, 2, 3], route.Segments.Take(3).Select(segment => segment.RailroadIndex).ToArray());
     }
 
+    [Fact]
+    public void SuggestRouteForPlayer_ClearLeader_PaysLaggardWhenItCostsNoMore()
+    {
+        var engine = CreateLeaderAvoidanceEngine(laggardRouteSegments: 2);
+        var player = PrepareLeaderAvoidancePlayer(engine);
+        SetOpponents(engine, leaderCash: 150_000, laggardCash: 10_000);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Both routes pay one public fee and one $5,000 opponent fee in a single turn; the laggard route is one dot longer.
+        Assert.Equal([1, 3, 3], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(6000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_NoClearLeader_TakesTheDirectRoute()
+    {
+        var engine = CreateLeaderAvoidanceEngine(laggardRouteSegments: 2);
+        var player = PrepareLeaderAvoidancePlayer(engine);
+        SetOpponents(engine, leaderCash: 50_000, laggardCash: 50_000);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        Assert.Equal([1, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(6000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_ClearLeader_StillPaysLeaderWhenAvoidingCostsAnotherTurn()
+    {
+        var engine = CreateLeaderAvoidanceEngine(laggardRouteSegments: 5);
+        var player = PrepareLeaderAvoidancePlayer(engine);
+        SetOpponents(engine, leaderCash: 150_000, laggardCash: 10_000);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // The laggard route needs a second turn (and a second fee), so reaching the destination on the leader wins.
+        Assert.Equal([1, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(6000, route.TotalCost);
+    }
+
+    private static Player PrepareLeaderAvoidancePlayer(Boxcars.Engine.Domain.GameEngine engine)
+    {
+        var player = engine.Players[0];
+        player.LocomotiveType = LocomotiveType.Superchief;
+        player.CurrentNodeId = "0:0";
+        player.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        player.TripOriginCity = player.CurrentCity;
+        return player;
+    }
+
+    private static void SetOpponents(Boxcars.Engine.Domain.GameEngine engine, int leaderCash, int laggardCash)
+    {
+        AssignOwnership(engine, 2, engine.Players[1]);
+        AssignOwnership(engine, 3, engine.Players[2]);
+        engine.Players[1].Cash = leaderCash;
+        engine.Players[2].Cash = laggardCash;
+    }
+
+    private static Boxcars.Engine.Domain.GameEngine CreateLeaderAvoidanceEngine(int laggardRouteSegments)
+    {
+        return new Boxcars.Engine.Domain.GameEngine(
+            CreateLeaderAvoidanceMap(laggardRouteSegments),
+            GameEngineFixture.ThreePlayerNames,
+            new FixedRandomProvider(),
+            GameSettings.Default with
+            {
+                HomeCityChoice = false,
+                HomeSwapping = false,
+                PublicFee = 1000
+            });
+    }
+
+    private static MapDefinition CreateLeaderAvoidanceMap(int laggardRouteSegments)
+    {
+        // 0 --[RR1 public]--> 1 --[RR2, Players[1]]--> 3                       (direct: 2 segments)
+        // 0 --[RR1 public]--> 2 --[RR3, Players[2]] x laggardRouteSegments--> 3 (laggard route)
+        // 3 --[RR4 public]--> 9                                                  (friendly exit from Finish)
+        var map = new MapDefinition
+        {
+            Name = "LeaderAvoidanceMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 3 });
+
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "Public Approach", ShortName = "PA" });
+        map.Railroads.Add(new RailroadDefinition { Index = 2, Name = "Leader Line", ShortName = "LL" });
+        map.Railroads.Add(new RailroadDefinition { Index = 3, Name = "Laggard Line", ShortName = "GL" });
+        map.Railroads.Add(new RailroadDefinition { Index = 4, Name = "Public Exit", ShortName = "PX" });
+
+        // Laggard route runs 2 -> 10 -> 11 -> ... -> 3.
+        var laggardDots = new List<int> { 2 };
+        laggardDots.AddRange(Enumerable.Range(10, laggardRouteSegments - 1));
+        laggardDots.Add(3);
+
+        foreach (var dot in new[] { 0, 1, 2, 3, 9 }.Concat(laggardDots).Distinct())
+        {
+            map.TrainDots.Add(new TrainDot { Id = $"0:{dot}", RegionIndex = 0, DotIndex = dot, X = dot * 10, Y = dot * 10 });
+        }
+
+        var segments = new List<(int Railroad, int Start, int End)> { (1, 0, 1), (2, 1, 3), (1, 0, 2), (4, 3, 9) };
+        segments.AddRange(laggardDots.Zip(laggardDots.Skip(1), (start, end) => (3, start, end)));
+
+        foreach (var (railroadIndex, startDot, endDot) in segments)
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroadIndex,
+                StartRegionIndex = 0,
+                StartDotIndex = startDot,
+                EndRegionIndex = 0,
+                EndDotIndex = endDot
+            });
+        }
+
+        return map;
+    }
+
     private static Boxcars.Engine.Domain.GameEngine CreateUnfriendlyDestinationPlanningEngine()
     {
         var random = new FixedRandomProvider();
