@@ -41,12 +41,6 @@ public static class DiceRollDescriptions
     /// <summary>Describes a bonus roll; a 6 rolled after boxcars bonuses the caboose.</summary>
     public static string DescribeBonusRoll(string playerName, int bonusRoll, DiceResultState? precedingRoll)
     {
-        // A Superchief that arrives on the white dice alone moves on with the red die it already rolled.
-        if (precedingRoll?.RedDie is not null)
-        {
-            return FormattableString.Invariant($"{playerName} moves on with the red die bonus of {bonusRoll}");
-        }
-
         var followedBoxcars = precedingRoll?.WhiteDice is { Length: 2 } whiteDice && whiteDice.All(value => value == 6);
         return followedBoxcars && bonusRoll == 6
             ? $"{playerName} bonused the caboose!"
@@ -55,7 +49,9 @@ public static class DiceRollDescriptions
 
     /// <summary>
     /// True when <paramref name="snapshot"/> holds a bonus roll made since <paramref name="previousSnapshot"/>: a bonus
-    /// was pending and the white dice were cleared in favor of the red bonus die.
+    /// was pending and the white dice were cleared in favor of the red bonus die. A Superchief that arrives on the
+    /// white dice alone just moves on with the red die from its roll, which the roll message already shows, so that
+    /// isn't a bonus roll.
     /// </summary>
     public static bool TryGetBonusRoll(GameState? previousSnapshot, GameState snapshot, out int bonusRoll)
     {
@@ -67,7 +63,8 @@ public static class DiceRollDescriptions
             || whiteDice.Any(value => value != 0)
             || diceResult.RedDie is not int redDie
             || previousSnapshot.Turn.DiceResult?.WhiteDice is not { } previousWhiteDice
-            || previousWhiteDice.All(value => value == 0))
+            || previousWhiteDice.All(value => value == 0)
+            || previousSnapshot.Turn.DiceResult.RedDie is not null)
         {
             return false;
         }
