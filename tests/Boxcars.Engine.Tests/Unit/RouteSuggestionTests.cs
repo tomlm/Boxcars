@@ -10,6 +10,7 @@ namespace Boxcars.Engine.Tests.Unit;
 /// <summary>
 /// Tests for route suggestion and save route (T033, T034).
 /// </summary>
+[Collection(RoutePlanningCollection.Name)]
 public class RouteSuggestionTests
 {
     [Fact]
@@ -74,10 +75,10 @@ public class RouteSuggestionTests
 
             var route = engine.SuggestRoute();
 
-            // Cheapest route times out, but BFS fallback should still find a path
+            // Cheapest route times out, but BFS fallback should still find a path, priced with the fee rules
             Assert.StartsWith(engine.CurrentTurn.ActivePlayer.CurrentNodeId!, route.NodeIds[0]);
             Assert.True(route.Segments.Count > 0, "BFS fallback should produce a non-empty route");
-            Assert.Equal(0, route.TotalCost);
+            Assert.True(route.TotalCost > 0, "The fallback route should not be reported as free");
         }
         finally
         {
@@ -527,6 +528,85 @@ public class RouteSuggestionTests
         // The laggard route needs a second turn (and a second fee), so reaching the destination on the leader wins.
         Assert.Equal([1, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
         Assert.Equal(6000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_PaysEachOwnerOncePerTurn_EvenAfterLeavingTheirRailroad()
+    {
+        // 0 --[RR1 Bob]--> 1 --[RR2 own]--> 2 --[RR1 Bob]--> 3   (one turn for a Freight)
+        var engine = CreateLineEngine([(1, 0, 1), (2, 1, 2), (1, 2, 3), (3, 3, 9)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        AssignOwnership(engine, 2, engine.Players[0]);
+        var player = PlaceOnLine(engine);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Bob is paid once ($5,000) and the player's own railroad once ($1,000), not Bob twice.
+        Assert.Equal([1, 2, 1], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(6000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_SameCostAndTurns_StaysOffOpponentsRailroadsLonger()
+    {
+        // 0 --[RR1 Bob]--> 1 --[RR1 Bob]--> 2 --[RR3 public]--> 3     (2 dots on Bob's railroad, found first)
+        // 0 --[RR3 public]--> 4 --[RR1 Bob]--> 5 --[RR3 public]--> 3  (1 dot on Bob's railroad)
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 2), (3, 2, 3), (3, 0, 4), (1, 4, 5), (3, 5, 3), (4, 3, 9)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Both are 3 dots in one turn and pay the public fee and Bob once each.
+        Assert.Equal(["0:0", "0:4", "0:5", "0:3"], route.NodeIds);
+        Assert.Equal(6000, route.TotalCost);
+    }
+
+    private static Boxcars.Engine.Domain.GameEngine CreateLineEngine(IReadOnlyList<(int Railroad, int Start, int End)> segments)
+    {
+        // Start is dot 0 and Finish dot 3; dot 9 is a public exit from Finish.
+        var map = new MapDefinition { Name = "LineMap", Version = "1.0" };
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 3 });
+
+        foreach (var railroadIndex in segments.Select(segment => segment.Railroad).Distinct())
+        {
+            map.Railroads.Add(new RailroadDefinition { Index = railroadIndex, Name = $"Line {railroadIndex}", ShortName = $"L{railroadIndex}" });
+        }
+
+        foreach (var dot in segments.SelectMany(segment => new[] { segment.Start, segment.End }).Distinct())
+        {
+            map.TrainDots.Add(new TrainDot { Id = $"0:{dot}", RegionIndex = 0, DotIndex = dot, X = dot * 10, Y = dot * 10 });
+        }
+
+        foreach (var (railroadIndex, startDot, endDot) in segments)
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroadIndex,
+                StartRegionIndex = 0,
+                StartDotIndex = startDot,
+                EndRegionIndex = 0,
+                EndDotIndex = endDot
+            });
+        }
+
+        return new Boxcars.Engine.Domain.GameEngine(
+            map,
+            GameEngineFixture.ThreePlayerNames,
+            new FixedRandomProvider(),
+            GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false, PublicFee = 1000 });
+    }
+
+    private static Player PlaceOnLine(Boxcars.Engine.Domain.GameEngine engine)
+    {
+        var player = engine.Players[0];
+        player.CurrentNodeId = "0:0";
+        player.CurrentCity = engine.MapDefinition.Cities.First(city => city.Name == "Start");
+        player.Destination = engine.MapDefinition.Cities.First(city => city.Name == "Finish");
+        player.TripOriginCity = player.CurrentCity;
+        return player;
     }
 
     private static Player PrepareLeaderAvoidancePlayer(Boxcars.Engine.Domain.GameEngine engine)
