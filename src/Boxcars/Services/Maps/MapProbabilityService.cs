@@ -153,7 +153,8 @@ public static class MapProbabilityService
     public static MapDefinition ApplyCityProbabilities(
         MapDefinition mapDefinition,
         IReadOnlyList<CityProbabilityOverride>? overrides,
-        IReadOnlyList<RailroadPriceOverride>? railroadPriceOverrides = null)
+        IReadOnlyList<RailroadPriceOverride>? railroadPriceOverrides = null,
+        int? minimumRailroadPrice = null)
     {
         ArgumentNullException.ThrowIfNull(mapDefinition);
 
@@ -225,7 +226,7 @@ public static class MapProbabilityService
 
         var updatedPrices = (railroadPriceOverrides is not null && railroadPriceOverrides.Count > 0)
             ? railroadPriceOverrides.ToDictionary(overrideValue => overrideValue.RailroadIndex, overrideValue => overrideValue.PurchasePrice)
-            : MapRailroadPricingService.CalculatePurchasePrices(clone);
+            : MapRailroadPricingService.CalculatePurchasePrices(clone, minimumRailroadPrice);
         clone.Railroads.Clear();
         foreach (var railroad in mapDefinition.Railroads)
         {

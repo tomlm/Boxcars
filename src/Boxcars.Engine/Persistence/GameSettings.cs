@@ -22,6 +22,8 @@ public sealed record GameSettings
     public LocomotiveType StartEngine { get; init; } = LocomotiveType.Freight;
     public int SuperchiefPrice { get; init; } = 40_000;
     public int ExpressPrice { get; init; } = 4_000;
+    /// <summary>Lowest price for a railroad whose price is computed from randomized city probabilities.</summary>
+    public int MinimumRailroadPrice { get; init; } = 4_000;
     public int SchemaVersion { get; init; } = InitialSchemaVersion;
 }
 

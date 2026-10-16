@@ -351,6 +351,7 @@ public class GameService
             && string.Equals(left.StartEngine, right.StartEngine, StringComparison.Ordinal)
             && left.SuperchiefPrice == right.SuperchiefPrice
             && left.ExpressPrice == right.ExpressPrice
+            && left.MinimumRailroadPrice == right.MinimumRailroadPrice
             && left.SettingsSchemaVersion == right.SettingsSchemaVersion;
     }
 

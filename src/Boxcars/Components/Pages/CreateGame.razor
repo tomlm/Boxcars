@@ -204,6 +204,10 @@
                             <MudItem xs="12" md="6">
                                 <MudNumericField T="int" Label="Superchief Price" Value="@_settings.SuperchiefPrice" ValueChanged="@(value => UpdateSettings(_settings with { SuperchiefPrice = value }))" Variant="Variant.Outlined" Min="1" Disabled="@IsBusy" FullWidth="true" />
                             </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudNumericField T="int" Label="Minimum Railroad Price" Value="@_settings.MinimumRailroadPrice" ValueChanged="OnMinimumRailroadPriceChanged" Variant="Variant.Outlined" Min="0" Step="500" Disabled="@IsBusy" FullWidth="true"
+                                                 HelperText="Lowest price for railroads priced from random city probabilities" />
+                            </MudItem>
                             <MudItem xs="12" md="4">
                                 <MudSwitch T="bool" Label="Keep Cash Secret" Value="@_settings.KeepCashSecret" ValueChanged="@(value => UpdateSettings(_settings with { KeepCashSecret = value }))" Disabled="@IsBusy" Color="Color.Primary" />
                             </MudItem>
@@ -257,6 +261,8 @@
     private string? _appliedPresetPayload;
     private IReadOnlyList<CityProbabilityOverride> _cityProbabilityOverrides = [];
     private IReadOnlyList<RailroadPriceOverride> _railroadPriceOverrides = [];
+    // The map randomized cities were generated for, so prices can be recomputed when the minimum price changes.
+    private MapDefinition? _randomizedCitiesBaseMap;
     private string _cityProbabilitySummary = "Using default city probabilities.";
     private IReadOnlyList<RegionDistributionPreview> _regionProbabilityPreview = [];
     private bool IsBusy => _creating || _generatingRandomCities;
@@ -522,6 +528,11 @@
             return "All numeric settings must be greater than zero.";
         }
 
+        if (_settings.MinimumRailroadPrice < 0)
+        {
+            return "Minimum railroad price can't be negative.";
+        }
+
         return null;
     }
 
@@ -529,6 +540,34 @@
     {
         _settings = settings;
         _validationMessage = null;
+    }
+
+    private void OnMinimumRailroadPriceChanged(int value)
+    {
+        UpdateSettings(_settings with { MinimumRailroadPrice = value });
+        RecalculateRandomizedRailroadPrices();
+    }
+
+    /// <summary>Prices randomized cities' railroads with the current minimum price; replay presets keep their saved prices.</summary>
+    private void RecalculateRandomizedRailroadPrices()
+    {
+        if (_randomizedCitiesBaseMap is null || _cityProbabilityOverrides.Count == 0)
+        {
+            return;
+        }
+
+        var randomizedMap = MapProbabilityService.ApplyCityProbabilities(
+            _randomizedCitiesBaseMap,
+            _cityProbabilityOverrides,
+            minimumRailroadPrice: _settings.MinimumRailroadPrice);
+        _railroadPriceOverrides = randomizedMap.Railroads
+            .Select(railroad => new RailroadPriceOverride
+            {
+                RailroadIndex = railroad.Index,
+                PurchasePrice = railroad.PurchasePrice ?? _settings.MinimumRailroadPrice
+            })
+            .ToList();
+        _regionProbabilityPreview = BuildRegionProbabilityPreview(randomizedMap);
     }
 
     private async Task GenerateRandomCitiesAsync()
@@ -556,15 +595,8 @@
             }
 
             _cityProbabilityOverrides = MapProbabilityService.GenerateRandomCityProbabilities(loadResult.Definition);
-            var randomizedMap = MapProbabilityService.ApplyCityProbabilities(loadResult.Definition, _cityProbabilityOverrides);
-            _railroadPriceOverrides = randomizedMap.Railroads
-                .Select(railroad => new RailroadPriceOverride
-                {
-                    RailroadIndex = railroad.Index,
-                    PurchasePrice = railroad.PurchasePrice ?? 4_000
-                })
-                .ToList();
-            _regionProbabilityPreview = BuildRegionProbabilityPreview(randomizedMap);
+            _randomizedCitiesBaseMap = loadResult.Definition;
+            RecalculateRandomizedRailroadPrices();
             var regionCount = _cityProbabilityOverrides
                 .Select(overrideValue => overrideValue.RegionCode)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -625,6 +657,7 @@
             ? GameService.DefaultMapFileName
             : replayPreset.MapFileName;
         _cityProbabilityOverrides = replayPreset.CityProbabilityOverrides;
+        _randomizedCitiesBaseMap = null;
         _railroadPriceOverrides = replayPreset.RailroadPriceOverrides;
         _regionProbabilityPreview = BuildRegionProbabilityPreview(replayPreset.CityProbabilityOverrides);
         _cityProbabilitySummary = _cityProbabilityOverrides.Count == 0

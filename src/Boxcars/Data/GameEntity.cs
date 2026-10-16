@@ -36,6 +36,7 @@ public class GameEntity : ITableEntity
     public string? StartEngine { get; set; }
     public int? SuperchiefPrice { get; set; }
     public int? ExpressPrice { get; set; }
+    public int? MinimumRailroadPrice { get; set; }
     public int? SettingsSchemaVersion { get; set; }
     public string SeatsJson { get; set; } = "[]";
     public string CityProbabilityOverridesJson { get; set; } = "[]";

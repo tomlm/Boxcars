@@ -84,7 +84,8 @@ public sealed class GameBoardStateMapper(
                     [
                         new GameSettingsSummaryItemModel { Label = "Starting Engine", Value = settings.StartEngine.ToString() },
                         new GameSettingsSummaryItemModel { Label = "Express Price", Value = FormatMoney(settings.ExpressPrice) },
-                        new GameSettingsSummaryItemModel { Label = "Superchief Price", Value = FormatMoney(settings.SuperchiefPrice) }
+                        new GameSettingsSummaryItemModel { Label = "Superchief Price", Value = FormatMoney(settings.SuperchiefPrice) },
+                        new GameSettingsSummaryItemModel { Label = "Minimum Railroad Price", Value = FormatMoney(settings.MinimumRailroadPrice) }
                     ]
                 }
             ]
