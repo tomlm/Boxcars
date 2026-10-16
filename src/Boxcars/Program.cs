@@ -8,6 +8,7 @@ using Boxcars.Hubs;
 using Boxcars.Identity;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
+using Boxcars.Services.Reports;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth.Claims;
@@ -182,6 +183,7 @@ public class Program
         builder.Services.AddScoped<GameBoardAdviceService>();
         builder.Services.AddSingleton<NetworkCoverageService>();
         builder.Services.AddScoped<MapAnalysisService>();
+        builder.Services.AddScoped<RailroadReportService>();
         builder.Services.AddScoped<PurchaseRecommendationService>();
         builder.Services.AddScoped<MapBackgroundResolver>();
         builder.Services.AddScoped<BoardProjectionService>();
@@ -280,6 +282,9 @@ public class Program
 
         // Auth endpoints (login challenge / logout)
         app.MapAuthEndpoints();
+
+        // Reports (railroad and probability reference PDF)
+        app.MapReportEndpoints();
 
         app.Run();
     }

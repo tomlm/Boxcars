@@ -1,5 +1,6 @@
 @using Boxcars.Data
 @using Boxcars.Services
+@using Boxcars.Services.Reports
 @using Microsoft.AspNetCore.Components.Authorization
 @using MudBlazor
 @inject NavigationManager Navigation
@@ -37,6 +38,7 @@
                 }
 
                 <MudDivider />
+                <MudMenuItem Href="@RailroadReportUrl" Target="_blank">Export PDF</MudMenuItem>
                 <MudMenuItem OnClick="@(() => NavigateToAccountSettings())">Account settings</MudMenuItem>
                 <MudMenuItem OnClick="@(() => SignOut())">Sign out</MudMenuItem>
             </ChildContent>
@@ -84,6 +86,19 @@
     }
 
     private bool HasThumbnail => !string.IsNullOrWhiteSpace(_thumbnailUrl);
+
+    // On a game page the report covers that game's map and probabilities; elsewhere, the default map.
+    private string RailroadReportUrl
+    {
+        get
+        {
+            var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+            var gameId = relativePath.StartsWith("game/", StringComparison.OrdinalIgnoreCase)
+                ? relativePath["game/".Length..].Split('/', '?', '#')[0]
+                : null;
+            return ReportEndpoints.BuildRailroadReportUrl(gameId);
+        }
+    }
 
     private void NavigateToAccountSettings()
     {
