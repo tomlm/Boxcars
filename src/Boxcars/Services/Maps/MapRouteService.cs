@@ -468,10 +468,9 @@ public sealed class MapRouteService
                     continue;
                 }
 
-                // Prevent immediate backtracking: don't traverse a segment that was
-                // used to reach the current state (same physical segment in reverse).
-                if (previous.TryGetValue(state, out var predecessor)
-                    && string.Equals(predecessor.Edge.SegmentKey, edge.SegmentKey, StringComparison.OrdinalIgnoreCase))
+                // A segment can be ridden once per trip: don't traverse one already on the path to this state
+                // (e.g. shuttling between two dots on parallel railroads to burn movement).
+                if (PathUsesSegment(previous, state, edge.SegmentKey))
                 {
 #if DEBUG
                     debugStats.ReusedSegmentPrunes++;
@@ -1383,6 +1382,26 @@ public sealed class MapRouteService
             searchBudget);
 
         return estimatedEscapeCost;
+    }
+
+    private static bool PathUsesSegment(
+        Dictionary<RouteSuggestionState, RouteSuggestionPrevious> previous,
+        RouteSuggestionState state,
+        string segmentKey)
+    {
+        var currentState = state;
+        // Bounded by the longest suggestion so a predecessor cycle can't loop forever.
+        for (var steps = 0; steps <= RoutePlanningMaximumSuggestedSegments && previous.TryGetValue(currentState, out var previousEntry); steps++)
+        {
+            if (string.Equals(previousEntry.Edge.SegmentKey, segmentKey, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            currentState = previousEntry.PreviousState;
+        }
+
+        return false;
     }
 
     private static List<RouteSuggestionPrevious> ReconstructPathEntries(

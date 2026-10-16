@@ -93,7 +93,64 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal(12_000, suggestion.TotalCost);
     }
 
-    // Owners in the game both positions come from (all railroads sold).
+    [Fact]
+    public void FindCheapestSuggestion_BonusOutOfBuffalo_LeavesTheOpponentsLineBeforeTheTurnEnds()
+    {
+        // thermous (Superchief) reached Buffalo on El Cheapo's NYC and PA (already paid this turn) and has a red-die
+        // bonus of 4 toward Kansas City. Staying on El Cheapo's lines for the bonus means paying them $10,000 again
+        // next turn; spending $1,000 to get onto B&O now keeps the next turn on the player's own railroads.
+        // The search used to find that route only by shuttling Buffalo <-> 1:9 on the parallel NYC and PA
+        // (riding one segment twice), reject it, and fall back to the fee-blind shortest path.
+        var engine = CreateEngine(StandardGameOwners);
+        var player = engine.Players.First(candidate => candidate.Name == "thermous");
+        RailroadOwnershipCategory Ownership(int railroadIndex) => ResolveOwnership(engine, player, railroadIndex);
+        int RailroadIndex(string shortName) => engine.Railroads.First(railroad => railroad.ShortName == shortName).Index;
+
+        var service = new MapRouteService();
+        var suggestion = service.FindCheapestSuggestion(
+            service.BuildContext(engine.MapDefinition),
+            new RouteSuggestionRequest
+            {
+                PlayerId = player.Name,
+                StartNodeId = FindCityNode(engine, "Buffalo"),
+                DestinationNodeId = FindCityNode(engine, "Kansas City"),
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 4,
+                AverageFutureMovement = 10.5,
+                RailroadsRiddenThisTurn = [RailroadIndex("NYC"), RailroadIndex("PA")],
+                PlayerColor = "blue",
+                ResolveRailroadOwnership = Ownership,
+                ResolveRailroadFee = railroadIndex => Ownership(railroadIndex) == RailroadOwnershipCategory.Unfriendly ? 10_000 : 1_000,
+                ResolveRailroadOwnerPlayerIndex = railroadIndex => engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner?.Index
+            });
+        WriteSuggestion(engine, suggestion);
+
+        // The 4 bonus dots end on the player's own B&O, so no opponent is paid next turn: $1,000 now and $1,000 next turn.
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Empty(suggestion.Message);
+        Assert.Equal(RailroadOwnershipCategory.Friendly, suggestion.Segments[3].OwnershipCategory);
+        Assert.All(suggestion.Segments.Skip(4), segment => Assert.Equal(RailroadOwnershipCategory.Friendly, segment.OwnershipCategory));
+        Assert.Equal(2_000, suggestion.TotalCost);
+    }
+
+    private static RailroadOwnershipCategory ResolveOwnership(Boxcars.Engine.Domain.GameEngine engine, Player player, int railroadIndex)
+    {
+        var owner = engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner;
+        return owner is null ? RailroadOwnershipCategory.Public
+            : owner == player ? RailroadOwnershipCategory.Friendly
+            : RailroadOwnershipCategory.Unfriendly;
+    }
+
+    private void WriteSuggestion(Boxcars.Engine.Domain.GameEngine engine, RouteSuggestionResult suggestion)
+    {
+        output.WriteLine($"{suggestion.Status} {suggestion.Message} {suggestion.Segments.Count} dots, cost {suggestion.TotalCost:N0}");
+        foreach (var segment in suggestion.Segments)
+        {
+            output.WriteLine($"  {segment.FromNodeId}->{segment.ToNodeId} {engine.Railroads.First(railroad => railroad.Index == segment.RailroadIndex).ShortName} ({segment.OwnershipCategory})");
+        }
+    }
+
+    // Owners in the game these positions come from (all railroads sold).
     private static readonly Dictionary<string, string[]> StandardGameOwners = new()
     {
         ["thermous"] = ["B&O", "SOU", "CB&Q", "T&P", "SP", "CRI&P", "WP", "GN"],
