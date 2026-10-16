@@ -39,11 +39,15 @@ public class DiceRollDescriptionsTests
     }
 
     [Fact]
-    public void DescribeBonusRoll_SuperchiefRedDie_MovesOnWithTheRedDie()
+    public void BuildTimelineItems_SuperchiefMovingOnWithItsRedDie_AddsNoBonusRollEntry()
     {
-        var description = DiceRollDescriptions.DescribeBonusRoll("Alice", 3, new DiceResultState { WhiteDice = [4, 2], RedDie = 3 });
+        // A Superchief that arrived on the white dice continues with the red die from its roll; the roll already showed it.
+        var beforeMove = CreateSnapshot(new DiceResultState { WhiteDice = [4, 2], RedDie = 3 }, bonusRollAvailable: true);
+        var afterMove = CreateSnapshot(new DiceResultState { WhiteDice = [0, 0], RedDie = 3 }, bonusRollAvailable: false);
 
-        Assert.Equal("Alice moves on with the red die bonus of 3", description);
+        var items = BuildTimelineItems(beforeMove, afterMove);
+
+        Assert.DoesNotContain(items, item => item.EventId.EndsWith(":bonus-roll", StringComparison.Ordinal));
     }
 
     [Fact]
