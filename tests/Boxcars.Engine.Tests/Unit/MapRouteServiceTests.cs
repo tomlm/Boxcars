@@ -52,6 +52,46 @@ public class MapRouteServiceTests
     }
 
     [Fact]
+    public void FindCheapestSuggestion_PaysEachOwnerOncePerTurn_EvenAfterLeavingTheirRailroad()
+    {
+        // A --[RR1 Bob]--> B --[RR2 own]--> C --[RR1 Bob]--> D, all in one turn.
+        var service = new MapRouteService();
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["C"] = [], ["D"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["C"] = CreateDot("C", 0, 2),
+            ["D"] = CreateDot("D", 0, 3)
+        };
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "C", 2);
+        AddEdge(adjacency, "C", "D", 1);
+
+        var suggestion = service.FindCheapestSuggestion(
+            new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup },
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 7,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = rr => rr == 2 ? RailroadOwnershipCategory.Friendly : RailroadOwnershipCategory.Unfriendly,
+                ResolveRailroadFee = rr => rr == 2 ? 1000 : 5000,
+                ResolveRailroadOwnerPlayerIndex = rr => rr == 2 ? 0 : 1
+            });
+
+        // Bob is paid once ($5,000) and the player's own railroad once ($1,000), not Bob twice.
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(6000, suggestion.TotalCost);
+    }
+
+    [Fact]
     public void FindCheapestSuggestion_PrefersMoreDirectRouteWhenDetourOnlySavesOneThousand()
     {
         var service = new MapRouteService();
