@@ -45,8 +45,8 @@ public sealed class PurchaseRecommendationService
     /// <summary>
     /// The best railroad to buy in each category for the buyer. Only railroads the buyer can safely afford count:
     /// after paying for it and the fees owed, and collecting fees opponents are about to pay, the buyer must still
-    /// hold the operating reserve for their network with that railroad. Categories with no railroad that helps are
-    /// left out, and the same railroad can win several.
+    /// hold the operating reserve. Categories with no railroad that helps are left out, and the same railroad can
+    /// win several.
     /// </summary>
     public static PurchaseRecommendationSet BuildRecommendations(
         MapDefinition mapDefinition,
@@ -63,9 +63,7 @@ public sealed class PurchaseRecommendationService
 
         var currentCoverage = NetworkCoverage.BuildSnapshot(mapDefinition, buyerOwnedRailroadIndices);
         var incomingFees = finances.EstimateIncomingFees(buyerOwnedRailroadIndices);
-        var operatingReserve = OperatingCapitalService
-            .BuildOperatingReserve(mapDefinition, finances.CurrentRegionCode, finances.LocomotiveType, currentCoverage, feesOwed: 0)
-            .RecommendedOperatingReserveCash;
+        var operatingReserve = finances.OperatingReserve;
         PurchaseRecommendationSet Result(IReadOnlyList<PurchaseRecommendation> recommendations) =>
             new(recommendations, finances.Cash, finances.FeesOwed, incomingFees, operatingReserve);
 
@@ -83,11 +81,8 @@ public sealed class PurchaseRecommendationService
             {
                 var projected = NetworkCoverage.BuildProjectedSnapshot(mapDefinition, buyerOwnedRailroadIndices, candidate.RailroadIndex);
                 var ownedAfterPurchase = buyerOwnedRailroadIndices.Append(candidate.RailroadIndex).ToList();
-                var reserveAfterPurchase = OperatingCapitalService
-                    .BuildOperatingReserve(mapDefinition, finances.CurrentRegionCode, finances.LocomotiveType, projected, feesOwed: 0)
-                    .RecommendedOperatingReserveCash;
                 var spareCash = finances.Cash - candidate.PurchasePrice - finances.FeesOwed
-                    + finances.EstimateIncomingFees(ownedAfterPurchase) - reserveAfterPurchase;
+                    + finances.EstimateIncomingFees(ownedAfterPurchase) - operatingReserve;
                 var candidateNodes = nodesByRailroad.GetValueOrDefault(candidate.RailroadIndex) ?? [];
                 var networksJoined = ownedNetworks.Count(network => network.Overlaps(candidateNodes));
                 var connections = nodesByRailroad.Count(pair => pair.Key != candidate.RailroadIndex && pair.Value.Overlaps(candidateNodes));
