@@ -19,17 +19,31 @@ public class MapProbabilityServiceTests
     }
 
     [Fact]
-    public void GenerateRandomCityProbabilities_ProducesABroaderDistribution()
+    public void GenerateRandomCityProbabilities_ProducesABellCurveAroundTheAverageCity()
     {
-        var map = CreateLargeProbabilityMap(40);
+        // Same city count as the U21 map.
+        const int cityCount = 65;
+        var map = CreateLargeProbabilityMap(cityCount);
+        var averageProbability = 100d / cityCount;
 
-        var overrides = MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(1234));
-        var minProbability = overrides.Min(entry => entry.Probability);
-        var maxProbability = overrides.Max(entry => entry.Probability);
+        for (var seed = 0; seed < 50; seed++)
+        {
+            var probabilities = MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(seed))
+                .Select(entry => entry.Probability)
+                .ToList();
 
-        Assert.True(minProbability >= 0.1d, $"Expected min probability to respect the 0.1% floor, got {minProbability:N3}%.");
-        Assert.True(maxProbability <= 5d, $"Expected generated probabilities to honor the 5% cap, got {maxProbability:N3}%.");
-        Assert.True((maxProbability - minProbability) >= 3.5d, $"Expected a broader spread than the near-uniform distribution. Min={minProbability:N3}%, Max={maxProbability:N3}%.");
+            // No pile-ups on the 0.1% floor or the 5% cap.
+            Assert.DoesNotContain(probabilities, probability => probability <= 0.1d + 0.000001d);
+            Assert.DoesNotContain(probabilities, probability => probability >= 5d - 0.000001d);
+
+            // Most cities cluster around the average...
+            var nearAverageShare = probabilities.Count(probability => Math.Abs(probability - averageProbability) <= averageProbability * 0.5d) / (double)cityCount;
+            Assert.True(nearAverageShare >= 0.6d, $"Seed {seed}: expected at least 60% of cities within 50% of the average, got {nearAverageShare:P1}.");
+
+            // ...but the distribution is still varied rather than uniform.
+            var standardDeviation = Math.Sqrt(probabilities.Average(probability => Math.Pow(probability - averageProbability, 2)));
+            Assert.True(standardDeviation >= averageProbability * 0.2d, $"Seed {seed}: expected a spread of at least 20% of the average, got {standardDeviation / averageProbability:P1}.");
+        }
     }
 
     [Fact]
