@@ -12,6 +12,9 @@ public sealed class MapRouteService
     private const int RoutePlanningHostileExitPenalty = 1500;
     private const int RoutePlanningMaximumExploredStates = 500000;
     private const int RoutePlanningMaximumSearchMilliseconds = 3000;
+    private const int PublicFeeGroup = -1;
+    private const int PrivateFeeGroup = -2;
+    private const int UnknownOwnerFeeGroupOffset = 1_000_000;
 
     public MapRouteContext BuildContext(MapDefinition mapDefinition)
     {
@@ -480,11 +483,15 @@ public sealed class MapRouteService
                 var switchedRailroad = !isFirstEdge && state.LastRailroadIndex != edge.RailroadIndex;
                 var hostileExitPenalty = CalculateHostileExitPenalty(request, outgoingEdges, edge, friendlyDestinationReachableNodes);
 
-                // Rail Baron cost model: $1000/turn for public/own RR, $5000/turn for other player's RR.
-                // Fee charged when starting a new turn OR switching to a different railroad mid-turn.
-                // Switching railroads does NOT end the turn or reset movement points.
+                // Rail Baron cost model: each turn pays one public fee, one private fee, and one fee per opponent
+                // owner whose railroad it uses, so switching between railroads in the same fee group (e.g. two
+                // public railroads) is free. Ordering: fees first, then directness
+                // (RoutePlanningDirectnessPenaltyPerSegment per segment) via WeightedCost, so a shorter route wins
+                // whenever it doesn't cost an extra fee. Switching railroads does NOT end the turn or reset movement points.
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var additionalCost = (startsNewTurn || switchedRailroad) ? costPerTurn : 0;
+                var additionalCost = ChargesFee(request, edge.RailroadIndex, state.LastRailroadIndex, startsNewTurn, switchedRailroad)
+                    ? costPerTurn
+                    : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
 
                 var nextState = new RouteSuggestionState(
@@ -1204,6 +1211,34 @@ public sealed class MapRouteService
         }
 
         return ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 5000 : 1000;
+    }
+
+    /// <summary>
+    /// Fees are charged once per turn per group: public railroads, the player's own railroads, and each opponent.
+    /// Opponent groups are keyed by owner; when the owner is unknown each railroad is its own group, so every
+    /// switch onto it is charged.
+    /// </summary>
+    private static int ResolveFeeGroup(RouteSuggestionRequest request, int railroadIndex)
+    {
+        return request.ResolveRailroadOwnership(railroadIndex) switch
+        {
+            RailroadOwnershipCategory.Public => PublicFeeGroup,
+            RailroadOwnershipCategory.Friendly => PrivateFeeGroup,
+            _ => request.ResolveRailroadOwnerPlayerIndex?.Invoke(railroadIndex) is int ownerPlayerIndex and >= 0
+                ? ownerPlayerIndex
+                : UnknownOwnerFeeGroupOffset + railroadIndex
+        };
+    }
+
+    /// <summary>
+    /// A fee is charged when a turn starts or when the route switches into a different fee group, so switching
+    /// between railroads in the same group (e.g. two public railroads) is free. Returning to a group used earlier
+    /// in the same turn is charged again; that over-estimate is rare and keeps the search state small.
+    /// </summary>
+    private static bool ChargesFee(RouteSuggestionRequest request, int railroadIndex, int previousRailroadIndex, bool startsNewTurn, bool switchedRailroad)
+    {
+        return startsNewTurn
+            || (switchedRailroad && ResolveFeeGroup(request, railroadIndex) != ResolveFeeGroup(request, previousRailroadIndex));
     }
 
     private static HashSet<string> BuildReachableNodesForRoutePlanning(

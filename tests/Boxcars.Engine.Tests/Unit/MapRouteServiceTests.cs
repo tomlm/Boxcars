@@ -445,12 +445,68 @@ public class MapRouteServiceTests
                     : RailroadOwnershipCategory.Public
             });
 
-        // Should prefer A→B→C→D ($1000 for RR1 + $1000 for RR2 = $2000, 1 turn)
+        // Should prefer A→B→C→D (RR1 and RR2 are both public, so one $1000 public fee for the turn)
         // over A→D ($5000 for RR3, 1 turn)
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
         Assert.Equal(["A", "B", "C", "D"], suggestion.NodeIds);
-        Assert.Equal(2000, suggestion.TotalCost);
+        Assert.Equal(1000, suggestion.TotalCost);
         Assert.Equal(1, suggestion.TotalTurns);
+    }
+
+    [Theory]
+    [InlineData(RailroadOwnershipCategory.Public)]
+    [InlineData(RailroadOwnershipCategory.Friendly)]
+    public void FindCheapestSuggestion_PrefersDirectRouteAcrossRailroadsInTheSameFeeGroup(RailroadOwnershipCategory ownership)
+    {
+        var service = new MapRouteService();
+        var context = CreateSwitchVersusSingleRailroadContext();
+
+        // Direct A→B→D switches RR1→RR2; the detour A→X→Y→D stays on RR3. Every railroad is in the same fee group,
+        // so the turn pays that group's fee once either way and the shorter route should win.
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.ThreeDie,
+                MovementCapacity = 3,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = _ => ownership
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["A", "B", "D"], suggestion.NodeIds);
+        Assert.Equal(1000, suggestion.TotalCost);
+    }
+
+    [Fact]
+    public void FindCheapestSuggestion_KeepsSingleRailroadWhenSwitchingAddsAnotherFee()
+    {
+        var service = new MapRouteService();
+        var context = CreateSwitchVersusSingleRailroadContext();
+
+        // RR1 is public but RR2 is the player's own, so the direct route pays both the public and private fee.
+        // The detour on public RR3 pays one fee, which outweighs two extra segments.
+        var suggestion = service.FindCheapestSuggestion(
+            context,
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.ThreeDie,
+                MovementCapacity = 3,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = rr => rr == 2
+                    ? RailroadOwnershipCategory.Friendly
+                    : RailroadOwnershipCategory.Public
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["A", "X", "Y", "D"], suggestion.NodeIds);
+        Assert.Equal(1000, suggestion.TotalCost);
     }
 
     [Fact]
@@ -1106,6 +1162,36 @@ public class MapRouteServiceTests
         AddEdge(adjacency, "E", "D", 1);
         AddEdge(adjacency, "A", "Z", 2);
         AddEdge(adjacency, "Z", "D", 2);
+
+        return new MapRouteContext
+        {
+            Adjacency = adjacency,
+            DotLookup = dotLookup
+        };
+    }
+
+    private static MapRouteContext CreateSwitchVersusSingleRailroadContext()
+    {
+        // A --[RR1]--> B --[RR2]--> D           (direct, 2 segments, switches railroad)
+        // A --[RR3]--> X --[RR3]--> Y --[RR3]--> D (detour, 3 segments, one railroad)
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = [], ["B"] = [], ["D"] = [], ["X"] = [], ["Y"] = []
+        };
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A"] = CreateDot("A", 0, 0),
+            ["B"] = CreateDot("B", 0, 1),
+            ["D"] = CreateDot("D", 0, 2),
+            ["X"] = CreateDot("X", 0, 3),
+            ["Y"] = CreateDot("Y", 0, 4)
+        };
+
+        AddEdge(adjacency, "A", "B", 1);
+        AddEdge(adjacency, "B", "D", 2);
+        AddEdge(adjacency, "A", "X", 3);
+        AddEdge(adjacency, "X", "Y", 3);
+        AddEdge(adjacency, "Y", "D", 3);
 
         return new MapRouteContext
         {

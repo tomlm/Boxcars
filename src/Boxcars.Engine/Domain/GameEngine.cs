@@ -2536,6 +2536,16 @@ public sealed class GameEngine : ObservableBase
         }
     }
 
+    private static int GetFeeGroup(Player player, Railroad railroad)
+    {
+        return railroad.Owner switch
+        {
+            null => RouteFeeGroups.Public,
+            _ when railroad.Owner == player => RouteFeeGroups.Private,
+            _ => RouteFeeGroups.ForOpponent(railroad.Owner.Index)
+        };
+    }
+
     private int GetTraversalFee(Player player, Railroad railroad)
     {
         return railroad.Owner switch
@@ -2704,7 +2714,12 @@ public sealed class GameEngine : ObservableBase
                 var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
                 var switchedRailroad = !isFirstEdge && state.LastRailroadIndex != edge.RailroadIndex;
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var additionalCost = (startsNewTurn || switchedRailroad) ? GetTraversalFee(player, railroad) : 0;
+                var previousFeeGroup = switchedRailroad && RailroadsByIndex.TryGetValue(state.LastRailroadIndex, out var previousRailroad)
+                    ? GetFeeGroup(player, previousRailroad)
+                    : int.MinValue;
+                var additionalCost = RouteFeeGroups.ChargesFee(GetFeeGroup(player, railroad), previousFeeGroup, startsNewTurn, switchedRailroad)
+                    ? GetTraversalFee(player, railroad)
+                    : 0;
                 var hostileExitPenalty = CalculateHostileExitPenalty(player, edges, edge, friendlyDestinationReachableNodes);
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
                 var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
@@ -3542,6 +3557,26 @@ internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Di
 }
 
 internal readonly record struct RoutePlanningState(string NodeId, int LastRailroadIndex, int PointsUsedInCurrentTurn);
+
+/// <summary>
+/// Fees are charged once per turn per group: public railroads, the player's own railroads, and each opponent
+/// owner. Route planning charges a fee when a turn starts or when the route switches into a different group, so
+/// switching between railroads in the same group (e.g. two public railroads) is free. Returning to a group already
+/// used earlier in the turn is charged again; that over-estimate is rare and keeps the search state small.
+/// </summary>
+internal static class RouteFeeGroups
+{
+    public const int Public = -1;
+    public const int Private = -2;
+
+    /// <summary>Opponent groups are keyed by the owner's player index.</summary>
+    public static int ForOpponent(int ownerPlayerIndex) => ownerPlayerIndex;
+
+    public static bool ChargesFee(int feeGroup, int previousFeeGroup, bool startsNewTurn, bool switchedRailroad)
+    {
+        return startsNewTurn || (switchedRailroad && feeGroup != previousFeeGroup);
+    }
+}
 
 internal readonly record struct RoutePlanningCostKey(int TotalCost, int WeightedCost, int TotalTurns, int TotalSegments);
 
