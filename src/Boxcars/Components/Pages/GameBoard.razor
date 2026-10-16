@@ -277,6 +277,8 @@ else
             </MudStack>
         }
 
+        <PlayByPlayBand @ref="_playByPlayBand" OnClick="OnPlayByPlayBandClickedAsync" />
+
         @* ── Status strip: turn state center, zoom right ── *@
         <MudStack Row="true" Class="flex-shrink-0 align-center" Style="@StatusBarAnchorStyle">
             <MudStack Row="true" Class="flex-grow-1 align-center justify-center" Style="font-size: 0.85rem; min-height: 3.75rem; padding: 0.55rem 1rem">
@@ -413,6 +415,7 @@ else
     private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
     private List<NotificationHistoryEntry> _notificationHistory = new();
+    private PlayByPlayBand? _playByPlayBand;
     private List<PlayerMapState> _mapPlayerStates = new();
     private int _currentUserPlayerIndex = -1;
     private bool _timelineInitialized;
@@ -4088,7 +4091,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             }
 
             var message = $"{player.Name} {(player.IsConnected ? "connected" : "disconnected")}.";
-            ShowNotification(
+            ShowPlayByPlay(
                 message,
                 player.IsConnected ? Severity.Success : Severity.Warning,
                 snackbarClass: BuildPlayerSnackbarClass(player.Color));
@@ -4134,22 +4137,41 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 continue;
             }
 
-            ShowNotification(message, severity, snackbarClass: BuildPlayerSnackbarClass(player.Color));
+            AddNotificationHistory(
+                $"notification:{Guid.NewGuid():N}",
+                message,
+                severity,
+                icon: null,
+                BuildPlayerSnackbarClass(player.Color),
+                detail: null,
+                DateTimeOffset.UtcNow);
         }
     }
 
     private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
     {
-        var notificationItems = _gameEngineEvents
+        var newItems = _gameEngineEvents
             .Where(item => !existingEventIds.Contains(item.EventId))
-            .Where(ShouldNotifyTimelineItem)
+            .Where(item => !IsHiddenTimelineItem(item))
             .ToList();
 
-        var visibleStateDuration = ResolveTimelineNotificationDuration(notificationItems.Count);
-
-        foreach (var item in notificationItems)
+        foreach (var item in newItems)
         {
-            ShowNotification(
+            if (!item.IsPlayByPlay)
+            {
+                AddNotificationHistory(
+                    BuildTimelineNotificationKey(item),
+                    BuildTimelineNotificationMessage(item),
+                    ResolveTimelineSeverity(item),
+                    ResolveTimelineSnackbarIcon(item),
+                    ResolveTimelineSnackbarClass(item),
+                    BuildTimelineNotificationDetail(item),
+                    item.OccurredUtc,
+                    GetTimelineEventBaseId(item));
+                continue;
+            }
+
+            ShowPlayByPlay(
                 BuildTimelineNotificationMessage(item),
                 ResolveTimelineSeverity(item),
                 historyKey: BuildTimelineNotificationKey(item),
@@ -4157,14 +4179,13 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 snackbarClass: ResolveTimelineSnackbarClass(item),
                 detail: BuildTimelineNotificationDetail(item),
                 occurredUtc: item.OccurredUtc,
-                visibleStateDuration: visibleStateDuration,
                 eventBaseId: GetTimelineEventBaseId(item));
         }
     }
 
     private void MergeTimelineNotifications()
     {
-        foreach (var item in _gameEngineEvents)
+        foreach (var item in _gameEngineEvents.Where(item => !IsHiddenTimelineItem(item)))
         {
             AddNotificationHistory(
                 BuildTimelineNotificationKey(item),
@@ -4181,7 +4202,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private string BuildTimelineNotificationMessage(EventTimelineItem item)
     {
         var message = item.Description;
-        if (item.EventKind == EventTimelineKind.NewDestination
+        if (item.EventKind is EventTimelineKind.NewDestination or EventTimelineKind.Declaration
             && item.ActingPlayerIndex.HasValue
             && item.ActingPlayerIndex.Value >= 0
             && item.ActingPlayerIndex.Value < _players.Count)
@@ -4225,21 +4246,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return $"timeline:{item.EventId}";
     }
 
-    private static bool ShouldNotifyTimelineItem(EventTimelineItem item)
+    // Moves are still tracked in the timeline (the map uses them), but the roll message already covers them.
+    private static bool IsHiddenTimelineItem(EventTimelineItem item)
     {
-        return item.EventKind switch
-        {
-            EventTimelineKind.NewDestination => true,
-            EventTimelineKind.CashAnnouncement => true,
-            EventTimelineKind.DiceRoll => true,
-            EventTimelineKind.Move => true,
-            EventTimelineKind.Arrival => true,
-            EventTimelineKind.PayFees => true,
-            EventTimelineKind.PurchaseOpportunity => true,
-            EventTimelineKind.Purchase => true,
-            EventTimelineKind.DeclinedPurchase => true,
-            _ => false
-        };
+        return item.EventKind == EventTimelineKind.Move;
     }
 
     private static string GetTimelineEventBaseId(EventTimelineItem item)
@@ -4260,17 +4270,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             EventTimelineKind.PurchaseOpportunity => Severity.Warning,
             EventTimelineKind.Purchase => Severity.Warning,
             _ => Severity.Info
-        };
-    }
-
-    private static int ResolveTimelineNotificationDuration(int notificationCount)
-    {
-        return notificationCount switch
-        {
-            >= 8 => 900,
-            >= 5 => 1300,
-            >= 3 => 1800,
-            _ => 3200
         };
     }
 
@@ -4300,6 +4299,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             EventTimelineKind.DiceRoll => Icons.Material.Filled.Casino,
             EventTimelineKind.Move => Icons.Material.Filled.DirectionsRailway,
             EventTimelineKind.NewDestination => Icons.Material.Filled.DirectionsRailway,
+            EventTimelineKind.Declaration => Icons.Material.Filled.Home,
             EventTimelineKind.CashAnnouncement => Icons.Material.Filled.Campaign,
             EventTimelineKind.Arrival => Icons.Material.Filled.AttachMoney,
             EventTimelineKind.PayFees => Icons.Material.Filled.AttachMoney,
@@ -4348,6 +4348,40 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 options.VisibleStateDuration = visibleStateDuration.Value;
             }
         });
+    }
+
+    private void ShowPlayByPlay(
+        string message,
+        Severity severity,
+        string? historyKey = null,
+        string? icon = null,
+        string? snackbarClass = null,
+        string? detail = null,
+        DateTimeOffset? occurredUtc = null,
+        string? eventBaseId = null)
+    {
+        AddNotificationHistory(
+            historyKey ?? $"notification:{Guid.NewGuid():N}",
+            message,
+            severity,
+            icon,
+            snackbarClass,
+            detail,
+            occurredUtc ?? DateTimeOffset.UtcNow,
+            eventBaseId);
+
+        _playByPlayBand?.Enqueue(new PlayByPlayMessage
+        {
+            Text = message,
+            Icon = string.IsNullOrWhiteSpace(icon) ? ResolveSeverityIcon(severity) : icon,
+            IconColor = ResolveSeverityIconColor(severity),
+            AccentColorHex = string.IsNullOrWhiteSpace(snackbarClass) ? null : ResolveSnackbarAccentHexColor(snackbarClass)
+        });
+    }
+
+    private Task OnPlayByPlayBandClickedAsync()
+    {
+        return OnPurchaseTabSelected(PurchaseExperienceTab.History);
     }
 
     private void AddNotificationHistory(
@@ -4449,7 +4483,12 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private static MudBlazor.Color ResolveNotificationHistoryIconColor(NotificationHistoryEntry item)
     {
-        return item.Severity switch
+        return ResolveSeverityIconColor(item.Severity);
+    }
+
+    private static MudBlazor.Color ResolveSeverityIconColor(Severity severity)
+    {
+        return severity switch
         {
             Severity.Success => MudBlazor.Color.Success,
             Severity.Warning => MudBlazor.Color.Warning,

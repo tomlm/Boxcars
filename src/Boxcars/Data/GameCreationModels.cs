@@ -69,7 +69,8 @@ public enum EventTimelineKind
     PayFees,
     PurchaseOpportunity,
     Purchase,
-    DeclinedPurchase
+    DeclinedPurchase,
+    Declaration
 }
 
 public static class PersistedGameStates
@@ -99,6 +100,8 @@ public sealed record EventTimelineItem
     public int? ActingPlayerIndex { get; init; }
     public string ActingUserId { get; init; } = string.Empty;
     public bool IsAiAction { get; init; }
+    /// <summary>True when the event is shown in the game board's play-by-play band; everything else is history only.</summary>
+    public bool IsPlayByPlay { get; init; }
     public bool IsBotPlayer { get; init; }
     public string BotDefinitionId { get; init; } = string.Empty;
     public string BotName { get; init; } = string.Empty;
