@@ -54,6 +54,9 @@ public sealed class PurchasePhaseModel
     public string? NoPurchaseNotification { get; init; }
 
     public RecommendationInputSet? RecommendationInputs { get; init; }
+
+    /// <summary>Best railroad to buy in each category for the buying player, and the budget they're based on.</summary>
+    public PurchaseRecommendationsModel Recommendations { get; init; } = PurchaseRecommendationsModel.Empty;
 }
 
 public sealed class PurchaseTaskbarState

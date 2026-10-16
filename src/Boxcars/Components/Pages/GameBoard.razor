@@ -325,7 +325,9 @@ else
                                                      DeclineRequested="DeclinePurchaseAsync"
                                                      CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
                                                      ProjectedCoverage="SelectedProjectedCoverage"
-                                                     SelectedEngineOption="SelectedEngineOption" />
+                                                     SelectedEngineOption="SelectedEngineOption"
+                                                     Recommendations="@(CurrentPurchasePhase?.Recommendations ?? PurchaseRecommendationsModel.Empty)"
+                                                     ShowRecommendations="@IsCurrentUserActivePlayer" />
                                 </div>
                                 <RailroadComparisonStrip Cards="ComparedRailroadCards"
                                                          RailroadSelected="OnComparedRailroadSelectedAsync" />
@@ -1876,7 +1878,7 @@ else
                     LocomotiveLabel = player.LocomotiveType,
                     OwnedRailroadCount = player.OwnedRailroadIndices.Count,
                     BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
-                    FeesOwed = index == state.ActivePlayerIndex ? CalculateFeesOwed(state, index, resolvedSettings) : 0,
+                    FeesOwed = index == state.ActivePlayerIndex ? OperatingCapitalService.CalculateFeesOwed(state, index, resolvedSettings) : 0,
                     CoverageMetrics = BuildPlayerCoverageMetricRows(player)
                 };
             })
@@ -2026,50 +2028,6 @@ else
 
         var completedSegments = Math.Clamp(player.RouteProgressIndex, 0, player.ActiveRoute.Segments.Count);
         return Math.Max(0, player.ActiveRoute.Segments.Count - completedSegments);
-    }
-
-    private static int CalculateFeesOwed(RailBaronGameState state, int playerIndex, Boxcars.Engine.Persistence.GameSettings settings)
-    {
-        if (playerIndex < 0 || playerIndex >= state.Players.Count)
-        {
-            return 0;
-        }
-
-        var player = state.Players[playerIndex];
-        var fullRateRailroads = state.Turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
-        var ownerBuckets = new Dictionary<int, bool>();
-        var usesPublicFee = false;
-        var usesPrivateFee = false;
-
-        foreach (var railroadIndex in state.Turn.RailroadsRiddenThisTurn)
-        {
-            if (!state.RailroadOwnership.TryGetValue(railroadIndex, out var ownerIndex) || ownerIndex is null)
-            {
-                usesPublicFee = true;
-                continue;
-            }
-
-            if (ownerIndex.Value == playerIndex)
-            {
-                usesPrivateFee = true;
-                continue;
-            }
-
-            var requiresFullOwnerRate = fullRateRailroads.Contains(railroadIndex);
-            if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
-            {
-                ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
-            }
-            else
-            {
-                ownerBuckets[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
-            }
-        }
-
-        var opponentRate = RailBaronGameEngine.GetUnfriendlyFee(settings, state.AllRailroadsSold);
-        return (usesPublicFee ? RailBaronGameEngine.GetPublicFee(settings) : 0)
-            + (usesPrivateFee ? RailBaronGameEngine.GetPrivateFee(settings) : 0)
-            + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : RailBaronGameEngine.GetPrivateFee(settings));
     }
 
     private int CalculateTripPayoff(Boxcars.Engine.Persistence.PlayerState player)

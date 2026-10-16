@@ -82,6 +82,8 @@ public sealed record BotLegalOption
     public string OptionType { get; init; } = string.Empty;
     public string DisplayText { get; init; } = string.Empty;
     public string Payload { get; init; } = string.Empty;
+    /// <summary>Chosen when the AI can't decide (e.g. the recommended purchase), ahead of the default "do nothing".</summary>
+    public bool IsPreferredFallback { get; init; }
 }
 
 public sealed record BotDecisionContext

@@ -181,6 +181,12 @@ public sealed class BotDecisionPromptBuilder
             }
         }
 
+        var preferredFallback = context.LegalOptions.FirstOrDefault(option => option.IsPreferredFallback);
+        if (preferredFallback is not null)
+        {
+            return preferredFallback;
+        }
+
         var noActionTypes = new[] { "NoPurchase", "Pass", "AuctionPass" };
         var noAction = context.LegalOptions.FirstOrDefault(option =>
             noActionTypes.Contains(option.OptionType, StringComparer.OrdinalIgnoreCase));
