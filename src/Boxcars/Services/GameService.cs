@@ -518,7 +518,7 @@ public class GameService
                     gameEvent,
                     $"{gameEvent.RowKey}:roll",
                     EventTimelineKind.DiceRoll,
-                    $"{actingPlayerName} rolled {FormatDiceRoll(snapshot.Turn.DiceResult)}",
+                    DiceRollDescriptions.DescribeRoll(actingPlayerName, snapshot.Turn.DiceResult, snapshot.Turn.BonusRollAvailable),
                     playerAction,
                     isPlayByPlay: true));
                 break;
@@ -690,6 +690,18 @@ public class GameService
 
         timelineItems.AddRange(roverItems);
         timelineItems.AddRange(cashAnnouncementItems);
+
+        // The engine rolls the bonus inside a move or after a purchase decision, so it gets its own entry.
+        if (DiceRollDescriptions.TryGetBonusRoll(previousSnapshot, snapshot, out var bonusRoll))
+        {
+            timelineItems.Add(CreateTimelineItem(
+                gameEvent,
+                $"{gameEvent.RowKey}:bonus-roll",
+                EventTimelineKind.DiceRoll,
+                DiceRollDescriptions.DescribeBonusRoll(actingPlayerName, bonusRoll, previousSnapshot!.Turn.DiceResult),
+                playerAction,
+                isPlayByPlay: true));
+        }
         return timelineItems;
     }
 
@@ -1047,20 +1059,6 @@ public class GameService
             2 => string.Concat(items[0], " and ", items[1]),
             _ => string.Concat(string.Join(", ", items.Take(items.Count - 1)), ", and ", items[^1])
         };
-    }
-
-    private static string FormatDiceRoll(DiceResultState? diceResult)
-    {
-        if (diceResult?.WhiteDice is not { Length: >= 2 })
-        {
-            return "0";
-        }
-
-        var whiteDiceText = string.Join("+", diceResult.WhiteDice.Select(value => value.ToString(CultureInfo.InvariantCulture)));
-
-        return diceResult.RedDie.HasValue
-            ? string.Concat(whiteDiceText, "+(", diceResult.RedDie.Value.ToString(CultureInfo.InvariantCulture), ")")
-            : whiteDiceText;
     }
 
     public async Task<GameActionResult> DeleteGameAsync(string playerId, string gameId, CancellationToken cancellationToken)
