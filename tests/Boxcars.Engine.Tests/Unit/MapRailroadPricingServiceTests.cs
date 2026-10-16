@@ -43,6 +43,17 @@ public class MapRailroadPricingServiceTests
     }
 
     [Fact]
+    public void CalculatePurchasePrices_DoesNotPriceAMonopolySpurAboveTheBusyTrunkLine()
+    {
+        var map = CreateMonopolySpurPricingMap();
+
+        var prices = MapRailroadPricingService.CalculatePurchasePrices(map);
+
+        // The spur is the only way into a rarely drawn city; the trunk carries most of the map's traffic.
+        Assert.True(prices[0] > prices[2], $"Expected the busy trunk to price above the monopoly spur. Trunk={prices[0]}, Spur={prices[2]}");
+    }
+
+    [Fact]
     public void ApplyCityProbabilities_RecalculatesRailroadPricesFromUpdatedCityDistribution()
     {
         var map = CreateProbabilityShiftPricingMap();
@@ -159,6 +170,112 @@ public class MapRailroadPricingServiceTests
             RailroadIndex = 1,
             StartRegionIndex = 0,
             StartDotIndex = 2,
+            EndRegionIndex = 0,
+            EndDotIndex = 3
+        });
+
+        return map;
+    }
+
+    private static MapDefinition CreateMonopolySpurPricingMap()
+    {
+        var map = new MapDefinition
+        {
+            Name = "Monopoly Spur Pricing Test Map",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition
+        {
+            Index = 0,
+            Name = "North",
+            Code = "N",
+            Probability = 1d
+        });
+
+        map.Cities.Add(new CityDefinition
+        {
+            Name = "Alpha",
+            RegionCode = "N",
+            Probability = 0.45d,
+            PayoutIndex = 1,
+            MapDotIndex = 0
+        });
+        map.Cities.Add(new CityDefinition
+        {
+            Name = "Beta",
+            RegionCode = "N",
+            Probability = 0.45d,
+            PayoutIndex = 2,
+            MapDotIndex = 1
+        });
+        map.Cities.Add(new CityDefinition
+        {
+            Name = "Delta",
+            RegionCode = "N",
+            Probability = 0.10d,
+            PayoutIndex = 3,
+            MapDotIndex = 3
+        });
+
+        map.Railroads.Add(new RailroadDefinition
+        {
+            Index = 0,
+            Name = "Trunk",
+            ShortName = "TRK"
+        });
+        map.Railroads.Add(new RailroadDefinition
+        {
+            Index = 1,
+            Name = "Bypass",
+            ShortName = "BYP"
+        });
+        map.Railroads.Add(new RailroadDefinition
+        {
+            Index = 2,
+            Name = "Spur",
+            ShortName = "SPR"
+        });
+
+        map.TrainDots.Add(new TrainDot { Id = "0:0", RegionIndex = 0, DotIndex = 0, X = 0, Y = 0 });
+        map.TrainDots.Add(new TrainDot { Id = "0:1", RegionIndex = 0, DotIndex = 1, X = 10, Y = 0 });
+        map.TrainDots.Add(new TrainDot { Id = "0:2", RegionIndex = 0, DotIndex = 2, X = 5, Y = 5 });
+        map.TrainDots.Add(new TrainDot { Id = "0:3", RegionIndex = 0, DotIndex = 3, X = 20, Y = 0 });
+
+        // Trunk: Alpha -> Beta directly.
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+        {
+            RailroadIndex = 0,
+            StartRegionIndex = 0,
+            StartDotIndex = 0,
+            EndRegionIndex = 0,
+            EndDotIndex = 1
+        });
+
+        // Bypass: Alpha -> Beta one dot longer, so the trunk is not a choke point.
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+        {
+            RailroadIndex = 1,
+            StartRegionIndex = 0,
+            StartDotIndex = 0,
+            EndRegionIndex = 0,
+            EndDotIndex = 2
+        });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+        {
+            RailroadIndex = 1,
+            StartRegionIndex = 0,
+            StartDotIndex = 2,
+            EndRegionIndex = 0,
+            EndDotIndex = 1
+        });
+
+        // Spur: the only line into Delta.
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+        {
+            RailroadIndex = 2,
+            StartRegionIndex = 0,
+            StartDotIndex = 1,
             EndRegionIndex = 0,
             EndDotIndex = 3
         });
