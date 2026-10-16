@@ -2645,12 +2645,11 @@ public sealed class GameEngine : ObservableBase
         var feeGroupsOwedThisTurn = player == CurrentTurn.ActivePlayer
             ? CurrentTurn.RailroadsRiddenThisTurn
                 .Where(RailroadsByIndex.ContainsKey)
-                .Select(railroadIndex => GetFeeGroup(player, RailroadsByIndex[railroadIndex]))
-                .ToHashSet()
-            : [];
+                .Aggregate(0, (paid, railroadIndex) => paid | RouteFeeGroups.ToFlag(GetFeeGroup(player, RailroadsByIndex[railroadIndex])))
+            : 0;
         var opponentStrengths = BuildOpponentStrengths(player, cityCoverage, networkMetricsByPlayerIndex);
         var clearLeaderPlayerIndex = FindClearLeader(opponentStrengths);
-        var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsLeftInCurrentTurn: firstTurnMovementCapacity);
+        var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsLeftInCurrentTurn: firstTurnMovementCapacity, PaidFeeGroups: feeGroupsOwedThisTurn);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
         var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
         {
@@ -2687,8 +2686,7 @@ public sealed class GameEngine : ObservableBase
 
             if (string.Equals(state.NodeId, destNodeId, StringComparison.OrdinalIgnoreCase))
             {
-                if (stateCost.TotalSegments > RoutePlanningMaximumSegments
-                    || PathDefersFriendlyExit(player, state, previous, friendlyDestinationReachableNodes, routePlanningStopwatch))
+                if (stateCost.TotalSegments > RoutePlanningMaximumSegments)
                 {
                     continue;
                 }
@@ -2735,28 +2733,27 @@ public sealed class GameEngine : ObservableBase
                 var isFirstEdge = state.LastRailroadIndex < 0;
                 var exhaustedTurnCapacity = !isFirstEdge && state.PointsLeftInCurrentTurn <= 0;
                 var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
-                var switchedRailroad = !isFirstEdge && state.LastRailroadIndex != edge.RailroadIndex;
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var previousFeeGroup = switchedRailroad && RailroadsByIndex.TryGetValue(state.LastRailroadIndex, out var previousRailroad)
-                    ? GetFeeGroup(player, previousRailroad)
-                    : int.MinValue;
-                var feeGroup = GetFeeGroup(player, railroad);
-                var isInCurrentTurn = isFirstEdge || (stateCost.TotalTurns <= 1 && !exhaustedTurnCapacity);
-                var feeAlreadyOwed = isInCurrentTurn && feeGroupsOwedThisTurn.Contains(feeGroup);
-                var additionalCost = !feeAlreadyOwed && RouteFeeGroups.ChargesFee(feeGroup, previousFeeGroup, startsNewTurn, switchedRailroad)
+                // Each fee group (public, the player's own railroads, each opponent) is paid at most once per turn,
+                // however often the route leaves and rejoins it.
+                var feeGroupFlag = RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad));
+                var paidFeeGroups = exhaustedTurnCapacity ? 0 : state.PaidFeeGroups;
+                var additionalCost = (paidFeeGroups & feeGroupFlag) == 0
                     ? GetTraversalFee(player, railroad)
                     : 0;
+                var isUnfriendlySegment = IsUnfriendlyRailroadForPlayer(player, edge.RailroadIndex);
                 var hostileExitPenalty = CalculateHostileExitPenalty(player, edges, edge, friendlyDestinationReachableNodes);
                 var clearLeaderPenalty = additionalCost > 0 && railroad.Owner is not null && railroad.Owner.Index == clearLeaderPlayerIndex
                     ? RoutePlanningClearLeaderPaymentPenalty
                     : 0;
                 var nextPointsLeft = (exhaustedTurnCapacity ? futureTurnMovementCapacity : state.PointsLeftInCurrentTurn) - 1;
-                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft);
+                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, paidFeeGroups | feeGroupFlag);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty,
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
-                    TotalSegments: stateCost.TotalSegments + 1);
+                    TotalSegments: stateCost.TotalSegments + 1,
+                    UnfriendlySegments: stateCost.UnfriendlySegments + (isUnfriendlySegment ? 1 : 0));
 
                 if (candidateCost.TotalSegments > RoutePlanningMaximumSegments)
                 {
@@ -2780,9 +2777,53 @@ public sealed class GameEngine : ObservableBase
             return BuildRouteFromPlanningResult(startState, bestDestination, previous);
         }
 
-        // Cheapest route failed — fall back to simple shortest path (BFS)
+        // Cheapest route failed (timed out, or every way in is too long): fall back to the shortest path, priced with
+        // the same fee rules so it isn't reported as free.
         var fallbackRoute = FindShortestRoute(startNodeId, destNodeId, player);
-        return fallbackRoute ?? new Route([startState.NodeId], Array.Empty<RouteSegment>(), 0);
+        return fallbackRoute is null
+            ? new Route([startState.NodeId], Array.Empty<RouteSegment>(), 0)
+            : new Route(
+                fallbackRoute.NodeIds,
+                fallbackRoute.Segments,
+                PriceRoute(fallbackRoute.Segments, player, feeGroupsOwedThisTurn, firstTurnMovementCapacity, futureTurnMovementCapacity));
+    }
+
+    /// <summary>Fees for riding the segments in order: each fee group is paid once per turn.</summary>
+    private int PriceRoute(
+        IReadOnlyList<RouteSegment> segments,
+        Player player,
+        int feeGroupsOwedThisTurn,
+        int firstTurnMovementCapacity,
+        int futureTurnMovementCapacity)
+    {
+        var totalCost = 0;
+        var paidFeeGroups = feeGroupsOwedThisTurn;
+        var pointsLeft = firstTurnMovementCapacity;
+
+        foreach (var segment in segments)
+        {
+            if (!RailroadsByIndex.TryGetValue(segment.RailroadIndex, out var railroad))
+            {
+                continue;
+            }
+
+            if (pointsLeft <= 0)
+            {
+                paidFeeGroups = 0;
+                pointsLeft = futureTurnMovementCapacity;
+            }
+
+            var feeGroupFlag = RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad));
+            if ((paidFeeGroups & feeGroupFlag) == 0)
+            {
+                totalCost += GetTraversalFee(player, railroad);
+                paidFeeGroups |= feeGroupFlag;
+            }
+
+            pointsLeft--;
+        }
+
+        return totalCost;
     }
 
     private Route? FindShortestRoute(string startNodeId, string destNodeId, Player player)
@@ -3008,31 +3049,6 @@ public sealed class GameEngine : ObservableBase
             : 0;
     }
 
-    private bool PathDefersFriendlyExit(
-        Player player,
-        RoutePlanningState destinationState,
-        Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
-        HashSet<string> friendlyDestinationReachableNodes,
-        Stopwatch routePlanningStopwatch)
-    {
-        var currentState = destinationState;
-
-        while (!IsRoutePlanningTimedOut(routePlanningStopwatch)
-            && previous.TryGetValue(currentState, out var previousEntry))
-        {
-            if (IsUnfriendlyRailroadForPlayer(player, previousEntry.Edge.RailroadIndex)
-                && _adjacency.TryGetValue(previousEntry.PreviousState.NodeId, out var outgoingEdges)
-                && HasFriendlyConnectedExit(player, outgoingEdges, friendlyDestinationReachableNodes))
-            {
-                return true;
-            }
-
-            currentState = previousEntry.PreviousState;
-        }
-
-        return false;
-    }
-
     private RoutePlanningExitAnalysis CalculateDestinationExitAnalysis(
         Player player,
         RoutePlanningState destinationState,
@@ -3119,11 +3135,12 @@ public sealed class GameEngine : ObservableBase
 
                 var exhaustedTurnCapacity = state.PointsLeftInCurrentTurn <= 0;
                 var startsNewTurn = exhaustedTurnCapacity;
-                var switchedRailroad = state.LastRailroadIndex != edge.RailroadIndex;
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var additionalCost = (startsNewTurn || switchedRailroad) ? GetTraversalFee(player, railroad) : 0;
+                var feeGroupFlag = RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad));
+                var paidFeeGroups = startsNewTurn ? 0 : state.PaidFeeGroups;
+                var additionalCost = (paidFeeGroups & feeGroupFlag) == 0 ? GetTraversalFee(player, railroad) : 0;
                 var nextPointsLeft = (startsNewTurn ? movementPointsPerTurn : state.PointsLeftInCurrentTurn) - 1;
-                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft);
+                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, paidFeeGroups | feeGroupFlag);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + additionalCost,
@@ -3548,6 +3565,12 @@ public sealed class GameEngine : ObservableBase
             return candidate.TotalTurns < current.TotalTurns;
         }
 
+        // Same cost and turns: stay on friendly railroads as long as possible.
+        if (candidate.UnfriendlySegments != current.UnfriendlySegments)
+        {
+            return candidate.UnfriendlySegments < current.UnfriendlySegments;
+        }
+
         return candidate.TotalSegments < current.TotalSegments;
     }
 
@@ -3607,7 +3630,8 @@ internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Di
     public bool HasCharges => UsesPublicFee || UsesPrivateFee || OpponentBuckets.Count > 0;
 }
 
-internal readonly record struct RoutePlanningState(string NodeId, int LastRailroadIndex, int PointsLeftInCurrentTurn);
+/// <param name="PaidFeeGroups">Fee groups already paid in the current turn (see <see cref="RouteFeeGroups.ToFlag"/>).</param>
+internal readonly record struct RoutePlanningState(string NodeId, int LastRailroadIndex, int PointsLeftInCurrentTurn, int PaidFeeGroups = 0);
 
 /// <summary>
 /// Fees are charged once per turn per group: public railroads, the player's own railroads, and each opponent
@@ -3623,13 +3647,12 @@ internal static class RouteFeeGroups
     /// <summary>Opponent groups are keyed by the owner's player index.</summary>
     public static int ForOpponent(int ownerPlayerIndex) => ownerPlayerIndex;
 
-    public static bool ChargesFee(int feeGroup, int previousFeeGroup, bool startsNewTurn, bool switchedRailroad)
-    {
-        return startsNewTurn || (switchedRailroad && feeGroup != previousFeeGroup);
-    }
+    /// <summary>A bit per fee group, so the groups paid in a turn fit in one int (public, private, then players).</summary>
+    public static int ToFlag(int feeGroup) => 1 << (feeGroup - Private);
 }
 
-internal readonly record struct RoutePlanningCostKey(int TotalCost, int WeightedCost, int TotalTurns, int TotalSegments);
+/// <param name="UnfriendlySegments">Dots ridden on opponents' railroads; fewer wins a tie.</param>
+internal readonly record struct RoutePlanningCostKey(int TotalCost, int WeightedCost, int TotalTurns, int TotalSegments, int UnfriendlySegments = 0);
 
 internal readonly record struct RoutePlanningDestinationChoice(
     RoutePlanningState DestinationState,
