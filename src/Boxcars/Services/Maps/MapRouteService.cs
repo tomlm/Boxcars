@@ -108,6 +108,7 @@ public sealed class MapRouteService
                 MovementCapacity = request.MovementCapacity,
                 AverageFutureMovement = request.AverageFutureMovement,
                 TraveledSegmentKeys = request.TraveledSegmentKeys,
+                RailroadsRiddenThisTurn = request.RailroadsRiddenThisTurn,
                 PlayerColor = request.PlayerColor,
                 ResolveRailroadOwnership = request.ResolveRailroadOwnership,
                 ResolveRailroadFee = request.ResolveRailroadFee,
@@ -207,6 +208,7 @@ public sealed class MapRouteService
             MovementCapacity = request.MovementCapacity,
             AverageFutureMovement = request.AverageFutureMovement,
             TraveledSegmentKeys = request.TraveledSegmentKeys,
+            RailroadsRiddenThisTurn = request.RailroadsRiddenThisTurn,
             PlayerColor = request.PlayerColor,
             ResolveRailroadOwnership = ResolveRailroadOwnershipCached,
             ResolveRailroadFee = request.ResolveRailroadFee,
@@ -268,6 +270,12 @@ public sealed class MapRouteService
                 traveledSegmentKeys.Add(segmentKey);
             }
         }
+
+        // Fee groups already owed this turn (e.g. the railroad the player arrived on before moving on with bonus
+        // movement). Riding them again before the turn ends costs nothing extra.
+        var feeGroupsOwedThisTurn = request.RailroadsRiddenThisTurn
+            .Select(railroadIndex => ResolveFeeGroup(request, railroadIndex))
+            .ToHashSet();
         var friendlyDestinationReachableNodes = BuildReachableNodesForRoutePlanning(
             context,
             request.DestinationNodeId,
@@ -489,7 +497,9 @@ public sealed class MapRouteService
                 // (RoutePlanningDirectnessPenaltyPerSegment per segment) via WeightedCost, so a shorter route wins
                 // whenever it doesn't cost an extra fee. Switching railroads does NOT end the turn or reset movement points.
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                var additionalCost = ChargesFee(request, edge.RailroadIndex, state.LastRailroadIndex, startsNewTurn, switchedRailroad)
+                var isInCurrentTurn = isFirstEdge || (stateCost.TotalTurns <= 1 && !exhaustedTurnCapacity);
+                var feeAlreadyOwed = isInCurrentTurn && feeGroupsOwedThisTurn.Contains(ResolveFeeGroup(request, edge.RailroadIndex));
+                var additionalCost = !feeAlreadyOwed && ChargesFee(request, edge.RailroadIndex, state.LastRailroadIndex, startsNewTurn, switchedRailroad)
                     ? costPerTurn
                     : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
@@ -639,6 +649,7 @@ public sealed class MapRouteService
                 MovementCapacity = 0,
                 AverageFutureMovement = request.AverageFutureMovement,
                 TraveledSegmentKeys = [.. augmentedTraveledSegmentKeys],
+                // The continuation starts next turn, so no railroads have been ridden in it yet.
                 PlayerColor = request.PlayerColor,
                 ResolveRailroadOwnership = request.ResolveRailroadOwnership,
                 ResolveRailroadFee = request.ResolveRailroadFee,

@@ -35,6 +35,7 @@
 				  CurrentWhiteDiceMovement="@CurrentWhiteDiceMovement"
 				  CurrentFixedBonusMovement="@CurrentFixedBonusMovement"
 				  BonusOutRequiresWhiteDiceArrival="@BonusOutRequiresWhiteDiceArrival"
+				  RailroadsRiddenThisTurn="@RailroadsRiddenThisTurn"
 				  DeclaredPlayerRouteNodeIds="@DeclaredPlayerRouteNodeIds"
 				  DeclaredPlayerCurrentNodeId="@DeclaredPlayerCurrentNodeId"
 				  RailroadOwnerPlayerIndices="@RailroadOwnerPlayerIndices"
@@ -163,6 +164,9 @@
 
 	[Parameter]
 	public bool BonusOutRequiresWhiteDiceArrival { get; set; }
+
+	[Parameter]
+	public IReadOnlyCollection<int> RailroadsRiddenThisTurn { get; set; } = [];
 
 	[Parameter]
 	public IReadOnlyList<string> DeclaredPlayerRouteNodeIds { get; set; } = [];

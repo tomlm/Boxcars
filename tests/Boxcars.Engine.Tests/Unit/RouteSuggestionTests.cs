@@ -274,6 +274,30 @@ public class RouteSuggestionTests
     }
 
     [Fact]
+    public void SuggestRouteForPlayer_BonusMovement_StaysOnRailroadAlreadyPaidThisTurn()
+    {
+        var engine = CreateBonusOutPlanningEngine();
+        var player = engine.Players[0];
+        AssignOwnership(engine, 1, engine.Players[1]);
+        AssignOwnership(engine, 2, engine.Players[2]);
+
+        player.CurrentNodeId = "0:0";
+        player.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        player.TripOriginCity = player.CurrentCity;
+
+        // The player arrived at Start on Bob's RR1 this turn, so that fee is already owed.
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(1);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Staying on RR1 and switching to public RR3 adds only the public fee; Charlie's RR2 would add $5,000.
+        Assert.Equal([1, 3], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(["0:0", "0:1", "0:2"], route.NodeIds);
+        Assert.Equal(1000, route.TotalCost);
+    }
+
+    [Fact]
     public void SuggestRouteForPlayer_PrefersFriendlyExitWhenHostileRailroadCanBeLeftForDestinationPath()
     {
         var engine = CreateHostileExitPlanningEngine();
@@ -453,6 +477,20 @@ public class RouteSuggestionTests
             CreatePublicSwitchPlanningMap(),
             GameEngineFixture.DefaultPlayerNames,
             random,
+            GameSettings.Default with
+            {
+                HomeCityChoice = false,
+                HomeSwapping = false,
+                PublicFee = 1000
+            });
+    }
+
+    private static Boxcars.Engine.Domain.GameEngine CreateBonusOutPlanningEngine()
+    {
+        return new Boxcars.Engine.Domain.GameEngine(
+            CreateBonusOutPlanningMap(),
+            GameEngineFixture.ThreePlayerNames,
+            new FixedRandomProvider(),
             GameSettings.Default with
             {
                 HomeCityChoice = false,
@@ -734,6 +772,53 @@ public class RouteSuggestionTests
         }
 
         foreach (var (railroadIndex, startDot, endDot) in new[] { (1, 0, 1), (2, 1, 4), (3, 0, 2), (3, 2, 3), (3, 3, 4) })
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroadIndex,
+                StartRegionIndex = 0,
+                StartDotIndex = startDot,
+                EndRegionIndex = 0,
+                EndDotIndex = endDot
+            });
+        }
+
+        return map;
+    }
+
+    private static MapDefinition CreateBonusOutPlanningMap()
+    {
+        // 0 --[RR1]--> 1 --[RR3]--> 2   (arrival railroad, then public)
+        // 0 --[RR2]--> 2                (shorter, but another opponent's railroad)
+        // 2 --[RR3]--> 3                (friendly exit from Finish)
+        var map = new MapDefinition
+        {
+            Name = "BonusOutPlanningMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 2 });
+
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "Arrival Line", ShortName = "AL" });
+        map.Railroads.Add(new RailroadDefinition { Index = 2, Name = "Other Owner Line", ShortName = "OO" });
+        map.Railroads.Add(new RailroadDefinition { Index = 3, Name = "Public Line", ShortName = "PL" });
+
+        for (var dot = 0; dot <= 3; dot++)
+        {
+            map.TrainDots.Add(new TrainDot
+            {
+                Id = $"0:{dot}",
+                RegionIndex = 0,
+                DotIndex = dot,
+                X = dot * 10,
+                Y = dot * 10
+            });
+        }
+
+        foreach (var (railroadIndex, startDot, endDot) in new[] { (1, 0, 1), (3, 1, 2), (2, 0, 2), (3, 2, 3) })
         {
             map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
             {

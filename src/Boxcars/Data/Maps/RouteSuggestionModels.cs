@@ -22,6 +22,11 @@ public sealed class RouteSuggestionRequest
     public int MovementCapacity { get; init; }
     public double AverageFutureMovement { get; init; }
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
+    /// <summary>
+    /// Railroads the player has already ridden this turn. Their fee groups are already owed, so riding them again
+    /// before the turn ends (e.g. moving on after arriving with bonus movement) adds no fee.
+    /// </summary>
+    public IReadOnlyCollection<int> RailroadsRiddenThisTurn { get; init; } = [];
     public required string PlayerColor { get; init; }
     public required Func<int, RailroadOwnershipCategory> ResolveRailroadOwnership { get; init; }
     public Func<int, int>? ResolveRailroadFee { get; init; }

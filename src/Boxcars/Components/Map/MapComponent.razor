@@ -478,6 +478,10 @@
     [Parameter]
     public bool BonusOutRequiresWhiteDiceArrival { get; set; }
 
+    /// <summary>Railroads the active player has already ridden this turn; their fees are already owed.</summary>
+    [Parameter]
+    public IReadOnlyCollection<int> RailroadsRiddenThisTurn { get; set; } = [];
+
     [Parameter]
     public IReadOnlyList<string> DeclaredPlayerRouteNodeIds { get; set; } = [];
 
@@ -1875,6 +1879,7 @@
                 MovementCapacity = movementCapacity,
                 AverageFutureMovement = AverageFutureMovement,
                 TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
+                RailroadsRiddenThisTurn = RailroadsRiddenThisTurn,
                 PlayerColor = PlayerColor,
                 ResolveRailroadOwnership = ResolveRailroadOwnershipCategory,
                 ResolveRailroadFee = ResolveRailroadFee,

@@ -2627,6 +2627,14 @@ public sealed class GameEngine : ObservableBase
             destNodeId,
             player,
             routePlanningStopwatch);
+        // Fee groups the active player already owes this turn (e.g. the railroad they arrived on before moving on
+        // with bonus movement). Riding them again before the turn ends costs nothing extra.
+        var feeGroupsOwedThisTurn = player == CurrentTurn.ActivePlayer
+            ? CurrentTurn.RailroadsRiddenThisTurn
+                .Where(RailroadsByIndex.ContainsKey)
+                .Select(railroadIndex => GetFeeGroup(player, RailroadsByIndex[railroadIndex]))
+                .ToHashSet()
+            : [];
         var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
         var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
@@ -2717,7 +2725,10 @@ public sealed class GameEngine : ObservableBase
                 var previousFeeGroup = switchedRailroad && RailroadsByIndex.TryGetValue(state.LastRailroadIndex, out var previousRailroad)
                     ? GetFeeGroup(player, previousRailroad)
                     : int.MinValue;
-                var additionalCost = RouteFeeGroups.ChargesFee(GetFeeGroup(player, railroad), previousFeeGroup, startsNewTurn, switchedRailroad)
+                var feeGroup = GetFeeGroup(player, railroad);
+                var isInCurrentTurn = isFirstEdge || (stateCost.TotalTurns <= 1 && !exhaustedTurnCapacity);
+                var feeAlreadyOwed = isInCurrentTurn && feeGroupsOwedThisTurn.Contains(feeGroup);
+                var additionalCost = !feeAlreadyOwed && RouteFeeGroups.ChargesFee(feeGroup, previousFeeGroup, startsNewTurn, switchedRailroad)
                     ? GetTraversalFee(player, railroad)
                     : 0;
                 var hostileExitPenalty = CalculateHostileExitPenalty(player, edges, edge, friendlyDestinationReachableNodes);
