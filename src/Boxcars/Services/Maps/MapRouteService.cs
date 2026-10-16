@@ -129,45 +129,14 @@ public sealed class MapRouteService
         var cachedRequest = CreateCachedRouteSuggestionRequest(effectiveRequest);
         var searchBudget = CreateRouteSearchBudget(cachedRequest);
 
-        var result = FindCheapestSuggestionCore(
+        // No fallback: a route that ignores fees (or track already ridden this trip) is worse than none. When the
+        // search finds nothing, the caller shows no suggestion and the player picks the route.
+        return FindCheapestSuggestionCore(
             context,
             cachedRequest,
             requireCurrentTurnContinuation: true,
             emitDebug: true,
             searchBudget);
-
-        if (result.Status == RouteSuggestionStatus.NoRoute)
-        {
-            var shortestPath = FindShortestSelectionCore(context, effectiveRequest.StartNodeId, effectiveRequest.DestinationNodeId);
-            if (shortestPath is not null && shortestPath.Segments.Count > 0)
-            {
-                Debug.WriteLine(
-                    $"[MapRouteService] Cheapest route returned NoRoute ({result.Message}); falling back to shortest path ({shortestPath.Segments.Count} segments)");
-
-                return new RouteSuggestionResult
-                {
-                    Status = RouteSuggestionStatus.Success,
-                    Message = $"Shortest-path fallback ({result.Message})",
-                    StartNodeId = effectiveRequest.StartNodeId,
-                    DestinationNodeId = effectiveRequest.DestinationNodeId,
-                    NodeIds = shortestPath.NodeIds,
-                    Segments = shortestPath.Segments.Select(edge => new RouteSuggestionSegment
-                    {
-                        FromNodeId = edge.FromNodeId,
-                        ToNodeId = edge.ToNodeId,
-                        RailroadIndex = edge.RailroadIndex,
-                        OwnershipCategory = request.ResolveRailroadOwnership(edge.RailroadIndex),
-                        Turns = 0,
-                        CostPerTurn = 0,
-                        TotalCost = 0
-                    }).ToList(),
-                    TotalCost = 0,
-                    TotalTurns = 0
-                };
-            }
-        }
-
-        return result;
     }
 
     private static RouteSearchBudget CreateRouteSearchBudget(RouteSuggestionRequest request)

@@ -189,6 +189,7 @@ public class Program
         builder.Services.AddScoped<BoardProjectionService>();
         builder.Services.AddScoped<BoardViewportService>();
         builder.Services.AddScoped<MapRouteService>();
+        builder.Services.AddSingleton<RouteFailureIssueReporter>();
 
         var app = builder.Build();
 

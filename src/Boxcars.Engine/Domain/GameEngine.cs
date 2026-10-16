@@ -2855,7 +2855,9 @@ public sealed class GameEngine : ObservableBase
 
             foreach (var edge in edges)
             {
-                if (!visited.Add(edge.ToNodeId))
+                // Track already ridden on this trip can't be ridden again.
+                if (player.UsedSegments.Contains(new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex))
+                    || !visited.Add(edge.ToNodeId))
                 {
                     continue;
                 }
