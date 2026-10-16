@@ -283,7 +283,7 @@ else
         @* ── Status strip: turn state center, zoom right ── *@
         <MudStack Row="true" Class="flex-shrink-0 align-center" Style="@StatusBarAnchorStyle">
             <MudStack Row="true" Class="flex-grow-1 align-center justify-center" Style="font-size: 0.85rem; min-height: 3.75rem; padding: 0.55rem 1rem">
-                <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Style="gap: 1rem; max-width: 100%; margin: 0 auto">
+                <MudStack Row="true" Justify="@StatusContentJustify" AlignItems="AlignItems.Center" Style="@StatusContentStyle">
                         @if (ShouldShowStatusControls)
                         {
                             @if (!ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
@@ -316,15 +316,19 @@ else
                             }
                             else if (ShouldShowPurchaseTaskbar)
                             {
-                                <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
-                                                 SelectedOptionKey="@_selectedPurchaseOptionKey"
-                                                 SelectedOptionKeyChanged="OnSelectedPurchaseOptionChangedAsync"
-                                                                                                 IsBusy="@_awaitingAuthoritativeUpdate"
-                                                 BuyRequested="OnBuyPurchaseAsync"
-                                                 DeclineRequested="DeclinePurchaseAsync"
-                                                 CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
-                                                 ProjectedCoverage="SelectedProjectedCoverage"
-                                                 SelectedEngineOption="SelectedEngineOption" />
+                                <div class="flex-shrink-0">
+                                    <PurchaseTaskbar TaskbarState="CurrentPurchaseTaskbarState"
+                                                     SelectedOptionKey="@_selectedPurchaseOptionKey"
+                                                     SelectedOptionKeyChanged="OnSelectedPurchaseOptionChangedAsync"
+                                                     IsBusy="@_awaitingAuthoritativeUpdate"
+                                                     BuyRequested="OnBuyPurchaseAsync"
+                                                     DeclineRequested="DeclinePurchaseAsync"
+                                                     CurrentCoverage="CurrentPurchasePhase?.CurrentCoverage"
+                                                     ProjectedCoverage="SelectedProjectedCoverage"
+                                                     SelectedEngineOption="SelectedEngineOption" />
+                                </div>
+                                <RailroadComparisonStrip Cards="ComparedRailroadCards"
+                                                         RailroadSelected="OnComparedRailroadSelectedAsync" />
                             }
                             else if (ShouldShowAuctionPanel)
                             {
@@ -428,6 +432,10 @@ else
     private int? _highlightedNetworkPlayerIndex;
     private string? _dismissedRailroadOverlayOptionKey;
     private string? _lastPurchaseResolutionKey;
+    private const int MaxComparedRailroads = 8;
+    private readonly List<(int RailroadIndex, int EntryId)> _comparedRailroads = new();
+    private string? _comparedRailroadsOpportunityKey;
+    private int _nextComparedRailroadEntryId;
     private double? _selectedRailroadOverlayClientX;
     private double? _selectedRailroadOverlayClientY;
     private ElementReference _mapAreaElement;
@@ -866,6 +874,11 @@ else
         var selectedRailroad = CurrentPurchasePhase?.RailroadOptions.FirstOrDefault(option =>
             string.Equals(BuildRailroadOptionKey(option.RailroadIndex), optionKey, StringComparison.Ordinal));
 
+        if (selectedRailroad is not null)
+        {
+            RememberComparedRailroad(selectedRailroad.RailroadIndex);
+        }
+
         if (selectedRailroad is not null && _gameMap is not null)
         {
             if (!string.Equals(optionKey, _dismissedRailroadOverlayOptionKey, StringComparison.Ordinal))
@@ -1041,8 +1054,71 @@ else
         }
 
         _selectedPurchaseOptionKey = optionKey;
+        RememberComparedRailroad(selectionEvent.RailroadIndex);
         await PositionPurchaseOverlayAsync(selectionEvent);
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnComparedRailroadSelectedAsync(int railroadIndex)
+    {
+        var optionKey = BuildRailroadOptionKey(railroadIndex);
+        if (CurrentPurchasePhase?.RailroadOptions.Any(option => option.RailroadIndex == railroadIndex) == true)
+        {
+            await OnSelectedPurchaseOptionChangedAsync(optionKey);
+            return;
+        }
+
+        // Railroads clicked on the map that aren't for sale can still be compared; just reselect them.
+        _selectedPurchaseOptionKey = optionKey;
+        RememberComparedRailroad(railroadIndex);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // A purchase opportunity is one player's purchase step in one turn.
+    private string? CurrentPurchaseOpportunityKey => ShouldShowPurchaseTaskbar && _gameState is not null
+        ? FormattableString.Invariant($"{_gameState.TurnNumber}:{_gameState.ActivePlayerIndex}")
+        : null;
+
+    /// <summary>Puts the railroad at the front of the comparison row, moving it if it's already there.</summary>
+    private void RememberComparedRailroad(int railroadIndex)
+    {
+        var opportunityKey = CurrentPurchaseOpportunityKey;
+        if (opportunityKey is null)
+        {
+            return;
+        }
+
+        if (!string.Equals(opportunityKey, _comparedRailroadsOpportunityKey, StringComparison.Ordinal))
+        {
+            _comparedRailroads.Clear();
+            _comparedRailroadsOpportunityKey = opportunityKey;
+        }
+
+        _comparedRailroads.RemoveAll(entry => entry.RailroadIndex == railroadIndex);
+        _comparedRailroads.Insert(0, (railroadIndex, _nextComparedRailroadEntryId++));
+        if (_comparedRailroads.Count > MaxComparedRailroads)
+        {
+            _comparedRailroads.RemoveRange(MaxComparedRailroads, _comparedRailroads.Count - MaxComparedRailroads);
+        }
+    }
+
+    // Rebuilt every render so prices and coverage stay current; empty outside the opportunity the picks belong to.
+    private IReadOnlyList<ComparedRailroadCard> ComparedRailroadCards
+    {
+        get
+        {
+            var opportunityKey = CurrentPurchaseOpportunityKey;
+            if (opportunityKey is null || !string.Equals(opportunityKey, _comparedRailroadsOpportunityKey, StringComparison.Ordinal))
+            {
+                return [];
+            }
+
+            return _comparedRailroads
+                .Select(entry => (entry.EntryId, Overlay: BuildSelectedRailroadOverlay(entry.RailroadIndex)))
+                .Where(entry => entry.Overlay is not null)
+                .Select(entry => new ComparedRailroadCard(entry.EntryId, entry.Overlay!))
+                .ToList();
+        }
     }
 
     private async Task OnBuyPurchaseAsync()
@@ -2707,6 +2783,19 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool IsGameCompleted => _gameState is not null
         && string.Equals(_gameState.GameStatus, Boxcars.Engine.Domain.GameStatus.Completed.ToString(), StringComparison.OrdinalIgnoreCase);
+
+    // While buying, the purchase bar sits on the left with the railroad comparison row filling the rest.
+    private bool IsPurchaseLayoutActive => ShouldShowStatusControls
+        && !ShouldShowHomeCityChoicePanel
+        && !ShouldShowHomeSwapPanel
+        && !ShouldShowRegionChoicePanel
+        && ShouldShowPurchaseTaskbar;
+
+    private Justify StatusContentJustify => IsPurchaseLayoutActive ? Justify.FlexStart : Justify.Center;
+
+    private string StatusContentStyle => IsPurchaseLayoutActive
+        ? "gap: 1rem; width: 100%; min-width: 0"
+        : "gap: 1rem; max-width: 100%; margin: 0 auto";
 
     private bool ShouldShowPurchaseTaskbar => CurrentPurchasePhase is { HasActivePurchaseControls: true }
         && !IsGameCompleted
