@@ -8,7 +8,9 @@ public static class MapProbabilityService
 {
     private const double MinimumGeneratedCityProbabilityPercent = 0.1d;
     private const double MaximumGeneratedCityProbabilityPercent = 5.0d;
-    private const double GeneratedWeightRangeLog10 = 3d;
+    // Generated weights follow a bell curve around 1.0; the spread is relative to the average city probability.
+    private const double GeneratedWeightStandardDeviation = 0.4d;
+    private const double MinimumGeneratedWeight = 0.25d;
     private static readonly FieldInfo? PayoutChartField = typeof(MapDefinition).GetField("_payoutChart", BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly PropertyInfo? MaxPayoutIndexProperty = typeof(MapDefinition).GetProperty(nameof(MapDefinition.MaxPayoutIndex), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
@@ -35,23 +37,46 @@ public static class MapProbabilityService
         var totalWeight = 0d;
         for (var index = 0; index < weights.Length; index++)
         {
-            // Log-scale weights create a healthier long-tail distribution than flat uniform draws.
-            weights[index] = Math.Pow(10d, random.NextDouble() * GeneratedWeightRangeLog10);
+            weights[index] = NextGeneratedWeight(random);
             totalWeight += weights[index];
         }
-
-        var remainingProbabilityPercent = 100d - (MinimumGeneratedCityProbabilityPercent * mapDefinition.Cities.Count);
 
         var generated = mapDefinition.Cities
             .Select((city, index) => new CityProbabilityOverride
             {
                 CityName = city.Name,
                 RegionCode = city.RegionCode,
-                Probability = MinimumGeneratedCityProbabilityPercent + ((weights[index] / totalWeight) * remainingProbabilityPercent)
+                Probability = (weights[index] / totalWeight) * 100d
             })
             .ToList();
 
+        // The bell curve rarely reaches the floor or cap; this only guards small maps and outlier draws.
         return CapAndRenormalizeGeneratedProbabilities(generated, effectiveMaximumGeneratedCityProbabilityPercent);
+    }
+
+    /// <summary>
+    /// Draws a city weight from a normal distribution centered on 1.0, so most cities land near the average
+    /// probability with fewer at the extremes. Draws below the minimum are redrawn rather than clamped, which
+    /// would otherwise pile cities up on one repeated value.
+    /// </summary>
+    private static double NextGeneratedWeight(Random random)
+    {
+        double weight;
+        do
+        {
+            weight = 1d + (GeneratedWeightStandardDeviation * NextStandardNormal(random));
+        }
+        while (weight < MinimumGeneratedWeight);
+
+        return weight;
+    }
+
+    private static double NextStandardNormal(Random random)
+    {
+        // Box-Muller transform; 1 - NextDouble() keeps the logarithm's argument above zero.
+        var uniform1 = 1d - random.NextDouble();
+        var uniform2 = random.NextDouble();
+        return Math.Sqrt(-2d * Math.Log(uniform1)) * Math.Cos(2d * Math.PI * uniform2);
     }
 
     private static List<CityProbabilityOverride> CapAndRenormalizeGeneratedProbabilities(
