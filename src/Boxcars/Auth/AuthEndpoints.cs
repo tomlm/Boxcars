@@ -30,6 +30,20 @@ public static class AuthEndpoints
             return Results.Redirect("/");
         });
 
+        // GET /user-photo/{name}  -> stream a stored profile photo from the private container
+        endpoints.MapGet($"{UserPhotoStorage.PhotoPathPrefix}/{{name}}", async (string name, UserPhotoStorage photoStorage, HttpContext ctx) =>
+        {
+            var photo = await photoStorage.OpenAsync(name, ctx.RequestAborted);
+            if (photo is null)
+            {
+                return Results.NotFound();
+            }
+
+            ctx.Response.Headers.CacheControl = "private, max-age=3600";
+            return Results.Stream(photo.Value.Content, photo.Value.ContentType);
+        })
+        .RequireAuthorization();
+
         return endpoints;
     }
 }
