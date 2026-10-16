@@ -2625,7 +2625,14 @@ public sealed class GameEngine : ObservableBase
     private Route FindCheapestRoute(string startNodeId, string destNodeId, Player player)
     {
         var routePlanningStopwatch = Stopwatch.StartNew();
-        var movementPointsPerTurn = player.LocomotiveType == LocomotiveType.Superchief ? 3 : 2;
+        // Later turns move an average roll; the first turn moves what's left of this turn's roll (e.g. a bonus out), so
+        // the planner knows which railroad the player will be sitting on, and paying for, when the next turn starts.
+        var futureTurnMovementCapacity = GetAverageMovementPerTurn(player.LocomotiveType);
+        var firstTurnMovementCapacity = player == CurrentTurn.ActivePlayer
+            && CurrentTurn.Phase == TurnPhase.Move
+            && CurrentTurn.MovementRemaining > 0
+                ? CurrentTurn.MovementRemaining
+                : futureTurnMovementCapacity;
         var cityCoverage = RoutePlanningCityCoverage;
         var estimatedStateCapacity = Math.Clamp(_adjacency.Count * 2, 256, 1024);
         var networkMetricsByPlayerIndex = new Dictionary<int, RoutePlanningNetworkMetrics>(Players.Count);
@@ -2643,7 +2650,7 @@ public sealed class GameEngine : ObservableBase
             : [];
         var opponentStrengths = BuildOpponentStrengths(player, cityCoverage, networkMetricsByPlayerIndex);
         var clearLeaderPlayerIndex = FindClearLeader(opponentStrengths);
-        var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsUsedInCurrentTurn: 0);
+        var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsLeftInCurrentTurn: firstTurnMovementCapacity);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
         var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
         {
@@ -2686,7 +2693,7 @@ public sealed class GameEngine : ObservableBase
                     continue;
                 }
 
-                var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, movementPointsPerTurn, routePlanningStopwatch);
+                var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, futureTurnMovementCapacity, routePlanningStopwatch);
                 var tieBreakAnalysis = CalculateTieBreakAnalysis(player, startState, state, previous, opponentStrengths);
                 var destinationChoice = new RoutePlanningDestinationChoice(state, stateCost, exitAnalysis, tieBreakAnalysis);
                 if (bestDestination is null || IsBetterRouteDestination(destinationChoice, bestDestination.Value))
@@ -2726,7 +2733,7 @@ public sealed class GameEngine : ObservableBase
                 }
 
                 var isFirstEdge = state.LastRailroadIndex < 0;
-                var exhaustedTurnCapacity = !isFirstEdge && state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
+                var exhaustedTurnCapacity = !isFirstEdge && state.PointsLeftInCurrentTurn <= 0;
                 var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
                 var switchedRailroad = !isFirstEdge && state.LastRailroadIndex != edge.RailroadIndex;
                 var turnsAdded = startsNewTurn ? 1 : 0;
@@ -2743,8 +2750,8 @@ public sealed class GameEngine : ObservableBase
                 var clearLeaderPenalty = additionalCost > 0 && railroad.Owner is not null && railroad.Owner.Index == clearLeaderPlayerIndex
                     ? RoutePlanningClearLeaderPaymentPenalty
                     : 0;
-                var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
-                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
+                var nextPointsLeft = (exhaustedTurnCapacity ? futureTurnMovementCapacity : state.PointsLeftInCurrentTurn) - 1;
+                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty,
@@ -2847,6 +2854,17 @@ public sealed class GameEngine : ObservableBase
         }
 
         return new Route(nodeIds, segments, 0);
+    }
+
+    /// <summary>Average dots moved per turn, rounded the same way as the player's route suggestions.</summary>
+    private static int GetAverageMovementPerTurn(LocomotiveType locomotiveType)
+    {
+        return locomotiveType switch
+        {
+            LocomotiveType.Superchief => 11,
+            LocomotiveType.Express => 8,
+            _ => 7
+        };
     }
 
     private static bool IsRoutePlanningTimedOut(Stopwatch routePlanningStopwatch)
@@ -3052,7 +3070,8 @@ public sealed class GameEngine : ObservableBase
             return 0;
         }
 
-        var startState = new RoutePlanningState(destinationState.NodeId, destinationState.LastRailroadIndex, movementPointsPerTurn);
+        // Exiting starts a fresh turn.
+        var startState = new RoutePlanningState(destinationState.NodeId, destinationState.LastRailroadIndex, PointsLeftInCurrentTurn: 0);
         var estimatedStateCapacity = Math.Clamp(_adjacency.Count, 64, 256);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
         var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
@@ -3098,13 +3117,13 @@ public sealed class GameEngine : ObservableBase
                     continue;
                 }
 
-                var exhaustedTurnCapacity = state.PointsUsedInCurrentTurn >= movementPointsPerTurn;
+                var exhaustedTurnCapacity = state.PointsLeftInCurrentTurn <= 0;
                 var startsNewTurn = exhaustedTurnCapacity;
                 var switchedRailroad = state.LastRailroadIndex != edge.RailroadIndex;
                 var turnsAdded = startsNewTurn ? 1 : 0;
                 var additionalCost = (startsNewTurn || switchedRailroad) ? GetTraversalFee(player, railroad) : 0;
-                var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
-                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsUsed);
+                var nextPointsLeft = (startsNewTurn ? movementPointsPerTurn : state.PointsLeftInCurrentTurn) - 1;
+                var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + additionalCost,
@@ -3588,7 +3607,7 @@ internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Di
     public bool HasCharges => UsesPublicFee || UsesPrivateFee || OpponentBuckets.Count > 0;
 }
 
-internal readonly record struct RoutePlanningState(string NodeId, int LastRailroadIndex, int PointsUsedInCurrentTurn);
+internal readonly record struct RoutePlanningState(string NodeId, int LastRailroadIndex, int PointsLeftInCurrentTurn);
 
 /// <summary>
 /// Fees are charged once per turn per group: public railroads, the player's own railroads, and each opponent

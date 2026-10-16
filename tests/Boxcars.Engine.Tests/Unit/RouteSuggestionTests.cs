@@ -248,9 +248,10 @@ public class RouteSuggestionTests
 
         var route = engine.SuggestRouteForPlayer(player.Index);
 
+        // Both routes take one turn: the owned detour costs $1,000 and the direct public line $2,000.
         Assert.Equal([2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
         Assert.Equal(["0:0", "0:6"], route.NodeIds);
-        Assert.Equal(3000, route.TotalCost);
+        Assert.Equal(2000, route.TotalCost);
     }
 
     [Fact]
@@ -403,7 +404,88 @@ public class RouteSuggestionTests
 
         var route = engine.SuggestRouteForPlayer(player.Index);
 
-        Assert.Equal([1, 2, 3], route.Segments.Take(3).Select(segment => segment.RailroadIndex).ToArray());
+        // Both routes run into a second turn and pay two $5,000 fees; the second pays them to different owners.
+        Assert.Equal([1, 2, 2, 2, 2, 2, 2, 3], route.Segments.Take(8).Select(segment => segment.RailroadIndex).ToArray());
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_BonusOut_UsesTheBonusToGetOffAnOpponentsRailroadBeforeNextTurn()
+    {
+        var engine = CreateBonusOutNextTurnEngine();
+        var player = engine.Players[0];
+        AssignOwnership(engine, 1, engine.Players[1]);
+
+        player.LocomotiveType = LocomotiveType.Superchief;
+        player.CurrentNodeId = "0:0";
+        player.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        player.TripOriginCity = player.CurrentCity;
+
+        // The player arrived at Start on Bob's RR1 this turn and has a bonus of 2 left to move.
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(1);
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementRemaining = 2;
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Staying on RR1 is shorter but leaves the player 1 dot short, on RR1, when the next turn starts ($5,000).
+        // The bonus is better spent reaching the public line, so the next turn pays only the public fee.
+        Assert.Equal([1, 1, 2, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(["0:0", "0:4", "0:5", "0:6", "0:3"], route.NodeIds);
+        Assert.Equal(1000, route.TotalCost);
+    }
+
+    private static Boxcars.Engine.Domain.GameEngine CreateBonusOutNextTurnEngine()
+    {
+        return new Boxcars.Engine.Domain.GameEngine(
+            CreateBonusOutNextTurnMap(),
+            GameEngineFixture.ThreePlayerNames,
+            new FixedRandomProvider(),
+            GameSettings.Default with
+            {
+                HomeCityChoice = false,
+                HomeSwapping = false,
+                PublicFee = 1000
+            });
+    }
+
+    private static MapDefinition CreateBonusOutNextTurnMap()
+    {
+        // 0 --[RR1]--> 1 --[RR1]--> 2 --[RR1]--> 3            (stay on the arrival railroad: 3 dots)
+        // 0 --[RR1]--> 4 --[RR1]--> 5 --[RR2]--> 6 --[RR2]--> 3 (2 dots on it, then the public line)
+        // 3 --[RR2]--> 7                                       (friendly exit from Finish)
+        var map = new MapDefinition
+        {
+            Name = "BonusOutNextTurnMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 3 });
+
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "Arrival Line", ShortName = "AL" });
+        map.Railroads.Add(new RailroadDefinition { Index = 2, Name = "Public Line", ShortName = "PL" });
+
+        for (var dot = 0; dot <= 7; dot++)
+        {
+            map.TrainDots.Add(new TrainDot { Id = $"0:{dot}", RegionIndex = 0, DotIndex = dot, X = dot * 10, Y = dot * 10 });
+        }
+
+        foreach (var (railroadIndex, startDot, endDot) in new[] { (1, 0, 1), (1, 1, 2), (1, 2, 3), (1, 0, 4), (1, 4, 5), (2, 5, 6), (2, 6, 3), (2, 3, 7) })
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroadIndex,
+                StartRegionIndex = 0,
+                StartDotIndex = startDot,
+                EndRegionIndex = 0,
+                EndDotIndex = endDot
+            });
+        }
+
+        return map;
     }
 
     [Fact]
@@ -583,7 +665,7 @@ public class RouteSuggestionTests
             {
                 HomeCityChoice = false,
                 HomeSwapping = false,
-                PublicFee = 3000,
+                PublicFee = 2000,
                 PrivateFee = 1000
             });
     }
@@ -788,25 +870,33 @@ public class RouteSuggestionTests
         map.Railroads.Add(new RailroadDefinition { Index = 3, Name = "Owner Two Route", ShortName = "O2" });
         map.Railroads.Add(new RailroadDefinition { Index = 4, Name = "Public Exit", ShortName = "PX" });
 
-        for (var dot = 0; dot < 7; dot++)
+        // Two 8-dot routes from 0 to 3; a Freight's first turn (7 dots) ends one dot short on Owner One's RR2.
+        // 0 --[RR1]--> 10 --[RR2 x6]--> 16 --[RR2]--> 3   (pays Owner One again next turn)
+        // 0 --[RR1]--> 20 --[RR2 x6]--> 26 --[RR3]--> 3   (pays Owner Two next turn)
+        // 3 --[RR4]--> 6                                  (friendly exit from Finish)
+        var segments = new List<(int Railroad, int Start, int End)> { (1, 0, 10), (1, 0, 20), (2, 16, 3), (3, 26, 3), (4, 3, 6) };
+        for (var dot = 10; dot < 16; dot++)
         {
-            map.TrainDots.Add(new TrainDot
-            {
-                Id = $"0:{dot}",
-                RegionIndex = 0,
-                DotIndex = dot,
-                X = dot * 10,
-                Y = dot * 10
-            });
+            segments.Add((2, dot, dot + 1));
+            segments.Add((2, dot + 10, dot + 11));
         }
 
-        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 0, EndRegionIndex = 0, EndDotIndex = 1 });
-        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 2, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 2 });
-        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 2, StartRegionIndex = 0, StartDotIndex = 2, EndRegionIndex = 0, EndDotIndex = 3 });
-        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 0, EndRegionIndex = 0, EndDotIndex = 4 });
-        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 2, StartRegionIndex = 0, StartDotIndex = 4, EndRegionIndex = 0, EndDotIndex = 5 });
-        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 3, StartRegionIndex = 0, StartDotIndex = 5, EndRegionIndex = 0, EndDotIndex = 3 });
-        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 4, StartRegionIndex = 0, StartDotIndex = 3, EndRegionIndex = 0, EndDotIndex = 6 });
+        foreach (var dot in segments.SelectMany(segment => new[] { segment.Start, segment.End }).Distinct())
+        {
+            map.TrainDots.Add(new TrainDot { Id = $"0:{dot}", RegionIndex = 0, DotIndex = dot, X = dot * 10, Y = dot * 10 });
+        }
+
+        foreach (var (railroadIndex, startDot, endDot) in segments)
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroadIndex,
+                StartRegionIndex = 0,
+                StartDotIndex = startDot,
+                EndRegionIndex = 0,
+                EndDotIndex = endDot
+            });
+        }
 
         return map;
     }
