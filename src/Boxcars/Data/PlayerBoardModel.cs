@@ -154,7 +154,11 @@ public sealed class PlayerBoardModel
     {
         if (CanViewExactCash)
         {
-            return $"${Cash:N0}";
+            // During a trip, also show the cash the payout will bring. Declared players heading home aren't paid
+            // for that trip, so they just see their cash.
+            return !IsAtDestination && !HasDeclared && Payoff > 0
+                ? $"${Cash:N0} => ${Cash + Payoff:N0}"
+                : $"${Cash:N0}";
         }
 
         var threshold = Math.Max(1, AnnouncingCashThreshold);
