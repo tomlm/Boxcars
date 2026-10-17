@@ -28,9 +28,53 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         var route = engine.SuggestRoute();
         WriteRoute(engine, player, route);
 
-        // AT&SF (Pooper) for one turn, then thermous's SP, CRI&P and SOU for two: one owner per turn.
+        // AT&SF (Pooper) for one turn and thermous's SP and CRI&P for one, then El Cheapo's own railroads into
+        // Atlanta. At 48 dots it's longer than the 40-dot limit the planner used to have.
         Assert.Equal(FindCityNode(engine, "Atlanta"), route.NodeIds[^1]);
-        Assert.Equal(30_000, route.TotalCost);
+        Assert.Equal(24_000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRoute_ChesapeakeToSacramento_GetsOntoOwnRailroadsAndStaysThere()
+    {
+        // Issue #69: Connecto (Superchief, all railroads sold) on thermous's C&O west of Norfolk, headed to
+        // Sacramento. Its own IC and SP cross the country, but that route is 48 dots and the planner used to drop
+        // anything over 40, so it rode 24 dots of thermous's C&O, CB&Q and UP instead.
+        var engine = CreateEngine(LateGameOwners);
+        var player = PlaceActivePlayer(engine, "Connecto", "Norfolk", "Sacramento", LocomotiveType.Superchief, movementRemaining: 7);
+        player.CurrentNodeId = "2:10";
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal(FindCityNode(engine, "Sacramento"), route.NodeIds[^1]);
+        // Four dots of C&O to reach its own IC, then nothing but its own railroads.
+        Assert.Equal(4, CountOpponentDots(engine, player, route));
+    }
+
+    [Theory]
+    [InlineData(7)]
+    [InlineData(10)]
+    [InlineData(14)]
+    public void SuggestRoute_UnionPacificToRichmond_TakesTheShortestWayOntoOwnRailroads(int movementRemaining)
+    {
+        // Issue #70: Connecto on thermous's UP, seven dots from its own SLSF, headed to Richmond. With a bigger roll
+        // the planner used to stay on thermous's lines for the whole turn, since that turn's fee was already paid.
+        var engine = CreateEngine(LateGameOwners);
+        var player = PlaceActivePlayer(engine, "Connecto", "Sacramento", "Richmond", LocomotiveType.Superchief, movementRemaining);
+        player.CurrentNodeId = "6:8";
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal(FindCityNode(engine, "Richmond"), route.NodeIds[^1]);
+        Assert.Equal(7, CountOpponentDots(engine, player, route));
+    }
+
+    private static int CountOpponentDots(Boxcars.Engine.Domain.GameEngine engine, Player player, Route route)
+    {
+        return route.Segments.Count(segment =>
+            engine.Railroads.First(railroad => railroad.Index == segment.RailroadIndex).Owner is { } owner && owner != player);
     }
 
     [Fact]
@@ -157,6 +201,15 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         ["Balenco"] = ["MP", "C&NW", "L&N", "UP", "SLSF"],
         ["El Cheapo"] = ["NYC", "PA", "B&M", "NYNH&H", "SAL", "N&W", "GM&O", "NP"],
         ["Pooper"] = ["C&O", "ACL", "RF&P", "IC", "AT&SF", "CMStP&P", "D&RGW"]
+    };
+
+    // Owners late in the game from issues #68-#70 (all railroads sold).
+    private static readonly Dictionary<string, string[]> LateGameOwners = new()
+    {
+        ["thermous"] = ["NYC", "NYNH&H", "C&O", "CB&Q", "AT&SF", "CMStP&P", "GM&O", "UP", "WP", "NP"],
+        ["Balenco"] = ["PA"],
+        ["Connecto"] = ["B&M", "ACL", "SAL", "IC", "SP", "SLSF"],
+        ["gjhill03"] = ["B&O", "SOU", "RF&P", "MP", "C&NW", "L&N", "T&P", "N&W", "D&RGW", "CRI&P", "GN"]
     };
 
     private static string NormalizeSegmentKey(string selectedSegmentKey)

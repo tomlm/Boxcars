@@ -14,8 +14,11 @@ namespace Boxcars.Engine.Domain;
 public sealed class GameEngine : ObservableBase
 {
     public const int AuctionBidIncrement = 500;
-    public const int RoutePlanningMaximumSegments = 40;
+    public const int RoutePlanningMaximumSegments = 100;
     private const int RoutePlanningDirectnessPenaltyPerSegment = 250;
+    // Each dot on an opponent's railroad weighs extra, so bots get onto friendly track as soon as they sensibly can
+    // instead of riding an opponent longer just because that turn's fee is already paid.
+    private const int RoutePlanningUnfriendlyPenaltyPerSegment = 500;
     private const int RoutePlanningHostileExitPenalty = 1500;
     // Added to a route's ranking (not its cost) for each fee paid to the clear leader, so bots take a route that
     // pays a laggard instead when it costs no more in fees or turns and is at most 3 dots longer (3 x 250).
@@ -2767,7 +2770,8 @@ public sealed class GameEngine : ObservableBase
                 var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, paidFeeGroups | feeGroupFlag);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
-                    WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty,
+                    WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty
+                        + (isUnfriendlySegment ? RoutePlanningUnfriendlyPenaltyPerSegment : 0),
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1,
                     UnfriendlySegments: stateCost.UnfriendlySegments + (isUnfriendlySegment ? 1 : 0));
