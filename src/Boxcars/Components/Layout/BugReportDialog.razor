@@ -1,6 +1,7 @@
 @using Boxcars.Services
 @using MudBlazor
 @inject BugReportService BugReportService
+@inject NavigationManager Navigation
 
 <MudDialog>
     <TitleContent>
@@ -41,6 +42,14 @@
                               AutoGrow="true"
                               Variant="Variant.Outlined"
                               Disabled="_busy" />
+                @if (ScreenshotJpeg is { Length: > 0 })
+                {
+                    <MudCheckBox T="bool" @bind-Value="_attachScreenshot" Label="Attach a screenshot of the page" Disabled="_busy" Dense="true" />
+                    @if (_attachScreenshot)
+                    {
+                        <MudImage Src="@ScreenshotDataUrl" Alt="Screenshot of the page" Fluid="true" Elevation="1" Class="rounded" />
+                    }
+                }
                 <MudText Typo="Typo.caption">
                     @(string.IsNullOrWhiteSpace(GameId)
                         ? "The issue is filed in the public Boxcars GitHub repository."
@@ -86,6 +95,14 @@
     [Parameter]
     public string ReporterName { get; set; } = "Player";
 
+    /// <summary>The page as it looked when the player opened the report, or null when it couldn't be captured.</summary>
+    [Parameter]
+    public byte[]? ScreenshotJpeg { get; set; }
+
+    private bool _attachScreenshot = true;
+
+    private string ScreenshotDataUrl => ScreenshotJpeg is { Length: > 0 } ? $"data:image/jpeg;base64,{Convert.ToBase64String(ScreenshotJpeg)}" : string.Empty;
+
     private string _issue = string.Empty;
     private string _expected = string.Empty;
     private string? _errorMessage;
@@ -116,7 +133,14 @@
 
         try
         {
-            _createdIssue = await BugReportService.SubmitAsync(_issue, _expected, ReporterName, PagePath, GameId);
+            _createdIssue = await BugReportService.SubmitAsync(
+                _issue,
+                _expected,
+                ReporterName,
+                PagePath,
+                GameId,
+                _attachScreenshot ? ScreenshotJpeg : null,
+                Navigation.BaseUri);
             if (_createdIssue is null)
             {
                 _errorMessage = "The bug couldn't be filed. Please try again.";

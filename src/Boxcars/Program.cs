@@ -119,6 +119,7 @@ public class Program
             tableStorageConnectionString,
             new BlobClientOptions(BlobClientOptions.ServiceVersion.V2025_01_05)));
         builder.Services.AddSingleton<UserPhotoStorage>();
+        builder.Services.AddSingleton<BugScreenshotStorage>();
 
         builder.Services.AddOptions<BotOptions>()
             .Configure(options =>
@@ -285,6 +286,20 @@ public class Program
 
         // Auth endpoints (login challenge / logout)
         app.MapAuthEndpoints();
+
+        // GET /bug-screenshot/{name}: a bug report's screenshot. No sign-in, so the public GitHub issue can show it.
+        app.MapGet($"{BugScreenshotStorage.ScreenshotPathPrefix}/{{name}}", async (string name, BugScreenshotStorage screenshotStorage, HttpContext context) =>
+        {
+            var screenshot = await screenshotStorage.OpenAsync(name, context.RequestAborted);
+            if (screenshot is null)
+            {
+                return Results.NotFound();
+            }
+
+            context.Response.Headers.CacheControl = "public, max-age=86400";
+            return Results.Stream(screenshot, "image/jpeg");
+        })
+        .AllowAnonymous();
 
         // Reports (railroad and probability reference PDF)
         app.MapReportEndpoints();
