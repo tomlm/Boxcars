@@ -427,6 +427,27 @@ public class GameService
             .ToList();
     }
 
+    /// <summary>Every saved game state for the game, oldest first.</summary>
+    public async Task<IReadOnlyList<GameState>> GetGameStateHistoryAsync(string gameId, CancellationToken cancellationToken)
+    {
+        var filter = TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
+        var events = new List<GameEventEntity>();
+        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
+                           filter: filter,
+                           select: [nameof(GameEventEntity.RowKey), nameof(GameEventEntity.SerializedGameState)],
+                           cancellationToken: cancellationToken))
+        {
+            events.Add(gameEvent);
+        }
+
+        events.Sort(static (left, right) => string.CompareOrdinal(left.RowKey, right.RowKey));
+        return events
+            .Where(gameEvent => !string.IsNullOrWhiteSpace(gameEvent.SerializedGameState))
+            .Select(gameEvent => GameEventSerialization.DeserializeSnapshot(gameEvent.SerializedGameState))
+            .ToList();
+    }
+
     private static string GetTimelineEventRowKey(EventTimelineItem item)
     {
         var separatorIndex = item.EventId.LastIndexOf(':');
