@@ -1626,6 +1626,7 @@ else
         {
             await RefreshGameEntityAsync();
             var priorTurnNumber = _gameState?.TurnNumber ?? -1;
+            var priorGameState = _gameState;
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
@@ -1648,6 +1649,14 @@ else
             ApplyGameState(state);
 
             LogBoardDebug($"OnSharedGameStateChanged applied version={stateChangeVersion}");
+
+            var allRailroadsSoldNotice = _game is null || update.ReplaceTimeline
+                ? null
+                : GameBoardStateMapper.BuildAllRailroadsSoldNotice(priorGameState, state, GameSettingsResolver.Resolve(_game).Settings);
+            if (allRailroadsSoldNotice is not null)
+            {
+                ShowNotification(allRailroadsSoldNotice, Severity.Warning, icon: Icons.Material.Filled.Train);
+            }
 
             if (_autoZoomEnabled
                 && _gameMap is not null
