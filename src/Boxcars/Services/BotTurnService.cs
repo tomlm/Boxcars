@@ -747,8 +747,9 @@ public sealed class BotTurnService
                 operatingReserve.Amount,
                 ownedRailroadIndices => OperatingCapitalService.EstimateIncomingFees(snapshot, player.Index, ownedRailroadIndices, gameEngine.Settings)))
             .Recommendations;
-        var blendedRailroadIndex = recommendations
-            .FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.Blended)
+        // Without the AI, a toll booth (the only way into an opponent's destination) beats the blended pick.
+        var fallbackRailroadIndex = (recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.TollBooth)
+                ?? recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.Blended))
             ?.RailroadIndex;
 
         foreach (var railroad in affordableRailroads)
@@ -775,8 +776,8 @@ public sealed class BotTurnService
                     reserveShortfall)
                     + (recommendedFor.Count > 0 ? $" | Recommended: {string.Join(", ", recommendedFor)}" : string.Empty),
                 Payload = railroad.Index.ToString(CultureInfo.InvariantCulture),
-                // Without the AI, buy the blended pick only when it keeps the cash reserve and covers fees.
-                IsPreferredFallback = railroad.Index == blendedRailroadIndex && projectedFeeShortfall == 0 && reserveShortfall == 0
+                // Without the AI, buy that pick only when it keeps the cash reserve and covers fees.
+                IsPreferredFallback = railroad.Index == fallbackRailroadIndex && projectedFeeShortfall == 0 && reserveShortfall == 0
             });
 
             actionsByOptionId[optionId] = new PurchaseRailroadAction

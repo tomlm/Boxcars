@@ -16,6 +16,8 @@ public sealed class BotDecisionPromptBuilder
             "In Purchase, use PhaseContext.PurchaseRisk.RecommendedOperatingReserveCash as the baseline operating cushion the player should preserve after buying.",
             "If a purchase leaves cash below that cushion, prefer declining or a cheaper option unless the buy materially improves access in the high-pressure regions listed in TopRiskRegions.",
             "A buy that forces an immediate sale can be correct, but only when the resulting network position is meaningfully better than declining or choosing a cheaper option.",
+            "In Purchase, PhaseContext.PurchaseRecommendations and the 'Recommended:' tags on options name the best railroad in each category, all within the operating reserve: Blended (best overall), Access (reaches the most new destinations), Connectivity (links the player's networks), Monopoly (destinations only the player would reach), Strategy (denies the leading opponent the most access), LowPrice (cheapest that adds access), and TollBooth.",
+            "TollBooth means that railroad is the only way left into an opponent's current destination: owning it forces that opponent to pay the player to arrive. Strongly prefer a TollBooth option over the other categories unless the player's strategy guidance says otherwise.",
             "In AuctionStrategy, choose the maximum bid ceiling the player should tolerate for this auction, not a one-turn action.",
             $"Current phase: {context.Phase}.");
     }
