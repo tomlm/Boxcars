@@ -51,6 +51,33 @@ public class GameSettingsVisibilityProjectionTests
     }
 
     [Fact]
+    public void PlayerBoardModel_DuringATrip_ShowsCashAfterThePayout()
+    {
+        var model = new PlayerBoardModel { Cash = 12_700, Payoff = 5_000, KeepCashSecret = false };
+
+        Assert.Equal("$12,700 => $17,700", model.GetMoneyDisplay());
+    }
+
+    [Theory]
+    [InlineData(true, false, true)]   // at the destination: the payout is already in the cash
+    [InlineData(false, true, true)]   // declared and heading home: no payout for that trip
+    [InlineData(false, false, false)] // cash kept secret below the announce threshold
+    public void PlayerBoardModel_NoPayoutProjection_WhenItDoesNotApply(bool isAtDestination, bool hasDeclared, bool cashVisible)
+    {
+        var model = new PlayerBoardModel
+        {
+            Cash = 12_700,
+            Payoff = 5_000,
+            IsAtDestination = isAtDestination,
+            HasDeclared = hasDeclared,
+            KeepCashSecret = !cashVisible,
+            AnnouncingCashThreshold = 100_000
+        };
+
+        Assert.DoesNotContain("=>", model.GetMoneyDisplay(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildTurnViewState_CustomFeeSettings_UsesConfiguredPreviewFee()
     {
         var mapper = new GameBoardStateMapper(
