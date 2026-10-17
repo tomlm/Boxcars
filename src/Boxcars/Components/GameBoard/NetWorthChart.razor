@@ -1,0 +1,74 @@
+@using System.Globalization
+@using Boxcars.Services
+@using MudBlazor
+
+@if (History.Series.Count == 0 || History.RoundNumbers.Count < 2)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">Net worth appears after the first full round.</MudAlert>
+}
+else
+{
+    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column flex-grow-1 overflow-auto">
+        <MudText Typo="Typo.caption" Class="mb-2">Cash plus railroads at their purchase price, at the end of each round.</MudText>
+        @* MudChart keeps its shape and won't shrink below its content, so it's sized by the height left under the
+           board's header and above its status bar; it scrolls rather than crops on short windows. *@
+        <MudChart ChartType="ChartType.Line"
+                  ChartSeries="@ChartSeries"
+                  XAxisLabels="@XAxisLabels"
+                  ChartOptions="@Options"
+                  Width="100%"
+                  Height="@ChartHeight" />
+    </MudPaper>
+}
+
+@code {
+    // Keeps the round labels readable however long the game runs.
+    private const int MaximumXAxisLabels = 12;
+
+    // Room taken by the board's header, the tab rows, the caption, the legend and the status bar.
+    private const string ChartHeight = "calc(100vh - 400px)";
+
+    [Parameter]
+    public NetWorthHistory History { get; set; } = NetWorthHistory.Empty;
+
+    /// <summary>Player colors by player index.</summary>
+    [Parameter]
+    public IReadOnlyList<string> PlayerColors { get; set; } = [];
+
+    /// <summary>
+    /// When cash is secret, the lines still show who is ahead but the amounts aren't labeled.
+    /// </summary>
+    [Parameter]
+    public bool HideValues { get; set; }
+
+    private List<ChartSeries> ChartSeries => History.Series
+        .Select(series => new ChartSeries
+        {
+            Name = series.PlayerName,
+            Data = series.Values.Select(value => (double)value).ToArray()
+        })
+        .ToList();
+
+    private string[] XAxisLabels
+    {
+        get
+        {
+            var step = Math.Max(1, (int)Math.Ceiling(History.RoundNumbers.Count / (double)MaximumXAxisLabels));
+            return History.RoundNumbers
+                .Select((round, index) => index % step == 0 ? round.ToString(CultureInfo.InvariantCulture) : string.Empty)
+                .ToArray();
+        }
+    }
+
+    private ChartOptions Options => new()
+    {
+        ChartPalette = History.Series
+            .Select(series => series.PlayerIndex < PlayerColors.Count ? PlayerColors[series.PlayerIndex] : "#888888")
+            .ToArray(),
+        ShowToolTips = !HideValues,
+        YAxisToStringFunc = HideValues
+            ? _ => string.Empty
+            : value => string.Create(CultureInfo.InvariantCulture, $"${value / 1000d:0.#}k"),
+        LineStrokeWidth = 2
+    };
+}
