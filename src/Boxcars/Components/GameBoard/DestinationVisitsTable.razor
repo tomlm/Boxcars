@@ -8,7 +8,7 @@
 }
 else
 {
-    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column flex-grow-1 overflow-hidden">
+    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column flex-grow-1 overflow-hidden align-self-start">
         <MudText Typo="Typo.caption" Class="mb-2">
             Expected is each city's chance on any one draw. Actual is its share of the @Visits.TotalDraws.ToString("N0", CultureInfo.InvariantCulture) destinations drawn this game.
         </MudText>
@@ -21,7 +21,11 @@ else
             <RowTemplate>
                 <MudTd>@context.CityName</MudTd>
                 <MudTd>@FormatPercent(context.ExpectedPercentage)</MudTd>
-                <MudTd>@FormatPercent(context.ActualPercentage) (@context.DrawCount.ToString(CultureInfo.InvariantCulture))</MudTd>
+                <MudTd>
+                    <MudText Typo="Typo.body2" Color="@GetActualColor(context)">
+                        @FormatPercent(context.ActualPercentage) (@context.DrawCount.ToString(CultureInfo.InvariantCulture))
+                    </MudText>
+                </MudTd>
             </RowTemplate>
         </MudTable>
     </MudPaper>
@@ -30,6 +34,16 @@ else
 @code {
     [Parameter]
     public DestinationVisits Visits { get; set; } = DestinationVisits.Empty;
+
+    // Green when the city has come up more often than its odds say, red when less.
+    private static Color GetActualColor(DestinationVisitRow row)
+    {
+        return row.ActualPercentage > row.ExpectedPercentage
+            ? Color.Success
+            : row.ActualPercentage < row.ExpectedPercentage
+                ? Color.Error
+                : Color.Default;
+    }
 
     private static string FormatPercent(double value)
     {
