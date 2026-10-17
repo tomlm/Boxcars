@@ -6,148 +6,82 @@ namespace Boxcars.Services.Maps;
 
 public static class MapProbabilityService
 {
-    private const double MinimumGeneratedCityProbabilityPercent = 0.1d;
-    private const double MaximumGeneratedCityProbabilityPercent = 5.0d;
-    // Generated weights follow a bell curve around 1.0; the spread is relative to the average city probability.
-    private const double GeneratedWeightStandardDeviation = 0.4d;
-    private const double MinimumGeneratedWeight = 0.25d;
+    // A destination chart has a slot for each red-die parity (odd/even) and each two-dice total (2-12).
+    private const int ChartSlotCount = 22;
+    private const int ChartOutcomeCount = 72;
     private static readonly FieldInfo? PayoutChartField = typeof(MapDefinition).GetField("_payoutChart", BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly PropertyInfo? MaxPayoutIndexProperty = typeof(MapDefinition).GetProperty(nameof(MapDefinition.MaxPayoutIndex), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
+    /// <summary>
+    /// Random destination odds built the way Rail Baron's tables work: a region chart and, for each region, a city
+    /// chart, each with 22 slots (red die odd/even, then the two white dice 2-12). Every region and city gets one slot
+    /// in a random place and the rest of the slots go to random regions or cities as repeats. A slot's chance follows
+    /// the dice (a 7 comes up six times as often as a 2), so a city's chance is its region's slots times its own.
+    /// </summary>
     public static IReadOnlyList<CityProbabilityOverride> GenerateRandomCityProbabilities(MapDefinition mapDefinition, Random? random = null)
     {
         ArgumentNullException.ThrowIfNull(mapDefinition);
 
         random ??= Random.Shared;
-        if (mapDefinition.Cities.Count == 0)
+        var regionCodes = mapDefinition.Regions
+            .Select(region => region.Code)
+            .Where(code => mapDefinition.Cities.Any(city => string.Equals(city.RegionCode, code, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (regionCodes.Count == 0)
         {
             return [];
         }
 
-        if ((MinimumGeneratedCityProbabilityPercent * mapDefinition.Cities.Count) > 100d)
+        var regionChances = BuildRandomChartChances(regionCodes, random, "regions on the map");
+        var overrides = new List<CityProbabilityOverride>(mapDefinition.Cities.Count);
+        foreach (var regionCode in regionCodes)
         {
-            throw new InvalidOperationException(
-                $"Cannot generate city probabilities with a minimum of {MinimumGeneratedCityProbabilityPercent:N1}% for {mapDefinition.Cities.Count} cities because the total would exceed 100%.");
-        }
-        var effectiveMaximumGeneratedCityProbabilityPercent = Math.Max(
-            MaximumGeneratedCityProbabilityPercent,
-            100d / mapDefinition.Cities.Count);
-
-        var weights = new double[mapDefinition.Cities.Count];
-        var totalWeight = 0d;
-        for (var index = 0; index < weights.Length; index++)
-        {
-            weights[index] = NextGeneratedWeight(random);
-            totalWeight += weights[index];
-        }
-
-        var generated = mapDefinition.Cities
-            .Select((city, index) => new CityProbabilityOverride
+            var cities = mapDefinition.Cities
+                .Where(city => string.Equals(city.RegionCode, regionCode, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var cityChances = BuildRandomChartChances(cities, random, $"cities in region {regionCode}");
+            overrides.AddRange(cities.Select(city => new CityProbabilityOverride
             {
                 CityName = city.Name,
                 RegionCode = city.RegionCode,
-                Probability = (weights[index] / totalWeight) * 100d
-            })
-            .ToList();
+                Probability = regionChances[regionCode] * cityChances[city] * 100d
+            }));
+        }
 
-        // The bell curve rarely reaches the floor or cap; this only guards small maps and outlier draws.
-        return CapAndRenormalizeGeneratedProbabilities(generated, effectiveMaximumGeneratedCityProbabilityPercent);
+        return overrides;
     }
 
     /// <summary>
-    /// Draws a city weight from a normal distribution centered on 1.0, so most cities land near the average
-    /// probability with fewer at the extremes. Draws below the minimum are redrawn rather than clamped, which
-    /// would otherwise pile cities up on one repeated value.
+    /// Places every entry once in a random slot of a 22-slot chart, fills the remaining slots with random entries, and
+    /// returns each entry's chance of being rolled.
     /// </summary>
-    private static double NextGeneratedWeight(Random random)
+    private static Dictionary<T, double> BuildRandomChartChances<T>(IReadOnlyList<T> entries, Random random, string description)
+        where T : notnull
     {
-        double weight;
-        do
+        if (entries.Count > ChartSlotCount)
         {
-            weight = 1d + (GeneratedWeightStandardDeviation * NextStandardNormal(random));
+            throw new InvalidOperationException(
+                $"Cannot build a random destination chart for {entries.Count} {description}: a chart has only {ChartSlotCount} slots.");
         }
-        while (weight < MinimumGeneratedWeight);
 
-        return weight;
+        var slots = Enumerable.Range(0, ChartSlotCount).ToArray();
+        random.Shuffle(slots);
+
+        var chances = entries.ToDictionary(entry => entry, _ => 0d);
+        for (var index = 0; index < ChartSlotCount; index++)
+        {
+            var entry = index < entries.Count ? entries[index] : entries[random.Next(entries.Count)];
+            chances[entry] += (double)CountWaysToRoll(slots[index]) / ChartOutcomeCount;
+        }
+
+        return chances;
     }
 
-    private static double NextStandardNormal(Random random)
+    /// <summary>Ways two dice make the slot's total (slots 0-10 are odd, 11-21 even, each for totals 2-12).</summary>
+    private static int CountWaysToRoll(int slot)
     {
-        // Box-Muller transform; 1 - NextDouble() keeps the logarithm's argument above zero.
-        var uniform1 = 1d - random.NextDouble();
-        var uniform2 = random.NextDouble();
-        return Math.Sqrt(-2d * Math.Log(uniform1)) * Math.Cos(2d * Math.PI * uniform2);
-    }
-
-    private static List<CityProbabilityOverride> CapAndRenormalizeGeneratedProbabilities(
-        IReadOnlyList<CityProbabilityOverride> generated,
-        double maximumGeneratedCityProbabilityPercent)
-    {
-        var adjusted = generated
-            .Select(entry => entry with
-            {
-                Probability = Math.Clamp(entry.Probability, MinimumGeneratedCityProbabilityPercent, maximumGeneratedCityProbabilityPercent)
-            })
-            .ToList();
-
-        var iteration = 0;
-        while (iteration < 256)
-        {
-            iteration++;
-
-            var total = adjusted.Sum(entry => entry.Probability);
-            var difference = 100d - total;
-            if (Math.Abs(difference) < 0.000001d)
-            {
-                break;
-            }
-
-            var adjustableEntries = adjusted
-                .Select((entry, index) => new { Entry = entry, Index = index })
-                .Where(item => difference > 0d
-                    ? item.Entry.Probability < maximumGeneratedCityProbabilityPercent - 0.000001d
-                    : item.Entry.Probability > MinimumGeneratedCityProbabilityPercent + 0.000001d)
-                .ToList();
-
-            if (adjustableEntries.Count == 0)
-            {
-                break;
-            }
-
-            var deltaPerEntry = difference / adjustableEntries.Count;
-            foreach (var item in adjustableEntries)
-            {
-                adjusted[item.Index] = item.Entry with
-                {
-                    Probability = Math.Clamp(
-                        item.Entry.Probability + deltaPerEntry,
-                        MinimumGeneratedCityProbabilityPercent,
-                        maximumGeneratedCityProbabilityPercent)
-                };
-            }
-        }
-
-        var finalDifference = 100d - adjusted.Sum(entry => entry.Probability);
-        if (Math.Abs(finalDifference) >= 0.000001d)
-        {
-            var candidateIndex = adjusted.FindIndex(entry =>
-                finalDifference > 0d
-                    ? entry.Probability < maximumGeneratedCityProbabilityPercent - 0.000001d
-                    : entry.Probability > MinimumGeneratedCityProbabilityPercent + 0.000001d);
-            if (candidateIndex >= 0)
-            {
-                var candidate = adjusted[candidateIndex];
-                adjusted[candidateIndex] = candidate with
-                {
-                    Probability = Math.Clamp(
-                        candidate.Probability + finalDifference,
-                        MinimumGeneratedCityProbabilityPercent,
-                        maximumGeneratedCityProbabilityPercent)
-                };
-            }
-        }
-
-        return adjusted;
+        var total = (slot % 11) + 2;
+        return 6 - Math.Abs(total - 7);
     }
 
     public static MapDefinition ApplyCityProbabilities(
