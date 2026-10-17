@@ -367,11 +367,11 @@ public sealed class GameEngine : ObservableBase
         if (player.Cash < _settings.WinningCash)
             throw new InvalidOperationException("Player does not have enough cash to declare.");
 
-        if (string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
+        // Declaring at home wins outright, once this turn's fees are paid. If the fees leave the player short they
+        // declare as usual, and the end-of-turn fee check withdraws the declaration.
+        if (string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase)
+            && TryWinAtHomeAfterFees(player))
         {
-            Winner = player;
-            GameStatus = GameStatus.Completed;
-            GameOver?.Invoke(this, new GameOverEventArgs(player));
             return;
         }
 
@@ -1819,12 +1819,9 @@ public sealed class GameEngine : ObservableBase
         DestinationReached?.Invoke(this, new DestinationReachedEventArgs(player, destination, payout, player.Cash, purchaseOpportunityAvailable: !arrivingHomeWhileDeclared));
 
         if (!player.HasDeclared
-            && player.Cash >= _settings.WinningCash &&
-            string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
+            && string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase)
+            && TryWinAtHomeAfterFees(player))
         {
-            Winner = player;
-            GameStatus = GameStatus.Completed;
-            GameOver?.Invoke(this, new GameOverEventArgs(player));
             return;
         }
 
@@ -1951,6 +1948,31 @@ public sealed class GameEngine : ObservableBase
         ResolvePostFeeState(player);
         ClearForcedSaleContext();
         CurrentTurn.Phase = TurnPhase.EndTurn;
+    }
+
+    /// <summary>
+    /// A player at home wins only with the winning cash left after paying this turn's fees. When they have it, the
+    /// fees are paid and the game ends; otherwise nothing changes and the turn goes on (fees are paid at its end).
+    /// </summary>
+    private bool TryWinAtHomeAfterFees(Player player)
+    {
+        var pendingFees = CalculatePendingFeeAmount(player);
+        if (player.Cash - pendingFees < _settings.WinningCash)
+        {
+            return false;
+        }
+
+        if (pendingFees > 0)
+        {
+            CurrentTurn.Phase = TurnPhase.UseFees;
+            ResolveUseFees();
+        }
+
+        player.TripOriginCity = null;
+        Winner = player;
+        GameStatus = GameStatus.Completed;
+        GameOver?.Invoke(this, new GameOverEventArgs(player));
+        return true;
     }
 
     private void ResolvePostFeeState(Player player)

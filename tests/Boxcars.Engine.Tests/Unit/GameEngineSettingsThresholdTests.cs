@@ -52,7 +52,8 @@ public class GameEngineSettingsThresholdTests
         player.ActiveRoute = engine.SuggestRoute();
         player.RouteProgressIndex = 0;
         var payout = ResolveTripPayoff(engine, startCity.Name, homeCity.Name);
-        player.Cash = settings.WinningCash - payout;
+        // Enough to still have the winning cash after this turn's fee.
+        player.Cash = settings.WinningCash - payout + settings.PublicFee;
 
         engine.CurrentTurn.Phase = TurnPhase.Move;
         engine.CurrentTurn.MovementAllowance = player.ActiveRoute.NodeIds.Count - 1;
@@ -62,6 +63,40 @@ public class GameEngineSettingsThresholdTests
 
         Assert.Equal(GameStatus.Completed, engine.GameStatus);
         Assert.Same(player, engine.Winner);
+        // Fees are paid before the win is confirmed.
+        Assert.Equal(settings.WinningCash, player.Cash);
+    }
+
+    [Fact]
+    public void ArrivalAtHome_WinningCashOnlyBeforeFees_DoesNotEndGame()
+    {
+        var settings = GameSettings.Default with { WinningCash = 325_000 };
+        var (engine, _) = GameEngineFixture.CreateTestEngine(settings);
+        var player = engine.CurrentTurn.ActivePlayer;
+        var homeCity = player.HomeCity;
+        var startCity = engine.MapDefinition.Cities.First(city => !string.Equals(city.Name, homeCity.Name, StringComparison.Ordinal));
+
+        player.CurrentCity = startCity;
+        player.CurrentNodeId = ResolveNodeId(startCity.Name);
+        player.Destination = homeCity;
+        player.TripOriginCity = startCity;
+        player.ActiveRoute = engine.SuggestRoute();
+        player.RouteProgressIndex = 0;
+        var payout = ResolveTripPayoff(engine, startCity.Name, homeCity.Name);
+        // The payout reaches the winning cash, but this turn's fee takes the player back under it.
+        player.Cash = settings.WinningCash - payout;
+
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = player.ActiveRoute.NodeIds.Count - 1;
+        engine.CurrentTurn.MovementRemaining = player.ActiveRoute.NodeIds.Count - 1;
+
+        engine.MoveAlongRoute(player.ActiveRoute.NodeIds.Count - 1);
+
+        Assert.Equal(GameStatus.InProgress, engine.GameStatus);
+        Assert.Null(engine.Winner);
+        // The turn carries on as a normal arrival; fees are paid when it ends.
+        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
+        Assert.Equal(settings.WinningCash, player.Cash);
     }
 
     [Fact]
