@@ -75,6 +75,7 @@ public sealed class PurchaseRecommendationService
         var nodesByRailroad = BuildNodesByRailroad(mapDefinition);
         var ownedNetworks = BuildOwnedNetworks(buyerOwnedRailroadIndices, nodesByRailroad);
         var leader = FindStrongestOpponent(mapDefinition, opponents);
+        var destinationRailroads = BuildOpponentDestinationRailroads(mapDefinition, opponents, nodesByRailroad);
 
         var scored = candidates
             .Select(candidate =>
@@ -90,6 +91,12 @@ public sealed class PurchaseRecommendationService
                     ? 0m
                     : NetworkCoverage.BuildProjectedSnapshot(mapDefinition, leader.Value.Opponent.OwnedRailroadIndices, candidate.RailroadIndex).AccessibleDestinationPercent
                         - leader.Value.Coverage.AccessibleDestinationPercent;
+                // Opponents whose destination this purchase closes off: every railroad into it would be the buyer's.
+                var tollPayers = destinationRailroads
+                    .Where(entry => entry.Railroads.Contains(candidate.RailroadIndex)
+                        && entry.Railroads.All(railroadIndex => railroadIndex == candidate.RailroadIndex || buyerOwnedRailroadIndices.Contains(railroadIndex)))
+                    .Select(entry => (entry.Opponent.Name, City: entry.Opponent.DestinationCityName!))
+                    .ToList();
                 return new ScoredCandidate(
                     candidate,
                     AccessGain: projected.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent,
@@ -97,7 +104,8 @@ public sealed class PurchaseRecommendationService
                     // With no railroads yet, connectivity is how many other lines it links to.
                     Connectivity: buyerOwnedRailroadIndices.Count == 0 ? connections : networksJoined,
                     LeaderAccessGain: leaderAccessGain,
-                    SpareCash: spareCash);
+                    SpareCash: spareCash,
+                    TollPayers: tollPayers);
             })
             .Where(candidate => candidate.SpareCash >= 0)
             .ToList();
@@ -141,6 +149,9 @@ public sealed class PurchaseRecommendationService
             .ThenByDescending(c => c.AccessGain)
             .FirstOrDefault();
         Add(PurchaseRecommendationCategory.LowPrice, lowPrice, lowPrice is null ? string.Empty : $"+{FormatPercent(lowPrice.AccessGain)} access");
+
+        var tollBooth = Best(scored, scored.ToDictionary(c => c, c => (decimal)c.TollPayers.Count), c => c.TollPayers.Count > 0);
+        Add(PurchaseRecommendationCategory.TollBooth, tollBooth, tollBooth is null ? string.Empty : DescribeTollPayers(tollBooth.TollPayers));
 
         return Result(recommendations);
     }
@@ -187,6 +198,42 @@ public sealed class PurchaseRecommendationService
             : candidate.Connectivity >= 2
                 ? $"Joins {candidate.Connectivity} of your networks"
                 : "Extends your network";
+    }
+
+    private static string DescribeTollPayers(IReadOnlyList<(string Name, string City)> tollPayers)
+    {
+        return tollPayers.Count == 1
+            ? $"{tollPayers[0].Name} must pay you to reach {tollPayers[0].City}"
+            : $"{string.Join(" and ", tollPayers.Select(payer => payer.Name))} must pay you to reach their destinations";
+    }
+
+    /// <summary>For each opponent with a destination, the railroads that serve it.</summary>
+    private static List<(RecommendationOpponent Opponent, HashSet<int> Railroads)> BuildOpponentDestinationRailroads(
+        MapDefinition mapDefinition,
+        IReadOnlyList<RecommendationOpponent> opponents,
+        Dictionary<int, HashSet<string>> nodesByRailroad)
+    {
+        var result = new List<(RecommendationOpponent, HashSet<int>)>();
+        foreach (var opponent in opponents.Where(opponent => !string.IsNullOrWhiteSpace(opponent.DestinationCityName)))
+        {
+            var city = mapDefinition.Cities.FirstOrDefault(candidate => string.Equals(candidate.Name, opponent.DestinationCityName, StringComparison.OrdinalIgnoreCase));
+            var region = city is null
+                ? null
+                : mapDefinition.Regions.FirstOrDefault(candidate => string.Equals(candidate.Code, city.RegionCode, StringComparison.OrdinalIgnoreCase));
+            if (city?.MapDotIndex is not int dotIndex || region is null)
+            {
+                continue;
+            }
+
+            var nodeId = MapRouteService.NodeKey(region.Index, dotIndex);
+            var railroads = nodesByRailroad.Where(pair => pair.Value.Contains(nodeId)).Select(pair => pair.Key).ToHashSet();
+            if (railroads.Count > 0)
+            {
+                result.Add((opponent, railroads));
+            }
+        }
+
+        return result;
     }
 
     private static string FormatPercent(decimal value)
@@ -261,5 +308,6 @@ public sealed class PurchaseRecommendationService
         decimal MonopolyGain,
         int Connectivity,
         decimal LeaderAccessGain,
-        int SpareCash);
+        int SpareCash,
+        IReadOnlyList<(string Name, string City)> TollPayers);
 }

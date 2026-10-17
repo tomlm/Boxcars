@@ -32,6 +32,32 @@ public class PurchaseRecommendationServiceTests
     }
 
     [Fact]
+    public void BuildRecommendations_OpponentHeadedWhereOnlyACandidateGoes_RecommendsTheTollBooth()
+    {
+        // Small is served only by the Cheap line; owning it makes Laggard pay the buyer to get there.
+        var recommendations = BuildSet(
+            new PurchaseFinances(200_000, 0, 0, _ => 0),
+            opponents: [new("Leader", 200_000, [LeaderLine], "Big"), new("Laggard", 10_000, [], "Small")]).Recommendations;
+
+        var tollBooth = recommendations.Single(r => r.Category == PurchaseRecommendationCategory.TollBooth);
+        Assert.Equal(Cheap, tollBooth.RailroadIndex);
+        // Buying the Big City line would trap the leader the same way; the cheaper railroad wins the tie.
+        Assert.Equal("Laggard must pay you to reach Small", tollBooth.Reason);
+    }
+
+    [Fact]
+    public void BuildRecommendations_DestinationStillReachableOnAnotherRailroad_NoTollBooth()
+    {
+        // Far is also on the leader's own line, so buying the Far City line doesn't force anyone to pay.
+        var recommendations = BuildSet(
+            new PurchaseFinances(200_000, 0, 0, _ => 0),
+            opponents: [new("Leader", 200_000, [LeaderLine], "Far"), new("Laggard", 10_000, [], "Home")]).Recommendations;
+
+        // Home is served only by a railroad the buyer already owns, so there's nothing to buy for it either.
+        Assert.DoesNotContain(recommendations, r => r.Category == PurchaseRecommendationCategory.TollBooth);
+    }
+
+    [Fact]
     public void BuildRecommendations_LeavesOutCategoriesNoCandidateHelps()
     {
         // Only the bridge is affordable: it connects the buyer's lines but adds no access, monopoly or leader gain.
@@ -222,18 +248,18 @@ public class PurchaseRecommendationServiceTests
         return BuildSet(new PurchaseFinances(200_000, 0, 0, _ => 0), candidateIndices).Recommendations;
     }
 
-    private static PurchaseRecommendationSet BuildSet(PurchaseFinances finances, int[]? candidateIndices = null)
+    private static PurchaseRecommendationSet BuildSet(PurchaseFinances finances, int[]? candidateIndices = null, List<RecommendationOpponent>? opponents = null)
     {
         var map = CreateMap();
         var prices = new Dictionary<int, int> { [Bend] = 10_000, [Bridge] = 8_000, [BigCity] = 30_000, [Cheap] = 2_000, [FarCity] = 12_000 };
         var candidates = (candidateIndices ?? prices.Keys.ToArray())
             .Select(index => new PurchaseCandidate(index, map.Railroads.Single(r => r.Index == index).Name, prices[index]))
             .ToList();
-        var opponents = new List<RecommendationOpponent>
-        {
+        opponents ??=
+        [
             new("Leader", 200_000, [LeaderLine]),
             new("Laggard", 10_000, [])
-        };
+        ];
 
         return PurchaseRecommendationService.BuildRecommendations(map, [OwnedWest, OwnedEast], candidates, opponents, finances);
     }

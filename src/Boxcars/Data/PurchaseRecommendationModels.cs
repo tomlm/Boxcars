@@ -8,7 +8,10 @@ public enum PurchaseRecommendationCategory
     Connectivity,
     Monopoly,
     Strategy,
-    LowPrice
+    LowPrice,
+
+    /// <summary>Buying it leaves an opponent's destination reachable only on the buyer's railroads.</summary>
+    TollBooth
 }
 
 /// <param name="Reason">Short explanation of why the railroad wins the category, e.g. "+12.3% access".</param>
@@ -33,7 +36,8 @@ public sealed record PurchaseRecommendationSet(
 /// <summary>A railroad the buyer can afford.</summary>
 public sealed record PurchaseCandidate(int RailroadIndex, string RailroadName, int PurchasePrice);
 
-public sealed record RecommendationOpponent(string Name, int Cash, IReadOnlyCollection<int> OwnedRailroadIndices);
+/// <param name="DestinationCityName">Where the opponent is heading, or null when they have no destination.</param>
+public sealed record RecommendationOpponent(string Name, int Cash, IReadOnlyCollection<int> OwnedRailroadIndices, string? DestinationCityName = null);
 
 /// <summary>What the buyer can safely spend.</summary>
 /// <param name="OperatingReserve">Cash to keep after buying (see <c>OperatingCapitalService.CalculateOperatingReserve</c>).</param>

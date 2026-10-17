@@ -1,3 +1,4 @@
+using System.Globalization;
 using Boxcars.Data;
 using Boxcars.Data.Maps;
 using Boxcars.Engine.Data.Maps;
@@ -17,6 +18,20 @@ public sealed class GameBoardStateMapper(
     GameSettingsResolver? gameSettingsResolver = null,
     GamePresenceService? gamePresenceService = null)
 {
+    /// <summary>
+    /// The notice to show when the last railroad has just been sold, or null when this update didn't sell it.
+    /// </summary>
+    public static string? BuildAllRailroadsSoldNotice(RailBaronGameState? previousState, RailBaronGameState state, GameSettings settings)
+    {
+        if (previousState is null || previousState.AllRailroadsSold || !state.AllRailroadsSold)
+        {
+            return null;
+        }
+
+        var unfriendlyFee = RailBaronGameEngine.GetUnfriendlyFee(settings, allRailroadsSold: true);
+        return string.Create(CultureInfo.InvariantCulture, $"All railroads are sold, unfriendly railroad travel is now ${unfriendlyFee:N0}");
+    }
+
     public GameSettingsSummaryModel BuildGameSettingsSummary(GameEntity? gameEntity)
     {
         if (gameEntity is null)
@@ -726,7 +741,7 @@ public sealed class GameBoardStateMapper(
         var opponents = state.Players
             .Select((player, index) => (Player: player, Index: index))
             .Where(entry => entry.Index != buyerPlayerIndex && !entry.Player.IsBankrupt)
-            .Select(entry => new RecommendationOpponent(entry.Player.Name, entry.Player.Cash, entry.Player.OwnedRailroadIndices))
+            .Select(entry => new RecommendationOpponent(entry.Player.Name, entry.Player.Cash, entry.Player.OwnedRailroadIndices, entry.Player.DestinationCityName))
             .ToList();
 
         var result = PurchaseRecommendationService.BuildRecommendations(mapDefinition, buyer.OwnedRailroadIndices, candidates, opponents, finances);
@@ -756,6 +771,7 @@ public sealed class GameBoardStateMapper(
             PurchaseRecommendationCategory.Monopoly => "Best monopoly",
             PurchaseRecommendationCategory.Strategy => "Block the leader",
             PurchaseRecommendationCategory.LowPrice => "Best low price",
+            PurchaseRecommendationCategory.TollBooth => "Toll booth",
             _ => category.ToString()
         };
     }
