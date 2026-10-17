@@ -156,6 +156,49 @@ public class GameEngineServiceAiHistoryTests
     }
 
     [Fact]
+    public async Task GetCurrentStateAsync_GameBusy_ReturnsTheStateWithoutPlayingTheTurn()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", "alice-user", isConnected: true);
+
+        var service = new GameEngineService(
+            new TestWebHostEnvironment(),
+            new ResumeAutomaticTurnFlowGamesTableClient(
+                new GameEntity
+                {
+                    PartitionKey = "game-1",
+                    RowKey = "GAME",
+                    GameId = "game-1",
+                    State = PersistedGameStates.Playing,
+                    Seats =
+                    [
+                        new GameSeatDefinition { SeatIndex = 0, PlayerUserId = "alice-user", DisplayName = "Alice" },
+                        new GameSeatDefinition { SeatIndex = 1, PlayerUserId = "bob-user", DisplayName = "Bob" }
+                    ]
+                }),
+            presenceService,
+            BotTurnServiceTestHarness.CreateService(presenceService),
+            new GameSettingsResolver(),
+            Options.Create(new BotOptions()),
+            NullLogger<GameEngineService>.Instance);
+
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.Roll;
+        SetMapReady(service);
+        SetMapDefinition(service, engine.MapDefinition);
+        SetCachedGameEngine(service, "game-1", engine);
+
+        // Another action holds the game.
+        await service.EnqueueActionAsync("game-1", new EndTurnAction { PlayerId = "Alice", PlayerIndex = 0, ActorUserId = "alice-user" });
+
+        // Reading the state used to roll for Alice right here, alongside whatever held the game.
+        var state = await service.GetCurrentStateAsync("game-1");
+
+        Assert.Equal(nameof(TurnPhase.Roll), state.Turn.Phase);
+        Assert.Equal(TurnPhase.Roll, engine.CurrentTurn.Phase);
+    }
+
+    [Fact]
     public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationWithinRangeAndBuffer_Declares()
     {
         var presenceService = new GamePresenceService();
@@ -402,6 +445,16 @@ public class GameEngineServiceAiHistoryTests
         return cache.Values.Cast<object>().ToList();
     }
 
+    private static void SetCachedGameEngine(GameEngineService service, string gameId, Boxcars.Engine.Domain.GameEngine engine)
+    {
+        var field = typeof(GameEngineService).GetField("_gameEngines", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("_gameEngines field was not found.");
+        var cache = (System.Collections.IDictionary)(field.GetValue(service)
+            ?? throw new InvalidOperationException("_gameEngines was null."));
+
+        cache[gameId] = engine;
+    }
+
     private static GameEngineService CreateGameEngineServiceForTests()
     {
         return CreateGameEngineServiceForTests(new GamePresenceService());
@@ -445,6 +498,11 @@ public class GameEngineServiceAiHistoryTests
             }
 
             throw new RequestFailedException((int)HttpStatusCode.NotFound, "Not found");
+        }
+
+        public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+        {
+            return AsyncPageable<T>.FromPages([Page<T>.FromValues([], null, new FakeResponse((int)HttpStatusCode.OK))]);
         }
     }
 
