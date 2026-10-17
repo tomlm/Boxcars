@@ -7,7 +7,8 @@ namespace Boxcars.Services.Maps;
 
 public sealed class BoardProjectionService
 {
-    private const double ParallelRailSpacing = 0.9;
+    // Wide enough that owned rails (drawn thicker than unowned ones) sharing a stretch stay apart.
+    private const double ParallelRailSpacing = 1.5;
 
     public BoardProjectionResult Project(MapDefinition mapDefinition)
     {
@@ -716,6 +717,14 @@ public sealed class BoardProjectionService
                 StrokeColor = segment.StrokeColor,
                 IsOwned = false
             };
+        }
+
+        // Railroads can list a shared stretch in opposite directions; measure the perpendicular in the same
+        // direction the edge key uses so their offsets land on opposite sides instead of on top of each other.
+        if (dx <= -0.0001 || (Math.Abs(dx) < 0.0001 && dy < 0))
+        {
+            dx = -dx;
+            dy = -dy;
         }
 
         var offsetX = (-dy / length) * offset;
