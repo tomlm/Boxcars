@@ -8,12 +8,11 @@
 }
 else
 {
-    <MudPaper Outlined="true" Class="pa-3" Style="width: fit-content; max-width: 100%">
+    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column flex-grow-1 overflow-hidden">
         <MudText Typo="Typo.caption" Class="mb-2">
             Expected is each city's chance on any one draw. Actual is its share of the @Visits.TotalDraws.ToString("N0", CultureInfo.InvariantCulture) destinations drawn this game.
         </MudText>
-        @* Sized by the height left under the board's header and above its status bar, so the rows scroll under a fixed header. *@
-        <MudTable T="DestinationVisitRow" Items="Visits.Rows" FixedHeader="true" Height="calc(100vh - 360px)" Dense="true" Hover="true">
+        <MudTable T="DestinationVisitRow" Items="Visits.Rows" FixedHeader="true" Height="100%" Class="flex-grow-1 overflow-hidden" Dense="true" Hover="true">
             <HeaderContent>
                 <MudTh><MudTableSortLabel T="DestinationVisitRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="DestinationVisitRow" SortBy="@(row => row.ExpectedPercentage)"><strong>Expected</strong></MudTableSortLabel></MudTh>
