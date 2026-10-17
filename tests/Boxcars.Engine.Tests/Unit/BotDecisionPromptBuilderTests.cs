@@ -20,6 +20,9 @@ public class BotDecisionPromptBuilderTests
         Assert.Contains("forces an immediate sale", prompt, StringComparison.Ordinal);
         Assert.Contains("RecommendedOperatingReserveCash", prompt, StringComparison.Ordinal);
         Assert.Contains("TopRiskRegions", prompt, StringComparison.Ordinal);
+        // The recommendation tags are explained, and toll booths come first (issue #73).
+        Assert.Contains("PurchaseRecommendations", prompt, StringComparison.Ordinal);
+        Assert.Contains("Strongly prefer a TollBooth option", prompt, StringComparison.Ordinal);
     }
 
     [Fact]

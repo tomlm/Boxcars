@@ -225,6 +225,36 @@ public class BotTurnResolutionTests
     }
 
     [Fact]
+    public async Task CreateBotActionAsync_PurchaseOpenAiFailure_BuysTheTollBoothOverTheBlendedPick()
+    {
+        // Issue #73: an opponent is headed to Atlanta, which only the B&O reaches. Without the AI the bot used to
+        // buy only the blended pick (the PRR reaches more cities); the toll booth wins now.
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.PendingRegionChoice = null;
+        engine.CurrentTurn.ActivePlayer.Cash = 200_000;
+        engine.Players[1].Destination = engine.MapDefinition.Cities.First(city => city.Name == "Atlanta");
+
+        var presenceService = new GamePresenceService();
+        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
+            botDefinitionId: BotTurnServiceTestHarness.ActivePlayerUserId,
+            name: "Toll Bot");
+        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                BotTurnServiceTestHarness.ActivePlayerUserId,
+                BotTurnServiceTestHarness.OtherPlayerUserId),
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            botDefinition.BotDefinitionId);
+
+        var action = await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, engine.MapDefinition, CancellationToken.None);
+
+        var purchase = Assert.IsType<PurchaseRailroadAction>(action);
+        Assert.Equal(engine.Railroads.First(railroad => railroad.ShortName == "B&O").Index, purchase.RailroadIndex);
+        Assert.Equal("Fallback", purchase.BotMetadata!.DecisionSource);
+    }
+
+    [Fact]
     public async Task CreateBotActionAsync_PurchaseRequest_IncludesOperatingReserveAnalysis()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
