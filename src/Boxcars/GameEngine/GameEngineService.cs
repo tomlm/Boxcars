@@ -41,6 +41,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     private readonly ConcurrentDictionary<string, RailBaronGameEngine> _gameEngines = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _busyGames = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _pendingAutomaticFlowResumes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, bool> _automaticFlowResumeRequested = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _mapReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly BotOptions _botOptions;
     private readonly GameSettingsResolver _gameSettingsResolver;
@@ -274,7 +275,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var gameEngine = await GetOrCreateGameEngineAsync(gameId, cancellationToken);
-        var snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, cancellationToken);
+
+        // Reading the state doesn't play bot turns. Every page load, reconnect and seat change reads it, and playing
+        // them here let several pages run the same bot turn on one engine at once, while each page waited out every
+        // bot turn. The resume plays them under the game's lock and publishes the new state as it goes.
+        ScheduleAutomaticTurnFlowResume(gameId);
+
+        var snapshot = gameEngine.ToSnapshot();
         var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
         ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
         return snapshot;
@@ -1205,74 +1212,99 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private void OnPresenceChanged(GamePresenceChange change)
     {
-        if (change.MetadataChanged
-            || string.IsNullOrWhiteSpace(change.GameId)
-            || !_pendingAutomaticFlowResumes.TryAdd(change.GameId, 0))
+        if (change.MetadataChanged || string.IsNullOrWhiteSpace(change.GameId))
         {
             return;
         }
 
-        _ = ResumeAutomaticTurnFlowAsync(change.GameId);
+        ScheduleAutomaticTurnFlowResume(change.GameId);
+    }
+
+    private void ScheduleAutomaticTurnFlowResume(string gameId)
+    {
+        // One resume runs per game. A request that arrives while it runs makes it go round once more, so a seat
+        // switched to AI mid-run still gets played.
+        _automaticFlowResumeRequested[gameId] = true;
+        if (_pendingAutomaticFlowResumes.TryAdd(gameId, 0))
+        {
+            _ = ResumeAutomaticTurnFlowAsync(gameId);
+        }
     }
 
     private async Task ResumeAutomaticTurnFlowAsync(string gameId)
     {
         try
         {
-            await _mapReady.Task.WaitAsync(CancellationToken.None);
-
-            var processingAcquired = false;
-            for (var attempt = 0; attempt < 20 && !processingAcquired; attempt++)
+            do
             {
-                processingAcquired = _busyGames.TryAdd(gameId, 0);
-                if (!processingAcquired)
-                {
-                    await Task.Delay(100, CancellationToken.None);
-                }
+                _automaticFlowResumeRequested[gameId] = false;
+                await AdvanceAutomaticTurnFlowUnderLockAsync(gameId);
             }
-
-            if (!processingAcquired)
-            {
-                return;
-            }
-
-            try
-            {
-                var gameEntity = await GetGameEntityAsync(gameId, CancellationToken.None);
-                if (gameEntity is null)
-                {
-                    return;
-                }
-
-                if (!string.Equals(NormalizePersistedGameState(gameEntity.State), PersistedGameStates.Playing, StringComparison.Ordinal))
-                {
-                    return;
-                }
-
-                var playerStates = await GetGameSeatStatesAsync(gameId, CancellationToken.None);
-                if (!HasConnectedTableUser(gameId, playerStates))
-                {
-                    return;
-                }
-
-                var gameEngine = await GetOrCreateGameEngineAsync(gameId, CancellationToken.None);
-                var snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, CancellationToken.None);
-                PublishStateChanged(gameId, snapshot);
-            }
-            finally
-            {
-                _busyGames.TryRemove(gameId, out _);
-            }
+            while (_automaticFlowResumeRequested.TryGetValue(gameId, out var requestedAgain) && requestedAgain);
         }
         catch (Exception exception)
         {
 #pragma warning disable CA1848 // Use the LoggerMessage delegates
-            _logger.LogError(exception, "Failed to resume automatic turn flow for game {GameId} after a presence change.", gameId);
+            _logger.LogError(exception, "Failed to resume automatic turn flow for game {GameId}.", gameId);
 #pragma warning restore CA1848 // Use the LoggerMessage delegates
         }
         finally
         {
             _pendingAutomaticFlowResumes.TryRemove(gameId, out _);
+        }
+
+        // A request that came in after the last check would otherwise be dropped.
+        if (_automaticFlowResumeRequested.TryGetValue(gameId, out var requested) && requested)
+        {
+            ScheduleAutomaticTurnFlowResume(gameId);
+        }
+    }
+
+    private async Task AdvanceAutomaticTurnFlowUnderLockAsync(string gameId)
+    {
+        await _mapReady.Task.WaitAsync(CancellationToken.None);
+
+        var processingAcquired = false;
+        for (var attempt = 0; attempt < 20 && !processingAcquired; attempt++)
+        {
+            processingAcquired = _busyGames.TryAdd(gameId, 0);
+            if (!processingAcquired)
+            {
+                await Task.Delay(100, CancellationToken.None);
+            }
+        }
+
+        if (!processingAcquired)
+        {
+            return;
+        }
+
+        try
+        {
+            var gameEntity = await GetGameEntityAsync(gameId, CancellationToken.None);
+            if (gameEntity is null)
+            {
+                return;
+            }
+
+            if (!string.Equals(NormalizePersistedGameState(gameEntity.State), PersistedGameStates.Playing, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var playerStates = await GetGameSeatStatesAsync(gameId, CancellationToken.None);
+            if (!HasConnectedTableUser(gameId, playerStates))
+            {
+                return;
+            }
+
+            var gameEngine = await GetOrCreateGameEngineAsync(gameId, CancellationToken.None);
+            var snapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, gameEngine, CancellationToken.None);
+            PublishStateChanged(gameId, snapshot);
+        }
+        finally
+        {
+            _busyGames.TryRemove(gameId, out _);
         }
     }
 
