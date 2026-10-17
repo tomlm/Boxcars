@@ -226,7 +226,7 @@ else
                 }
                 else if (IsStatsPurchaseTabActive)
                 {
-                    <MudTabs Elevation="0" Outlined="true" Class="flex-grow-1 d-flex flex-column overflow-hidden" PanelClass="pa-2 flex-grow-1 d-flex flex-column overflow-hidden">
+                    <MudTabs Elevation="0" Outlined="true" Class="flex-grow-1 d-flex flex-column overflow-hidden" PanelClass="pa-2 flex-grow-1 d-flex flex-column overflow-auto">
                         <MudTabPanel Text="Player Stats">
                             <PlayerStatsTable Players="_players" PlayerStates="@(_gameState?.Players ?? [])" />
                         </MudTabPanel>
