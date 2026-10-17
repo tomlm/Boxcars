@@ -6,6 +6,7 @@
 @inject NavigationManager Navigation
 @inject PlayerProfileService ProfileService
 @inject IDialogService DialogService
+@inject IJSRuntime JavaScriptRuntime
 
 <AuthorizeView>
     <Authorized>
@@ -117,6 +118,8 @@
         {
             { dialog => dialog.GameId, gameId },
             { dialog => dialog.PagePath, pagePath },
+            // Taken before the dialog opens, so it shows the page the player was looking at.
+            { dialog => dialog.ScreenshotJpeg, await CaptureScreenAsync() },
             // The player's nickname, never their email address: the issue is public.
             { dialog => dialog.ReporterName, string.IsNullOrWhiteSpace(_nickname) ? "Player" : _nickname }
         };
@@ -128,6 +131,23 @@
             CloseOnEscapeKey = true,
             BackdropClick = false
         });
+    }
+
+    private async Task<byte[]?> CaptureScreenAsync()
+    {
+        try
+        {
+            var reference = await JavaScriptRuntime.InvokeAsync<IJSStreamReference>("bugReport.captureScreen");
+            await using var stream = await reference.OpenReadStreamAsync(BugScreenshotStorage.MaximumScreenshotBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            return buffer.Length > 0 ? buffer.ToArray() : null;
+        }
+        catch (Exception exception) when (exception is JSException or IOException or InvalidOperationException)
+        {
+            // The report still goes out without a screenshot.
+            return null;
+        }
     }
 
     private void NavigateToAccountSettings()

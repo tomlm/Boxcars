@@ -39,6 +39,27 @@ public class BugReportServiceTests
     }
 
     [Fact]
+    public void BuildIssue_WithAScreenshot_ShowsItBetweenExpectedAndGameState()
+    {
+        const string screenshotUrl = "https://boxcars.example.com/bug-screenshot/0123456789abcdef0123456789abcdef.jpg";
+
+        var (_, body) = BugReportService.BuildIssue("Bug", "Fix", "thermous", "game/game-1", "game-1", CreateState(), ReportedUtc, screenshotUrl);
+
+        var screenshotSection = body.IndexOf("# Screenshot", StringComparison.Ordinal);
+        Assert.True(body.IndexOf("# Expected", StringComparison.Ordinal) < screenshotSection);
+        Assert.True(screenshotSection < body.IndexOf("# Game State", StringComparison.Ordinal));
+        Assert.Contains($"![Screenshot]({screenshotUrl})", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildIssue_WithoutAScreenshot_LeavesTheSectionOut()
+    {
+        var (_, body) = BugReportService.BuildIssue("Bug", "Fix", "thermous", "game/game-1", "game-1", CreateState(), ReportedUtc);
+
+        Assert.DoesNotContain("# Screenshot", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildIssue_OutsideAGame_SaysSo()
     {
         var (_, body) = BugReportService.BuildIssue("Dashboard bug", string.Empty, "thermous", "dashboard", null, null, ReportedUtc);

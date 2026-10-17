@@ -8,11 +8,11 @@ using Boxcars.GameEngine;
 namespace Boxcars.Services;
 
 /// <summary>
-/// Files a bug a player reports from the top bar as a GitHub issue: what happened, what they expected, and the
-/// current game state when they are in a game. The repository is public, so user ids (email addresses) are removed
-/// from the state first.
+/// Files a bug a player reports from the profile menu as a GitHub issue: what happened, what they expected, a
+/// screenshot of the page, and the current game state when they are in a game. The repository is public, so user ids
+/// (email addresses) are removed from the state first.
 /// </summary>
-public sealed class BugReportService(GitHubIssueClient gitHubIssueClient, IGameEngine gameEngine)
+public sealed class BugReportService(GitHubIssueClient gitHubIssueClient, IGameEngine gameEngine, BugScreenshotStorage screenshotStorage)
 {
     private const int MaximumTitleLength = 80;
     private const string RemovedValue = "[removed]";
@@ -27,12 +27,23 @@ public sealed class BugReportService(GitHubIssueClient gitHubIssueClient, IGameE
         string reporterName,
         string pagePath,
         string? gameId,
+        byte[]? screenshotJpeg = null,
+        string? siteBaseUri = null,
         CancellationToken cancellationToken = default)
     {
         var state = string.IsNullOrWhiteSpace(gameId)
             ? null
             : await gameEngine.GetCurrentStateAsync(gameId, cancellationToken);
-        var (title, body) = BuildIssue(issue, expected, reporterName, pagePath, gameId, state, DateTimeOffset.UtcNow);
+
+        // GitHub shows the image from the app, so the issue needs its full address.
+        string? screenshotUrl = null;
+        if (screenshotJpeg is { Length: > 0 } && Uri.TryCreate(siteBaseUri, UriKind.Absolute, out var baseUri)
+            && await screenshotStorage.UploadAsync(screenshotJpeg, cancellationToken) is { } screenshotPath)
+        {
+            screenshotUrl = new Uri(baseUri, screenshotPath).ToString();
+        }
+
+        var (title, body) = BuildIssue(issue, expected, reporterName, pagePath, gameId, state, DateTimeOffset.UtcNow, screenshotUrl);
         return await gitHubIssueClient.CreateIssueAsync(title, body, cancellationToken);
     }
 
@@ -43,7 +54,8 @@ public sealed class BugReportService(GitHubIssueClient gitHubIssueClient, IGameE
         string pagePath,
         string? gameId,
         GameState? state,
-        DateTimeOffset reportedUtc)
+        DateTimeOffset reportedUtc,
+        string? screenshotUrl = null)
     {
         var firstLine = issue.Trim().Split('\n', 2)[0].Trim();
         var title = firstLine.Length > MaximumTitleLength ? string.Concat(firstLine.AsSpan(0, MaximumTitleLength - 1), "…") : firstLine;
@@ -56,7 +68,18 @@ public sealed class BugReportService(GitHubIssueClient gitHubIssueClient, IGameE
             .AppendLine("# Expected")
             .AppendLine()
             .AppendLine(string.IsNullOrWhiteSpace(expected) ? "_Not given._" : expected.Trim())
-            .AppendLine()
+            .AppendLine();
+
+        if (!string.IsNullOrWhiteSpace(screenshotUrl))
+        {
+            header
+                .AppendLine("# Screenshot")
+                .AppendLine()
+                .AppendLine(CultureInfo.InvariantCulture, $"![Screenshot]({screenshotUrl})")
+                .AppendLine();
+        }
+
+        header
             .AppendLine("# Game State")
             .AppendLine()
             .AppendLine(CultureInfo.InvariantCulture, $"Reported by {reporterName} on `/{pagePath}` at {reportedUtc:yyyy-MM-dd HH:mm:ss} UTC.")
