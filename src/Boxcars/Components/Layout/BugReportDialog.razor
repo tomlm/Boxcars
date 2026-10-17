@@ -1,0 +1,130 @@
+@using Boxcars.Services
+@using MudBlazor
+@inject BugReportService BugReportService
+
+<MudDialog>
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.BugReport" />
+            <MudText Typo="Typo.h6">Report a bug</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        @if (_createdIssue is not null)
+        {
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.body1">Thanks! The bug was filed as issue #@_createdIssue.Number.</MudText>
+                <MudLink Href="@_createdIssue.Url" Target="_blank">@_createdIssue.Url</MudLink>
+            </MudStack>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                @if (!BugReportService.IsConfigured)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true">Bug reporting isn't set up on this server yet (no GitHub token).</MudAlert>
+                }
+
+                <MudTextField T="string"
+                              @bind-Value="_issue"
+                              Label="What happened?"
+                              Placeholder="Describe the bug"
+                              Lines="4"
+                              AutoGrow="true"
+                              Variant="Variant.Outlined"
+                              Disabled="_busy" />
+                <MudTextField T="string"
+                              @bind-Value="_expected"
+                              Label="What did you expect?"
+                              Placeholder="The outcome you expected instead"
+                              Lines="3"
+                              AutoGrow="true"
+                              Variant="Variant.Outlined"
+                              Disabled="_busy" />
+                <MudText Typo="Typo.caption">
+                    @(string.IsNullOrWhiteSpace(GameId)
+                        ? "The issue is filed in the public Boxcars GitHub repository."
+                        : "The current game state is attached (without email addresses). The issue is filed in the public Boxcars GitHub repository.")
+                </MudText>
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <MudText Typo="Typo.body2" Color="MudBlazor.Color.Error">@_errorMessage</MudText>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_createdIssue is not null)
+        {
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="Close">Close</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" OnClick="Close" Disabled="_busy">Cancel</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="MudBlazor.Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Send"
+                       OnClick="SubmitAsync"
+                       Disabled="@(!CanSubmit)">
+                @(_busy ? "Filing..." : "File bug")
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    /// <summary>The game the player is in, whose state is attached; null outside a game.</summary>
+    [Parameter]
+    public string? GameId { get; set; }
+
+    [Parameter]
+    public string PagePath { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ReporterName { get; set; } = "Player";
+
+    private string _issue = string.Empty;
+    private string _expected = string.Empty;
+    private string? _errorMessage;
+    private bool _busy;
+    private CreatedIssue? _createdIssue;
+
+    private bool CanSubmit => !_busy && BugReportService.IsConfigured && !string.IsNullOrWhiteSpace(_issue);
+
+    private void Close()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        MudDialog.Close();
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (!CanSubmit)
+        {
+            return;
+        }
+
+        _busy = true;
+        _errorMessage = null;
+
+        try
+        {
+            _createdIssue = await BugReportService.SubmitAsync(_issue, _expected, ReporterName, PagePath, GameId);
+            if (_createdIssue is null)
+            {
+                _errorMessage = "The bug couldn't be filed. Please try again.";
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
