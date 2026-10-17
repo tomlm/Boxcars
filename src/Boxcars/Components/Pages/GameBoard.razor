@@ -1626,6 +1626,7 @@ else
         {
             await RefreshGameEntityAsync();
             var priorTurnNumber = _gameState?.TurnNumber ?? -1;
+            var priorGameState = _gameState;
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
@@ -1649,6 +1650,14 @@ else
 
             LogBoardDebug($"OnSharedGameStateChanged applied version={stateChangeVersion}");
 
+            var allRailroadsSoldNotice = _game is null || update.ReplaceTimeline
+                ? null
+                : GameBoardStateMapper.BuildAllRailroadsSoldNotice(priorGameState, state, GameSettingsResolver.Resolve(_game).Settings);
+            if (allRailroadsSoldNotice is not null)
+            {
+                ShowNotification(allRailroadsSoldNotice, Severity.Warning, icon: Icons.Material.Filled.Train);
+            }
+
             if (_autoZoomEnabled
                 && _gameMap is not null
                 && (priorTurnNumber != state.TurnNumber || priorActivePlayerIndex != state.ActivePlayerIndex)
@@ -1670,6 +1679,7 @@ else
             if (update.ReplaceTimeline)
             {
                 ReplaceTimelineItems(update.TimelineItems);
+                ResetPlayByPlayBand();
             }
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
@@ -4460,13 +4470,33 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             occurredUtc ?? DateTimeOffset.UtcNow,
             eventBaseId);
 
-        _playByPlayBand?.Enqueue(new PlayByPlayMessage
+        _playByPlayBand?.Enqueue(BuildPlayByPlayMessage(message, severity, icon, snackbarClass));
+    }
+
+    private PlayByPlayMessage BuildPlayByPlayMessage(string message, Severity severity, string? icon, string? snackbarClass)
+    {
+        return new PlayByPlayMessage
         {
             Text = message,
             Icon = string.IsNullOrWhiteSpace(icon) ? ResolveSeverityIcon(severity) : icon,
             IconColor = ResolveSeverityIconColor(severity),
             AccentColorHex = string.IsNullOrWhiteSpace(snackbarClass) ? null : ResolveSnackbarAccentHexColor(snackbarClass)
-        });
+        };
+    }
+
+    private void ResetPlayByPlayBand()
+    {
+        // After an undo the band would still show the events that were rewound; show the rewound timeline instead.
+        var messages = _gameEngineEvents
+            .Where(item => item.IsPlayByPlay && !IsHiddenTimelineItem(item))
+            .OrderBy(item => item.OccurredUtc)
+            .Select(item => BuildPlayByPlayMessage(
+                BuildTimelineNotificationMessage(item),
+                ResolveTimelineSeverity(item),
+                ResolveTimelineSnackbarIcon(item),
+                ResolveTimelineSnackbarClass(item)))
+            .ToList();
+        _playByPlayBand?.Reset(messages);
     }
 
     private Task OnPlayByPlayBandClickedAsync()

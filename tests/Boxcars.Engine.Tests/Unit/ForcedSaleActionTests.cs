@@ -56,6 +56,52 @@ public class ForcedSaleActionTests
     }
 
     [Fact]
+    public void TryDescribeAuctionResolution_LosingBidderDropsOut_BelongsToTheWinner()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(playerNames: ["Seller", "Winner", "Loser"], playerCount: 3);
+        var seller = engine.CurrentTurn.ActivePlayer;
+        engine.CurrentTurn.Phase = TurnPhase.UseFees;
+        engine.CurrentTurn.PendingFeeAmount = 6_000;
+        engine.CurrentTurn.ForcedSaleState = new ForcedSaleState
+        {
+            AmountOwed = 6_000,
+            CashBeforeFees = seller.Cash,
+            CashAfterLastSale = seller.Cash,
+            SalesCompletedCount = 0,
+            CanPayNow = false,
+            EliminationTriggered = false
+        };
+
+        var railroad = engine.Railroads[0];
+        railroad.Owner = seller;
+        seller.OwnedRailroads.Add(railroad);
+        engine.AuctionRailroad(railroad);
+
+        var winner = engine.Players[engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex!.Value];
+        engine.SubmitAuctionBid(railroad, winner, engine.CurrentTurn.AuctionState.StartingPrice);
+        var loser = engine.Players[engine.CurrentTurn.AuctionState!.CurrentBidderPlayerIndex!.Value];
+        var snapshotBeforeAction = engine.ToSnapshot();
+        var action = new AuctionDropOutAction
+        {
+            PlayerId = loser.Name,
+            PlayerIndex = loser.Index,
+            ActorUserId = "loser@example.com",
+            RailroadIndex = railroad.Index
+        };
+        engine.DropOutOfAuction(railroad, loser);
+
+        var method = typeof(GameEngineService).GetMethod("TryDescribeAuctionResolution", BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("TryDescribeAuctionResolution was not found.");
+        object?[] arguments = [snapshotBeforeAction, engine.ToSnapshot(), engine, action, null, null];
+        var described = (bool)method.Invoke(null, arguments)!;
+
+        Assert.True(described);
+        Assert.NotEqual(loser.Index, winner.Index);
+        Assert.Same(winner, railroad.Owner);
+        Assert.Equal(winner.Index, (int)arguments[5]!);
+    }
+
+    [Fact]
     public void ValidateActionAuthorization_AllowsCurrentAuctionParticipantBid_WhenActorControlsThatSlot()
     {
         var (gameEntity, playerStates, engine) = CreateAuctionAuthorizationContext();

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Boxcars.Data;
 using Boxcars.Data.Maps;
 using Boxcars.Engine.Data.Maps;
@@ -17,6 +18,20 @@ public sealed class GameBoardStateMapper(
     GameSettingsResolver? gameSettingsResolver = null,
     GamePresenceService? gamePresenceService = null)
 {
+    /// <summary>
+    /// The notice to show when the last railroad has just been sold, or null when this update didn't sell it.
+    /// </summary>
+    public static string? BuildAllRailroadsSoldNotice(RailBaronGameState? previousState, RailBaronGameState state, GameSettings settings)
+    {
+        if (previousState is null || previousState.AllRailroadsSold || !state.AllRailroadsSold)
+        {
+            return null;
+        }
+
+        var unfriendlyFee = RailBaronGameEngine.GetUnfriendlyFee(settings, allRailroadsSold: true);
+        return string.Create(CultureInfo.InvariantCulture, $"All railroads are sold, unfriendly railroad travel is now ${unfriendlyFee:N0}");
+    }
+
     public GameSettingsSummaryModel BuildGameSettingsSummary(GameEntity? gameEntity)
     {
         if (gameEntity is null)
