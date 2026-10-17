@@ -41,6 +41,22 @@
         }
     }
 
+    /// <summary>
+    /// Replaces the band with the most recent of <paramref name="messages"/> (oldest first), without animating them
+    /// in. Used when the timeline is rewound, so the band no longer shows events that were undone.
+    /// </summary>
+    public void Reset(IReadOnlyList<PlayByPlayMessage> messages)
+    {
+        _pending.Clear();
+        _visible.Clear();
+        foreach (var message in messages.TakeLast(MaxVisible))
+        {
+            _visible.Add(new BandEntry(_nextEntryId++, message));
+        }
+
+        StateHasChanged();
+    }
+
     private async Task RunAsync()
     {
         _running = true;
