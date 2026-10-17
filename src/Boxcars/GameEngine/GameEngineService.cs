@@ -984,24 +984,27 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         PlayerAction action,
         CancellationToken cancellationToken)
     {
-        if (!TryDescribeAuctionResolution(snapshotBeforeAction, snapshotAfterAction, gameEngine, action, out var changeSummary))
+        if (!TryDescribeAuctionResolution(snapshotBeforeAction, snapshotAfterAction, gameEngine, action, out var changeSummary, out var resolvedPlayerIndex))
         {
             return null;
         }
 
+        // The event belongs to the winner (or the seller, for a sale to the bank), so it shows in their color. The
+        // action that closed the auction is usually a losing bidder dropping out.
+        var closedByResolvedPlayer = action.PlayerIndex == resolvedPlayerIndex;
         return await PersistEventAsync(
             gameId,
             snapshotAfterAction,
             "AuctionResolved",
             changeSummary,
-            action.PlayerId,
+            ResolvePlayerName(snapshotAfterAction, resolvedPlayerIndex),
             new
             {
                 ActionKind = action.Kind.ToString()
             },
             cancellationToken,
-            actingUserId: action.ActorUserId,
-            actingPlayerIndex: action.PlayerIndex);
+            actingUserId: closedByResolvedPlayer ? action.ActorUserId : null,
+            actingPlayerIndex: resolvedPlayerIndex);
     }
 
     private async Task<RailBaronGameState> AdvanceAutomaticTurnFlowAsync(
@@ -2356,9 +2359,11 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         RailBaronGameState snapshotAfterAction,
         RailBaronGameEngine gameEngine,
         PlayerAction action,
-        out string changeSummary)
+        out string changeSummary,
+        out int resolvedPlayerIndex)
     {
         changeSummary = string.Empty;
+        resolvedPlayerIndex = -1;
 
         var auctionBeforeAction = snapshotBeforeAction.Turn.Auction;
         if (auctionBeforeAction is null || snapshotAfterAction.Turn.Auction is not null)
@@ -2374,6 +2379,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         if (sellerOwnedRailroadBeforeAction && railroad.Owner is null)
         {
             changeSummary = $"{GetRailroadDisplayName(railroad)} was sold to the bank for {FormatCurrency(railroad.PurchasePrice / 2)}";
+            resolvedPlayerIndex = auctionBeforeAction.SellerPlayerIndex;
             return true;
         }
 
@@ -2397,6 +2403,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             ? ResolvePlayerName(snapshotAfterAction, auctionBeforeAction.SellerPlayerIndex)
             : auctionBeforeAction.SellerPlayerName;
         changeSummary = $"{railroad.Owner.Name} won the auction for the {GetRailroadDisplayName(railroad)} railroad with {FormatCurrency(winningBid)}; {FormatCurrency(winningBid)} was transferred to {sellerName}.";
+        resolvedPlayerIndex = railroad.Owner.Index;
         return true;
     }
 
