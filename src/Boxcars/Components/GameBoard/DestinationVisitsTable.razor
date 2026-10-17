@@ -1,0 +1,39 @@
+@using System.Globalization
+@using Boxcars.Services
+@using MudBlazor
+
+@if (Visits.TotalDraws == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">No destinations have been drawn yet.</MudAlert>
+}
+else
+{
+    <MudPaper Outlined="true" Class="pa-3" Style="width: fit-content; max-width: 100%">
+        <MudText Typo="Typo.caption" Class="mb-2">
+            Expected is each city's chance on any one draw. Actual is its share of the @Visits.TotalDraws.ToString("N0", CultureInfo.InvariantCulture) destinations drawn this game.
+        </MudText>
+        @* Sized by the height left under the board's header and above its status bar, so the rows scroll under a fixed header. *@
+        <MudTable T="DestinationVisitRow" Items="Visits.Rows" FixedHeader="true" Height="calc(100vh - 360px)" Dense="true" Hover="true">
+            <HeaderContent>
+                <MudTh><MudTableSortLabel T="DestinationVisitRow" SortBy="@(row => row.CityName)"><strong>City</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationVisitRow" SortBy="@(row => row.ExpectedPercentage)"><strong>Expected</strong></MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="DestinationVisitRow" SortBy="@(row => row.ActualPercentage)"><strong>Actual</strong></MudTableSortLabel></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.CityName</MudTd>
+                <MudTd>@FormatPercent(context.ExpectedPercentage)</MudTd>
+                <MudTd>@FormatPercent(context.ActualPercentage) (@context.DrawCount.ToString(CultureInfo.InvariantCulture))</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+}
+
+@code {
+    [Parameter]
+    public DestinationVisits Visits { get; set; } = DestinationVisits.Empty;
+
+    private static string FormatPercent(double value)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"{value:0.0}%");
+    }
+}
