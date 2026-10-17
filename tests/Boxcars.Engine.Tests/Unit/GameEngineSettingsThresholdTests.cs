@@ -37,7 +37,7 @@ public class GameEngineSettingsThresholdTests
     }
 
     [Fact]
-    public void ArrivalAtHome_AtConfiguredWinningCash_EndsGame()
+    public void ArrivalAtHome_WithWinningCash_DoesNotEndGameUntilDeclared()
     {
         var settings = GameSettings.Default with { WinningCash = 325_000 };
         var (engine, _) = GameEngineFixture.CreateTestEngine(settings);
@@ -51,9 +51,7 @@ public class GameEngineSettingsThresholdTests
         player.TripOriginCity = startCity;
         player.ActiveRoute = engine.SuggestRoute();
         player.RouteProgressIndex = 0;
-        var payout = ResolveTripPayoff(engine, startCity.Name, homeCity.Name);
-        // Enough to still have the winning cash after this turn's fee.
-        player.Cash = settings.WinningCash - payout + settings.PublicFee;
+        player.Cash = settings.WinningCash + 50_000;
 
         engine.CurrentTurn.Phase = TurnPhase.Move;
         engine.CurrentTurn.MovementAllowance = player.ActiveRoute.NodeIds.Count - 1;
@@ -61,42 +59,52 @@ public class GameEngineSettingsThresholdTests
 
         engine.MoveAlongRoute(player.ActiveRoute.NodeIds.Count - 1);
 
-        Assert.Equal(GameStatus.Completed, engine.GameStatus);
-        Assert.Same(player, engine.Winner);
-        // Fees are paid before the win is confirmed.
-        Assert.Equal(settings.WinningCash, player.Cash);
+        // Arriving home never wins by itself; the player has to declare when they next draw a destination.
+        Assert.Equal(GameStatus.InProgress, engine.GameStatus);
+        Assert.Null(engine.Winner);
+        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
     }
 
     [Fact]
-    public void ArrivalAtHome_WinningCashOnlyBeforeFees_DoesNotEndGame()
+    public void DeclareAtHome_WithWinningCash_EndsGame()
     {
         var settings = GameSettings.Default with { WinningCash = 325_000 };
         var (engine, _) = GameEngineFixture.CreateTestEngine(settings);
-        var player = engine.CurrentTurn.ActivePlayer;
-        var homeCity = player.HomeCity;
-        var startCity = engine.MapDefinition.Cities.First(city => !string.Equals(city.Name, homeCity.Name, StringComparison.Ordinal));
+        var player = PlaceAtHomeToDrawDestination(engine, settings.WinningCash);
 
-        player.CurrentCity = startCity;
-        player.CurrentNodeId = ResolveNodeId(startCity.Name);
-        player.Destination = homeCity;
-        player.TripOriginCity = startCity;
-        player.ActiveRoute = engine.SuggestRoute();
-        player.RouteProgressIndex = 0;
-        var payout = ResolveTripPayoff(engine, startCity.Name, homeCity.Name);
-        // The payout reaches the winning cash, but this turn's fee takes the player back under it.
-        player.Cash = settings.WinningCash - payout;
+        engine.Declare();
 
-        engine.CurrentTurn.Phase = TurnPhase.Move;
-        engine.CurrentTurn.MovementAllowance = player.ActiveRoute.NodeIds.Count - 1;
-        engine.CurrentTurn.MovementRemaining = player.ActiveRoute.NodeIds.Count - 1;
+        Assert.Equal(GameStatus.Completed, engine.GameStatus);
+        Assert.Same(player, engine.Winner);
+    }
 
-        engine.MoveAlongRoute(player.ActiveRoute.NodeIds.Count - 1);
+    [Fact]
+    public void DeclareAtHome_WinningCashOnlyBeforeThisTurnsFees_DoesNotWin()
+    {
+        var settings = GameSettings.Default with { WinningCash = 325_000 };
+        var (engine, random) = GameEngineFixture.CreateTestEngine(settings);
+        var player = PlaceAtHomeToDrawDestination(engine, settings.WinningCash);
+        // Drawing the next destination mid-turn (after a bonus out): an unowned railroad ridden this turn is still owed.
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(engine.Railroads.First(railroad => railroad.Owner is null).Index);
+        random.QueueWeightedDraw(1);
+        random.QueueWeightedDraw(0);
+
+        engine.Declare();
 
         Assert.Equal(GameStatus.InProgress, engine.GameStatus);
         Assert.Null(engine.Winner);
-        // The turn carries on as a normal arrival; fees are paid when it ends.
-        Assert.Equal(TurnPhase.Purchase, engine.CurrentTurn.Phase);
         Assert.Equal(settings.WinningCash, player.Cash);
+    }
+
+    private static Player PlaceAtHomeToDrawDestination(global::Boxcars.Engine.Domain.GameEngine engine, int cash)
+    {
+        var player = engine.CurrentTurn.ActivePlayer;
+        player.CurrentCity = player.HomeCity;
+        player.CurrentNodeId = ResolveNodeId(player.HomeCity.Name);
+        player.Destination = null;
+        player.Cash = cash;
+        engine.CurrentTurn.Phase = TurnPhase.DrawDestination;
+        return player;
     }
 
     [Fact]
