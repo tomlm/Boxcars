@@ -107,8 +107,10 @@ else if (IsLobbyGame)
 else
 {
 <MudStack Row="true" Class="overflow-hidden" Style="height: calc(100dvh - 64px); width: 100%">
-    <MudPaper Class="flex-shrink-0 overflow-y-auto" Style="width: 270px; background: #000; border-right: 1px solid #ccc; padding: 0.5rem 0.4rem 0.75rem; box-sizing: border-box">
-        <MudStack Spacing="2">
+    @* The player list: a side panel on medium screens and up, an overlay opened from the button on small ones. *@
+    <MudDrawer @bind-Open="_isPlayerDrawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md"
+               ClipMode="DrawerClipMode.Always" Anchor="Anchor.Start" Elevation="1">
+        <MudStack Spacing="2" Class="pa-2">
             <PlayerBoard Players="_players"
                      OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
                      OnFocusPlayer="OnFocusPlayerAsync"
@@ -117,7 +119,11 @@ else
                      OnLocatePlayer="OnLocatePlayerAsync"
                      />
         </MudStack>
-    </MudPaper>
+    </MudDrawer>
+    <MudHidden Breakpoint="Breakpoint.SmAndDown" Invert="true">
+        <MudIconButton Icon="@Icons.Material.Filled.People" aria-label="Show players" Class="align-self-start ma-1"
+                       OnClick="() => _isPlayerDrawerOpen = !_isPlayerDrawerOpen" />
+    </MudHidden>
 
     <MudStack Class="flex-grow-1 overflow-hidden" Style="min-height: 0; min-width: 0">
         @if (_gameMap?.Errors.Count > 0)
@@ -282,7 +288,7 @@ else
         <PlayByPlayBand @ref="_playByPlayBand" OnClick="OnPlayByPlayBandClickedAsync" />
 
         @* ── Status strip: turn state center, zoom right ── *@
-        <MudStack Row="true" Class="flex-shrink-0 align-center" Style="@StatusBarAnchorStyle">
+        <MudStack Row="true" Class="flex-shrink-1 align-start overflow-y-auto" Style="@StatusBarAnchorStyle">
             <MudStack Row="true" Class="flex-grow-1 align-center justify-center" Style="font-size: 0.85rem; min-height: 3.75rem; padding: 0.55rem 1rem">
                 <MudStack Row="true" Justify="@StatusContentJustify" AlignItems="AlignItems.Center" Style="@StatusContentStyle">
                         @if (ShouldShowStatusControls)
@@ -411,6 +417,7 @@ else
     private bool _gameStateLoadInProgress;
     private RailBaronGameState? _gameState;
     private MapDefinition? _playerBoardMapDefinition;
+    private bool _isPlayerDrawerOpen = true;
     private MapAnalysisReport? _mapAnalysisReport;
     private BoardTurnViewState _turnViewState = new();
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
@@ -2773,8 +2780,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     private string AnalysisAreaClass => IsMapPurchaseTabActive
         ? "d-none"
         : IsAdvicePurchaseTabActive
-            ? "flex-grow-1 overflow-hidden pa-3"
-            : "flex-grow-1 overflow-auto pa-3";
+            ? "flex-1 overflow-hidden pa-3"
+            : "flex-1 overflow-auto pa-3";
 
     private string AnalysisAreaStyle => IsMapPurchaseTabActive
         ? string.Empty

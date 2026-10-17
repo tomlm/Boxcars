@@ -22,6 +22,8 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
+    /* The map pans and pinch-zooms itself (mapBoard.js); keep the browser from zooming the page instead. */
+    touch-action: none;
 }
 
 .game-map-host ::deep .game-map-zoom-overlay {
