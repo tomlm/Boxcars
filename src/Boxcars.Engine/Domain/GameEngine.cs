@@ -1818,13 +1818,8 @@ public sealed class GameEngine : ObservableBase
 
         DestinationReached?.Invoke(this, new DestinationReachedEventArgs(player, destination, payout, player.Cash, purchaseOpportunityAvailable: !arrivingHomeWhileDeclared));
 
-        if (!player.HasDeclared
-            && string.Equals(player.CurrentCity.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase)
-            && TryWinAtHomeAfterFees(player))
-        {
-            return;
-        }
-
+        // Arriving home never wins by itself: a player wins by declaring at home, which they can do only when it is
+        // their turn to draw a destination (next turn, or this one after a bonus out). Others can win first.
         if (arrivingHomeWhileDeclared)
         {
             CurrentTurn.Phase = TurnPhase.UseFees;
