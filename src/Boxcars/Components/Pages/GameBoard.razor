@@ -1679,6 +1679,7 @@ else
             if (update.ReplaceTimeline)
             {
                 ReplaceTimelineItems(update.TimelineItems);
+                ResetPlayByPlayBand();
             }
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
@@ -4469,13 +4470,33 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             occurredUtc ?? DateTimeOffset.UtcNow,
             eventBaseId);
 
-        _playByPlayBand?.Enqueue(new PlayByPlayMessage
+        _playByPlayBand?.Enqueue(BuildPlayByPlayMessage(message, severity, icon, snackbarClass));
+    }
+
+    private PlayByPlayMessage BuildPlayByPlayMessage(string message, Severity severity, string? icon, string? snackbarClass)
+    {
+        return new PlayByPlayMessage
         {
             Text = message,
             Icon = string.IsNullOrWhiteSpace(icon) ? ResolveSeverityIcon(severity) : icon,
             IconColor = ResolveSeverityIconColor(severity),
             AccentColorHex = string.IsNullOrWhiteSpace(snackbarClass) ? null : ResolveSnackbarAccentHexColor(snackbarClass)
-        });
+        };
+    }
+
+    private void ResetPlayByPlayBand()
+    {
+        // After an undo the band would still show the events that were rewound; show the rewound timeline instead.
+        var messages = _gameEngineEvents
+            .Where(item => item.IsPlayByPlay && !IsHiddenTimelineItem(item))
+            .OrderBy(item => item.OccurredUtc)
+            .Select(item => BuildPlayByPlayMessage(
+                BuildTimelineNotificationMessage(item),
+                ResolveTimelineSeverity(item),
+                ResolveTimelineSnackbarIcon(item),
+                ResolveTimelineSnackbarClass(item)))
+            .ToList();
+        _playByPlayBand?.Reset(messages);
     }
 
     private Task OnPlayByPlayBandClickedAsync()
