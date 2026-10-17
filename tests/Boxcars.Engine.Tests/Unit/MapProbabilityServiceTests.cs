@@ -7,43 +7,85 @@ namespace Boxcars.Engine.Tests.Unit;
 public class MapProbabilityServiceTests
 {
     [Fact]
-    public void GenerateRandomCityProbabilities_AssignsEveryCityANonZeroProbability_AndSumsToOneHundredPercent()
+    public void GenerateRandomCityProbabilities_EveryCityCanBeDrawn_AndTheOddsAddUpToOneHundredPercent()
     {
-        var map = GameEngineFixture.CreateTestMap();
+        var map = LoadStandardMap();
 
         var overrides = MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(1234));
 
         Assert.Equal(map.Cities.Count, overrides.Count);
-        Assert.All(overrides, entry => Assert.True(entry.Probability >= 0.1d));
+        Assert.All(overrides, entry => Assert.True(entry.Probability > 0d, $"{entry.CityName} can never be drawn."));
         Assert.InRange(overrides.Sum(entry => entry.Probability), 99.999999d, 100.000001d);
     }
 
     [Fact]
-    public void GenerateRandomCityProbabilities_ProducesABellCurveAroundTheAverageCity()
+    public void GenerateRandomCityProbabilities_OddsComeFromTwentyTwoSlotDiceCharts()
     {
-        // Same city count as the U21 map.
-        const int cityCount = 65;
-        var map = CreateLargeProbabilityMap(cityCount);
-        var averageProbability = 100d / cityCount;
+        var map = LoadStandardMap();
 
         for (var seed = 0; seed < 50; seed++)
         {
-            var probabilities = MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(seed))
-                .Select(entry => entry.Probability)
-                .ToList();
+            var updated = MapProbabilityService.ApplyCityProbabilities(map, MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(seed)));
 
-            // No pile-ups on the 0.1% floor or the 5% cap.
-            Assert.DoesNotContain(probabilities, probability => probability <= 0.1d + 0.000001d);
-            Assert.DoesNotContain(probabilities, probability => probability >= 5d - 0.000001d);
-
-            // Most cities cluster around the average...
-            var nearAverageShare = probabilities.Count(probability => Math.Abs(probability - averageProbability) <= averageProbability * 0.5d) / (double)cityCount;
-            Assert.True(nearAverageShare >= 0.6d, $"Seed {seed}: expected at least 60% of cities within 50% of the average, got {nearAverageShare:P1}.");
-
-            // ...but the distribution is still varied rather than uniform.
-            var standardDeviation = Math.Sqrt(probabilities.Average(probability => Math.Pow(probability - averageProbability, 2)));
-            Assert.True(standardDeviation >= averageProbability * 0.2d, $"Seed {seed}: expected a spread of at least 20% of the average, got {standardDeviation / averageProbability:P1}.");
+            // Every region and every city is on its chart at least once (1/72 is the smallest slot, a 2 or a 12), and
+            // all odds are whole numbers of the chart's 72 outcomes.
+            foreach (var region in updated.Regions)
+            {
+                AssertWholeChartOutcomes(region.Probability ?? 0d, $"Seed {seed}: region {region.Code}");
+                var cities = updated.Cities.Where(city => city.RegionCode == region.Code).ToList();
+                Assert.All(cities, city => AssertWholeChartOutcomes(city.Probability ?? 0d, $"Seed {seed}: {city.Name}"));
+                Assert.InRange(cities.Sum(city => city.Probability ?? 0d), 99.999999d, 100.000001d);
+            }
         }
+    }
+
+    [Fact]
+    public void GenerateRandomCityProbabilities_RepeatsVaryTheOddsBetweenGames()
+    {
+        var map = LoadStandardMap();
+
+        var first = MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(1)).Select(entry => entry.Probability).ToList();
+        var second = MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(2)).Select(entry => entry.Probability).ToList();
+
+        Assert.NotEqual(first, second);
+        // 7 regions on 22 slots: repeats push some regions well above others.
+        var regionOdds = MapProbabilityService.ApplyCityProbabilities(map, MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(1)))
+            .Regions.Select(region => region.Probability ?? 0d).ToList();
+        Assert.True(regionOdds.Max() > regionOdds.Min());
+    }
+
+    [Fact]
+    public void GenerateRandomCityProbabilities_RegionWithMoreCitiesThanSlots_Throws()
+    {
+        var map = CreateLargeProbabilityMap(23);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => MapProbabilityService.GenerateRandomCityProbabilities(map, new Random(1)));
+
+        Assert.Contains("23 cities in region TR", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static void AssertWholeChartOutcomes(double percent, string what)
+    {
+        var outcomes = percent * 72d / 100d;
+        Assert.True(outcomes >= 1d - 0.000001d, $"{what}: {percent}% is below one chart slot.");
+        Assert.True(Math.Abs(outcomes - Math.Round(outcomes)) < 0.000001d, $"{what}: {percent}% is not a whole number of the 72 outcomes.");
+    }
+
+    private static global::Boxcars.Engine.Data.Maps.MapDefinition LoadStandardMap()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (var i = 0; i < 8; i++)
+        {
+            var candidate = Path.Combine(dir, "src", "Boxcars", "U21MAP.RB3");
+            if (File.Exists(candidate))
+            {
+                return global::Boxcars.Engine.Data.Maps.MapDefinition.Parse(File.ReadAllText(candidate)).Definition!;
+            }
+
+            dir = Directory.GetParent(dir)?.FullName ?? dir;
+        }
+
+        throw new FileNotFoundException("U21MAP.RB3 was not found above the test output folder.");
     }
 
     [Fact]
