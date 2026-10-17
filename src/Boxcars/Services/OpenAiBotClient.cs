@@ -108,15 +108,7 @@ public sealed class OpenAiBotClient
         using var request = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsEndpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _botOptions.OpenAIKey);
 
-        var payload = new
-        {
-            model = _botOptions.OpenAIModel,
-            temperature = 0.1,
-            response_format = requireJsonObject ? new { type = "json_object" } : null,
-            messages = messages.Select(message => new { role = message.Role, content = message.Content }).ToArray()
-        };
-
-        request.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+        request.Content = new StringContent(JsonSerializer.Serialize(BuildPayload(messages, requireJsonObject), JsonOptions), Encoding.UTF8, "application/json");
 
         try
         {
@@ -151,6 +143,34 @@ public sealed class OpenAiBotClient
 #pragma warning restore CA1848 // Use the LoggerMessage delegates
             return OpenAiRawChatCompletionResult.Failed(ex.Message);
         }
+    }
+
+    private Dictionary<string, object> BuildPayload(IReadOnlyList<OpenAiChatMessage> messages, bool requireJsonObject)
+    {
+        var payload = new Dictionary<string, object>
+        {
+            ["model"] = _botOptions.OpenAIModel,
+            ["messages"] = messages.Select(message => new { role = message.Role, content = message.Content }).ToArray()
+        };
+
+        var reasoningEffort = _botOptions.OpenAIReasoningEffort?.Trim();
+        if (!string.IsNullOrEmpty(reasoningEffort))
+        {
+            payload["reasoning_effort"] = reasoningEffort;
+        }
+
+        // Reasoning models reject sampling settings; keep answers steady when reasoning is off.
+        if (string.IsNullOrEmpty(reasoningEffort) || string.Equals(reasoningEffort, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            payload["temperature"] = 0.1;
+        }
+
+        if (requireJsonObject)
+        {
+            payload["response_format"] = new { type = "json_object" };
+        }
+
+        return payload;
     }
 
     private static string? ParseSelectedOptionId(string responseContent)
