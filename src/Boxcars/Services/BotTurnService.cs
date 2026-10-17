@@ -739,7 +739,7 @@ public sealed class BotTurnService
             affordableRailroads.Select(railroad => new PurchaseCandidate(railroad.Index, railroad.Name, railroad.PurchasePrice)).ToList(),
             gameEngine.Players
                 .Where(opponent => opponent != player && !opponent.IsBankrupt)
-                .Select(opponent => new RecommendationOpponent(opponent.Name, opponent.Cash, opponent.OwnedRailroads.Select(railroad => railroad.Index).ToList()))
+                .Select(opponent => new RecommendationOpponent(opponent.Name, opponent.Cash, opponent.OwnedRailroads.Select(railroad => railroad.Index).ToList(), opponent.Destination?.Name))
                 .ToList(),
             new PurchaseFinances(
                 player.Cash,

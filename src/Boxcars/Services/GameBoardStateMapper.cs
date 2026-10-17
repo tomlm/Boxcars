@@ -726,7 +726,7 @@ public sealed class GameBoardStateMapper(
         var opponents = state.Players
             .Select((player, index) => (Player: player, Index: index))
             .Where(entry => entry.Index != buyerPlayerIndex && !entry.Player.IsBankrupt)
-            .Select(entry => new RecommendationOpponent(entry.Player.Name, entry.Player.Cash, entry.Player.OwnedRailroadIndices))
+            .Select(entry => new RecommendationOpponent(entry.Player.Name, entry.Player.Cash, entry.Player.OwnedRailroadIndices, entry.Player.DestinationCityName))
             .ToList();
 
         var result = PurchaseRecommendationService.BuildRecommendations(mapDefinition, buyer.OwnedRailroadIndices, candidates, opponents, finances);
@@ -756,6 +756,7 @@ public sealed class GameBoardStateMapper(
             PurchaseRecommendationCategory.Monopoly => "Best monopoly",
             PurchaseRecommendationCategory.Strategy => "Block the leader",
             PurchaseRecommendationCategory.LowPrice => "Best low price",
+            PurchaseRecommendationCategory.TollBooth => "Toll booth",
             _ => category.ToString()
         };
     }
