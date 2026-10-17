@@ -183,8 +183,9 @@ public class MapRouteServiceTests
                 ResolveRailroadOwnership = static _ => RailroadOwnershipCategory.Public
             });
 
-        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
-        Assert.Contains("Shortest-path fallback", suggestion.Message, StringComparison.OrdinalIgnoreCase);
+        // No fee-blind fallback: the player gets no suggestion and picks the route.
+        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Empty(suggestion.Segments);
     }
 
     [Fact]
@@ -222,8 +223,9 @@ public class MapRouteServiceTests
                 MaximumExploredStates = 1
             });
 
-        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
-        Assert.Contains("Shortest-path fallback", suggestion.Message, StringComparison.OrdinalIgnoreCase);
+        // No fee-blind fallback: the player gets no suggestion and picks the route.
+        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Empty(suggestion.Segments);
         Assert.Contains("exploration budget", suggestion.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -266,8 +268,9 @@ public class MapRouteServiceTests
                 MaximumSearchMilliseconds = 1
             });
 
-        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
-        Assert.Contains("Shortest-path fallback", suggestion.Message, StringComparison.OrdinalIgnoreCase);
+        // No fee-blind fallback: the player gets no suggestion and picks the route.
+        Assert.Equal(RouteSuggestionStatus.NoRoute, suggestion.Status);
+        Assert.Empty(suggestion.Segments);
         Assert.Contains("timed out", suggestion.Message, StringComparison.OrdinalIgnoreCase);
     }
 

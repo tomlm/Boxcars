@@ -41,6 +41,7 @@
 @inject GameBoardAdviceService GameBoardAdviceService
 @inject GameSettingsResolver GameSettingsResolver
 @inject MapRouteService RouteService
+@inject RouteFailureIssueReporter RouteFailureIssueReporter
 @inject ILogger<GameBoard> Logger
 
 <PageTitle>Game - BoxCars</PageTitle>
@@ -429,6 +430,8 @@ else
     private bool _loadingRecentHistory;
     private bool _pendingRestoredRouteSelection;
     private string? _lastAutoSuggestKey;
+    // Start and destination of the last failed route suggestion, so the warning shows once per position.
+    private string? _lastRouteSuggestionFailureKey;
     private string? _selectedPurchaseOptionKey;
     private int? _activeAuctionRailroadIndex;
     private int? _highlightedNetworkPlayerIndex;
@@ -1435,6 +1438,8 @@ else
 
     private async Task OnRouteSuggestionChangedAsync(RouteSuggestionResult suggestion)
     {
+        ReportRouteSuggestionFailure(suggestion);
+
         if (ShouldApplyAutoZoom() && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
         {
             var focusNodeIds = suggestion.NodeIds.Count > 0
@@ -1445,6 +1450,41 @@ else
         }
 
         await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// When the route planner finds nothing, the map shows no suggestion; warn the player once per position so they
+    /// know to pick the route themselves, and file an issue with the planner inputs so it can be fixed.
+    /// </summary>
+    private void ReportRouteSuggestionFailure(RouteSuggestionResult suggestion)
+    {
+        if (suggestion.Status == RouteSuggestionStatus.Success || !IsCurrentUserActivePlayer || _gameState is null)
+        {
+            return;
+        }
+
+        var failureKey = $"{suggestion.StartNodeId}->{suggestion.DestinationNodeId}";
+        if (string.Equals(failureKey, _lastRouteSuggestionFailureKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastRouteSuggestionFailureKey = failureKey;
+        Logger.LogWarning(
+            "[GameBoard:{GameId}] Route suggestion failed: {Status} {Message} start={Start} dest={Dest}",
+            GameId,
+            suggestion.Status,
+            suggestion.Message,
+            suggestion.StartNodeId,
+            suggestion.DestinationNodeId);
+        // Builds the issue from the current state before returning, then posts in the background.
+        _ = RouteFailureIssueReporter.ReportAsync(GameId, _gameState, suggestion, _playerBoardMapDefinition);
+        ShowNotification(
+            "I failed to find a route",
+            Severity.Warning,
+            historyKey: $"route-suggestion-failed:{failureKey}",
+            icon: Icons.Material.Filled.WrongLocation,
+            detail: suggestion.Message);
     }
 
     private async Task OnGameMapReadyAsync()

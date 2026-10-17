@@ -87,6 +87,30 @@ public class RouteSuggestionTests
     }
 
     [Fact]
+    public void SuggestRoute_FallbackRoute_SkipsTrackAlreadyRiddenThisTrip()
+    {
+        // 0 --[RR3]--> 1 --[RR3]--> 3          (shortest, but 0-1 was ridden earlier this trip)
+        // 0 --[RR3]--> 4 --[RR3]--> 5 --[RR3]--> 3
+        var engine = CreateLineEngine([(3, 0, 1), (3, 1, 3), (3, 0, 4), (3, 4, 5), (3, 5, 3), (4, 3, 9)]);
+        var player = PlaceOnLine(engine);
+        player.UsedSegments.Add(new SegmentKey("0:0", "0:1", 3));
+        var originalTimeLimit = GetRoutePlanningTimeLimit();
+
+        try
+        {
+            SetRoutePlanningTimeLimit(TimeSpan.Zero);
+
+            var route = engine.SuggestRouteForPlayer(player.Index);
+
+            Assert.Equal(["0:0", "0:4", "0:5", "0:3"], route.NodeIds);
+        }
+        finally
+        {
+            SetRoutePlanningTimeLimit(originalTimeLimit);
+        }
+    }
+
+    [Fact]
     public void SuggestRouteForPlayer_UsesCurrentPositionAfterMovement()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();
