@@ -216,7 +216,19 @@ else
                 }
                 else if (IsStatsPurchaseTabActive)
                 {
-                    <PlayerStatsTable Players="_players" PlayerStates="@(_gameState?.Players ?? [])" />
+                    <MudTabs Elevation="0" Outlined="true" Class="flex-grow-1 d-flex flex-column overflow-hidden" PanelClass="pa-2 flex-grow-1 d-flex flex-column overflow-hidden">
+                        <MudTabPanel Text="Player Stats">
+                            <PlayerStatsTable Players="_players" PlayerStates="@(_gameState?.Players ?? [])" />
+                        </MudTabPanel>
+                        <MudTabPanel Text="Net Worth">
+                            <NetWorthChart History="_netWorthHistory"
+                                           PlayerColors="@(_players.OrderBy(player => player.Index).Select(player => player.Color).ToList())"
+                                           HideValues="@IsCashKeptSecret" />
+                        </MudTabPanel>
+                        <MudTabPanel Text="Visits">
+                            <DestinationVisitsTable Visits="_destinationVisits" />
+                        </MudTabPanel>
+                    </MudTabs>
                 }
                 else if (IsHistoryPurchaseTabActive)
                 {
@@ -418,6 +430,9 @@ else
     private RailBaronGameState? _gameState;
     private MapDefinition? _playerBoardMapDefinition;
     private bool _isPlayerDrawerOpen = true;
+    private List<Boxcars.Engine.Persistence.GameState> _gameStateHistory = [];
+    private NetWorthHistory _netWorthHistory = NetWorthHistory.Empty;
+    private DestinationVisits _destinationVisits = DestinationVisits.Empty;
     private MapAnalysisReport? _mapAnalysisReport;
     private BoardTurnViewState _turnViewState = new();
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
@@ -932,6 +947,7 @@ else
         if (tab == PurchaseExperienceTab.Stats)
         {
             await RefreshPlayerStatesAsync();
+            await LoadGameStateHistoryAsync();
         }
 
         if (tab == PurchaseExperienceTab.Advice)
@@ -941,6 +957,42 @@ else
 
         await InvokeAsync(StateHasChanged);
     }
+
+    private async Task LoadGameStateHistoryAsync()
+    {
+        if (_playerBoardMapDefinition is null || string.IsNullOrWhiteSpace(GameId))
+        {
+            return;
+        }
+
+        _gameStateHistory = (await GameService.GetGameStateHistoryAsync(GameId, CancellationToken.None)).ToList();
+        RebuildGameHistoryStats();
+    }
+
+    private void RebuildGameHistoryStats()
+    {
+        if (_playerBoardMapDefinition is null)
+        {
+            return;
+        }
+
+        _netWorthHistory = NetWorthHistory.Build(_gameStateHistory, _playerBoardMapDefinition);
+        _destinationVisits = DestinationVisits.Build(_gameStateHistory, _playerBoardMapDefinition);
+    }
+
+    private void ExtendGameStateHistory(Boxcars.Engine.Persistence.GameState state)
+    {
+        // Live updates extend the loaded history rather than reloading every saved state.
+        if (!IsStatsPurchaseTabActive || _playerBoardMapDefinition is null || _gameStateHistory.Count == 0)
+        {
+            return;
+        }
+
+        _gameStateHistory.Add(state);
+        RebuildGameHistoryStats();
+    }
+
+    private bool IsCashKeptSecret => _game is not null && GameSettingsResolver.Resolve(_game).Settings.KeepCashSecret && !IsGameCompleted;
 
     private async Task EnsureRecentHistoryLoadedAsync()
     {
@@ -1654,6 +1706,21 @@ else
             }
 
             ApplyGameState(state);
+            if (update.ReplaceTimeline)
+            {
+                // An undo rewound the game; the loaded history still has the undone states.
+                _gameStateHistory.Clear();
+                _netWorthHistory = NetWorthHistory.Empty;
+                _destinationVisits = DestinationVisits.Empty;
+                if (IsStatsPurchaseTabActive)
+                {
+                    await LoadGameStateHistoryAsync();
+                }
+            }
+            else
+            {
+                ExtendGameStateHistory(state);
+            }
 
             LogBoardDebug($"OnSharedGameStateChanged applied version={stateChangeVersion}");
 
@@ -1844,6 +1911,9 @@ else
             .ToList();
 
         var resolvedSettings = _game is null ? Boxcars.Engine.Persistence.GameSettings.Default : GameSettingsResolver.Resolve(_game).Settings;
+        // Once the game is over there's nothing left to hide.
+        var keepCashSecret = resolvedSettings.KeepCashSecret
+            && !string.Equals(state.GameStatus, Boxcars.Engine.Domain.GameStatus.Completed.ToString(), StringComparison.OrdinalIgnoreCase);
 
         _players = state.Players
             .Select((player, index) =>
@@ -1905,7 +1975,7 @@ else
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
                     IsDelegatedToCurrentUser = isDelegatedToCurrentUser,
-                    KeepCashSecret = resolvedSettings.KeepCashSecret,
+                    KeepCashSecret = keepCashSecret,
                     AnnouncingCashThreshold = resolvedSettings.AnnouncingCash,
                     HomeCity = player.HomeCityName,
                     HasDeclared = player.HasDeclared,

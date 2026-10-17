@@ -50,6 +50,20 @@
             }
             else if (View == PurchaseExperienceTab.Regions)
             {
+                <MudPaper Class="pa-3" Outlined="true" Style="width: fit-content; max-width: 100%; min-width: 0">
+                    <MudText Typo="Typo.h6" Style="margin-bottom: 0.6rem">Regions</MudText>
+                    <MudTable T="RegionProbabilityRow" Items="Report.RegionProbabilityRows" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh><MudTableSortLabel T="RegionProbabilityRow" SortBy="@(row => row.RegionName)"><strong>Region</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RegionProbabilityRow" SortBy="@(row => row.ProbabilityPercentage)"><strong>Probability</strong></MudTableSortLabel></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.RegionName</MudTd>
+                            <MudTd>@FormatPercent(context.ProbabilityPercentage)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+
                 <MudGrid Spacing="3" Justify="Justify.FlexStart">
                     @foreach (var regionGroup in RegionCityGroups)
                     {
