@@ -53,7 +53,8 @@ public class RouteFailureIssueReporterTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["GitHub:IssueToken"] = token })
             .Build();
-        return new RouteFailureIssueReporter(new SingleClientFactory(handler), configuration, NullLogger<RouteFailureIssueReporter>.Instance);
+        var gitHubIssueClient = new GitHubIssueClient(new SingleClientFactory(handler), configuration, NullLogger<GitHubIssueClient>.Instance);
+        return new RouteFailureIssueReporter(gitHubIssueClient, NullLogger<RouteFailureIssueReporter>.Instance);
     }
 
     private static GameState CreateState()
@@ -92,7 +93,10 @@ public class RouteFailureIssueReporterTests
         {
             Requests++;
             LastUri = request.RequestUri?.ToString();
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("{\"number\": 42, \"html_url\": \"https://github.com/tomlm/Boxcars/issues/42\"}")
+            });
         }
     }
 
