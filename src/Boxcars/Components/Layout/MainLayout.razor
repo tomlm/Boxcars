@@ -10,19 +10,32 @@
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<MudLayout>
-    <MudAppBar Elevation="1" Style="overflow: visible">
-        <MudLink Href="/" Underline="Underline.None" Style="color: inherit">
-            <MudText Typo="Typo.h5">BoxCars</MudText>
-        </MudLink>
-        <MudSpacer />
-        <BugReportButton />
-        <UserMenu />
-    </MudAppBar>
-    <MudMainContent>
-        <div style="@ContentAreaStyle">
-            @Body
-        </div>
+@* A full-height flex column. The game page has no app bar (its profile menu sits beside the board's tabs), so it
+   fills the window; other pages scroll under the app bar. *@
+<MudLayout Class="d-flex flex-column">
+    @if (!IsGameRoute)
+    {
+        <MudAppBar Elevation="1" Style="overflow: visible">
+            <MudLink Href="/" Underline="Underline.None" Color="MudBlazor.Color.Inherit">
+                <MudText Typo="Typo.h5">BoxCars</MudText>
+            </MudLink>
+            <MudSpacer />
+            <UserMenu />
+        </MudAppBar>
+    }
+    <MudMainContent Class="@MainContentClass">
+        @if (IsGameRoute)
+        {
+            <div class="d-flex flex-column flex-grow-1 overflow-hidden">
+                @Body
+            </div>
+        }
+        else
+        {
+            <MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
+                @Body
+            </MudContainer>
+        }
     </MudMainContent>
 </MudLayout>
 
@@ -46,9 +59,10 @@
 
     private bool IsGameRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("game/", StringComparison.OrdinalIgnoreCase);
 
-    private string ContentAreaStyle => IsGameRoute
-        ? "padding: 0; max-width: none; margin: 0; overflow: hidden; min-height: calc(100dvh - var(--mud-appbar-height)); background-color: var(--mud-palette-background); color: var(--mud-palette-text-primary)"
-        : "padding: 1.5rem 2rem; max-width: 1200px; margin: 0 auto; min-height: calc(100dvh - var(--mud-appbar-height)); background-color: var(--mud-palette-background); color: var(--mud-palette-text-primary)";
+    // MudMainContent leaves room for an app bar; the game page has none.
+    private string MainContentClass => IsGameRoute
+        ? "d-flex flex-column overflow-hidden pt-0"
+        : "d-flex flex-column overflow-auto";
 
     protected override async Task OnParametersSetAsync()
     {

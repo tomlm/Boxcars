@@ -5,6 +5,7 @@
 @using MudBlazor
 @inject NavigationManager Navigation
 @inject PlayerProfileService ProfileService
+@inject IDialogService DialogService
 
 <AuthorizeView>
     <Authorized>
@@ -38,6 +39,8 @@
                 }
 
                 <MudDivider />
+                <MudMenuItem Href="/" Icon="@Icons.Material.Filled.Home">Home</MudMenuItem>
+                <MudMenuItem OnClick="@ReportBugAsync" Icon="@Icons.Material.Filled.BugReport">Report a bug</MudMenuItem>
                 <MudMenuItem Href="@RailroadReportUrl" Target="_blank">Export PDF</MudMenuItem>
                 <MudMenuItem OnClick="@(() => NavigateToAccountSettings())">Account settings</MudMenuItem>
                 <MudMenuItem OnClick="@(() => SignOut())">Sign out</MudMenuItem>
@@ -51,6 +54,7 @@
     private string _fullName = "Player";
     private string _email = string.Empty;
     private string _thumbnailUrl = string.Empty;
+    private string _nickname = string.Empty;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -75,6 +79,7 @@
                     var profile = await ProfileService.GetProfileAsync(userId, CancellationToken.None);
                     if (profile != null)
                     {
+                        _nickname = profile.Nickname ?? string.Empty;
                         var nickname = !string.IsNullOrEmpty(profile.Nickname) ? profile.Nickname : "Player";
                         _fullName = nickname;
                         _initials = GetInitials(nickname);
@@ -98,6 +103,31 @@
                 : null;
             return ReportEndpoints.BuildRailroadReportUrl(gameId);
         }
+    }
+
+    private async Task ReportBugAsync()
+    {
+        var pagePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+        // On a game page the report carries that game's state.
+        var gameId = pagePath.StartsWith("game/", StringComparison.OrdinalIgnoreCase)
+            ? pagePath["game/".Length..].Split('/', '?', '#')[0]
+            : null;
+
+        var parameters = new DialogParameters<BugReportDialog>
+        {
+            { dialog => dialog.GameId, gameId },
+            { dialog => dialog.PagePath, pagePath },
+            // The player's nickname, never their email address: the issue is public.
+            { dialog => dialog.ReporterName, string.IsNullOrWhiteSpace(_nickname) ? "Player" : _nickname }
+        };
+
+        await DialogService.ShowAsync<BugReportDialog>("Report a bug", parameters, new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = false
+        });
     }
 
     private void NavigateToAccountSettings()

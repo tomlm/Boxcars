@@ -1,5 +1,6 @@
 @page "/game/{GameId}"
 @rendermode InteractiveServer
+@using Boxcars.Components.Layout
 @using Boxcars.Components.GameBoard
 @using Boxcars.Components.Map
 @using Boxcars.Data
@@ -48,16 +49,17 @@
 
 @if (_game is null || (!IsLobbyGame && _gameState is null))
 {
-    <MudStack Style="min-height: 16rem" Justify="Justify.Center" AlignItems="AlignItems.Center">
+    <MudStack Class="py-16" Justify="Justify.Center" AlignItems="AlignItems.Center">
         <MudProgressCircular Indeterminate="true" Color="MudBlazor.Color.Primary" />
     </MudStack>
 }
 else if (IsLobbyGame)
 {
-    <MudStack Spacing="4" Style="max-width: 56rem; margin: 0 auto; padding: 2rem 1rem 3rem">
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="pt-8 pb-12">
+    <MudStack Spacing="4">
         <MudStack Spacing="1">
             <MudText Typo="Typo.h4">@LobbyGameName</MudText>
-            <MudText Typo="Typo.body1" Style="opacity: 0.75">
+            <MudText Typo="Typo.body1" Class="mud-text-secondary">
                 @(LobbyGameDateText) • Lobby
             </MudText>
         </MudStack>
@@ -71,7 +73,7 @@ else if (IsLobbyGame)
                         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                             <MudStack Spacing="0">
                                 <MudText Typo="Typo.body1">@seat.DisplayName</MudText>
-                                <MudText Typo="Typo.caption" Style="opacity: 0.7">@seat.RoleLabel</MudText>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">@seat.RoleLabel</MudText>
                             </MudStack>
                             <MudChip T="string"
                                      Color="@seat.StatusColor"
@@ -103,13 +105,14 @@ else if (IsLobbyGame)
             </MudButton>
         </MudStack>
     </MudStack>
+    </MudContainer>
 }
 else
 {
-<MudStack Row="true" Class="overflow-hidden" Style="height: calc(100dvh - 64px); width: 100%">
+<MudStack Row="true" Class="flex-grow-1 mud-width-full overflow-hidden">
     @* The player list: a side panel on medium screens and up, an overlay opened from the button on small ones. *@
     <MudDrawer @bind-Open="_isPlayerDrawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md"
-               ClipMode="DrawerClipMode.Always" Anchor="Anchor.Start" Elevation="1">
+               Anchor="Anchor.Start" Elevation="1">
         <MudStack Spacing="2" Class="pa-2">
             <PlayerBoard Players="_players"
                      OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
@@ -125,11 +128,11 @@ else
                        OnClick="() => _isPlayerDrawerOpen = !_isPlayerDrawerOpen" />
     </MudHidden>
 
-    <MudStack Class="flex-grow-1 overflow-hidden" Style="min-height: 0; min-width: 0">
+    <MudStack Class="flex-grow-1 overflow-hidden">
         @if (_gameMap?.Errors.Count > 0)
         {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true" Style="border-radius: 0">
-                <MudText Typo="Typo.subtitle2" Style="font-weight: 700">Unable to render map</MudText>
+            <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true" Square="true">
+                <MudText Typo="Typo.subtitle2">Unable to render map</MudText>
                 @foreach (var error in _gameMap.Errors)
                 {
                     <MudText Typo="Typo.body2">@error</MudText>
@@ -137,11 +140,12 @@ else
             </MudAlert>
         }
 
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="flex-shrink-0 pa-3 pb-0">
         @if (ShouldShowPurchaseExperienceTabs)
         {
             <MudToggleGroup T="PurchaseExperienceTab" Value="_selectedPurchaseTab" ValueChanged="OnPurchaseTabSelected"
                            Color="MudBlazor.Color.Primary" Size="Size.Small"
-                           Class="flex-shrink-0 pa-3 pb-0">
+                           Class="flex-grow-1">
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Map" Text="Map" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Regions" Text="Regions" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Cities" Text="Cities" />
@@ -153,8 +157,14 @@ else
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Settings" Text="Settings" />
             </MudToggleGroup>
         }
+        else
+        {
+            <MudSpacer />
+        }
+            <UserMenu />
+        </MudStack>
 
-        <div style="@MapAreaStyle" @ref="_mapAreaElement">
+        <div class="@MapAreaClass" @ref="_mapAreaElement">
             <GameMapComponent @ref="_gameMap" MapFileName="@(_game?.MapFileName ?? GameService.DefaultMapFileName)"
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
@@ -201,7 +211,7 @@ else
 
         @if (ShouldShowPurchaseExperienceTabs)
         {
-            <MudStack Class="@AnalysisAreaClass" Style="@AnalysisAreaStyle">
+            <MudStack Class="@AnalysisAreaClass">
                 @if (IsNetworkPurchaseTabActive)
                 {
                     <MudStack Spacing="2" Class="flex-grow-1 overflow-hidden">
@@ -232,7 +242,7 @@ else
                 }
                 else if (IsHistoryPurchaseTabActive)
                 {
-                    <MudPaper Outlined="true" Class="d-flex flex-column pa-3" Style="min-height: 100%; background: color-mix(in srgb, var(--mud-palette-surface) 90%, black 10%)">
+                    <MudPaper Outlined="true" Class="d-flex flex-column pa-3 mud-height-full">
                         <MudStack Spacing="0" Class="mb-3">
                             <MudText Typo="Typo.h6">History</MudText>
                             <MudText Typo="Typo.caption">@NotificationHistorySummary</MudText>
@@ -253,7 +263,7 @@ else
                                                      Color="@ResolveNotificationHistoryIconColor(item)"
                                                      Size="Size.Medium"
                                                      Class="mt-0 flex-shrink-0" />
-                                            <MudStack Spacing="0" Class="overflow-hidden flex-grow-1" Style="min-width: 0">
+                                            <MudStack Spacing="0" Class="overflow-hidden flex-grow-1">
                                                 <MudText Typo="Typo.body2">@item.Message</MudText>
                                             </MudStack>
                                             @if (item.CanUndo)
@@ -301,8 +311,8 @@ else
 
         @* ── Status strip: turn state center, zoom right ── *@
         <MudStack Row="true" Class="flex-shrink-1 align-start overflow-y-auto" Style="@StatusBarAnchorStyle">
-            <MudStack Row="true" Class="flex-grow-1 align-center justify-center" Style="font-size: 0.85rem; min-height: 3.75rem; padding: 0.55rem 1rem">
-                <MudStack Row="true" Justify="@StatusContentJustify" AlignItems="AlignItems.Center" Style="@StatusContentStyle">
+            <MudStack Row="true" Class="flex-grow-1 align-center justify-center px-4 py-2">
+                <MudStack Row="true" Spacing="4" Justify="@StatusContentJustify" AlignItems="AlignItems.Center" Class="@StatusContentClass">
                         @if (ShouldShowStatusControls)
                         {
                             @if (!ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
@@ -373,14 +383,14 @@ else
                             }
                             else if (ShouldShowCommitMoveAction)
                             {
-                                <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Style="margin: 0 auto">
-                                    <MudPaper Outlined="true" Class="d-flex align-center gap-4" Style="padding: 0.45rem 0.6rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)">
+                                <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mx-auto">
+                                    <MudPaper Outlined="true" Elevation="4" Class="d-flex align-center gap-4 pa-2 rounded-lg">
                                         <MovementStatusPanel State="@_turnViewState" UsePaper="false" />
                                         <MudButton Variant="Variant.Filled"
                                                    Color="MudBlazor.Color.Primary"
                                                    Disabled="@(!CanCommitMoveAction)"
                                                    OnClick="OnCommitMoveActionAsync"
-                                                   Class="flex-shrink-0 flex-grow-0" Style="min-width: 9rem; white-space: nowrap">
+                                                   Class="flex-shrink-0 flex-grow-0">
                                             @CommitMoveActionLabel
                                         </MudButton>
                                     </MudPaper>
@@ -389,24 +399,23 @@ else
                         }
                         else
                         {
-                            <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Style="margin: 0 auto">
-                                <MudPaper Outlined="true" Class="d-flex justify-center align-center" Style="padding: 0.45rem; border-radius: 0.9rem; background: var(--mud-palette-surface); border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 82%, transparent); box-shadow: 0 8px 20px rgb(0 0 0 / 0.16)">
+                            <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mx-auto">
+                                <MudPaper Outlined="true" Elevation="4" Class="d-flex justify-center align-center pa-2 rounded-lg">
                                     @if (IsGameCompleted)
                                     {
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudText Typo="Typo.body2" Style="text-align: center; white-space: nowrap">@SpectatorStatusMessage</MudText>
+                                            <MudText Typo="Typo.body2" Align="Align.Center">@SpectatorStatusMessage</MudText>
                                             <MudButton Variant="Variant.Filled"
                                                        Color="MudBlazor.Color.Primary"
                                                        Disabled="@_startingReplayGame"
-                                                       OnClick="PlayAgainAsync"
-                                                       Style="white-space: nowrap">
+                                                       OnClick="PlayAgainAsync">
                                                 @(_startingReplayGame ? "Preparing..." : "Play Again")
                                             </MudButton>
                                         </MudStack>
                                     }
                                     else
                                     {
-                                        <MudText Typo="Typo.body2" Style="text-align: center; white-space: nowrap">@SpectatorStatusMessage</MudText>
+                                        <MudText Typo="Typo.body2" Align="Align.Center">@SpectatorStatusMessage</MudText>
                                     }
                                 </MudPaper>
                             </MudStack>
@@ -2843,19 +2852,15 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool IsSettingsPurchaseTabActive => _selectedPurchaseTab == PurchaseExperienceTab.Settings;
 
-    private string MapAreaStyle => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
-        ? "display: none"
-        : "display: flex; flex: 1; flex-basis: 0; overflow: hidden; position: relative; min-height: 0; align-items: center; justify-content: center";
+    private string MapAreaClass => ShouldShowPurchaseExperienceTabs && !IsMapPurchaseTabActive
+        ? "d-none"
+        : "d-flex flex-1 overflow-hidden relative align-center justify-center";
 
     private string AnalysisAreaClass => IsMapPurchaseTabActive
         ? "d-none"
         : IsAdvicePurchaseTabActive
             ? "flex-1 overflow-hidden pa-3"
             : "flex-1 overflow-auto pa-3";
-
-    private string AnalysisAreaStyle => IsMapPurchaseTabActive
-        ? string.Empty
-        : "min-height: 0; background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)";
 
     private string StatusBarAnchorStyle => $"border-top: 1px solid var(--mud-palette-divider); transition: background-color 120ms ease; {GetStatusBarColorStyle(_currentPlayerColor)}";
 
@@ -2878,9 +2883,9 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private Justify StatusContentJustify => IsPurchaseLayoutActive ? Justify.FlexStart : Justify.Center;
 
-    private string StatusContentStyle => IsPurchaseLayoutActive
-        ? "gap: 1rem; width: 100%; min-width: 0"
-        : "gap: 1rem; max-width: 100%; margin: 0 auto";
+    private string StatusContentClass => IsPurchaseLayoutActive
+        ? "mud-width-full overflow-hidden"
+        : "mx-auto";
 
     private bool ShouldShowPurchaseTaskbar => CurrentPurchasePhase is { HasActivePurchaseControls: true }
         && !IsGameCompleted
