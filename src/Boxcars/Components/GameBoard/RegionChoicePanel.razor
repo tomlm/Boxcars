@@ -10,7 +10,7 @@
             </MudText>
         </MudStack>
 
-        <MudTable T="DestinationRegionOption" Items="Phase.Options" Dense="true" Hover="true" Bordered="true" Breakpoint="Breakpoint.Sm">
+        <MudTable T="DestinationRegionOption" Items="Phase.Options" Dense="true" Hover="true" Bordered="true" Breakpoint="Breakpoint.Sm" HorizontalScrollbar="true">
             <HeaderContent>
                 <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.RegionName)"><strong>Region</strong></MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="DestinationRegionOption" SortBy="@(option => option.RegionProbabilityPercent)"><strong>Region %</strong></MudTableSortLabel></MudTh>

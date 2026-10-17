@@ -204,6 +204,105 @@
             syncViewportToDotNet(state);
         };
 
+        // Touch: one finger pans like a mouse drag, two fingers pinch to zoom around the point between them.
+        function startTouchPan(touch) {
+            state.onMouseDown({ button: 0, target: touch.target, clientX: touch.clientX, clientY: touch.clientY, preventDefault() { } });
+        }
+
+        function startPinch(first, second) {
+            const midX = (first.clientX + second.clientX) / 2;
+            const midY = (first.clientY + second.clientY) / 2;
+            const relativePoint = getRelativePoint(element, midX, midY);
+            const width = Math.max(1, relativePoint.width);
+            const height = Math.max(1, relativePoint.height);
+            const zoomScale = getZoomScale(state.zoomPercent);
+            const viewWidth = state.mapWidth / zoomScale;
+            const viewHeight = state.mapHeight / zoomScale;
+
+            state.pinch = {
+                startDistance: Math.max(1, Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)),
+                startZoom: state.zoomPercent,
+                // The board point under the fingers stays under them as they move apart or together.
+                boardX: state.centerX - viewWidth / 2 + (relativePoint.x / width) * viewWidth,
+                boardY: state.centerY - viewHeight / 2 + (relativePoint.y / height) * viewHeight
+            };
+        }
+
+        function movePinch(first, second) {
+            const midX = (first.clientX + second.clientX) / 2;
+            const midY = (first.clientY + second.clientY) / 2;
+            const relativePoint = getRelativePoint(element, midX, midY);
+            const width = Math.max(1, relativePoint.width);
+            const height = Math.max(1, relativePoint.height);
+            const distance = Math.max(1, Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY));
+            const nextZoom = clamp(state.pinch.startZoom * distance / state.pinch.startDistance, state.minZoom, state.maxZoom);
+
+            state.zoomPercent = nextZoom;
+            if (nextZoom <= state.minZoom) {
+                const center = getMapCenter(state);
+                state.centerX = center.x;
+                state.centerY = center.y;
+                return;
+            }
+
+            const zoomScale = getZoomScale(nextZoom);
+            const viewWidth = state.mapWidth / zoomScale;
+            const viewHeight = state.mapHeight / zoomScale;
+            state.centerX = state.pinch.boardX - (relativePoint.x / width) * viewWidth + viewWidth / 2;
+            state.centerY = state.pinch.boardY - (relativePoint.y / height) * viewHeight + viewHeight / 2;
+        }
+
+        state.onTouchStart = event => {
+            if (event.target && event.target.closest("[data-mapboard-pan-ignore='true']")) {
+                return;
+            }
+
+            if (event.touches.length >= 2) {
+                state.isPanning = false;
+                startPinch(event.touches[0], event.touches[1]);
+                event.preventDefault();
+            } else if (event.touches.length === 1) {
+                state.pinch = null;
+                startTouchPan(event.touches[0]);
+            }
+        };
+
+        state.onTouchMove = event => {
+            if (state.pinch && event.touches.length >= 2) {
+                event.preventDefault();
+                movePinch(event.touches[0], event.touches[1]);
+                state.panMoved = true;
+                applyCameraTransform(state);
+            } else if (state.isPanning && event.touches.length === 1) {
+                // Keep the page from scrolling or zooming while the map pans.
+                event.preventDefault();
+                state.onMouseMove(event.touches[0]);
+            }
+        };
+
+        state.onTouchEnd = event => {
+            if (state.pinch) {
+                if (event.touches.length >= 2) {
+                    return;
+                }
+
+                state.pinch = null;
+                suppressClickAfterPan(state);
+                if (event.touches.length === 1) {
+                    // Lifting one finger carries on as a pan with the other.
+                    startTouchPan(event.touches[0]);
+                } else {
+                    syncViewportToDotNet(state);
+                }
+
+                return;
+            }
+
+            if (event.touches.length === 0) {
+                state.onPanEnd();
+            }
+        };
+
         state.onClickCapture = event => {
             if (performance.now() >= state.suppressClickUntil) {
                 return;
@@ -219,6 +318,10 @@
         window.addEventListener("mouseup", state.onPanEnd);
         element.addEventListener("mouseleave", state.onPanEnd);
         element.addEventListener("click", state.onClickCapture, true);
+        element.addEventListener("touchstart", state.onTouchStart, { passive: false });
+        element.addEventListener("touchmove", state.onTouchMove, { passive: false });
+        element.addEventListener("touchend", state.onTouchEnd);
+        element.addEventListener("touchcancel", state.onTouchEnd);
     }
 
     function detachHandlers(state) {
@@ -230,6 +333,10 @@
         window.removeEventListener("mouseup", state.onPanEnd);
         element.removeEventListener("mouseleave", state.onPanEnd);
         element.removeEventListener("click", state.onClickCapture, true);
+        element.removeEventListener("touchstart", state.onTouchStart);
+        element.removeEventListener("touchmove", state.onTouchMove);
+        element.removeEventListener("touchend", state.onTouchEnd);
+        element.removeEventListener("touchcancel", state.onTouchEnd);
         element.classList.remove("panning");
 
         if (state.syncHandle) {
@@ -272,7 +379,8 @@
                 panStartCenterX: options.centerX,
                 panStartCenterY: options.centerY,
                 viewportSequence: 0,
-                syncHandle: null
+                syncHandle: null,
+                pinch: null
             };
 
             installHandlers(state);
