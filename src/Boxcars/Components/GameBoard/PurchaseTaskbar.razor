@@ -29,27 +29,25 @@
             {
                 <MudMenu Dense="true" AnchorOrigin="Origin.TopLeft" TransformOrigin="Origin.BottomLeft" Disabled="IsBusy">
                     <ActivatorContent>
-                        <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Secondary" StartIcon="@Icons.Material.Filled.Lightbulb" Disabled="IsBusy">
+                        <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Lightbulb" Disabled="IsBusy">
                             RECOMMENDATIONS
                         </MudButton>
                     </ActivatorContent>
                     <ChildContent>
-                        <MudMenuItem Disabled="true">
-                            <MudText Typo="Typo.caption" Style="white-space: nowrap">
-                                Cash @FormatCurrency(Recommendations.Cash) · Fees owed @FormatCurrency(Recommendations.FeesOwed) · Fees coming in @FormatCurrency(Recommendations.IncomingFees) · Reserve @FormatCurrency(Recommendations.OperatingReserve)
-                            </MudText>
-                        </MudMenuItem>
+                        @* Plain text rather than disabled menu items, which MudBlazor greys out. *@
+                        <MudText Typo="Typo.body2" Class="px-4 py-2" Style="white-space: nowrap">
+                            Cash @FormatCurrency(Recommendations.Cash) · Fees owed @FormatCurrency(Recommendations.FeesOwed) · Fees coming in @FormatCurrency(Recommendations.IncomingFees) · Reserve @FormatCurrency(Recommendations.OperatingReserve)
+                        </MudText>
+                        <MudDivider />
                         @if (Recommendations.Recommendations.Count == 0)
                         {
-                            <MudMenuItem Disabled="true">
-                                <MudText Typo="Typo.body2">Nothing fits your operating reserve.</MudText>
-                            </MudMenuItem>
+                            <MudText Typo="Typo.body2" Class="px-4 py-2">Nothing fits your operating reserve.</MudText>
                         }
                         @foreach (var recommendation in Recommendations.Recommendations)
                         {
                             <MudMenuItem OnClick="@(() => OnSelectedOptionChangedAsync(recommendation.OptionKey))">
                                 <MudStack Spacing="0">
-                                    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Style="font-weight: 700">@recommendation.CategoryLabel</MudText>
+                                    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">@recommendation.CategoryLabel</MudText>
                                     <MudText Typo="Typo.body2" Style="white-space: nowrap">@recommendation.RailroadName (@FormatCurrency(recommendation.PurchasePrice))</MudText>
                                     <MudText Typo="Typo.caption" Style="white-space: nowrap">@recommendation.Reason · @FormatCurrency(recommendation.SpareCash) over reserve</MudText>
                                 </MudStack>
