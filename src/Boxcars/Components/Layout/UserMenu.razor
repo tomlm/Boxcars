@@ -50,12 +50,22 @@
     </Authorized>
 </AuthorizeView>
 
+@* Shows the screenshot is being taken; the capture leaves overlays out, so it isn't in the picture. *@
+<MudOverlay Visible="@_capturingScreen" DarkBackground="true">
+    <MudStack AlignItems="AlignItems.Center">
+        <MudProgressCircular Color="MudBlazor.Color.Primary" Indeterminate="true" />
+        <MudText>Taking a screenshot for the bug report…</MudText>
+    </MudStack>
+</MudOverlay>
+
 @code {
     private string _initials = "?";
     private string _fullName = "Player";
     private string _email = string.Empty;
     private string _thumbnailUrl = string.Empty;
     private string _nickname = string.Empty;
+    private bool _reportingBug;
+    private bool _capturingScreen;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -108,6 +118,25 @@
 
     private async Task ReportBugAsync()
     {
+        // Ignore clicks until the dialog is up.
+        if (_reportingBug)
+        {
+            return;
+        }
+
+        _reportingBug = true;
+        byte[]? screenshot;
+        try
+        {
+            screenshot = await CaptureScreenAsync();
+        }
+        finally
+        {
+            _reportingBug = false;
+            _capturingScreen = false;
+            StateHasChanged();
+        }
+
         var pagePath = Navigation.ToBaseRelativePath(Navigation.Uri);
         // On a game page the report carries that game's state.
         var gameId = pagePath.StartsWith("game/", StringComparison.OrdinalIgnoreCase)
@@ -119,7 +148,7 @@
             { dialog => dialog.GameId, gameId },
             { dialog => dialog.PagePath, pagePath },
             // Taken before the dialog opens, so it shows the page the player was looking at.
-            { dialog => dialog.ScreenshotJpeg, await CaptureScreenAsync() },
+            { dialog => dialog.ScreenshotJpeg, screenshot },
             // The player's nickname, never their email address: the issue is public.
             { dialog => dialog.ReporterName, string.IsNullOrWhiteSpace(_nickname) ? "Player" : _nickname }
         };
@@ -137,6 +166,14 @@
     {
         try
         {
+            // Screen sharing captures the real pixels, so the overlay only shows while the page is drawn instead,
+            // which takes several seconds.
+            if (!await JavaScriptRuntime.InvokeAsync<bool>("bugReport.canShareScreen"))
+            {
+                _capturingScreen = true;
+                StateHasChanged();
+            }
+
             var reference = await JavaScriptRuntime.InvokeAsync<IJSStreamReference>("bugReport.captureScreen");
             await using var stream = await reference.OpenReadStreamAsync(BugScreenshotStorage.MaximumScreenshotBytes);
             using var buffer = new MemoryStream();

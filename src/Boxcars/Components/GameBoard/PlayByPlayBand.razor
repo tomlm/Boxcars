@@ -49,7 +49,8 @@
     {
         _pending.Clear();
         _visible.Clear();
-        foreach (var message in messages.TakeLast(MaxVisible))
+        // Newest on the left.
+        foreach (var message in messages.TakeLast(MaxVisible).Reverse())
         {
             _visible.Add(new BandEntry(_nextEntryId++, message));
         }
@@ -62,16 +63,17 @@
         _running = true;
         try
         {
-            // One message per step so a burst of events still reads as individual arrivals.
+            // One message per step so a burst of events still reads as individual arrivals. The newest goes on the
+            // left and pushes the rest right, so on a narrow screen the latest stays in view.
             while (_pending.TryDequeue(out var message))
             {
                 var current = _visible.Where(entry => !entry.Leaving).ToList();
                 if (current.Count >= MaxVisible)
                 {
-                    current[0].Leaving = true;
+                    current[^1].Leaving = true;
                 }
 
-                _visible.Add(new BandEntry(_nextEntryId++, message));
+                _visible.Insert(0, new BandEntry(_nextEntryId++, message));
                 StateHasChanged();
 
                 await Task.Delay(StepMs, _disposeCancellation.Token);
