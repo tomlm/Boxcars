@@ -4,29 +4,36 @@
     flex-shrink: 0;
 }
 
+/* No wrapping, so a message opening or closing keeps to one line. */
 .play-by-play-item {
     flex-shrink: 0;
     margin-right: 0.5rem;
+    white-space: nowrap;
 }
 
-/* New messages travel in from the right edge to their place at the end of the line. */
+/* New messages open up at the start of the line, pushing the others right. */
 .play-by-play-enter {
-    animation: play-by-play-slide-in 550ms ease-out;
+    overflow: hidden;
+    animation: play-by-play-expand 550ms ease-out;
 }
 
-/* The oldest message fades and collapses so the rest slide left into its place. */
+/* The oldest message, at the end of the line, fades and collapses. */
 .play-by-play-leave {
     overflow: hidden;
     animation: play-by-play-collapse 550ms ease-in-out forwards;
 }
 
-@keyframes play-by-play-slide-in {
+@keyframes play-by-play-expand {
     from {
-        transform: translateX(100vw);
+        max-width: 0;
+        margin-right: 0;
+        opacity: 0;
     }
 
     to {
-        transform: translateX(0);
+        max-width: 25rem;
+        margin-right: 0.5rem;
+        opacity: 1;
     }
 }
 
