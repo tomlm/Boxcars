@@ -295,7 +295,17 @@ else
                 }
                 else if (IsSettingsPurchaseTabActive)
                 {
-                    <GameSettingsPanel Summary="_gameSettingsSummary" />
+                    <MudStack Spacing="2">
+                        @if (IsCurrentUserGameAdmin())
+                        {
+                            <MudSwitch T="bool"
+                                       Value="@(_game?.DebugMode == true)"
+                                       ValueChanged="OnDebugModeChangedAsync"
+                                       Label="Debug mode: bot moves that pay an opponent wait for your approval"
+                                       Color="MudBlazor.Color.Warning" />
+                        }
+                        <GameSettingsPanel Summary="_gameSettingsSummary" />
+                    </MudStack>
                 }
                 else if (ShouldShowPurchaseAnalysisPanel)
                 {
@@ -384,6 +394,12 @@ else
                             else if (ShouldShowCommitMoveAction)
                             {
                                 <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mx-auto">
+                                    @if (CurrentBotRouteReview is { } botRouteReview)
+                                    {
+                                        <BotRouteReviewPanel Review="botRouteReview"
+                                                             IsBusy="@_awaitingAuthoritativeUpdate"
+                                                             ApproveRequested="OnApproveBotRouteAsync" />
+                                    }
                                     <MudPaper Outlined="true" Elevation="4" Class="d-flex align-center gap-4 pa-2 rounded-lg">
                                         <MovementStatusPanel State="@_turnViewState" UsePaper="false" />
                                         <MudButton Variant="Variant.Filled"
@@ -450,6 +466,7 @@ else
     private bool _startingLobbyGame;
     private bool _startingReplayGame;
     private GameSettingsSummaryModel _gameSettingsSummary = GameSettingsSummaryModel.Empty;
+    private BotRouteReview? _botRouteReview;
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
     private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
@@ -1891,6 +1908,9 @@ else
     {
         var previousState = _gameState;
         _gameState = state;
+        _botRouteReview = _game?.DebugMode == true && IsCurrentUserGameAdmin()
+            ? SharedGameEngine.GetPendingBotRouteReview(GameId)
+            : null;
         var currentPlayerStates = GetCurrentPlayerStates();
         _turnViewState = GameBoardStateMapper.BuildTurnViewState(GameId, currentPlayerStates, state, _currentUserId, _playerBoardMapDefinition, gameEntity: _game);
         _currentUserPlayerIndex = _turnViewState.CurrentUserPlayerIndex;
@@ -2485,8 +2505,10 @@ StringComparison.OrdinalIgnoreCase));
             return;
         }
 
-        var restoredPreviewNodeIds = _turnViewState.SelectedRoutePreview.NodeIds;
-        var restoredPreviewSegmentKeys = _turnViewState.SelectedRoutePreview.SegmentKeys;
+        // A bot move waiting for review starts from the bot's own route.
+        var reviewedRoute = CurrentBotRouteReview;
+        var restoredPreviewNodeIds = reviewedRoute?.RouteNodeIds ?? _turnViewState.SelectedRoutePreview.NodeIds;
+        var restoredPreviewSegmentKeys = reviewedRoute?.RouteSegmentKeys ?? _turnViewState.SelectedRoutePreview.SegmentKeys;
         var startNodeId = activePlayer.CurrentNodeId ?? restoredPreviewNodeIds.FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(startNodeId))
@@ -3196,6 +3218,12 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return false;
         }
 
+        // In debug mode the admin may move a bot whose move is waiting for review.
+        if (CurrentBotRouteReview?.PlayerIndex == playerIndex)
+        {
+            return true;
+        }
+
         var slotUserId = _playerUserIdsByIndex.GetValueOrDefault(playerIndex);
         var delegatedControllerUserId = ResolveControllerUserId(slotUserId);
         var isDirectlyBound = PlayerControlRules.IsDirectlyBoundToUser(slotUserId, _currentUserId);
@@ -3207,6 +3235,52 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         return isDirectlyBound || isDelegatedController;
+    }
+
+    /// <summary>
+    /// In debug mode, the bot move waiting for this admin: they approve it, or change the route and move the bot.
+    /// </summary>
+    private BotRouteReview? CurrentBotRouteReview => _botRouteReview is { } review
+        && _gameState is not null
+        && review.PlayerIndex == _gameState.ActivePlayerIndex
+        && review.TurnNumber == _gameState.TurnNumber
+        && string.Equals(_gameState.Turn.Phase, "Move", StringComparison.OrdinalIgnoreCase)
+            ? review
+            : null;
+
+    private async Task OnApproveBotRouteAsync()
+    {
+        if (string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        _awaitingAuthoritativeUpdate = true;
+        if (!await SharedGameEngine.ApproveBotRouteAsync(GameId, _currentUserId, CancellationToken.None))
+        {
+            _awaitingAuthoritativeUpdate = false;
+            ShowNotification("That bot move is no longer waiting for review.", Severity.Warning);
+        }
+    }
+
+    private async Task OnDebugModeChangedAsync(bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(GameId) || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        if (!await SharedGameEngine.SetDebugModeAsync(GameId, _currentUserId, enabled, CancellationToken.None))
+        {
+            ShowNotification("Only the game's admin can change debug mode.", Severity.Warning);
+            return;
+        }
+
+        await RefreshGameEntityAsync();
+        if (_gameState is not null)
+        {
+            ApplyGameState(_gameState, queueRestoredRouteSelection: false);
+        }
     }
 
     private bool CanCurrentUserAuthenticatedlyControlPlayer(int playerIndex)

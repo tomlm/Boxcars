@@ -205,6 +205,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             CreatedAt = DateTimeOffset.UtcNow,
             CityProbabilityOverrides = request.CityProbabilityOverrides,
             RailroadPriceOverrides = request.RailroadPriceOverrides,
+            DebugMode = request.DebugMode ? true : null,
             Seats = request.Players
                 .Select((player, seatIndex) => new GameSeatDefinition
                 {
@@ -309,6 +310,75 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
     public bool IsGameBusy(string gameId)
     {
         return !string.IsNullOrWhiteSpace(gameId) && _busyGames.ContainsKey(gameId);
+    }
+
+    public BotRouteReview? GetPendingBotRouteReview(string gameId)
+    {
+        return string.IsNullOrWhiteSpace(gameId) ? null : _botTurnService.RouteReviews.GetPending(gameId);
+    }
+
+    public async Task<bool> ApproveBotRouteAsync(string gameId, string actorUserId, CancellationToken cancellationToken = default)
+    {
+        ValidateGameId(gameId);
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken);
+        if (gameEntity is null || !IsGameAdmin(gameEntity, actorUserId) || !_botTurnService.RouteReviews.Approve(gameId))
+        {
+            return false;
+        }
+
+        ScheduleAutomaticTurnFlowResume(gameId);
+        return true;
+    }
+
+    public async Task<bool> SetDebugModeAsync(string gameId, string actorUserId, bool enabled, CancellationToken cancellationToken = default)
+    {
+        ValidateGameId(gameId);
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken);
+        if (gameEntity is null || !IsGameAdmin(gameEntity, actorUserId))
+        {
+            return false;
+        }
+
+        // Only this column changes, so a concurrent update to the rest of the game isn't overwritten.
+        await _gamesTable.UpdateEntityAsync(
+            new TableEntity(gameEntity.PartitionKey, gameEntity.RowKey) { [nameof(GameEntity.DebugMode)] = enabled },
+            ETag.All,
+            TableUpdateMode.Merge,
+            cancellationToken);
+
+        if (!enabled)
+        {
+            _botTurnService.RouteReviews.Clear(gameId);
+        }
+
+        // A bot that was waiting goes ahead, or one about to move now waits.
+        ScheduleAutomaticTurnFlowResume(gameId);
+        return true;
+    }
+
+    private static bool IsGameAdmin(GameEntity gameEntity, string? userId)
+    {
+        return !string.IsNullOrWhiteSpace(userId)
+            && string.Equals(gameEntity.CreatorId, userId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// In debug mode, while a bot move waits for review, the admin may choose the bot's route and move it themselves.
+    /// </summary>
+    private bool IsAdminChoosingBotRoute(GameEntity gameEntity, RailBaronGameEngine gameEngine, PlayerAction action)
+    {
+        if (action is not MoveAction
+            || gameEntity.DebugMode != true
+            || gameEngine.CurrentTurn.Phase != TurnPhase.Move
+            || !IsGameAdmin(gameEntity, action.ActorUserId))
+        {
+            return false;
+        }
+
+        var review = _botTurnService.RouteReviews.GetPending(gameEntity.GameId);
+        return review is not null
+            && review.PlayerIndex == gameEngine.CurrentTurn.ActivePlayer.Index
+            && review.TurnNumber == gameEngine.CurrentTurn.TurnNumber;
     }
 
     public ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default)
@@ -515,6 +585,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
                     var snapshotBeforeAction = gameEngine.ToSnapshot();
                     ApplySeatAndControlMetadata(snapshotBeforeAction, gameEntity, playerStates);
+                    var routeChosenByAdmin = queuedAction.Action is MoveAction && IsAdminChoosingBotRoute(gameEntity, gameEngine, queuedAction.Action);
                     await ProcessTurnAsync(gameEntity, playerStates, gameEngine, queuedAction.Action, stoppingToken);
                     var snapshot = gameEngine.ToSnapshot();
                     ApplyStatisticsDelta(gameEngine, _mapDefinition, gameEngine.Settings, snapshotBeforeAction, snapshot);
@@ -525,7 +596,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.GameId,
                         snapshot,
                         queuedAction.Action.Kind.ToString(),
-                        DescribeAction(gameEntity, playerStates, queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
+                        string.Concat(
+                            DescribeAction(gameEntity, playerStates, queuedAction.Action, snapshotBeforeAction, snapshot, gameEngine),
+                            routeChosenByAdmin ? " [route chosen by admin]" : string.Empty),
                         queuedAction.Action.PlayerId,
                         queuedAction.Action,
                         stoppingToken);
@@ -806,7 +879,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             string.Equals(playerState.PlayerUserId, slotUserId, StringComparison.OrdinalIgnoreCase));
         var controllerState = _gamePresenceService.ResolveSeatControllerState(gameEntity.GameId, slotUserId, seatState);
         var authorized = PlayerControlRules.CanUserControlSlot(controllerState, action.ActorUserId, isPlayerActive: true)
-            || PlayerControlRules.CanServerControlSlot(controllerState, action.ActorUserId, _botOptions.ServerActorUserId, isPlayerActive: true);
+            || PlayerControlRules.CanServerControlSlot(controllerState, action.ActorUserId, _botOptions.ServerActorUserId, isPlayerActive: true)
+            || IsAdminChoosingBotRoute(gameEntity, gameEngine, action);
         if (!authorized)
         {
             throw new InvalidOperationException(allowsNonActiveParticipant
@@ -1013,6 +1087,9 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         RailBaronGameEngine gameEngine,
         CancellationToken cancellationToken)
     {
+        // Whatever was waiting for review may be out of date; the bot asks again if its move still pays an opponent.
+        _botTurnService.RouteReviews.ClearPending(gameId);
+
         var playerStates = await GetGameSeatStatesAsync(gameId, cancellationToken);
         var originalPlayerStates = playerStates
             .Select(GameSeatStateProjection.Clone)
@@ -1176,7 +1253,13 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return null;
         }
 
-        return await _botTurnService.CreateBotActionAsync(gameEntity.GameId, playerStates, gameEngine, _mapDefinition, cancellationToken);
+        return await _botTurnService.CreateBotActionAsync(
+            gameEntity.GameId,
+            playerStates,
+            gameEngine,
+            _mapDefinition,
+            cancellationToken,
+            reviewMovesThatPayOpponents: gameEntity.DebugMode == true);
     }
 
     private bool IsAiControlledSeatTurn(GameEntity gameEntity, List<GameSeatState> playerStates, RailBaronGameEngine gameEngine)
@@ -2068,7 +2151,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             _ => $"{actorName} performed {action.Kind}"
         };
 
-        return string.Concat(description, BuildActionAttributionSuffix(gameEntity, playerStates, action, snapshotBeforeAction));
+        var reviewNote = string.Equals(action.BotMetadata?.DecisionSource, BotRouteReviewService.ApprovedDecisionSource, StringComparison.Ordinal)
+            ? " [route approved by admin]"
+            : string.Empty;
+        return string.Concat(description, BuildActionAttributionSuffix(gameEntity, playerStates, action, snapshotBeforeAction), reviewNote);
     }
 
     private string BuildActionAttributionSuffix(

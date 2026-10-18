@@ -2413,6 +2413,33 @@ public sealed class GameEngine : ObservableBase
         return amount;
     }
 
+    /// <summary>
+    /// What the rider would owe each opponent, by owner, for riding these railroads: the unfriendly rate, or the
+    /// grandfathered rate where the rider has one.
+    /// </summary>
+    public IReadOnlyDictionary<Player, int> EstimateOpponentFees(Player rider, IEnumerable<int> railroadIndices)
+    {
+        ArgumentNullException.ThrowIfNull(rider);
+        ArgumentNullException.ThrowIfNull(railroadIndices);
+
+        var fees = new Dictionary<Player, int>();
+        foreach (var railroadIndex in railroadIndices.Distinct())
+        {
+            var railroad = Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
+            if (railroad?.Owner is not { } owner || owner == rider)
+            {
+                continue;
+            }
+
+            var feeAmount = rider.GrandfatheredRailroadFees.TryGetValue(railroadIndex, out var grandfatheredFee)
+                ? grandfatheredFee
+                : GetUnfriendlyFee(_settings, AllRailroadsSold);
+            fees[owner] = Math.Max(fees.GetValueOrDefault(owner), feeAmount);
+        }
+
+        return fees;
+    }
+
     private FeeCalculation BuildFeeCalculation(Player rider, IEnumerable<int> railroadIndices)
     {
         var opponentBuckets = new Dictionary<int, FeeBucket>();

@@ -217,6 +217,9 @@
                             <MudItem xs="12" md="4">
                                 <MudSwitch T="bool" Label="Home City Choice" Value="@_settings.HomeCityChoice" ValueChanged="@(value => UpdateSettings(_settings with { HomeCityChoice = value }))" Disabled="@IsBusy" Color="Color.Primary" />
                             </MudItem>
+                            <MudItem xs="12">
+                                <MudSwitch T="bool" Label="Debug Mode: bot moves that pay an opponent wait for your approval" @bind-Value="_debugMode" Disabled="@IsBusy" Color="Color.Warning" />
+                            </MudItem>
                         </MudGrid>
                     </ChildContent>
                 </MudExpansionPanel>
@@ -255,6 +258,7 @@
     private bool _generatingRandomCities;
     private string? _validationMessage;
     private GameSettings _settings = GameSettings.Default;
+    private bool _debugMode;
     private string _mapFileName = GameService.DefaultMapFileName;
     private string _gameName = string.Empty;
     private DateTime? _gameDate = DateTime.Today;
@@ -449,6 +453,7 @@
                 Settings = _settings,
                 CityProbabilityOverrides = _cityProbabilityOverrides,
                 RailroadPriceOverrides = _railroadPriceOverrides,
+                DebugMode = _debugMode,
                 Players = _playerSlots.Select(slot => new GamePlayerSelection
                 {
                     UserId = slot.UserId,

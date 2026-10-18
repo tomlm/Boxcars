@@ -38,6 +38,9 @@ public class GameEntity : ITableEntity
     public int? ExpressPrice { get; set; }
     public int? MinimumRailroadPrice { get; set; }
     public int? SettingsSchemaVersion { get; set; }
+
+    /// <summary>When on, a bot move that pays an opponent waits for the game's admin to approve it.</summary>
+    public bool? DebugMode { get; set; }
     public string SeatsJson { get; set; } = "[]";
     public string CityProbabilityOverridesJson { get; set; } = "[]";
     public string RailroadPriceOverridesJson { get; set; } = "[]";

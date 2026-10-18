@@ -31,6 +31,9 @@ public sealed record CreateGameRequest
     public IReadOnlyList<CityProbabilityOverride> CityProbabilityOverrides { get; init; } = [];
     public IReadOnlyList<RailroadPriceOverride> RailroadPriceOverrides { get; init; } = [];
 
+    /// <summary>When on, a bot move that pays an opponent waits for the game's admin to approve it.</summary>
+    public bool DebugMode { get; init; }
+
     public int MaxPlayers => Players.Count;
 }
 

@@ -48,6 +48,9 @@ public sealed class BotTurnService
         _logger = logger;
     }
 
+    /// <summary>Bot moves waiting for the admin in games in debug mode.</summary>
+    public BotRouteReviewService RouteReviews { get; } = new();
+
     public GameSeatState? FindActiveSeatState(IReadOnlyList<GameSeatState> playerStates, string playerUserId)
     {
         ArgumentNullException.ThrowIfNull(playerStates);
@@ -249,7 +252,8 @@ public sealed class BotTurnService
         List<GameSeatState> playerStates,
         RailBaronGameEngine gameEngine,
         MapDefinition mapDefinition,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool reviewMovesThatPayOpponents = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gameId);
         ArgumentNullException.ThrowIfNull(gameEngine);
@@ -268,7 +272,7 @@ public sealed class BotTurnService
             TurnPhase.HomeCityChoice => await CreateHomeCityChoiceActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, cancellationToken),
             TurnPhase.HomeSwap => await CreateHomeSwapActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, cancellationToken),
             TurnPhase.RegionChoice => await CreateRegionChoiceActionAsync(gameId, playerStates, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
-            TurnPhase.Move => await CreateMoveActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, cancellationToken),
+            TurnPhase.Move => await CreateMoveActionAsync(gameId, playerStates, gameEngine, snapshot, playerSelections, reviewMovesThatPayOpponents, cancellationToken),
             TurnPhase.Purchase => await CreatePurchaseActionAsync(gameId, playerStates, gameEngine, mapDefinition, snapshot, playerSelections, cancellationToken),
             TurnPhase.UseFees => await CreateForcedSaleActionAsync(gameId, playerStates, gameEngine, mapDefinition, playerSelections, cancellationToken),
             _ => null
@@ -641,6 +645,7 @@ public sealed class BotTurnService
         RailBaronGameEngine gameEngine,
         global::Boxcars.Engine.Persistence.GameState snapshot,
         IReadOnlyList<GamePlayerSelection> playerSelections,
+        bool reviewMovesThatPayOpponents,
         CancellationToken cancellationToken)
     {
         var player = gameEngine.CurrentTurn.ActivePlayer;
@@ -690,6 +695,23 @@ public sealed class BotTurnService
             .Select(segment => BuildSegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex))
             .ToList();
 
+        // In debug mode a move that pays an opponent waits for the admin to approve it or move the bot themselves.
+        var decisionSource = "SuggestedRoute";
+        if (reviewMovesThatPayOpponents)
+        {
+            var review = BuildRouteReview(gameId, gameEngine, route, routeProgressIndex, steps);
+            if (review is not null)
+            {
+                if (!RouteReviews.TryConsumeApproval(gameId, review.TurnNumber, review.PlayerIndex))
+                {
+                    RouteReviews.SetPending(review);
+                    return null;
+                }
+
+                decisionSource = BotRouteReviewService.ApprovedDecisionSource;
+            }
+        }
+
         return new MoveAction
         {
             PlayerId = player.Name,
@@ -697,7 +719,48 @@ public sealed class BotTurnService
             ActorUserId = ResolveBotActorUserId(),
             PointsTaken = pointsTaken,
             SelectedSegmentKeys = selectedSegmentKeys,
-            BotMetadata = CreateBotMetadata(botControlContext.Value.PlayerState, botControlContext.Value.Definition, "SuggestedRoute")
+            BotMetadata = CreateBotMetadata(botControlContext.Value.PlayerState, botControlContext.Value.Definition, decisionSource)
+        };
+    }
+
+    /// <summary>The review for the bot's next move when it rides opponents' railroads, or null when it pays no one.</summary>
+    private static BotRouteReview? BuildRouteReview(string gameId, RailBaronGameEngine gameEngine, Boxcars.Engine.Domain.Route route, int routeProgressIndex, int steps)
+    {
+        var player = gameEngine.CurrentTurn.ActivePlayer;
+        var movedRailroadIndices = route.Segments
+            .Skip(routeProgressIndex)
+            .Take(steps)
+            .Select(segment => segment.RailroadIndex)
+            .Distinct()
+            .ToList();
+        var feesByOwner = gameEngine.EstimateOpponentFees(player, movedRailroadIndices);
+        if (feesByOwner.Count == 0)
+        {
+            return null;
+        }
+
+        return new BotRouteReview
+        {
+            GameId = gameId,
+            TurnNumber = gameEngine.CurrentTurn.TurnNumber,
+            PlayerIndex = player.Index,
+            PlayerName = player.Name,
+            RouteNodeIds = route.NodeIds.Skip(routeProgressIndex).ToList(),
+            RouteSegmentKeys = route.Segments
+                .Skip(routeProgressIndex)
+                .Select(segment => BuildSegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex))
+                .ToList(),
+            MoveSteps = steps,
+            Fees = feesByOwner
+                .OrderBy(entry => entry.Key.Index)
+                .Select(entry => new BotRouteReviewFee(
+                    entry.Key.Name,
+                    gameEngine.Railroads
+                        .Where(railroad => railroad.Owner == entry.Key && movedRailroadIndices.Contains(railroad.Index))
+                        .Select(railroad => railroad.ShortName)
+                        .ToList(),
+                    entry.Value))
+                .ToList()
         };
     }
 

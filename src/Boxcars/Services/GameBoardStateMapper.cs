@@ -102,6 +102,18 @@ public sealed class GameBoardStateMapper(
                         new GameSettingsSummaryItemModel { Label = "Superchief Price", Value = FormatMoney(settings.SuperchiefPrice) },
                         new GameSettingsSummaryItemModel { Label = "Minimum Railroad Price", Value = FormatMoney(settings.MinimumRailroadPrice) }
                     ]
+                },
+                new GameSettingsSummarySectionModel
+                {
+                    Title = "Debugging",
+                    Items =
+                    [
+                        new GameSettingsSummaryItemModel
+                        {
+                            Label = "Debug Mode",
+                            Value = gameEntity.DebugMode == true ? "Bot moves that pay an opponent wait for the admin" : "Off"
+                        }
+                    ]
                 }
             ]
         };
