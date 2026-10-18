@@ -11,10 +11,9 @@
     white-space: nowrap;
 }
 
-/* New messages open up at the start of the line, pushing the others right. */
+/* New messages slide in from the left edge while their space opens up, pushing the others right. */
 .play-by-play-enter {
-    overflow: hidden;
-    animation: play-by-play-expand 550ms ease-out;
+    animation: play-by-play-slide-in 550ms ease-out;
 }
 
 /* The oldest message, at the end of the line, fades and collapses. */
@@ -23,17 +22,17 @@
     animation: play-by-play-collapse 550ms ease-in-out forwards;
 }
 
-@keyframes play-by-play-expand {
+@keyframes play-by-play-slide-in {
     from {
         max-width: 0;
         margin-right: 0;
-        opacity: 0;
+        transform: translateX(-100vw);
     }
 
     to {
         max-width: 25rem;
         margin-right: 0.5rem;
-        opacity: 1;
+        transform: translateX(0);
     }
 }
 
