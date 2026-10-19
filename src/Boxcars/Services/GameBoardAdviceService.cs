@@ -56,6 +56,11 @@ public sealed class GameBoardAdviceService(
         var controlledSeatIndex = ResolveControlledPlayerIndex(gameState,
             gameBoardStateMapper.BuildTurnViewState(gameId, playerStates, gameState, currentUserId, mapDefinition, gameEntity: game),
             preferredControlledPlayerIndex);
+        if (controlledSeatIndex < 0)
+        {
+            return AdvisorResponse.Failed("Advice is only available to players in this game.");
+        }
+
         var safeIndex = controlledSeatIndex >= 0 && controlledSeatIndex < playerStates.Count
             ? controlledSeatIndex
             : 0;
@@ -165,7 +170,8 @@ public sealed class GameBoardAdviceService(
             return turnViewState.CurrentUserPlayerIndex;
         }
 
-        return gameState.ActivePlayerIndex;
+        // No seat of their own: advising them as the active player would show that player's position.
+        return -1;
     }
 
     private string BuildControlledPlayerSummary(
@@ -405,11 +411,14 @@ public sealed class GameBoardAdviceService(
         var effectiveRegionLookup = effectiveCoverage.RegionAccess
             .ToDictionary(ra => ra.RegionCode, ra => ra.AccessibleDestinationPercent, StringComparer.OrdinalIgnoreCase);
 
+        // An opponent's exact cash stays out of the advisor while the game keeps it secret, or the advice could reveal it.
+        var isCashVisible = IsCashVisible(player.Cash, settings);
         return new AdvisorOpponentContext
         {
             PlayerIndex = playerIndex,
             Name = player.Name,
-            Cash = player.Cash,
+            Cash = isCashVisible ? player.Cash : null,
+            VisibleCash = FormatVisibleCash(player.Cash, settings),
             Engine = player.LocomotiveType,
             CurrentCity = player.CurrentCityName,
             HomeCity = player.HomeCityName,
@@ -422,7 +431,7 @@ public sealed class GameBoardAdviceService(
             OwnedRailroads = ownedRailroadNames,
             NetworkAccessPercent = ownedCoverage.AccessibleDestinationPercent,
             EffectiveAccessPercent = effectiveCoverage.AccessibleDestinationPercent,
-            CashToWin = Math.Max(0, settings.WinningCash - player.Cash),
+            CashToWin = isCashVisible ? Math.Max(0, settings.WinningCash - player.Cash) : null,
             RegionCoverage = ownedCoverage.RegionAccess.Select(ra => new AdvisorRegionCoverage
             {
                 RegionCode = ra.RegionCode,
@@ -431,6 +440,11 @@ public sealed class GameBoardAdviceService(
                 MonopolyPercent = ra.MonopolyDestinationPercent
             }).ToList()
         };
+    }
+
+    private static bool IsCashVisible(int cash, GameSettings settings)
+    {
+        return !settings.KeepCashSecret || cash >= settings.AnnouncingCash;
     }
 
     private List<AdvisorPurchasableRailroad> BuildAvailableRailroads(
@@ -493,7 +507,7 @@ public sealed class GameBoardAdviceService(
 
     private static string FormatVisibleCash(int cash, GameSettings settings)
     {
-        if (!settings.KeepCashSecret || cash >= settings.AnnouncingCash)
+        if (IsCashVisible(cash, settings))
         {
             return $"${cash:N0}";
         }
@@ -544,6 +558,7 @@ public sealed class GameBoardAdviceService(
             "- EffectiveAccessPercent shows the player's real travel coverage: owned railroads PLUS all public (unowned) railroads. This is the number that matters for routing.",
             "- NetworkAccessPercent shows only owned-railroad coverage. Early game, EffectiveAccessPercent is nearly 100% because most railroads are still public.",
             "- The win condition requires accumulating the match's configured winning-cash threshold AND reaching your home city. CashToWin shows how far from that threshold.",
+            "- An opponent's Cash and CashToWin are null while the game keeps their cash secret; VisibleCash ($ to $$$$$) is all anyone knows. Never state or guess an opponent's exact cash.",
 
             "USE-FEE MECHANICS:",
             "- Each opponent-owned railroad used during a move incurs exactly one fee per owner (not per segment).",

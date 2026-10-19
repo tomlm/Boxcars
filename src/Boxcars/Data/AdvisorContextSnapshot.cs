@@ -84,7 +84,12 @@ public sealed class AdvisorOpponentContext
 {
     public int PlayerIndex { get; init; }
     public string Name { get; init; } = string.Empty;
-    public int Cash { get; init; }
+
+    /// <summary>Exact cash, or null while the game keeps it secret (below the announcing cash).</summary>
+    public int? Cash { get; init; }
+
+    /// <summary>Cash as other players see it: the amount, or $ to $$$$$ while it's secret.</summary>
+    public string VisibleCash { get; init; } = string.Empty;
     public string Engine { get; init; } = string.Empty;
     public string CurrentCity { get; init; } = string.Empty;
     public string HomeCity { get; init; } = string.Empty;
@@ -97,7 +102,9 @@ public sealed class AdvisorOpponentContext
     public IReadOnlyList<string> OwnedRailroads { get; init; } = [];
     public decimal NetworkAccessPercent { get; init; }
     public decimal EffectiveAccessPercent { get; init; }
-    public int CashToWin { get; init; }
+
+    /// <summary>How far from the winning cash, or null while their cash is secret.</summary>
+    public int? CashToWin { get; init; }
     public IReadOnlyList<AdvisorRegionCoverage> RegionCoverage { get; init; } = [];
 }
 

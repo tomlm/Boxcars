@@ -270,6 +270,8 @@ else
                 }
                 else if (IsAdvicePurchaseTabActive)
                 {
+                    // The seat shown can change with the turn (a puppeted seat's turn starts or ends).
+                    EnsureAdvisorSession();
                     <AdvisorSidebar EntryPoint="_advisorEntryPoint"
                                     Conversation="_advisorConversation"
                                     DraftMessage="@_advisorDraftMessage"
@@ -467,6 +469,7 @@ else
     private bool _wasPurchasePhaseActive;
     private AdvisorEntryPointState _advisorEntryPoint = new();
     private AdvisorConversationSession? _advisorConversation;
+    private readonly Dictionary<int, AdvisorConversationSession> _advisorConversationsBySeat = [];
     private string _advisorDraftMessage = string.Empty;
     private int _advisorComposerResetVersion;
     private string? _lastAdvisorUserQuestion;
@@ -1020,21 +1023,42 @@ else
         }
     }
 
+    /// <summary>
+    /// Makes <see cref="_advisorConversation"/> the conversation for the seat the tabs show: one per seat, so a seat the
+    /// admin is puppeting gets its own advice thread, separate from the admin's.
+    /// </summary>
     private void EnsureAdvisorSession()
     {
+        var seatIndex = EffectiveRecommendationPlayerIndex;
         if (_advisorConversation is not null
             && string.Equals(_advisorConversation.GameId, GameId, StringComparison.Ordinal)
-            && string.Equals(_advisorConversation.CurrentUserId, _currentUserId, StringComparison.Ordinal))
+            && string.Equals(_advisorConversation.CurrentUserId, _currentUserId, StringComparison.Ordinal)
+            && _advisorConversationsBySeat.TryGetValue(seatIndex, out var current)
+            && ReferenceEquals(current, _advisorConversation))
         {
             return;
         }
 
-        _advisorConversation = new AdvisorConversationSession
+        if (_advisorConversationsBySeat.Values.Any(conversation =>
+                !string.Equals(conversation.GameId, GameId, StringComparison.Ordinal)
+                || !string.Equals(conversation.CurrentUserId, _currentUserId, StringComparison.Ordinal)))
         {
-            GameId = GameId,
-            CurrentUserId = _currentUserId ?? string.Empty
-        };
-        _advisorConversation.EnsureGreeting();
+            _advisorConversationsBySeat.Clear();
+        }
+
+        if (!_advisorConversationsBySeat.TryGetValue(seatIndex, out var conversation))
+        {
+            conversation = new AdvisorConversationSession
+            {
+                GameId = GameId,
+                CurrentUserId = _currentUserId ?? string.Empty,
+                ControlledPlayerIndex = seatIndex >= 0 ? seatIndex : null
+            };
+            conversation.EnsureGreeting();
+            _advisorConversationsBySeat[seatIndex] = conversation;
+        }
+
+        _advisorConversation = conversation;
         _advisorEntryPoint = new AdvisorEntryPointState { GameId = GameId };
         _advisorDraftMessage = string.Empty;
         _advisorComposerResetVersion++;
@@ -1057,33 +1081,39 @@ else
 
         EnsureAdvisorSession();
 
+        // Held onto, so the answer lands in this seat's conversation even if the seat shown changes while it's coming.
+        var conversation = _advisorConversation!;
+        var entryPoint = _advisorEntryPoint;
+        var seatIndex = conversation.ControlledPlayerIndex;
+
         _lastAdvisorUserQuestion = question;
-        _advisorConversation!.AddUserMessage(question);
+        conversation.AddUserMessage(question);
         _advisorDraftMessage = string.Empty;
         _advisorComposerResetVersion++;
-        _advisorEntryPoint.IsLoading = true;
-        _advisorEntryPoint.HasAvailabilityError = false;
-        _advisorEntryPoint.AvailabilityMessage = string.Empty;
+        entryPoint.IsLoading = true;
+        entryPoint.HasAvailabilityError = false;
+        entryPoint.AvailabilityMessage = string.Empty;
         await InvokeAsync(StateHasChanged);
 
         var response = await GameBoardAdviceService.GenerateAdviceAsync(
             GameId,
             _currentUserId,
-            _currentUserPlayerIndex >= 0 ? _currentUserPlayerIndex : null,
-            _advisorConversation,
+            // The seat the other tabs show: the user's own, or one they control (a seat the admin is puppeting) on its turn.
+            seatIndex,
+            conversation,
             question,
             CancellationToken.None);
 
-        _advisorEntryPoint.IsLoading = false;
+        entryPoint.IsLoading = false;
 
         if (response.Succeeded)
         {
-            _advisorConversation.AddAssistantMessage(response.AssistantText ?? string.Empty, response.ContextTurnNumber);
+            conversation.AddAssistantMessage(response.AssistantText ?? string.Empty, response.ContextTurnNumber);
         }
         else
         {
-            _advisorEntryPoint.HasAvailabilityError = true;
-            _advisorEntryPoint.AvailabilityMessage = response.FailureReason ?? "The advisor is unavailable right now.";
+            entryPoint.HasAvailabilityError = true;
+            entryPoint.AvailabilityMessage = response.FailureReason ?? "The advisor is unavailable right now.";
         }
 
         await InvokeAsync(StateHasChanged);
@@ -2714,7 +2744,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 return _currentUserPlayerIndex;
             }
 
-            return _gameState.ActivePlayerIndex;
+            // Someone without a seat sees no player's analysis: falling back to the active player leaked theirs.
+            return -1;
         }
     }
 
@@ -2728,15 +2759,24 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 return baseInputs;
             }
 
+            // The purchase phase's inputs are the active player's (their cash decides what's affordable), so they're only
+            // shown to whoever controls that seat.
             var effectivePlayerIndex = EffectiveRecommendationPlayerIndex;
             if (effectivePlayerIndex < 0 || effectivePlayerIndex >= _gameState.Players.Count)
             {
-                return baseInputs;
+                return null;
             }
 
-            if (baseInputs is not null && effectivePlayerIndex == _gameState.ActivePlayerIndex)
+            if (effectivePlayerIndex == _gameState.ActivePlayerIndex && CanCurrentUserControlPlayer(effectivePlayerIndex))
             {
-                return baseInputs;
+                if (baseInputs is not null)
+                {
+                    return baseInputs;
+                }
+            }
+            else
+            {
+                baseInputs = null;
             }
 
             var ownedRailroadIndices = _gameState.Players[effectivePlayerIndex].OwnedRailroadIndices;
@@ -3031,15 +3071,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             ? CurrentBotControlledTurnStatusMessage
             : ObserverTurnMessage;
 
-    private RailroadOverlayInfo? CurrentForcedSaleImpact => CurrentForcedSalePhase?.NetworkTab.SelectedRailroadImpact;
+    private RailroadOverlayInfo? CurrentForcedSaleImpact => ViewerForcedSalePhase?.NetworkTab.SelectedRailroadImpact;
+
+    /// <summary>The forced sale, when it's the viewer's own: everyone else's Network tab stays on their own network.</summary>
+    private ForcedSalePhaseModel? ViewerForcedSalePhase => CurrentForcedSalePhase is { } forcedSale
+        && CanCurrentUserControlPlayer(forcedSale.PlayerIndex)
+            ? forcedSale
+            : null;
 
     private NetworkTabModel CurrentDisplayNetworkTab
     {
         get
         {
-            if (CurrentForcedSalePhase is not null)
+            if (ViewerForcedSalePhase is { } forcedSale)
             {
-                return CurrentForcedSalePhase.NetworkTab;
+                return forcedSale.NetworkTab;
             }
 
             if (_gameState is null || _playerBoardMapDefinition is null)
