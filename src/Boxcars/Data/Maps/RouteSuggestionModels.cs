@@ -47,6 +47,9 @@ public sealed class RouteSuggestionResult
 
     /// <summary>When this turn's move reaches a destination only opponents serve: whether a bonus gets off.</summary>
     public Boxcars.Engine.Domain.ArrivalBonus ArrivalBonus { get; init; }
+
+    /// <summary>The declared opponent this route chases to rover, instead of heading for the destination; null when it doesn't.</summary>
+    public string? RoverTargetPlayerName { get; init; }
 }
 
 public enum RouteSuggestionHighlightType

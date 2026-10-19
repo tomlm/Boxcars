@@ -69,7 +69,8 @@ public static class EngineRouteSuggestion
             TotalTurns = segments.Sum(segment => segment.Turns),
             TotalCost = route.TotalCost,
             Approach = player == engine.CurrentTurn.ActivePlayer ? engine.LastApproachDecision : null,
-            ArrivalBonus = engine.GetArrivalBonus(playerIndex, route)
+            ArrivalBonus = engine.GetArrivalBonus(playerIndex, route),
+            RoverTargetPlayerName = engine.GetRoverTarget(playerIndex, options)?.Name
         };
     }
 
