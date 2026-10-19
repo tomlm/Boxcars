@@ -679,6 +679,49 @@ public sealed class GameEngine : ObservableBase
             futureTurnMovementCapacity);
     }
 
+    /// <summary>
+    /// For a route the active player rides this turn: whether it reaches their destination where only opponents'
+    /// railroads lead away, and if so whether a bonus gets them off. A Superchief arriving within its white dice
+    /// knows its red die; an Express or Freight bonus die is rolled after arriving.
+    /// </summary>
+    public ArrivalBonus GetArrivalBonus(int playerIndex, Route route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        if (playerIndex < 0 || playerIndex >= Players.Count)
+            throw new ArgumentOutOfRangeException(nameof(playerIndex));
+
+        var player = Players[playerIndex];
+        if (!IsThisTurnsMovementKnown(player)
+            || player.Destination is null
+            || route.Segments.Count == 0
+            || route.Segments.Count > CurrentTurn.MovementRemaining
+            || FindCityNodeId(player.Destination) is not { } destinationNodeId
+            || !string.Equals(route.NodeIds[^1], destinationNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return ArrivalBonus.None;
+        }
+
+        var arrivalState = new RoutePlanningState(destinationNodeId, route.Segments[^1].RailroadIndex, 0);
+        if (CalculateDestinationExitCost(player, arrivalState, GetAverageMovementPerTurn(player.LocomotiveType), Stopwatch.StartNew()) <= 0)
+        {
+            return ArrivalBonus.None;
+        }
+
+        if (player.LocomotiveType == LocomotiveType.Superchief
+            && CurrentTurn.DiceResult is { RedDie: int redDie } dice
+            && dice.WhiteDice.Sum() > 0)
+        {
+            var movementUsed = Math.Max(0, CurrentTurn.MovementAllowance - CurrentTurn.MovementRemaining);
+            return movementUsed + route.Segments.Count <= dice.WhiteDice.Sum()
+                && CalculateMinimumBonusOutSegments(player, arrivalState, Stopwatch.StartNew()) is int escape
+                && redDie >= escape
+                    ? ArrivalBonus.GetsOff
+                    : ArrivalBonus.None;
+        }
+
+        return CurrentTurn.BonusRollAvailable ? ArrivalBonus.Possible : ArrivalBonus.None;
+    }
+
     private bool IsThisTurnsMovementKnown(Player player)
     {
         return player == CurrentTurn.ActivePlayer

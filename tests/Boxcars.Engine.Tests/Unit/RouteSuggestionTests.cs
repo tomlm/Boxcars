@@ -688,13 +688,82 @@ public class RouteSuggestionTests
         Assert.Equal(route.TotalCost, costs.Sum(cost => cost.FeeAdded));
     }
 
-    private static void StartMove(Boxcars.Engine.Domain.GameEngine engine, Player player, int[] whiteDice)
+    [Theory]
+    [InlineData(6, ArrivalBonus.GetsOff)]
+    [InlineData(1, ArrivalBonus.None)]
+    public void GetArrivalBonus_SuperchiefArrivingOnTheWhiteDice_GetsOffWhenTheRedDieReachesOtherTrack(int redDie, ArrivalBonus expected)
+    {
+        // 0 --[RR1 Bob]--> 1 --[RR1 Bob]--> 3 (Finish, served only by Bob) --[RR1 Bob]--> 6 --[RR1 Bob]--> 8 --[RR2 public]--> 7
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (1, 3, 6), (1, 6, 8), (2, 8, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        player.LocomotiveType = LocomotiveType.Superchief;
+        StartMove(engine, player, [2, 2], redDie);
+
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(expected, bonus);
+    }
+
+    [Fact]
+    public void GetArrivalBonus_SuperchiefArrivingPastTheWhiteDice_HasNoBonus()
+    {
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (1, 3, 6), (2, 6, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        player.LocomotiveType = LocomotiveType.Superchief;
+        StartMove(engine, player, [1, 1], 6);
+        engine.CurrentTurn.MovementRemaining = 6;
+
+        // Two dots already moved use up the white dice, so the red die is just more movement.
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(ArrivalBonus.None, bonus);
+    }
+
+    [Fact]
+    public void GetArrivalBonus_FreightWithABonusRollToCome_MightGetOff()
+    {
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (1, 3, 6), (2, 6, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        StartMove(engine, player, [1, 1]);
+        engine.CurrentTurn.BonusRollAvailable = true;
+
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(ArrivalBonus.Possible, bonus);
+    }
+
+    [Fact]
+    public void GetArrivalBonus_DestinationWithAPublicWayOut_NeedsNoBonus()
+    {
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (2, 3, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        player.LocomotiveType = LocomotiveType.Superchief;
+        StartMove(engine, player, [2, 2], 6);
+
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(ArrivalBonus.None, bonus);
+    }
+
+    private static Route LineRoute(params (int Railroad, int Start, int End)[] segments)
+    {
+        return new Route(
+            [$"0:{segments[0].Start}", .. segments.Select(segment => $"0:{segment.End}")],
+            [.. segments.Select(segment => new RouteSegment { FromNodeId = $"0:{segment.Start}", ToNodeId = $"0:{segment.End}", RailroadIndex = segment.Railroad })],
+            0);
+    }
+
+    private static void StartMove(Boxcars.Engine.Domain.GameEngine engine, Player player, int[] whiteDice, int? redDie = null)
     {
         engine.CurrentTurn.ActivePlayer = player;
         engine.CurrentTurn.Phase = TurnPhase.Move;
-        engine.CurrentTurn.DiceResult = new DiceResult(whiteDice);
-        engine.CurrentTurn.MovementAllowance = whiteDice.Sum();
-        engine.CurrentTurn.MovementRemaining = whiteDice.Sum();
+        engine.CurrentTurn.DiceResult = new DiceResult(whiteDice, redDie);
+        engine.CurrentTurn.MovementAllowance = whiteDice.Sum() + (redDie ?? 0);
+        engine.CurrentTurn.MovementRemaining = whiteDice.Sum() + (redDie ?? 0);
     }
 
     [Fact]

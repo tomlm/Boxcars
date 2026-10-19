@@ -44,6 +44,9 @@ public sealed class RouteSuggestionResult
 
     /// <summary>The go-in-or-lay-up comparison for this turn's move; null when it wasn't made.</summary>
     public Boxcars.Engine.Domain.DestinationApproachDecision? Approach { get; init; }
+
+    /// <summary>When this turn's move reaches a destination only opponents serve: whether a bonus gets off.</summary>
+    public Boxcars.Engine.Domain.ArrivalBonus ArrivalBonus { get; init; }
 }
 
 public enum RouteSuggestionHighlightType

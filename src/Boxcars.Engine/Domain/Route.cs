@@ -91,3 +91,16 @@ public sealed class RouteSuggestionOptions
 /// <param name="FeePerTurn">What riding its railroad costs the player in a turn.</param>
 /// <param name="FeeAdded">The fee riding it adds, given what the turn has already paid for.</param>
 public readonly record struct RouteSegmentCost(bool StartsTurn, int FeePerTurn, int FeeAdded);
+
+/// <summary>What a bonus does for a move that reaches a destination only opponents serve.</summary>
+public enum ArrivalBonus
+{
+    /// <summary>No bonus to count on, or the move doesn't arrive somewhere the player could be stuck.</summary>
+    None,
+
+    /// <summary>A bonus die is still to roll; it may get off the opponent's railroad.</summary>
+    Possible,
+
+    /// <summary>This turn's known bonus is enough to get off the opponent's railroad.</summary>
+    GetsOff
+}
