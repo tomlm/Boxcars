@@ -120,6 +120,44 @@ public class GameServiceTests
         Assert.Equal("This game is no longer active.", result.Reason);
     }
 
+    [Fact]
+    public async Task ApplyProfileToSeatsAsync_UpdatesThePlayersSeatsInUnfinishedGames()
+    {
+        var playing = CreateGame("game-playing", PersistedGameStates.Playing, "alice@example.com", "bob@example.com");
+        var lobby = CreateGame("game-lobby", PersistedGameStates.Lobby, "bob@example.com", "alice@example.com");
+        var finished = CreateGame("game-finished", PersistedGameStates.Playing, "alice@example.com", "bob@example.com");
+        var gamesTable = new FakeGamesTableClient(
+            [playing, lobby, finished],
+            [],
+            [CreateSnapshotEvent("game-finished", GameStatus.Completed)]);
+        var service = new GameService(gamesTable, new FakeUsersTableClient(), new FakeHubContext(), new FakeGameEngine());
+
+        var changed = await service.ApplyProfileToSeatsAsync("alice@example.com", "Ally", "green", CancellationToken.None);
+
+        Assert.Equal(["game-playing", "game-lobby"], changed);
+        var aliceSeat = gamesTable.Games.Single(game => game.GameId == "game-playing").Seats.Single(seat => seat.PlayerUserId == "alice@example.com");
+        Assert.Equal("Ally", aliceSeat.DisplayName);
+        Assert.Equal("green", aliceSeat.Color);
+        Assert.Equal("Ally", gamesTable.Games.Single(game => game.GameId == "game-lobby").Seats.Single(seat => seat.PlayerUserId == "alice@example.com").DisplayName);
+        Assert.Equal("alice@example.com", gamesTable.Games.Single(game => game.GameId == "game-finished").Seats[0].DisplayName);
+        Assert.Equal("bob@example.com", gamesTable.Games.Single(game => game.GameId == "game-playing").Seats.Single(seat => seat.PlayerUserId == "bob@example.com").DisplayName);
+    }
+
+    [Fact]
+    public async Task ApplyProfileToSeatsAsync_ColorAnotherSeatUses_KeepsTheOldColor()
+    {
+        // Bob's seat is blue.
+        var game = CreateGame("game-playing", PersistedGameStates.Playing, "alice@example.com", "bob@example.com");
+        var gamesTable = new FakeGamesTableClient(game);
+        var service = new GameService(gamesTable, new FakeUsersTableClient(), new FakeHubContext(), new FakeGameEngine());
+
+        await service.ApplyProfileToSeatsAsync("alice@example.com", "Ally", "blue", CancellationToken.None);
+
+        var aliceSeat = gamesTable.Games.Single().Seats.Single(seat => seat.PlayerUserId == "alice@example.com");
+        Assert.Equal("Ally", aliceSeat.DisplayName);
+        Assert.Equal("red", aliceSeat.Color);
+    }
+
     private sealed class FakeGamesTableClient(
         IReadOnlyList<GameEntity> games,
         IReadOnlyList<GamePlayerStateEntity> playerStates,
@@ -241,6 +279,13 @@ public class GameServiceTests
             TableUpdateMode mode = TableUpdateMode.Merge,
             CancellationToken cancellationToken = default)
         {
+            if (entity is GameEntity updatedGame)
+            {
+                var index = Games.FindIndex(game => string.Equals(game.GameId, updatedGame.GameId, StringComparison.Ordinal));
+                Games[index] = Clone(updatedGame);
+                return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
+            }
+
             var tableEntity = entity as TableEntity ?? throw new InvalidOperationException("Expected table entity.");
 
             var playerState = PlayerStates.Single(existing =>

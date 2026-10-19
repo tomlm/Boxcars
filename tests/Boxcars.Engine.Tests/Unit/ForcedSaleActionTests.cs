@@ -360,8 +360,10 @@ public class ForcedSaleActionTests
                 }))
             .ToList();
 
-        return (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, playerStates.Cast<GameSeatState>().ToList(), action, snapshotBeforeAction, snapshotAfterAction, engine])
-            ?? throw new InvalidOperationException("DescribeAction returned null."));
+        return PlayerNameTokenText.Resolve(
+            (string)(method.Invoke(CreateGameEngineServiceForTests(), [new GameEntity { PartitionKey = "game-1", RowKey = "GAME", GameId = "game-1" }, playerStates.Cast<GameSeatState>().ToList(), action, snapshotBeforeAction, snapshotAfterAction, engine])
+                ?? throw new InvalidOperationException("DescribeAction returned null.")),
+            snapshotBeforeAction);
     }
 
     private static (GameEntity GameEntity, List<GamePlayerStateEntity> PlayerStates, Boxcars.Engine.Domain.GameEngine Engine) CreateAuctionAuthorizationContext(string slotTwoUserId = "bidder@example.com")

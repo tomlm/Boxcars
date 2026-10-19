@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using Boxcars.Engine.Tests.Fixtures;
 using global::Boxcars.Data;
 using global::Boxcars.Engine.Persistence;
 using global::Boxcars.Services;
@@ -101,7 +102,7 @@ public class DiceRollDescriptionsTests
             modifiers: null)
             ?? throw new InvalidOperationException("BuildTimelineItems was not found.");
 
-        return (IReadOnlyList<EventTimelineItem>)method.Invoke(null, [currentEvent, previousEvent])!;
+        return PlayerNameTokenText.Resolve((IReadOnlyList<EventTimelineItem>)method.Invoke(null, [currentEvent, previousEvent])!, snapshot);
     }
 
     private static GameEventEntity CreateEvent(string rowKey, string eventKind, GameState snapshot)

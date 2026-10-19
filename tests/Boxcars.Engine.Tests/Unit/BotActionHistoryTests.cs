@@ -388,8 +388,11 @@ public class BotActionHistoryTests
         var method = typeof(GameEngineService).GetMethod("DescribeAction", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("DescribeAction was not found.");
 
-        return (string)(method.Invoke(service, [gameEntity, playerStates, action, snapshotBeforeAction, snapshotAfterAction, engine])
-            ?? throw new InvalidOperationException("DescribeAction returned null."));
+        // Filled in from the seats' names, as the board does.
+        return PlayerNameTokens.Resolve(
+            (string)(method.Invoke(service, [gameEntity, playerStates, action, snapshotBeforeAction, snapshotAfterAction, engine])
+                ?? throw new InvalidOperationException("DescribeAction returned null.")),
+            playerIndex => playerStates.FirstOrDefault(playerState => playerState.SeatIndex == playerIndex)?.DisplayName);
     }
 
     private static GameEntity CreateGameEntity()
@@ -460,8 +463,10 @@ public class BotActionHistoryTests
             ? new object?[] { gameEvent, previousGameEvent, global::Boxcars.Engine.Persistence.GameSettings.Default with { AnnouncingCash = announcingCash.Value } }
             : [gameEvent, previousGameEvent];
 
-        return (IReadOnlyList<EventTimelineItem>)(method.Invoke(null, arguments)
-            ?? throw new InvalidOperationException("BuildTimelineItems returned null."));
+        return PlayerNameTokenText.Resolve(
+            (IReadOnlyList<EventTimelineItem>)(method.Invoke(null, arguments)
+                ?? throw new InvalidOperationException("BuildTimelineItems returned null.")),
+            JsonSerializer.Deserialize<global::Boxcars.Engine.Persistence.GameState>(gameEvent.SerializedGameState));
     }
 
     private static (GameEventEntity currentEvent, GameEventEntity previousEvent) CreateTimelineEvent(

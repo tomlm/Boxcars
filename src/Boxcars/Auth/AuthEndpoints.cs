@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Boxcars.Auth;
 
@@ -21,6 +23,34 @@ public static class AuthEndpoints
             };
 
             return Results.Challenge(properties, [scheme]);
+        });
+
+        // POST /login/email (form: email, returnUrl) -> sign in as an email-only player; see EmailLoginService
+        endpoints.MapPost("/login/email", async ([FromForm] string? email, [FromForm] string? returnUrl, EmailLoginService emailLogin, HttpContext ctx) =>
+        {
+            var safeReturn = !string.IsNullOrWhiteSpace(returnUrl)
+                             && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative)
+                ? returnUrl!
+                : "/";
+
+            var result = await emailLogin.ResolveAsync(email, ctx.RequestAborted);
+            if (result.User is not { } user)
+            {
+                return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(safeReturn)}&error={Uri.EscapeDataString(result.Error ?? "Unable to sign in.")}");
+            }
+
+            var identity = new ClaimsIdentity(
+                [
+                    new Claim(ClaimTypes.NameIdentifier, user.RowKey),
+                    new Claim(ClaimTypes.Email, user.Email),
+                    new Claim(ClaimTypes.Name, EmailLoginService.DisplayName(user))
+                ],
+                CookieAuthenticationDefaults.AuthenticationScheme);
+            await ctx.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(identity),
+                new AuthenticationProperties { IsPersistent = true });
+            return Results.Redirect(safeReturn);
         });
 
         // GET /logout  -> sign out and bounce home

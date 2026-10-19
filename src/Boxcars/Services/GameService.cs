@@ -479,7 +479,7 @@ public class GameService
         var playerAction = GameEventSerialization.DeserializePlayerAction(gameEvent.EventKind, gameEvent.EventData);
         var timelineItems = new List<EventTimelineItem>();
         var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
-        var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+        var actingPlayerName = ResolveActingPlayerName(gameEvent, snapshot, actingPlayer);
 
         switch (NormalizeEventKind(gameEvent.EventKind))
         {
@@ -826,9 +826,7 @@ public class GameService
                 continue;
             }
 
-            var playerName = !string.IsNullOrWhiteSpace(currentPlayer.Name)
-                ? currentPlayer.Name
-                : ResolvePlayerName(snapshot, playerIndex);
+            var playerName = ResolvePlayerName(snapshot, playerIndex);
             timelineItems.Add(CreateTimelineItem(
                 gameEvent,
                 $"{gameEvent.RowKey}:cash-announcement:{playerIndex}",
@@ -870,9 +868,7 @@ public class GameService
                 && string.Equals(currentPlayer.DestinationCityName, previousPlayer.AlternateDestinationCityName, StringComparison.OrdinalIgnoreCase)
                 && string.IsNullOrWhiteSpace(currentPlayer.AlternateDestinationCityName))
             {
-                var roveredPlayerName = !string.IsNullOrWhiteSpace(currentPlayer.Name)
-                    ? currentPlayer.Name
-                    : ResolvePlayerName(snapshot, playerIndex);
+                var roveredPlayerName = ResolvePlayerName(snapshot, playerIndex);
 
                 // Only the moving player rovers, and a mover who undeclares themselves (by falling below the winning
                 // cash) hasn't been rovered. The amount is the game's rover cash: the cash change over the move also
@@ -929,11 +925,12 @@ public class GameService
             : null;
     }
 
-    private static string ResolveActingPlayerName(GameEventEntity gameEvent, PlayerState? actingPlayer)
+    /// <summary>The acting player's name placeholder (see <see cref="PlayerNameTokens"/>), or who made the event.</summary>
+    private static string ResolveActingPlayerName(GameEventEntity gameEvent, GameState snapshot, PlayerState? actingPlayer)
     {
-        if (!string.IsNullOrWhiteSpace(actingPlayer?.Name))
+        if (actingPlayer is not null)
         {
-            return actingPlayer.Name;
+            return PlayerNameTokens.For(snapshot.Players.IndexOf(actingPlayer));
         }
 
         if (!string.IsNullOrWhiteSpace(gameEvent.CreatedBy))
@@ -971,7 +968,7 @@ public class GameService
         }
 
         var actingPlayer = ResolveActingPlayer(previousSnapshot, gameEvent.ActingPlayerIndex);
-        var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+        var actingPlayerName = ResolveActingPlayerName(gameEvent, previousSnapshot, actingPlayer);
 
         if (previousSnapshot.Turn.ForcedSale?.EliminationTriggered == true || actingPlayer?.IsBankrupt == true)
         {
@@ -1046,10 +1043,14 @@ public class GameService
         return FormatReadableList(feeParts);
     }
 
+    /// <summary>
+    /// The player's name placeholder, filled in with their seat's current name when shown (see
+    /// <see cref="PlayerNameTokens"/>).
+    /// </summary>
     private static string ResolvePlayerName(GameState snapshot, int playerIndex)
     {
-        return playerIndex >= 0 && playerIndex < snapshot.Players.Count && !string.IsNullOrWhiteSpace(snapshot.Players[playerIndex].Name)
-            ? snapshot.Players[playerIndex].Name
+        return playerIndex >= 0 && playerIndex < snapshot.Players.Count
+            ? PlayerNameTokens.For(playerIndex)
             : $"player {playerIndex + 1}";
     }
 
@@ -1114,6 +1115,73 @@ public class GameService
         }
 
         return gameIds;
+    }
+
+    /// <summary>
+    /// Carries a player's new name and color into the seats of their games that are still going, which keep their own
+    /// copy from when the player joined. A color another seat in that game already uses is left alone there. Returns
+    /// the games that changed.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> ApplyProfileToSeatsAsync(string playerId, string? displayName, string? color, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(playerId))
+        {
+            return [];
+        }
+
+        var changedGameIds = new List<string>();
+        foreach (var activeGame in await GetActiveGamesForPlayerAsync(playerId, cancellationToken))
+        {
+            // Re-read just before saving, and try again once if someone else saved in between.
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var game = await GetGameAsync(activeGame.GameId, cancellationToken);
+                if (game is null)
+                {
+                    break;
+                }
+
+                var seats = game.Seats.ToList();
+                var changed = false;
+                for (var index = 0; index < seats.Count; index++)
+                {
+                    var seat = seats[index];
+                    if (!string.Equals(seat.PlayerUserId, playerId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var newDisplayName = string.IsNullOrWhiteSpace(displayName) ? seat.DisplayName : displayName.Trim();
+                    var colorTaken = seats.Any(other => other.SeatIndex != seat.SeatIndex
+                        && string.Equals(other.Color, color, StringComparison.OrdinalIgnoreCase));
+                    var newColor = string.IsNullOrWhiteSpace(color) || colorTaken ? seat.Color : color;
+                    if (!string.Equals(newDisplayName, seat.DisplayName, StringComparison.Ordinal)
+                        || !string.Equals(newColor, seat.Color, StringComparison.Ordinal))
+                    {
+                        seats[index] = seat with { DisplayName = newDisplayName, Color = newColor };
+                        changed = true;
+                    }
+                }
+
+                if (!changed)
+                {
+                    break;
+                }
+
+                game.Seats = seats;
+                try
+                {
+                    await _gamesTable.UpdateEntityAsync(game, game.ETag, TableUpdateMode.Merge, cancellationToken);
+                    changedGameIds.Add(game.GameId);
+                    break;
+                }
+                catch (RequestFailedException exception) when (exception.Status == 412)
+                {
+                }
+            }
+        }
+
+        return changedGameIds;
     }
 
     private async Task<IReadOnlyList<GameEntity>> GetGamesForPlayerAsync(string playerId, CancellationToken cancellationToken)

@@ -39,6 +39,7 @@ public class Program
         builder.Services.AddAuthorization();
 
         builder.Services.AddSingleton<ExternalLoginProvisioner>();
+        builder.Services.AddSingleton<EmailLoginService>();
 
         var googleClientId = builder.Configuration["Auth:Google:ClientId"];
         var googleClientSecret = builder.Configuration["Auth:Google:ClientSecret"];

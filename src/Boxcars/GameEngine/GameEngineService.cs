@@ -2124,7 +2124,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return string.Empty;
         }
 
-        var controllerDisplayName = ResolveParticipantDisplayName(selections, action.ActorUserId);
+        // A controller with a seat is named by placeholder, so a later name change shows here too.
+        var controllerSeatIndex = selections.ToList().FindIndex(selection =>
+            string.Equals(selection.UserId, action.ActorUserId, StringComparison.OrdinalIgnoreCase));
+        var controllerDisplayName = controllerSeatIndex >= 0
+            ? PlayerNameTokens.For(controllerSeatIndex)
+            : ResolveParticipantDisplayName(selections, action.ActorUserId);
         return string.IsNullOrWhiteSpace(controllerDisplayName)
             ? string.Empty
             : string.Concat(" [", controllerDisplayName, "]");
@@ -2420,20 +2425,23 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return false;
         }
 
-        var sellerName = string.IsNullOrWhiteSpace(auctionBeforeAction.SellerPlayerName)
-            ? ResolvePlayerName(snapshotAfterAction, auctionBeforeAction.SellerPlayerIndex)
+        var sellerName = auctionBeforeAction.SellerPlayerIndex >= 0 && auctionBeforeAction.SellerPlayerIndex < snapshotAfterAction.Players.Count
+            ? PlayerNameTokens.For(auctionBeforeAction.SellerPlayerIndex)
             : auctionBeforeAction.SellerPlayerName;
-        changeSummary = $"{railroad.Owner.Name} won the auction for the {GetRailroadDisplayName(railroad)} railroad with {FormatCurrency(winningBid)}; {FormatCurrency(winningBid)} was transferred to {sellerName}.";
+        changeSummary = $"{PlayerNameTokens.For(railroad.Owner.Index)} won the auction for the {GetRailroadDisplayName(railroad)} railroad with {FormatCurrency(winningBid)}; {FormatCurrency(winningBid)} was transferred to {sellerName}.";
         resolvedPlayerIndex = railroad.Owner.Index;
         return true;
     }
 
+    /// <summary>
+    /// The acting player's name placeholder for an event's summary, filled in with their seat's current name when shown
+    /// (see <see cref="PlayerNameTokens"/>).
+    /// </summary>
     private static string ResolveActorName(PlayerAction action, RailBaronGameState snapshot)
     {
-        var playerState = TryGetPlayerState(action, snapshot);
-        if (!string.IsNullOrWhiteSpace(playerState?.Name))
+        if (ResolvePlayerIndex(action, snapshot) is int playerIndex)
         {
-            return playerState.Name;
+            return PlayerNameTokens.For(playerIndex);
         }
 
         return string.IsNullOrWhiteSpace(action.PlayerId)
