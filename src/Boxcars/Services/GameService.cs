@@ -387,9 +387,9 @@ public class GameService
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, string? lastSeenEventRowKey, CancellationToken cancellationToken)
     {
         var game = await GetGameAsync(gameId, cancellationToken);
-        var announcingCash = game is null
-            ? GameSettings.Default.AnnouncingCash
-            : _gameSettingsResolver.Resolve(game).Settings.AnnouncingCash;
+        var settings = game is null
+            ? GameSettings.Default
+            : _gameSettingsResolver.Resolve(game).Settings;
         var orderedEvents = new List<GameEventEntity>();
         var normalizedLastSeenEventRowKey = string.IsNullOrWhiteSpace(lastSeenEventRowKey)
             ? null
@@ -413,7 +413,7 @@ public class GameService
         GameEventEntity? previousGameEvent = null;
         foreach (var gameEvent in orderedEvents)
         {
-            events.AddRange(BuildTimelineItems(gameEvent, previousGameEvent, announcingCash));
+            events.AddRange(BuildTimelineItems(gameEvent, previousGameEvent, settings));
             previousGameEvent = gameEvent;
         }
 
@@ -458,10 +458,10 @@ public class GameService
 
     internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
     {
-        return BuildTimelineItems(gameEvent, previousGameEvent, GameSettings.Default.AnnouncingCash);
+        return BuildTimelineItems(gameEvent, previousGameEvent, GameSettings.Default);
     }
 
-    internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent, int announcingCash)
+    internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent, GameSettings settings)
     {
         if (MatchesEventKind(gameEvent.EventKind, "ChooseRoute")
             || MatchesEventKind(gameEvent.EventKind, "SeatControlUpdated"))
@@ -697,8 +697,8 @@ public class GameService
                 break;
         }
 
-        var roverItems = BuildRoverTimelineItems(gameEvent, snapshot, previousSnapshot, playerAction);
-        var cashAnnouncementItems = BuildCashAnnouncementTimelineItems(gameEvent, snapshot, previousSnapshot, announcingCash, playerAction);
+        var roverItems = BuildRoverTimelineItems(gameEvent, snapshot, previousSnapshot, settings.RoverCash, playerAction);
+        var cashAnnouncementItems = BuildCashAnnouncementTimelineItems(gameEvent, snapshot, previousSnapshot, settings.AnnouncingCash, playerAction);
 
         if (timelineItems.Count == 0)
         {
@@ -846,6 +846,7 @@ public class GameService
         GameEventEntity gameEvent,
         GameState snapshot,
         GameState? previousSnapshot,
+        int roverCash,
         PlayerAction? playerAction)
     {
         if (previousSnapshot is null)
@@ -869,43 +870,23 @@ public class GameService
                 && string.Equals(currentPlayer.DestinationCityName, previousPlayer.AlternateDestinationCityName, StringComparison.OrdinalIgnoreCase)
                 && string.IsNullOrWhiteSpace(currentPlayer.AlternateDestinationCityName))
             {
-                var roverAmount = previousPlayer.Cash - currentPlayer.Cash;
                 var roveredPlayerName = !string.IsNullOrWhiteSpace(currentPlayer.Name)
                     ? currentPlayer.Name
                     : ResolvePlayerName(snapshot, playerIndex);
-                var roveringPlayerIndex = -1;
-                if (roverAmount > 0)
-                {
-                    for (var candidateIndex = 0; candidateIndex < playerCount; candidateIndex++)
-                    {
-                        if (candidateIndex == playerIndex)
-                        {
-                            continue;
-                        }
 
-                        var previousCandidate = previousSnapshot.Players[candidateIndex];
-                        var currentCandidate = snapshot.Players[candidateIndex];
-                        if (currentCandidate.Cash - previousCandidate.Cash == roverAmount)
-                        {
-                            roveringPlayerIndex = candidateIndex;
-                            break;
-                        }
-                    }
-                }
-
-                var roveringPlayerName = roveringPlayerIndex >= 0
-                    ? ResolvePlayerName(snapshot, roveringPlayerIndex)
-                    : ResolveActingPlayerName(gameEvent, ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex));
-
-                if (roverAmount > 0)
+                // Only the moving player rovers, and a mover who undeclares themselves (by falling below the winning
+                // cash) hasn't been rovered. The amount is the game's rover cash: the cash change over the move also
+                // nets in any fees the rover paid the rovered player.
+                var roveringPlayerIndex = previousSnapshot.ActivePlayerIndex;
+                if (roveringPlayerIndex != playerIndex && roveringPlayerIndex >= 0 && roveringPlayerIndex < playerCount)
                 {
                     timelineItems.Add(CreateTimelineItem(
                         gameEvent,
                         $"{gameEvent.RowKey}:rover:{playerIndex}",
                         EventTimelineKind.PayFees,
-                        $"{roveringPlayerName} rovered {roveredPlayerName} for ${roverAmount:N0}.",
+                        $"{ResolvePlayerName(snapshot, roveringPlayerIndex)} rovered {roveredPlayerName} for ${roverCash:N0}.",
                         playerAction,
-                        roveringPlayerIndex >= 0 ? roveringPlayerIndex : gameEvent.ActingPlayerIndex,
+                        roveringPlayerIndex,
                         isPlayByPlay: true));
                 }
 
