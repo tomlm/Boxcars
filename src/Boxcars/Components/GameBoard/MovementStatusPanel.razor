@@ -30,6 +30,10 @@
             {
                 <MudText Typo="Typo.body2" Color="@FeeColor" Style="@FeeStyle">Fees: @FormatCurrency(State.PreviewFee)</MudText>
             }
+            @if (!IsPurchasePhase && LayUpSummary is { } layUpSummary)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Info">@layUpSummary</MudText>
+            }
         </MudStack>
     </MudPaper>
 }
@@ -61,6 +65,10 @@ else
         {
             <MudText Typo="Typo.body2" Color="@FeeColor" Style="@FeeStyle">Fees: @FormatCurrency(State.PreviewFee)</MudText>
         }
+        @if (!IsPurchasePhase && LayUpSummary is { } layUpSummary)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Info">@layUpSummary</MudText>
+        }
     </MudStack>
 }
 
@@ -70,6 +78,14 @@ else
 
     [Parameter]
     public bool UsePaper { get; set; } = true;
+
+    /// <summary>The go-in-or-lay-up comparison behind the suggested route, if one was made.</summary>
+    [Parameter]
+    public Boxcars.Engine.Domain.DestinationApproachDecision? Approach { get; set; }
+
+    private string? LayUpSummary => Approach is { LayUp: true, ExpectedLayUpFees: double layUpFees } approach
+        ? $"Lay up: {FormatCurrency((int)Math.Round(layUpFees))} vs {FormatCurrency((int)Math.Round(approach.ExpectedGoFees))} going in"
+        : null;
 
     private bool IsPurchasePhase => string.Equals(State.TurnPhase, "Purchase", StringComparison.OrdinalIgnoreCase);
     private bool IsBonusMove => State.RedDie.HasValue && State.WhiteDieOne <= 0 && State.WhiteDieTwo <= 0;
