@@ -599,16 +599,38 @@ public sealed class GameEngine : ObservableBase
     /// </summary>
     public Route SuggestRouteForPlayer(int playerIndex)
     {
+        return SuggestRouteForPlayer(playerIndex, new RouteSuggestionOptions());
+    }
+
+    /// <summary>
+    /// Computes the cheapest route for the specified player from their current position: to an opponent who has
+    /// declared, to rover them, otherwise to the player's destination (or <see cref="RouteSuggestionOptions.DestinationNodeId"/>).
+    /// The one route planner, for bots and for the routes suggested to people. Does NOT mutate state.
+    /// </summary>
+    public Route SuggestRouteForPlayer(int playerIndex, RouteSuggestionOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
         if (playerIndex < 0 || playerIndex >= Players.Count)
             throw new ArgumentOutOfRangeException(nameof(playerIndex));
 
         var player = Players[playerIndex];
-        if (player.Destination == null)
-            throw new InvalidOperationException("No destination assigned.");
-
         string? startNodeId = player.CurrentNodeId;
         if (startNodeId == null)
             throw new InvalidOperationException("Player has no current node position.");
+
+        var targetNodeId = options.DestinationNodeId ?? FindRoverTargetNodeId(player, startNodeId, options.PlayersNotToRover);
+        if (targetNodeId is not null)
+        {
+            if (player == CurrentTurn.ActivePlayer)
+            {
+                LastApproachDecision = null;
+            }
+
+            return FindCheapestRoute(startNodeId, targetNodeId, player)!;
+        }
+
+        if (player.Destination == null)
+            throw new InvalidOperationException("No destination assigned.");
 
         // Find destination node ID
         string? destNodeId = FindCityNodeId(player.Destination);
@@ -618,6 +640,50 @@ public sealed class GameEngine : ObservableBase
         // Use Dijkstra to find cheapest route considering use fees
         var route = FindCheapestRoute(startNodeId, destNodeId, player)!;
         return ApplyDestinationApproach(player, startNodeId, destNodeId, route);
+    }
+
+    /// <summary>
+    /// Where a declared opponent is, when there is one to chase: passing through them on the way rovers them (see
+    /// <see cref="TryResolveRovers"/>), and the route is planned on to the destination once they're caught.
+    /// </summary>
+    private string? FindRoverTargetNodeId(Player player, string startNodeId, IReadOnlyCollection<int> playersNotToRover)
+    {
+        return Players
+            .Where(candidate => candidate != player
+                && candidate.HasDeclared
+                && !playersNotToRover.Contains(candidate.Index)
+                && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId)
+                && !string.Equals(candidate.CurrentNodeId, startNodeId, StringComparison.OrdinalIgnoreCase))
+            .Select(candidate => candidate.CurrentNodeId)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// How the fee rules apply to each segment of a route the player is about to ride: where each turn starts (this
+    /// turn's known roll, then average turns) and the fee each segment adds.
+    /// </summary>
+    public IReadOnlyList<RouteSegmentCost> GetRouteSegmentCosts(int playerIndex, Route route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        if (playerIndex < 0 || playerIndex >= Players.Count)
+            throw new ArgumentOutOfRangeException(nameof(playerIndex));
+
+        var player = Players[playerIndex];
+        var futureTurnMovementCapacity = GetAverageMovementPerTurn(player.LocomotiveType);
+        var thisTurnIsKnown = IsThisTurnsMovementKnown(player);
+        return CostRouteSegments(
+            route.Segments,
+            player,
+            thisTurnIsKnown ? GetFeeGroupsOwedThisTurn(player) : 0,
+            thisTurnIsKnown ? CurrentTurn.MovementRemaining : futureTurnMovementCapacity,
+            futureTurnMovementCapacity);
+    }
+
+    private bool IsThisTurnsMovementKnown(Player player)
+    {
+        return player == CurrentTurn.ActivePlayer
+            && CurrentTurn.Phase == TurnPhase.Move
+            && CurrentTurn.MovementRemaining > 0;
     }
 
     /// <summary>
@@ -2794,10 +2860,7 @@ public sealed class GameEngine : ObservableBase
         // Later turns move an average roll; the first turn moves what's left of this turn's roll (e.g. a bonus out), so
         // the planner knows which railroad the player will be sitting on, and paying for, when the next turn starts.
         var futureTurnMovementCapacity = GetAverageMovementPerTurn(player.LocomotiveType);
-        var thisTurnIsKnown = !startsNextTurn
-            && player == CurrentTurn.ActivePlayer
-            && CurrentTurn.Phase == TurnPhase.Move
-            && CurrentTurn.MovementRemaining > 0;
+        var thisTurnIsKnown = !startsNextTurn && IsThisTurnsMovementKnown(player);
         var firstTurnMovementCapacity = thisTurnIsKnown ? CurrentTurn.MovementRemaining : futureTurnMovementCapacity;
         var cityCoverage = RoutePlanningCityCoverage;
         var estimatedStateCapacity = Math.Clamp(_adjacency.Count * 2, 256, 1024);
@@ -3016,34 +3079,45 @@ public sealed class GameEngine : ObservableBase
         int firstTurnMovementCapacity,
         int futureTurnMovementCapacity)
     {
-        var totalCost = 0;
+        return CostRouteSegments(segments, player, feeGroupsOwedThisTurn, firstTurnMovementCapacity, futureTurnMovementCapacity)
+            .Sum(cost => cost.FeeAdded);
+    }
+
+    private List<RouteSegmentCost> CostRouteSegments(
+        IReadOnlyList<RouteSegment> segments,
+        Player player,
+        int feeGroupsOwedThisTurn,
+        int firstTurnMovementCapacity,
+        int futureTurnMovementCapacity)
+    {
+        var costs = new List<RouteSegmentCost>(segments.Count);
         var paidFeeGroups = feeGroupsOwedThisTurn;
         var pointsLeft = firstTurnMovementCapacity;
 
         foreach (var segment in segments)
         {
-            if (!RailroadsByIndex.TryGetValue(segment.RailroadIndex, out var railroad))
-            {
-                continue;
-            }
-
+            var startsTurn = costs.Count == 0 || pointsLeft <= 0;
             if (pointsLeft <= 0)
             {
                 paidFeeGroups = 0;
                 pointsLeft = futureTurnMovementCapacity;
             }
 
-            var feeGroupFlag = RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad));
-            if ((paidFeeGroups & feeGroupFlag) == 0)
+            pointsLeft--;
+            if (!RailroadsByIndex.TryGetValue(segment.RailroadIndex, out var railroad))
             {
-                totalCost += GetTraversalFee(player, railroad);
-                paidFeeGroups |= feeGroupFlag;
+                costs.Add(new RouteSegmentCost(startsTurn, 0, 0));
+                continue;
             }
 
-            pointsLeft--;
+            var feePerTurn = GetTraversalFee(player, railroad);
+            var feeGroupFlag = RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad));
+            var feeAdded = (paidFeeGroups & feeGroupFlag) == 0 ? feePerTurn : 0;
+            paidFeeGroups |= feeGroupFlag;
+            costs.Add(new RouteSegmentCost(startsTurn, feePerTurn, feeAdded));
         }
 
-        return totalCost;
+        return costs;
     }
 
     private Route? FindShortestRoute(string startNodeId, string destNodeId, Player player)

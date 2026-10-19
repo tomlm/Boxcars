@@ -24,27 +24,9 @@
 				  PlayerStates="@PlayerStates"
 				  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
 				  CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
-				  LocomotiveType="@LocomotiveType"
-				  TripPayout="@TripPayout"
-				  TripStartCityName="@TripStartCityName"
 				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+				  RouteSuggestionProvider="@RouteSuggestionProvider"
 				  MovementType="@MovementType"
-				  AverageFutureMovement="@AverageFutureMovement"
-				  PublicFee="@PublicFee"
-				  PrivateFee="@PrivateFee"
-				  UnfriendlyFee="@UnfriendlyFee"
-				  GrandfatheredRailroadFees="@GrandfatheredRailroadFees"
-				  BonusOutAvailable="@BonusOutAvailable"
-				  CurrentWhiteDiceMovement="@CurrentWhiteDiceMovement"
-				  CurrentFixedBonusMovement="@CurrentFixedBonusMovement"
-				  BonusOutRequiresWhiteDiceArrival="@BonusOutRequiresWhiteDiceArrival"
-				  RailroadsRiddenThisTurn="@RailroadsRiddenThisTurn"
-				  DeclaredPlayerRouteNodeIds="@DeclaredPlayerRouteNodeIds"
-				  DeclaredPlayerCurrentNodeId="@DeclaredPlayerCurrentNodeId"
-				  RailroadOwnerPlayerIndices="@RailroadOwnerPlayerIndices"
-				  PlayerCashByPlayerIndex="@PlayerCashByPlayerIndex"
-				  PlayerAccessibleDestinationPercentByPlayerIndex="@PlayerAccessibleDestinationPercentByPlayerIndex"
-				  PlayerMonopolyDestinationPercentByPlayerIndex="@PlayerMonopolyDestinationPercentByPlayerIndex"
 				  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
 				  OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
 				  RailroadOwnerColors="@RailroadOwnerColors"
@@ -57,7 +39,6 @@
 				  DestinationCityChanged="@DestinationCityChanged"
 				  StartCityChanged="@StartCityChanged"
 				  MapReady="@MapReady" />
-
 
 		<MudPaper Class="game-map-zoom-overlay" Outlined="true" Square="false">
 			<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="game-map-zoom-overlay-content">
@@ -136,67 +117,10 @@
 	public int CurrentTurnMovementAllowance { get; set; }
 
 	[Parameter]
-	public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; set; }
-
-	[Parameter]
-	public int? TripPayout { get; set; }
-
-	[Parameter]
-	public string? TripStartCityName { get; set; }
-
-	[Parameter]
 	public bool IsCurrentUserActivePlayer { get; set; }
 
 	[Parameter]
 	public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
-
-	[Parameter]
-	public double AverageFutureMovement { get; set; }
-
-	[Parameter]
-	public int PublicFee { get; set; } = 1000;
-
-	[Parameter]
-	public int PrivateFee { get; set; } = 1000;
-
-	[Parameter]
-	public int UnfriendlyFee { get; set; } = 5000;
-
-	[Parameter]
-	public IReadOnlyDictionary<int, int>? GrandfatheredRailroadFees { get; set; }
-
-	[Parameter]
-	public bool BonusOutAvailable { get; set; }
-
-	[Parameter]
-	public int CurrentWhiteDiceMovement { get; set; }
-
-	[Parameter]
-	public int CurrentFixedBonusMovement { get; set; }
-
-	[Parameter]
-	public bool BonusOutRequiresWhiteDiceArrival { get; set; }
-
-	[Parameter]
-	public IReadOnlyCollection<int> RailroadsRiddenThisTurn { get; set; } = [];
-
-	[Parameter]
-	public IReadOnlyList<string> DeclaredPlayerRouteNodeIds { get; set; } = [];
-
-	[Parameter]
-	public string? DeclaredPlayerCurrentNodeId { get; set; }
-
-	[Parameter]
-	public IReadOnlyDictionary<int, int?>? RailroadOwnerPlayerIndices { get; set; }
-
-	[Parameter]
-	public IReadOnlyDictionary<int, int>? PlayerCashByPlayerIndex { get; set; }
-
-	[Parameter]
-	public IReadOnlyDictionary<int, double>? PlayerAccessibleDestinationPercentByPlayerIndex { get; set; }
-
-	[Parameter]
-	public IReadOnlyDictionary<int, double>? PlayerMonopolyDestinationPercentByPlayerIndex { get; set; }
 
 	[Parameter]
 	public IReadOnlyCollection<int>? PlayerOwnedRailroadIndices { get; set; }
@@ -218,6 +142,9 @@
 
 	[Parameter]
 	public EventCallback<RailroadSelectionEvent> RailroadSelected { get; set; }
+
+	[Parameter]
+	public Func<string, Task<RouteSuggestionResult?>>? RouteSuggestionProvider { get; set; }
 
 	[Parameter]
 	public EventCallback<RouteSuggestionResult> RouteSuggestionChanged { get; set; }

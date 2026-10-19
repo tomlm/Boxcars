@@ -95,6 +95,11 @@ public class GameServiceCreateGameValidationTests
         public Task StartGameAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<Boxcars.Engine.Persistence.GameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SynchronizeStateAsync(string gameId, Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<Boxcars.Data.Maps.RouteSuggestionResult> SuggestRouteAsync(string gameId, int playerIndex, string? destinationNodeId, IReadOnlyCollection<int> playersNotToRover, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
         public bool IsGameBusy(string gameId) => false;
         public ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> UndoLastOperationAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

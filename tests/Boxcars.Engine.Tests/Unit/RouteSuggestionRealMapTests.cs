@@ -78,100 +78,54 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void FindCheapestSuggestion_KansasCityToColumbus_StaysOnOwnRailroadsUntilTheLastDot()
+    public void SuggestRoute_KansasCityToColumbus_StaysOnOwnRailroadsUntilTheLastDot()
     {
         // thermous (Superchief) is on CRI&P west of Kansas City with 8 to move (white 3, red 5), headed to
         // Columbus, which only opponents serve. The suggestion used to exhaust its search budget and fall back to
         // the fee-blind shortest path, hopping onto Pooper's AT&SF for the last dot of the turn.
         var engine = CreateEngine(StandardGameOwners);
-        var map = engine.MapDefinition;
-        var player = engine.Players.First(candidate => candidate.Name == "thermous");
+        var player = PlaceActivePlayer(engine, "thermous", "San Diego", "Columbus", LocomotiveType.Superchief, movementRemaining: 8);
+        player.CurrentNodeId = "4:66";
+        engine.CurrentTurn.DiceResult = new DiceResult([1, 2], 5);
         // Track already ridden on this trip (from San Diego), which can't be ridden again.
-        var traveledSegmentKeys = new[]
+        foreach (var segmentKey in new[]
         {
             "7:41|7:42|14", "7:42|7:68|14", "7:68|7:43|14", "7:43|7:35|21", "7:35|7:40|21", "7:40|7:39|21",
             "7:39|7:38|21", "7:38|7:37|21", "7:37|7:36|21", "7:36|7:17|21", "7:17|7:15|21", "7:15|7:14|21",
             "7:14|7:7|21", "7:7|7:8|21", "7:8|7:9|21", "7:9|7:2|21", "7:2|4:68|23", "4:68|4:66|11"
-        }.Select(NormalizeSegmentKey).ToList();
-
-        RailroadOwnershipCategory Ownership(int railroadIndex)
+        })
         {
-            var owner = engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner;
-            return owner is null ? RailroadOwnershipCategory.Public
-                : owner == player ? RailroadOwnershipCategory.Friendly
-                : RailroadOwnershipCategory.Unfriendly;
+            var parts = segmentKey.Split('|');
+            player.UsedSegments.Add(new SegmentKey(parts[0], parts[1], int.Parse(parts[2])));
         }
 
-        var service = new MapRouteService();
-        var suggestion = service.FindCheapestSuggestion(
-            service.BuildContext(map),
-            new RouteSuggestionRequest
-            {
-                PlayerId = player.Name,
-                StartNodeId = "4:66",
-                DestinationNodeId = FindCityNode(engine, "Columbus"),
-                MovementType = PlayerMovementType.ThreeDie,
-                MovementCapacity = 8,
-                AverageFutureMovement = 10.5,
-                TraveledSegmentKeys = traveledSegmentKeys,
-                PlayerColor = "blue",
-                ResolveRailroadOwnership = Ownership,
-                ResolveRailroadFee = railroadIndex => Ownership(railroadIndex) == RailroadOwnershipCategory.Unfriendly ? 10_000 : 1_000,
-                ResolveRailroadOwnerPlayerIndex = railroadIndex => engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner?.Index,
-                CurrentWhiteDiceMovement = 3,
-                CurrentFixedBonusMovement = 5,
-                BonusOutRequiresWhiteDiceArrival = true
-            });
-
-        output.WriteLine($"{suggestion.Status} {suggestion.Message} {suggestion.Segments.Count} dots, cost {suggestion.TotalCost:N0}");
-        foreach (var segment in suggestion.Segments)
-        {
-            output.WriteLine($"  {segment.FromNodeId}->{segment.ToNodeId} {engine.Railroads.First(railroad => railroad.Index == segment.RailroadIndex).ShortName} ({segment.OwnershipCategory})");
-        }
+        var suggestion = EngineRouteSuggestion.Suggest(engine, player.Index, new RouteSuggestionOptions());
+        WriteSuggestion(engine, suggestion);
 
         // All 8 dots this turn stay on thermous's own railroads; the only opponent fee is the final dot into Columbus.
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
-        Assert.Empty(suggestion.Message);
         Assert.All(suggestion.Segments.Take(8), segment => Assert.Equal(RailroadOwnershipCategory.Friendly, segment.OwnershipCategory));
         Assert.Single(suggestion.Segments, segment => segment.OwnershipCategory == RailroadOwnershipCategory.Unfriendly);
         Assert.Equal(12_000, suggestion.TotalCost);
     }
 
     [Fact]
-    public void FindCheapestSuggestion_BonusOutOfBuffalo_LeavesTheOpponentsLineBeforeTheTurnEnds()
+    public void SuggestRoute_BonusOutOfBuffalo_LeavesTheOpponentsLineBeforeTheTurnEnds()
     {
         // thermous (Superchief) reached Buffalo on El Cheapo's NYC and PA (already paid this turn) and has a red-die
         // bonus of 4 toward Kansas City. Staying on El Cheapo's lines for the bonus means paying them $10,000 again
         // next turn; spending $1,000 to get onto B&O now keeps the next turn on the player's own railroads.
-        // The search used to find that route only by shuttling Buffalo <-> 1:9 on the parallel NYC and PA
-        // (riding one segment twice), reject it, and fall back to the fee-blind shortest path.
         var engine = CreateEngine(StandardGameOwners);
-        var player = engine.Players.First(candidate => candidate.Name == "thermous");
-        RailroadOwnershipCategory Ownership(int railroadIndex) => ResolveOwnership(engine, player, railroadIndex);
-        int RailroadIndex(string shortName) => engine.Railroads.First(railroad => railroad.ShortName == shortName).Index;
+        var player = PlaceActivePlayer(engine, "thermous", "Buffalo", "Kansas City", LocomotiveType.Superchief, movementRemaining: 4);
+        engine.CurrentTurn.DiceResult = new DiceResult([0, 0], 4);
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(engine.Railroads.First(railroad => railroad.ShortName == "NYC").Index);
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(engine.Railroads.First(railroad => railroad.ShortName == "PA").Index);
 
-        var service = new MapRouteService();
-        var suggestion = service.FindCheapestSuggestion(
-            service.BuildContext(engine.MapDefinition),
-            new RouteSuggestionRequest
-            {
-                PlayerId = player.Name,
-                StartNodeId = FindCityNode(engine, "Buffalo"),
-                DestinationNodeId = FindCityNode(engine, "Kansas City"),
-                MovementType = PlayerMovementType.TwoDie,
-                MovementCapacity = 4,
-                AverageFutureMovement = 10.5,
-                RailroadsRiddenThisTurn = [RailroadIndex("NYC"), RailroadIndex("PA")],
-                PlayerColor = "blue",
-                ResolveRailroadOwnership = Ownership,
-                ResolveRailroadFee = railroadIndex => Ownership(railroadIndex) == RailroadOwnershipCategory.Unfriendly ? 10_000 : 1_000,
-                ResolveRailroadOwnerPlayerIndex = railroadIndex => engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner?.Index
-            });
+        var suggestion = EngineRouteSuggestion.Suggest(engine, player.Index, new RouteSuggestionOptions());
         WriteSuggestion(engine, suggestion);
 
         // The 4 bonus dots end on the player's own B&O, so no opponent is paid next turn: $1,000 now and $1,000 next turn.
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
-        Assert.Empty(suggestion.Message);
         Assert.Equal(RailroadOwnershipCategory.Friendly, suggestion.Segments[3].OwnershipCategory);
         Assert.All(suggestion.Segments.Skip(4), segment => Assert.Equal(RailroadOwnershipCategory.Friendly, segment.OwnershipCategory));
         Assert.Equal(2_000, suggestion.TotalCost);
@@ -188,7 +142,7 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         var chicago = FindCityNode(engine, "Chicago");
 
         var route = engine.SuggestRoute();
-        var suggestion = SuggestForGame4184Player(engine, player, tripPayout: 23_500);
+        var suggestion = EngineRouteSuggestion.Suggest(engine, player.Index, new RouteSuggestionOptions());
         WriteRoute(engine, player, route);
         WriteSuggestion(engine, suggestion);
 
@@ -217,7 +171,7 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         var lasVegas = FindCityNode(engine, "Las Vegas");
 
         var route = engine.SuggestRoute();
-        var suggestion = SuggestForGame4184Player(engine, player, tripPayout: 19_000);
+        var suggestion = EngineRouteSuggestion.Suggest(engine, player.Index, new RouteSuggestionOptions());
         WriteRoute(engine, player, route);
         WriteSuggestion(engine, suggestion);
 
@@ -275,36 +229,6 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         return (engine, player);
     }
 
-    /// <summary>The board's suggestion for the same position, asked for the way <c>MapComponent</c> does.</summary>
-    private static RouteSuggestionResult SuggestForGame4184Player(Boxcars.Engine.Domain.GameEngine engine, Player player, int tripPayout)
-    {
-        RailroadOwnershipCategory Ownership(int railroadIndex) => ResolveOwnership(engine, player, railroadIndex);
-        var dice = engine.CurrentTurn.DiceResult!;
-        var service = new MapRouteService();
-        return service.FindCheapestSuggestion(
-            service.BuildContext(engine.MapDefinition),
-            new RouteSuggestionRequest
-            {
-                PlayerId = player.Name,
-                StartNodeId = player.CurrentNodeId,
-                DestinationNodeId = FindCityNode(engine, player.Destination!.Name),
-                MovementType = PlayerMovementType.ThreeDie,
-                LocomotiveType = LocomotiveType.Superchief,
-                MovementCapacity = engine.CurrentTurn.MovementRemaining,
-                AverageFutureMovement = 10.5,
-                TraveledSegmentKeys = [.. player.UsedSegments.Select(segment => segment.ToString())],
-                TripPayout = tripPayout,
-                TripStartNodeId = FindCityNode(engine, player.TripOriginCity!.Name),
-                PlayerColor = "blue",
-                ResolveRailroadOwnership = Ownership,
-                ResolveRailroadFee = railroadIndex => Ownership(railroadIndex) == RailroadOwnershipCategory.Unfriendly ? 10_000 : 1_000,
-                ResolveRailroadOwnerPlayerIndex = railroadIndex => engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner?.Index,
-                CurrentWhiteDiceMovement = dice.WhiteDice.Sum(),
-                CurrentFixedBonusMovement = dice.RedDie ?? 0,
-                BonusOutRequiresWhiteDiceArrival = true
-            });
-    }
-
     private static RailroadOwnershipCategory ResolveOwnership(Boxcars.Engine.Domain.GameEngine engine, Player player, int railroadIndex)
     {
         var owner = engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner;
@@ -339,14 +263,6 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         ["Connecto"] = ["B&M", "ACL", "SAL", "IC", "SP", "SLSF"],
         ["gjhill03"] = ["B&O", "SOU", "RF&P", "MP", "C&NW", "L&N", "T&P", "N&W", "D&RGW", "CRI&P", "GN"]
     };
-
-    private static string NormalizeSegmentKey(string selectedSegmentKey)
-    {
-        var parts = selectedSegmentKey.Split('|');
-        return string.Compare(parts[0], parts[1], StringComparison.OrdinalIgnoreCase) <= 0
-            ? $"{parts[0]}-{parts[1]}:{parts[2]}"
-            : $"{parts[1]}-{parts[0]}:{parts[2]}";
-    }
 
     private void WriteRoute(Boxcars.Engine.Domain.GameEngine engine, Player player, Route route)
     {
