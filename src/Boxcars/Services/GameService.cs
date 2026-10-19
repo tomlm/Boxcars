@@ -479,7 +479,7 @@ public class GameService
         var playerAction = GameEventSerialization.DeserializePlayerAction(gameEvent.EventKind, gameEvent.EventData);
         var timelineItems = new List<EventTimelineItem>();
         var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
-        var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+        var actingPlayerName = ResolveActingPlayerName(gameEvent, snapshot, actingPlayer);
 
         switch (NormalizeEventKind(gameEvent.EventKind))
         {
@@ -826,9 +826,7 @@ public class GameService
                 continue;
             }
 
-            var playerName = !string.IsNullOrWhiteSpace(currentPlayer.Name)
-                ? currentPlayer.Name
-                : ResolvePlayerName(snapshot, playerIndex);
+            var playerName = ResolvePlayerName(snapshot, playerIndex);
             timelineItems.Add(CreateTimelineItem(
                 gameEvent,
                 $"{gameEvent.RowKey}:cash-announcement:{playerIndex}",
@@ -870,9 +868,7 @@ public class GameService
                 && string.Equals(currentPlayer.DestinationCityName, previousPlayer.AlternateDestinationCityName, StringComparison.OrdinalIgnoreCase)
                 && string.IsNullOrWhiteSpace(currentPlayer.AlternateDestinationCityName))
             {
-                var roveredPlayerName = !string.IsNullOrWhiteSpace(currentPlayer.Name)
-                    ? currentPlayer.Name
-                    : ResolvePlayerName(snapshot, playerIndex);
+                var roveredPlayerName = ResolvePlayerName(snapshot, playerIndex);
 
                 // Only the moving player rovers, and a mover who undeclares themselves (by falling below the winning
                 // cash) hasn't been rovered. The amount is the game's rover cash: the cash change over the move also
@@ -929,11 +925,12 @@ public class GameService
             : null;
     }
 
-    private static string ResolveActingPlayerName(GameEventEntity gameEvent, PlayerState? actingPlayer)
+    /// <summary>The acting player's name placeholder (see <see cref="PlayerNameTokens"/>), or who made the event.</summary>
+    private static string ResolveActingPlayerName(GameEventEntity gameEvent, GameState snapshot, PlayerState? actingPlayer)
     {
-        if (!string.IsNullOrWhiteSpace(actingPlayer?.Name))
+        if (actingPlayer is not null)
         {
-            return actingPlayer.Name;
+            return PlayerNameTokens.For(snapshot.Players.IndexOf(actingPlayer));
         }
 
         if (!string.IsNullOrWhiteSpace(gameEvent.CreatedBy))
@@ -971,7 +968,7 @@ public class GameService
         }
 
         var actingPlayer = ResolveActingPlayer(previousSnapshot, gameEvent.ActingPlayerIndex);
-        var actingPlayerName = ResolveActingPlayerName(gameEvent, actingPlayer);
+        var actingPlayerName = ResolveActingPlayerName(gameEvent, previousSnapshot, actingPlayer);
 
         if (previousSnapshot.Turn.ForcedSale?.EliminationTriggered == true || actingPlayer?.IsBankrupt == true)
         {
@@ -1046,10 +1043,14 @@ public class GameService
         return FormatReadableList(feeParts);
     }
 
+    /// <summary>
+    /// The player's name placeholder, filled in with their seat's current name when shown (see
+    /// <see cref="PlayerNameTokens"/>).
+    /// </summary>
     private static string ResolvePlayerName(GameState snapshot, int playerIndex)
     {
-        return playerIndex >= 0 && playerIndex < snapshot.Players.Count && !string.IsNullOrWhiteSpace(snapshot.Players[playerIndex].Name)
-            ? snapshot.Players[playerIndex].Name
+        return playerIndex >= 0 && playerIndex < snapshot.Players.Count
+            ? PlayerNameTokens.For(playerIndex)
             : $"player {playerIndex + 1}";
     }
 

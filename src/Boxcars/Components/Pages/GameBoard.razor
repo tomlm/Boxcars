@@ -4335,7 +4335,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private string BuildTimelineNotificationMessage(EventTimelineItem item)
     {
-        var message = item.Description;
+        // Players are named by seat placeholder, so whoever has changed their name is shown with their current one.
+        var message = PlayerNameTokens.Resolve(item.Description, ResolveCurrentPlayerName);
         if (item.EventKind is EventTimelineKind.NewDestination or EventTimelineKind.Declaration
             && item.ActingPlayerIndex.HasValue
             && item.ActingPlayerIndex.Value >= 0
@@ -4349,6 +4350,20 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         return message;
+    }
+
+    /// <summary>The name a seat goes by now: its player card's, or the engine's before the cards are built.</summary>
+    private string? ResolveCurrentPlayerName(int playerIndex)
+    {
+        var cardName = _players.FirstOrDefault(player => player.Index == playerIndex)?.Name;
+        if (!string.IsNullOrWhiteSpace(cardName))
+        {
+            return cardName;
+        }
+
+        return _gameState is not null && playerIndex >= 0 && playerIndex < _gameState.Players.Count
+            ? _gameState.Players[playerIndex].Name
+            : null;
     }
 
     private static string? BuildTimelineNotificationDetail(EventTimelineItem item)
