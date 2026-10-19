@@ -43,6 +43,7 @@
 @inject GameSettingsResolver GameSettingsResolver
 @inject MapRouteService RouteService
 @inject RouteFailureIssueReporter RouteFailureIssueReporter
+@inject BugReportService BugReportService
 @inject ILogger<GameBoard> Logger
 
 <PageTitle>Game - BoxCars</PageTitle>
@@ -1393,6 +1394,14 @@ else
             return;
         }
 
+        // In debug mode, moving a bot along a different route than it chose files a bug report saying why.
+        if (CurrentBotRouteReview is { } botRouteReview
+            && !selectedSegmentKeys.SequenceEqual(botRouteReview.MoveSegmentKeys, StringComparer.OrdinalIgnoreCase)
+            && !await ReportBotRouteCorrectionAsync(botRouteReview, selectedSegmentKeys, _gameMap.GetSelectedRouteFeeEstimate()))
+        {
+            return;
+        }
+
         MarkAuthoritativeUpdatePending();
         await EnqueueBoardActionAsync(
             new MoveAction
@@ -2505,10 +2514,10 @@ StringComparison.OrdinalIgnoreCase));
             return;
         }
 
-        // A bot move waiting for review starts from the bot's own route.
+        // A bot move waiting for review starts from the bot's own move this turn.
         var reviewedRoute = CurrentBotRouteReview;
-        var restoredPreviewNodeIds = reviewedRoute?.RouteNodeIds ?? _turnViewState.SelectedRoutePreview.NodeIds;
-        var restoredPreviewSegmentKeys = reviewedRoute?.RouteSegmentKeys ?? _turnViewState.SelectedRoutePreview.SegmentKeys;
+        var restoredPreviewNodeIds = reviewedRoute?.MoveNodeIds ?? _turnViewState.SelectedRoutePreview.NodeIds;
+        var restoredPreviewSegmentKeys = reviewedRoute?.MoveSegmentKeys ?? _turnViewState.SelectedRoutePreview.SegmentKeys;
         var startNodeId = activePlayer.CurrentNodeId ?? restoredPreviewNodeIds.FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(startNodeId))
@@ -3247,6 +3256,56 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         && string.Equals(_gameState.Turn.Phase, "Move", StringComparison.OrdinalIgnoreCase)
             ? review
             : null;
+
+    /// <summary>
+    /// Asks the admin why they moved the bot along a different route, and files both routes and the reason as a bug.
+    /// False when they cancel, so the bot doesn't move.
+    /// </summary>
+    private async Task<bool> ReportBotRouteCorrectionAsync(BotRouteReview review, IReadOnlyList<string> chosenSegmentKeys, int chosenFeeEstimate)
+    {
+        var parameters = new DialogParameters<BotRouteCorrectionDialog>
+        {
+            { dialog => dialog.BotName, review.PlayerName },
+            { dialog => dialog.BotRoute, BotRouteCorrectionReport.DescribeRoute(_playerBoardMapDefinition, review.MoveSegmentKeys) },
+            { dialog => dialog.ChosenRoute, BotRouteCorrectionReport.DescribeRoute(_playerBoardMapDefinition, chosenSegmentKeys) },
+            { dialog => dialog.CanFileReport, BugReportService.IsConfigured }
+        };
+        var dialog = await DialogService.ShowAsync<BotRouteCorrectionDialog>("Why a different route?", parameters, new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            BackdropClick = false
+        });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not string reason)
+        {
+            return false;
+        }
+
+        if (BugReportService.IsConfigured)
+        {
+            var (issue, expected) = BotRouteCorrectionReport.Build(review, _playerBoardMapDefinition, chosenSegmentKeys, chosenFeeEstimate, reason);
+            // The player's nickname, never their email address: the issue is public.
+            var reporterName = string.IsNullOrWhiteSpace(_currentUserProfile?.Nickname) ? "Admin" : _currentUserProfile.Nickname;
+            var createdIssue = await BugReportService.SubmitAsync(
+                issue,
+                expected,
+                reporterName,
+                Navigation.ToBaseRelativePath(Navigation.Uri),
+                GameId,
+                siteBaseUri: Navigation.BaseUri);
+            if (createdIssue is null)
+            {
+                ShowNotification("The route correction couldn't be filed as a bug.", Severity.Warning);
+            }
+            else
+            {
+                ShowNotification($"Filed the route correction as issue #{createdIssue.Number}.", Severity.Success);
+            }
+        }
+
+        return true;
+    }
 
     private async Task OnApproveBotRouteAsync()
     {

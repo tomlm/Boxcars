@@ -81,6 +81,12 @@ public sealed record BotRouteReview
     /// <summary>How many of the route's steps the bot moves this turn.</summary>
     public required int MoveSteps { get; init; }
 
+    /// <summary>The nodes the bot passes through this turn, starting where it stands.</summary>
+    public IReadOnlyList<string> MoveNodeIds => RouteNodeIds.Take(MoveSteps + 1).ToList();
+
+    /// <summary>The track the bot rides this turn.</summary>
+    public IReadOnlyList<string> MoveSegmentKeys => RouteSegmentKeys.Take(MoveSteps).ToList();
+
     /// <summary>What this move pays each opponent.</summary>
     public required IReadOnlyList<BotRouteReviewFee> Fees { get; init; }
 
