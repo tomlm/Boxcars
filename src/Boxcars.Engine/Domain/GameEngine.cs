@@ -618,7 +618,7 @@ public sealed class GameEngine : ObservableBase
         if (startNodeId == null)
             throw new InvalidOperationException("Player has no current node position.");
 
-        var targetNodeId = options.DestinationNodeId ?? FindRoverTargetNodeId(player, startNodeId, options.PlayersNotToRover);
+        var targetNodeId = options.DestinationNodeId ?? FindRoverTarget(player, startNodeId, options)?.CurrentNodeId;
         if (targetNodeId is not null)
         {
             if (player == CurrentTurn.ActivePlayer)
@@ -643,19 +643,35 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
-    /// Where a declared opponent is, when there is one to chase: passing through them on the way rovers them (see
+    /// A declared opponent to chase, when there is one: passing through them on the way rovers them (see
     /// <see cref="TryResolveRovers"/>), and the route is planned on to the destination once they're caught.
     /// </summary>
-    private string? FindRoverTargetNodeId(Player player, string startNodeId, IReadOnlyCollection<int> playersNotToRover)
+    private Player? FindRoverTarget(Player player, string startNodeId, RouteSuggestionOptions options)
     {
-        return Players
-            .Where(candidate => candidate != player
-                && candidate.HasDeclared
-                && !playersNotToRover.Contains(candidate.Index)
-                && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId)
-                && !string.Equals(candidate.CurrentNodeId, startNodeId, StringComparison.OrdinalIgnoreCase))
-            .Select(candidate => candidate.CurrentNodeId)
-            .FirstOrDefault();
+        if (options.DestinationNodeId is not null)
+        {
+            return null;
+        }
+
+        return Players.FirstOrDefault(candidate => candidate != player
+            && candidate.HasDeclared
+            && !options.PlayersNotToRover.Contains(candidate.Index)
+            && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId)
+            && !string.Equals(candidate.CurrentNodeId, startNodeId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The declared opponent <see cref="SuggestRouteForPlayer(int, RouteSuggestionOptions)"/> chases to rover, or null
+    /// when it plans for the destination.
+    /// </summary>
+    public Player? GetRoverTarget(int playerIndex, RouteSuggestionOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (playerIndex < 0 || playerIndex >= Players.Count)
+            throw new ArgumentOutOfRangeException(nameof(playerIndex));
+
+        var player = Players[playerIndex];
+        return player.CurrentNodeId is { } startNodeId ? FindRoverTarget(player, startNodeId, options) : null;
     }
 
     /// <summary>

@@ -23,6 +23,12 @@
                     {
                         <MudText Typo="Typo.body2" Color="@ArrivalBonusColor">@arrivalBonusLabel</MudText>
                     }
+                    @if (!string.IsNullOrWhiteSpace(RoverTargetPlayerName))
+                    {
+                        <MudTooltip Text="@($"Chasing {RoverTargetPlayerName} to rover them")">
+                            <MudText Typo="Typo.body2" Color="Color.Warning">[ROVER]</MudText>
+                        </MudTooltip>
+                    }
                     <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
                 }
             }
@@ -62,6 +68,12 @@ else
                 {
                     <MudText Typo="Typo.body2" Color="@ArrivalBonusColor">@arrivalBonusLabel</MudText>
                 }
+                @if (!string.IsNullOrWhiteSpace(RoverTargetPlayerName))
+                {
+                    <MudTooltip Text="@($"Chasing {RoverTargetPlayerName} to rover them")">
+                        <MudText Typo="Typo.body2" Color="Color.Warning">[ROVER]</MudText>
+                    </MudTooltip>
+                }
                 <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
             }
         }
@@ -94,6 +106,10 @@ else
     /// <summary>When the suggested move reaches a destination only opponents serve: whether a bonus gets off.</summary>
     [Parameter]
     public Boxcars.Engine.Domain.ArrivalBonus ArrivalBonus { get; set; }
+
+    /// <summary>The declared opponent the suggested route chases to rover, if any.</summary>
+    [Parameter]
+    public string? RoverTargetPlayerName { get; set; }
 
     private string? ArrivalBonusLabel => ArrivalBonus switch
     {
