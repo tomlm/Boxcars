@@ -4,6 +4,7 @@
 @using MudBlazor
 @inject NavigationManager Navigation
 @inject IAuthenticationSchemeProvider SchemeProvider
+@inject Boxcars.Auth.EmailLoginService EmailLogin
 
 <PageTitle>Sign in - BoxCars</PageTitle>
 
@@ -63,24 +64,92 @@
             }
         </MudStack>
     </MudPaper>
+
+    @* No password: pick your name, or type your email the first time. Accounts that use Google or Microsoft aren't
+       listed and can't be signed in to this way. Plain forms, so the sign-in cookie is set by a normal request. *@
+    <MudPaper Class="pa-6">
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.h6">Sign in with your email</MudText>
+
+            @if (!string.IsNullOrWhiteSpace(Error))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@Error</MudAlert>
+            }
+
+            @if (_emailPlayers.Count > 0)
+            {
+                <form method="post" action="/login/email">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="email" value="@_selectedEmail" />
+                    <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+                    <MudStack Spacing="3">
+                        <MudSelect T="string" @bind-Value="_selectedEmail" Label="Your name" Variant="Variant.Outlined">
+                            @foreach (var player in _emailPlayers)
+                            {
+                                <MudSelectItem T="string" Value="@player.RowKey">@Boxcars.Auth.EmailLoginService.DisplayName(player)</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton ButtonType="ButtonType.Submit"
+                                   Variant="Variant.Filled"
+                                   Color="MudBlazor.Color.Primary"
+                                   Size="Size.Large"
+                                   FullWidth="true"
+                                   Disabled="@string.IsNullOrWhiteSpace(_selectedEmail)">
+                            OK
+                        </MudButton>
+                    </MudStack>
+                </form>
+
+                <MudDivider />
+                <MudText Typo="Typo.body2">Not listed? Type your email address.</MudText>
+            }
+
+            <form method="post" action="/login/email">
+                <AntiforgeryToken />
+                <input type="hidden" name="email" value="@_typedEmail" />
+                <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+                <MudStack Spacing="3">
+                    <MudTextField T="string" @bind-Value="_typedEmail" Immediate="true" Label="Email address" InputType="InputType.Email" Variant="Variant.Outlined" />
+                    <MudButton ButtonType="ButtonType.Submit"
+                               Variant="Variant.Outlined"
+                               Color="MudBlazor.Color.Primary"
+                               Size="Size.Large"
+                               FullWidth="true"
+                               Disabled="@string.IsNullOrWhiteSpace(_typedEmail)">
+                        Sign in
+                    </MudButton>
+                </MudStack>
+            </form>
+        </MudStack>
+    </MudPaper>
 </MudStack>
 
 @code {
     private bool _googleEnabled;
     private bool _microsoftEnabled;
 
+    private IReadOnlyList<Boxcars.Data.ApplicationUser> _emailPlayers = [];
+    private string? _selectedEmail;
+    private string? _typedEmail;
+
     [SupplyParameterFromQuery(Name = "returnUrl")]
     private string? ReturnUrl { get; set; }
 
-    private string ReturnUrlEncoded => Uri.EscapeDataString(
-        !string.IsNullOrWhiteSpace(ReturnUrl) && Uri.IsWellFormedUriString(ReturnUrl, UriKind.Relative)
-            ? ReturnUrl!
-            : "/");
+    /// <summary>Why the last email sign-in didn't work, sent back by /login/email.</summary>
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? Error { get; set; }
+
+    private string SafeReturnUrl => !string.IsNullOrWhiteSpace(ReturnUrl) && Uri.IsWellFormedUriString(ReturnUrl, UriKind.Relative)
+        ? ReturnUrl!
+        : "/";
+
+    private string ReturnUrlEncoded => Uri.EscapeDataString(SafeReturnUrl);
 
     protected override async Task OnInitializedAsync()
     {
         var schemes = await SchemeProvider.GetAllSchemesAsync();
         _googleEnabled = schemes.Any(s => s.Name == "Google");
         _microsoftEnabled = schemes.Any(s => s.Name == "Microsoft");
+        _emailPlayers = await EmailLogin.ListEmailPlayersAsync(CancellationToken.None);
     }
 }
