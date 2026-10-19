@@ -394,7 +394,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             PublishStateChanged(
                 gameId,
                 restoredSnapshot,
-                GameService.BuildTimelineItems(persistedUndoEvent, previousGameEvent: null, resolvedSettings.Settings.AnnouncingCash));
+                GameService.BuildTimelineItems(persistedUndoEvent, previousGameEvent: null, resolvedSettings.Settings));
             return true;
         }
         finally
@@ -505,7 +505,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             PublishStateChanged(
                 gameId,
                 finalSnapshot,
-                BuildTimelineItemsForEvents(timelineEvents, resolvedSettings.Settings.AnnouncingCash),
+                BuildTimelineItemsForEvents(timelineEvents, resolvedSettings.Settings),
                 replaceTimeline: true);
             return true;
         }
@@ -531,7 +531,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     gameEngine = await GetOrCreateGameEngineAsync(queuedAction.GameId, stoppingToken);
                     var gameEntity = await GetGameEntityAsync(queuedAction.GameId, stoppingToken)
                         ?? throw new KeyNotFoundException($"Game '{queuedAction.GameId}' was not found and is considered deleted.");
-                    var announcingCash = _gameSettingsResolver.Resolve(gameEntity).Settings.AnnouncingCash;
+                    var timelineSettings = _gameSettingsResolver.Resolve(gameEntity).Settings;
                     var playerStates = await GetGameSeatStatesAsync(queuedAction.GameId, stoppingToken);
 
                     var snapshotBeforeAction = gameEngine.ToSnapshot();
@@ -551,7 +551,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         queuedAction.Action,
                         stoppingToken);
 
-                    var timelineItems = BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeAction, announcingCash);
+                    var timelineItems = BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeAction, timelineSettings);
                     var persistedAuctionResolutionEvent = await PersistAuctionResolutionEventAsync(
                         queuedAction.GameId,
                         snapshotBeforeAction,
@@ -561,7 +561,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         stoppingToken);
                     if (persistedAuctionResolutionEvent is not null)
                     {
-                        timelineItems.AddRange(GameService.BuildTimelineItems(persistedAuctionResolutionEvent, persistedGameEvent, announcingCash));
+                        timelineItems.AddRange(GameService.BuildTimelineItems(persistedAuctionResolutionEvent, persistedGameEvent, timelineSettings));
                     }
 
                     PublishStateChanged(
@@ -1043,7 +1043,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         var snapshot = gameEngine.ToSnapshot();
         ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
-        var announcingCash = _gameSettingsResolver.Resolve(gameEntity).Settings.AnnouncingCash;
+        var timelineSettings = _gameSettingsResolver.Resolve(gameEntity).Settings;
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
@@ -1073,7 +1073,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         allAiAuctionAction,
                         cancellationToken);
 
-                    var aiResolutionTimelineItems = BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, announcingCash);
+                    var aiResolutionTimelineItems = BuildLiveTimelineItems(persistedGameEvent, snapshotBeforeResolution, timelineSettings);
                     var aiResolutionEvent = await PersistAuctionResolutionEventAsync(
                         gameId,
                         snapshotBeforeResolution,
@@ -1083,7 +1083,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                         cancellationToken);
                     if (aiResolutionEvent is not null)
                     {
-                        aiResolutionTimelineItems.AddRange(GameService.BuildTimelineItems(aiResolutionEvent, persistedGameEvent, announcingCash));
+                        aiResolutionTimelineItems.AddRange(GameService.BuildTimelineItems(aiResolutionEvent, persistedGameEvent, timelineSettings));
                     }
 
                     PublishStateChanged(gameId, snapshot, aiResolutionTimelineItems);
@@ -1122,7 +1122,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 automaticAction,
                 cancellationToken);
 
-            var automaticTimelineItems = BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction, announcingCash);
+            var automaticTimelineItems = BuildLiveTimelineItems(persistedAutomaticGameEvent, snapshotBeforeAction, timelineSettings);
             var automaticAuctionResolutionEvent = await PersistAuctionResolutionEventAsync(
                 gameId,
                 snapshotBeforeAction,
@@ -1132,7 +1132,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 cancellationToken);
             if (automaticAuctionResolutionEvent is not null)
             {
-                automaticTimelineItems.AddRange(GameService.BuildTimelineItems(automaticAuctionResolutionEvent, persistedAutomaticGameEvent, announcingCash));
+                automaticTimelineItems.AddRange(GameService.BuildTimelineItems(automaticAuctionResolutionEvent, persistedAutomaticGameEvent, timelineSettings));
             }
 
             PublishStateChanged(gameId, snapshot, automaticTimelineItems);
@@ -1972,7 +1972,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         OnStateChanged?.Invoke(gameId, new GameStateUpdate(state, timelineItems ?? [], replaceTimeline));
     }
 
-    private static List<EventTimelineItem> BuildLiveTimelineItems(GameEventEntity gameEvent, RailBaronGameState? previousSnapshot, int announcingCash)
+    private static List<EventTimelineItem> BuildLiveTimelineItems(GameEventEntity gameEvent, RailBaronGameState? previousSnapshot, global::Boxcars.Engine.Persistence.GameSettings timelineSettings)
     {
         var previousGameEvent = previousSnapshot is null
             ? null
@@ -1981,16 +1981,16 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 SerializedGameState = GameEventSerialization.SerializeSnapshot(previousSnapshot)
             };
 
-        return GameService.BuildTimelineItems(gameEvent, previousGameEvent, announcingCash);
+        return GameService.BuildTimelineItems(gameEvent, previousGameEvent, timelineSettings);
     }
 
-    private static List<EventTimelineItem> BuildTimelineItemsForEvents(IReadOnlyList<GameEventEntity> orderedEvents, int announcingCash)
+    private static List<EventTimelineItem> BuildTimelineItemsForEvents(IReadOnlyList<GameEventEntity> orderedEvents, global::Boxcars.Engine.Persistence.GameSettings timelineSettings)
     {
         var timelineItems = new List<EventTimelineItem>();
         GameEventEntity? previousGameEvent = null;
         foreach (var gameEvent in orderedEvents)
         {
-            timelineItems.AddRange(GameService.BuildTimelineItems(gameEvent, previousGameEvent, announcingCash));
+            timelineItems.AddRange(GameService.BuildTimelineItems(gameEvent, previousGameEvent, timelineSettings));
             previousGameEvent = gameEvent;
         }
 

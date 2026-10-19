@@ -262,17 +262,20 @@ public class BotActionHistoryTests
     [Fact]
     public void BuildTimelineItems_RoverEvent_AddsRoverAndAlternateDestinationNotifications()
     {
+        // Bob rides Alice's railroad for $5,000 on the way to catching her, so her cash only drops by $45,000.
         var previousSnapshot = CreateSnapshot(300_000);
+        previousSnapshot.ActivePlayerIndex = 1;
         previousSnapshot.Players[0].HasDeclared = true;
         previousSnapshot.Players[0].DestinationCityName = "New York";
         previousSnapshot.Players[0].AlternateDestinationCityName = "Atlanta";
         previousSnapshot.Players[1].Cash = 50_000;
 
-        var currentSnapshot = CreateSnapshot(250_000);
+        var currentSnapshot = CreateSnapshot(255_000);
+        currentSnapshot.ActivePlayerIndex = 1;
         currentSnapshot.Players[0].HasDeclared = false;
         currentSnapshot.Players[0].DestinationCityName = "Atlanta";
         currentSnapshot.Players[0].AlternateDestinationCityName = null;
-        currentSnapshot.Players[1].Cash = 100_000;
+        currentSnapshot.Players[1].Cash = 95_000;
 
         var roverEvent = CreateTimelineEvent(
             "Event_0000000004",
@@ -283,6 +286,31 @@ public class BotActionHistoryTests
 
         Assert.Contains(timelineItems, item => item.Description == "Bob rovered Alice for $50,000.");
         Assert.Contains(timelineItems, item => item.Description == "Alice must go to alternate destination Atlanta.");
+    }
+
+    [Fact]
+    public void BuildTimelineItems_MoverFallsBelowWinningCash_IsNotARover()
+    {
+        // Alice pays fees on her own move, drops below the winning cash and undeclares herself.
+        var previousSnapshot = CreateSnapshot(305_000);
+        previousSnapshot.Players[0].HasDeclared = true;
+        previousSnapshot.Players[0].DestinationCityName = "New York";
+        previousSnapshot.Players[0].AlternateDestinationCityName = "Atlanta";
+
+        var currentSnapshot = CreateSnapshot(295_000);
+        currentSnapshot.Players[0].HasDeclared = false;
+        currentSnapshot.Players[0].DestinationCityName = "Atlanta";
+        currentSnapshot.Players[0].AlternateDestinationCityName = null;
+        currentSnapshot.Players[1].Cash = 60_000;
+
+        var undeclareEvent = CreateTimelineEvent(
+            "Event_0000000004",
+            previousSnapshot,
+            currentSnapshot);
+
+        var timelineItems = InvokeBuildTimelineItems(undeclareEvent.currentEvent, undeclareEvent.previousEvent);
+
+        Assert.DoesNotContain(timelineItems, item => item.Description.Contains("rovered", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -423,13 +451,13 @@ public class BotActionHistoryTests
             BindingFlags.NonPublic | BindingFlags.Static,
             binder: null,
             announcingCash.HasValue
-                ? [typeof(GameEventEntity), typeof(GameEventEntity), typeof(int)]
+                ? [typeof(GameEventEntity), typeof(GameEventEntity), typeof(global::Boxcars.Engine.Persistence.GameSettings)]
                 : [typeof(GameEventEntity), typeof(GameEventEntity)],
             modifiers: null)
             ?? throw new InvalidOperationException("BuildTimelineItems was not found.");
 
         var arguments = announcingCash.HasValue
-            ? new object?[] { gameEvent, previousGameEvent, announcingCash.Value }
+            ? new object?[] { gameEvent, previousGameEvent, global::Boxcars.Engine.Persistence.GameSettings.Default with { AnnouncingCash = announcingCash.Value } }
             : [gameEvent, previousGameEvent];
 
         return (IReadOnlyList<EventTimelineItem>)(method.Invoke(null, arguments)
