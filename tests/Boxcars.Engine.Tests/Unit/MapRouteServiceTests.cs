@@ -142,6 +142,52 @@ public class MapRouteServiceTests
     }
 
     [Fact]
+    public void FindCheapestSuggestion_StaysOnPublicTrackToTheLastDot_RatherThanALongStretchOfAnOpponents()
+    {
+        // S --[RR2 public]--> A1 --[RR1 Bob x6]--> D            (7 dots, 6 of them Bob's)
+        // S --[RR2 public x7]--> B7 --[RR1 Bob]--> D            (8 dots, 1 of them Bob's)
+        // D --[RR2 public]--> X
+        // This turn's single dot stays public either way. Next turn both pay Bob, but a short roll ends the turn on the
+        // long stretch of Bob's railroad (1 roll in 3.6 for a Freight), paying Bob again.
+        var service = new MapRouteService();
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase);
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase);
+        var segments = new List<(string From, string To, int RailroadIndex)> { ("S", "A1", 2), ("A6", "D", 1), ("S", "B1", 2), ("B7", "D", 1), ("D", "X", 2) };
+        segments.AddRange(Enumerable.Range(1, 5).Select(index => ($"A{index}", $"A{index + 1}", 1)));
+        segments.AddRange(Enumerable.Range(1, 6).Select(index => ($"B{index}", $"B{index + 1}", 2)));
+        foreach (var (from, to, railroadIndex) in segments)
+        {
+            AddEdge(adjacency, from, to, railroadIndex);
+            AddEdge(adjacency, to, from, railroadIndex);
+        }
+
+        foreach (var (nodeId, index) in adjacency.Keys.Select((nodeId, index) => (nodeId, index)))
+        {
+            dotLookup[nodeId] = CreateDot(nodeId, 0, index);
+        }
+
+        var suggestion = service.FindCheapestSuggestion(
+            new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup },
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "S",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.TwoDie,
+                MovementCapacity = 1,
+                AverageFutureMovement = 7,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = rr => rr == 1 ? RailroadOwnershipCategory.Unfriendly : RailroadOwnershipCategory.Public,
+                ResolveRailroadFee = rr => rr == 1 ? 10_000 : 1_000,
+                ResolveRailroadOwnerPlayerIndex = rr => rr == 1 ? 1 : null
+            });
+
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.Equal(["S", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "D"], suggestion.NodeIds);
+        Assert.Equal(12_000, suggestion.TotalCost);
+    }
+
+    [Fact]
     public void FindCheapestSuggestion_PrefersMoreDirectRouteWhenDetourOnlySavesOneThousand()
     {
         var service = new MapRouteService();

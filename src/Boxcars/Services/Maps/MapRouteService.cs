@@ -678,6 +678,16 @@ public sealed class MapRouteService
                 var paidFeeGroups = exhaustedTurnCapacity ? 0L : state.PaidFeeGroups;
                 var additionalCost = (paidFeeGroups & feeGroupFlag) == 0 ? costPerTurn : 0;
                 var nextPointsUsed = startsNewTurn ? 1 : state.PointsUsedInCurrentTurn + 1;
+                var weightedFee = CalculateRiskWeightedFee(
+                    request,
+                    state,
+                    ownershipCategory,
+                    feeGroupFlag,
+                    costPerTurn,
+                    additionalCost,
+                    turnNumber: stateCost.TotalTurns + turnsAdded,
+                    startsNewTurn,
+                    futureTurnMovementCapacity);
 
                 var nextState = new RouteSuggestionState(
                     edge.ToNodeId,
@@ -686,7 +696,7 @@ public sealed class MapRouteService
                     paidFeeGroups | feeGroupFlag);
                 var candidateCost = new RouteSuggestionCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
-                    WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty,
+                    WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty,
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1,
                     UnfriendlySegments: stateCost.UnfriendlySegments + (ownershipCategory == RailroadOwnershipCategory.Unfriendly ? 1 : 0));
@@ -1496,6 +1506,47 @@ public sealed class MapRouteService
         }
 
         return hasFriendlyConnectedExit ? RoutePlanningHostileExitPenalty : 0;
+    }
+
+    /// <summary>
+    /// The fee a dot adds when ranking routes. Turns after this one move an unknown roll, so a long stretch on one
+    /// opponent's railroad may end a turn anywhere along it, and that owner is paid again the next turn. Pricing that
+    /// stretch as if each turn moved exactly the average hides the risk: 11 dots of one opponent look like a single
+    /// fee. Instead, each dot that carries on along the same opponent's track in those turns adds the chance a turn
+    /// ends just before it times their fee. This turn's roll is known, so its dots, and the fee where it ends, stay as
+    /// priced.
+    /// </summary>
+    private static int CalculateRiskWeightedFee(
+        RouteSuggestionRequest request,
+        RouteSuggestionState state,
+        RailroadOwnershipCategory ownershipCategory,
+        long feeGroupFlag,
+        int costPerTurn,
+        int additionalCost,
+        int turnNumber,
+        bool startsNewTurn,
+        int futureTurnMovementCapacity)
+    {
+        var thisTurnIsKnown = request.MovementCapacity > 0;
+        var locomotiveType = request.LocomotiveType
+            ?? (request.MovementType == PlayerMovementType.ThreeDie ? LocomotiveType.Superchief : LocomotiveType.Freight);
+        var continuesOpponentStretch = ownershipCategory == RailroadOwnershipCategory.Unfriendly
+            && state.LastRailroadIndex >= 0
+            && ResolveFeeGroupFlag(request, state.LastRailroadIndex) == feeGroupFlag;
+        var turnEndIsKnown = thisTurnIsKnown && (turnNumber == 1 || (turnNumber == 2 && startsNewTurn));
+        if (!continuesOpponentStretch || turnEndIsKnown)
+        {
+            return additionalCost;
+        }
+
+        // The first turn with an unknown roll starts at a known dot, so it ends here only on a roll of exactly the dots
+        // moved so far. Later turns could start anywhere: about 1 in an average turn's dots.
+        var firstUnknownTurn = thisTurnIsKnown ? 2 : 1;
+        var chanceTurnEndsHere = turnNumber == firstUnknownTurn && !startsNewTurn
+            ? DestinationApproachPlanner.ChanceOfRolling(locomotiveType, state.PointsUsedInCurrentTurn)
+            : 1d / Math.Max(1, futureTurnMovementCapacity);
+
+        return (int)Math.Round(costPerTurn * chanceTurnEndsHere);
     }
 
     private static double CalculateTwoTurnHostileExposurePenalty(

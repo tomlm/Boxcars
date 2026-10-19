@@ -2794,12 +2794,11 @@ public sealed class GameEngine : ObservableBase
         // Later turns move an average roll; the first turn moves what's left of this turn's roll (e.g. a bonus out), so
         // the planner knows which railroad the player will be sitting on, and paying for, when the next turn starts.
         var futureTurnMovementCapacity = GetAverageMovementPerTurn(player.LocomotiveType);
-        var firstTurnMovementCapacity = !startsNextTurn
+        var thisTurnIsKnown = !startsNextTurn
             && player == CurrentTurn.ActivePlayer
             && CurrentTurn.Phase == TurnPhase.Move
-            && CurrentTurn.MovementRemaining > 0
-                ? CurrentTurn.MovementRemaining
-                : futureTurnMovementCapacity;
+            && CurrentTurn.MovementRemaining > 0;
+        var firstTurnMovementCapacity = thisTurnIsKnown ? CurrentTurn.MovementRemaining : futureTurnMovementCapacity;
         var cityCoverage = RoutePlanningCityCoverage;
         var estimatedStateCapacity = Math.Clamp(_adjacency.Count * 2, 256, 1024);
         var networkMetricsByPlayerIndex = new Dictionary<int, RoutePlanningNetworkMetrics>(Players.Count);
@@ -2910,10 +2909,22 @@ public sealed class GameEngine : ObservableBase
                     ? RoutePlanningClearLeaderPaymentPenalty
                     : 0;
                 var nextPointsLeft = (exhaustedTurnCapacity ? futureTurnMovementCapacity : state.PointsLeftInCurrentTurn) - 1;
+                var weightedFee = CalculateRiskWeightedFee(
+                    player,
+                    state,
+                    railroad,
+                    isUnfriendlySegment,
+                    feeGroupFlag,
+                    additionalCost,
+                    turnNumber: stateCost.TotalTurns + turnsAdded,
+                    startsNewTurn,
+                    thisTurnIsKnown,
+                    pointsUsedThisTurn: startsNewTurn ? 0 : (stateCost.TotalTurns <= 1 ? firstTurnMovementCapacity : futureTurnMovementCapacity) - state.PointsLeftInCurrentTurn,
+                    futureTurnMovementCapacity);
                 var nextState = new RoutePlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, paidFeeGroups | feeGroupFlag);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
-                    WeightedCost: stateCost.WeightedCost + additionalCost + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty
+                    WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty
                         + (isUnfriendlySegment ? RoutePlanningUnfriendlyPenaltyPerSegment : 0),
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1,
@@ -2955,6 +2966,46 @@ public sealed class GameEngine : ObservableBase
                 fallbackRoute.NodeIds,
                 fallbackRoute.Segments,
                 PriceRoute(fallbackRoute.Segments, player, feeGroupsOwedThisTurn, firstTurnMovementCapacity, futureTurnMovementCapacity));
+    }
+
+    /// <summary>
+    /// The fee a dot adds when ranking routes. Turns after this one move an unknown roll, so a long stretch on one
+    /// opponent's railroad may end a turn anywhere along it, and that owner is paid again the next turn. Pricing that
+    /// stretch as if each turn moved exactly the average hides the risk: 11 dots of one opponent look like a single
+    /// fee. Instead, each dot that carries on along the same opponent's track in those turns adds the chance a turn
+    /// ends just before it times their fee. This turn's roll is known, so its dots, and the fee where it ends, stay as
+    /// priced.
+    /// </summary>
+    private int CalculateRiskWeightedFee(
+        Player player,
+        RoutePlanningState state,
+        Railroad railroad,
+        bool isUnfriendlySegment,
+        int feeGroupFlag,
+        int additionalCost,
+        int turnNumber,
+        bool startsNewTurn,
+        bool thisTurnIsKnown,
+        int pointsUsedThisTurn,
+        int futureTurnMovementCapacity)
+    {
+        var continuesOpponentStretch = isUnfriendlySegment
+            && RailroadsByIndex.TryGetValue(state.LastRailroadIndex, out var previousRailroad)
+            && RouteFeeGroups.ToFlag(GetFeeGroup(player, previousRailroad)) == feeGroupFlag;
+        var turnEndIsKnown = thisTurnIsKnown && (turnNumber == 1 || (turnNumber == 2 && startsNewTurn));
+        if (!continuesOpponentStretch || turnEndIsKnown)
+        {
+            return additionalCost;
+        }
+
+        // The first turn with an unknown roll starts at a known dot, so it ends here only on a roll of exactly the dots
+        // moved so far. Later turns could start anywhere: about 1 in an average turn's dots.
+        var firstUnknownTurn = thisTurnIsKnown ? 2 : 1;
+        var chanceTurnEndsHere = turnNumber == firstUnknownTurn && !startsNewTurn
+            ? DestinationApproachPlanner.ChanceOfRolling(player.LocomotiveType, pointsUsedThisTurn)
+            : 1d / Math.Max(1, futureTurnMovementCapacity);
+
+        return (int)Math.Round(GetTraversalFee(player, railroad) * chanceTurnEndsHere);
     }
 
     /// <summary>Fees for riding the segments in order: each fee group is paid once per turn.</summary>

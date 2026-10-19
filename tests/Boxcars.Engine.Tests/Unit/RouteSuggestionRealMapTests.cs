@@ -198,6 +198,11 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
         Assert.NotEqual(true, suggestion.Approach?.LayUp);
         Assert.DoesNotContain(chicago, suggestion.NodeIds);
+
+        // Both stay on thermous's own lines until close in, rather than riding 11 dots of Pooper's track where a short
+        // roll next turn pays Pooper twice.
+        Assert.True(CountOpponentDots(engine, player, route) <= 4);
+        Assert.True(suggestion.Segments.Count(segment => segment.OwnershipCategory == RailroadOwnershipCategory.Unfriendly) <= 4);
     }
 
     [Fact]

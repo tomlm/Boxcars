@@ -427,6 +427,14 @@ public class RouteSuggestionTests
         player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
         player.TripOriginCity = player.CurrentCity;
 
+        // A known roll of 7 ends the turn one dot short on Owner One's RR2 either way. (Before the roll, the
+        // all-RR2 route is better: a roll of 8 or more gets there paying Owner One once.)
+        engine.CurrentTurn.ActivePlayer = player;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.DiceResult = new DiceResult([3, 4]);
+        engine.CurrentTurn.MovementAllowance = 7;
+        engine.CurrentTurn.MovementRemaining = 7;
+
         var route = engine.SuggestRouteForPlayer(player.Index);
 
         // Both routes run into a second turn and pay two $5,000 fees; the second pays them to different owners.
