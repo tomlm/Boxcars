@@ -445,6 +445,10 @@
     [Parameter]
     public int CurrentTurnMovementAllowance { get; set; }
 
+    /// <summary>The active player's locomotive, which decides their bonus dice.</summary>
+    [Parameter]
+    public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; set; }
+
     [Parameter]
     public bool IsCurrentUserActivePlayer { get; set; }
 
@@ -1876,7 +1880,9 @@
                 StartNodeId = startNodeId,
                 DestinationNodeId = _destinationNodeId,
                 MovementType = MovementType,
+                LocomotiveType = LocomotiveType,
                 MovementCapacity = movementCapacity,
+                MovementUsed = Math.Max(0, CurrentTurnMovementAllowance - CurrentTurnMovementRemaining),
                 AverageFutureMovement = AverageFutureMovement,
                 TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
                 RailroadsRiddenThisTurn = RailroadsRiddenThisTurn,

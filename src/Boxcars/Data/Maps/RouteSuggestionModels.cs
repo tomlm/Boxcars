@@ -19,7 +19,14 @@ public sealed class RouteSuggestionRequest
     public required string StartNodeId { get; init; }
     public required string DestinationNodeId { get; init; }
     public required PlayerMovementType MovementType { get; init; }
+
+    /// <summary>The player's locomotive, which decides the bonus dice; null when unknown.</summary>
+    public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; init; }
+
     public int MovementCapacity { get; init; }
+
+    /// <summary>Dots already moved this turn.</summary>
+    public int MovementUsed { get; init; }
     public double AverageFutureMovement { get; init; }
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
     /// <summary>
@@ -85,6 +92,9 @@ public sealed class RouteSuggestionResult
     public int TotalTurns { get; init; }
     public int TotalCost { get; init; }
     public RouteSuggestionOutlook Outlook { get; init; } = new();
+
+    /// <summary>The go-in-or-lay-up comparison for this turn's move; null when it wasn't made.</summary>
+    public Boxcars.Engine.Domain.DestinationApproachDecision? Approach { get; init; }
 }
 
 public enum RouteSuggestionHighlightType

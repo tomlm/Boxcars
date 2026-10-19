@@ -586,6 +586,31 @@ public class RouteSuggestionTests
         Assert.Equal(6000, route.TotalCost);
     }
 
+    [Fact]
+    public void SuggestRouteForPlayer_SuperchiefWouldArriveStuckOnOpponent_LaysUpOnPublicTrack()
+    {
+        // 0 --[RR1 Bob]--> 1 --[RR1 Bob]--> 3          (go in now, arriving after the white dice: stuck on Bob's railroad)
+        // 0 --[RR2 public]--> 4 --[RR2 public]--> 5 --[RR1 Bob]--> 3
+        // 3 --[RR1 Bob]--> 6 --[RR2 public]--> 7       (Finish is served only by Bob)
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (2, 0, 4), (2, 4, 5), (1, 5, 3), (1, 3, 6), (2, 6, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        player.LocomotiveType = LocomotiveType.Superchief;
+
+        // White 2+2 and red 1, with 3 dots already moved: the last 2 are past the white dice.
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.DiceResult = new DiceResult([2, 2], 1);
+        engine.CurrentTurn.MovementAllowance = 5;
+        engine.CurrentTurn.MovementRemaining = 2;
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Next turn the white dice always reach Finish and the red die gets off Bob's railroad 5 times in 6.
+        Assert.True(engine.LastApproachDecision?.LayUp);
+        Assert.Equal(["0:0", "0:4", "0:5", "0:3"], route.NodeIds);
+        Assert.Equal([2, 2, 1], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+    }
+
     private static Boxcars.Engine.Domain.GameEngine CreateLineEngine(IReadOnlyList<(int Railroad, int Start, int End)> segments)
     {
         // Start is dot 0 and Finish dot 3; dot 9 is a public exit from Finish.

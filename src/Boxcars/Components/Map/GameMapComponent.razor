@@ -24,6 +24,7 @@
 				  PlayerStates="@PlayerStates"
 				  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
 				  CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
+				  LocomotiveType="@LocomotiveType"
 				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
 				  MovementType="@MovementType"
 				  AverageFutureMovement="@AverageFutureMovement"
@@ -131,6 +132,9 @@
 
 	[Parameter]
 	public int CurrentTurnMovementAllowance { get; set; }
+
+	[Parameter]
+	public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; set; }
 
 	[Parameter]
 	public bool IsCurrentUserActivePlayer { get; set; }

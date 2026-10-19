@@ -97,6 +97,12 @@ public sealed class GameEngine : ObservableBase
     /// <summary>Reference to the loaded map definition.</summary>
     public MapDefinition MapDefinition { get; private set; } = null!;
 
+    /// <summary>
+    /// The go-in-or-lay-up comparison from the last route suggested for the active player's move; null when the last
+    /// suggestion wasn't for a move.
+    /// </summary>
+    public DestinationApproachDecision? LastApproachDecision { get; private set; }
+
     public GameSettings Settings => _settings;
 
     private IReadOnlyDictionary<int, Railroad> RailroadsByIndex => _railroadsByIndex ??= Railroads.ToDictionary(railroad => railroad.Index);
@@ -610,7 +616,109 @@ public sealed class GameEngine : ObservableBase
             throw new InvalidOperationException($"Cannot find node for destination city '{player.Destination.Name}'.");
 
         // Use Dijkstra to find cheapest route considering use fees
-        return FindCheapestRoute(startNodeId, destNodeId, player);
+        var route = FindCheapestRoute(startNodeId, destNodeId, player)!;
+        return ApplyDestinationApproach(player, startNodeId, destNodeId, route);
+    }
+
+    /// <summary>
+    /// With this turn's roll known, near a destination reached over opponents' railroads: lays up on friendly or public
+    /// track instead when that's expected to cost less in fees (see <see cref="DestinationApproachPlanner"/>).
+    /// </summary>
+    private Route ApplyDestinationApproach(Player player, string startNodeId, string destNodeId, Route route)
+    {
+        if (player != CurrentTurn.ActivePlayer || CurrentTurn.Phase != TurnPhase.Move || CurrentTurn.MovementRemaining <= 0)
+        {
+            if (player == CurrentTurn.ActivePlayer)
+            {
+                LastApproachDecision = null;
+            }
+
+            return route;
+        }
+
+        var futureTurnMovementCapacity = GetAverageMovementPerTurn(player.LocomotiveType);
+        var feeGroupsOwedThisTurn = GetFeeGroupsOwedThisTurn(player);
+        var segmentKeys = new Dictionary<string, SegmentKey>(StringComparer.OrdinalIgnoreCase);
+        var usedSegmentKeys = player.UsedSegments.Select(segment => segment.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        ApproachStep ToStep(string fromNodeId, string toNodeId, int railroadIndex)
+        {
+            var segmentKey = new SegmentKey(fromNodeId, toNodeId, railroadIndex);
+            var text = segmentKey.ToString();
+            segmentKeys[text] = segmentKey;
+            return new ApproachStep(toNodeId, railroadIndex, text);
+        }
+
+        IReadOnlyList<ApproachStep>? FindContinuation(string fromNodeId, IReadOnlyCollection<string> extraUsedSegmentKeys)
+        {
+            var extraUsedSegments = extraUsedSegmentKeys.Select(key => segmentKeys[key]).ToHashSet();
+            var continuation = FindCheapestRoute(fromNodeId, destNodeId, player, extraUsedSegments, startsNextTurn: true);
+            return continuation?.Segments.Select(segment => ToStep(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)).ToList();
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        var decision = DestinationApproachPlanner.Evaluate(new DestinationApproachRequest
+        {
+            StartNodeId = startNodeId,
+            DestinationNodeId = destNodeId,
+            LocomotiveType = player.LocomotiveType,
+            MovementRemaining = CurrentTurn.MovementRemaining,
+            MovementUsed = Math.Max(0, CurrentTurn.MovementAllowance - CurrentTurn.MovementRemaining),
+            WhiteDiceTotal = CurrentTurn.DiceResult?.WhiteDice.Sum() ?? 0,
+            RedDie = CurrentTurn.DiceResult?.RedDie,
+            BonusRollPending = CurrentTurn.BonusRollAvailable,
+            FeeGroupsPaidThisTurn = feeGroupsOwedThisTurn,
+            GoRoute = route.Segments.Select(segment => ToStep(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)).ToList(),
+            GetEdges = nodeId => _adjacency.TryGetValue(nodeId, out var edges)
+                ? edges.Select(edge => ToStep(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex))
+                : [],
+            IsSegmentUsed = usedSegmentKeys.Contains,
+            IsOpponentRailroad = railroadIndex => IsUnfriendlyRailroadForPlayer(player, railroadIndex),
+            ResolveFee = railroadIndex => RailroadsByIndex.TryGetValue(railroadIndex, out var railroad) ? GetTraversalFee(player, railroad) : 0,
+            ResolveFeeGroupFlag = railroadIndex => RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
+                ? RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad))
+                : 0,
+            FindContinuation = FindContinuation,
+            DestinationExitCost = railroadIndex =>
+            {
+                var exitCost = CalculateDestinationExitCost(player, new RoutePlanningState(destNodeId, railroadIndex, 0), futureTurnMovementCapacity, stopwatch);
+                // No way off but the arrival railroad: that's one more fee to its owner.
+                return exitCost >= int.MaxValue / 8 && RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
+                    ? GetTraversalFee(player, railroad)
+                    : exitCost;
+            },
+            MinimumBonusOutSegments = railroadIndex => CalculateMinimumBonusOutSegments(player, new RoutePlanningState(destNodeId, railroadIndex, 0), stopwatch),
+            AverageMovementPerTurn = futureTurnMovementCapacity
+        });
+
+        LastApproachDecision = decision;
+        if (!decision.LayUp)
+        {
+            return route;
+        }
+
+        var nodeIds = new List<string> { startNodeId };
+        var segments = new List<RouteSegment>();
+        foreach (var step in decision.LayUpSteps.Concat(decision.ContinuationSteps))
+        {
+            segments.Add(new RouteSegment { FromNodeId = nodeIds[^1], ToNodeId = step.ToNodeId, RailroadIndex = step.RailroadIndex });
+            nodeIds.Add(step.ToNodeId);
+        }
+
+        return new Route(
+            nodeIds,
+            segments,
+            PriceRoute(segments, player, feeGroupsOwedThisTurn, CurrentTurn.MovementRemaining, futureTurnMovementCapacity));
+    }
+
+    /// <summary>Fee groups the active player already owes this turn, such as the railroad they arrived on before a bonus move.</summary>
+    private int GetFeeGroupsOwedThisTurn(Player player)
+    {
+        return player == CurrentTurn.ActivePlayer
+            ? CurrentTurn.RailroadsRiddenThisTurn
+                .Where(RailroadsByIndex.ContainsKey)
+                .Aggregate(0, (paid, railroadIndex) => paid | RouteFeeGroups.ToFlag(GetFeeGroup(player, RailroadsByIndex[railroadIndex])))
+            : 0;
     }
 
     /// <summary>
@@ -2642,13 +2750,24 @@ public sealed class GameEngine : ObservableBase
         return adjacency;
     }
 
-    private Route FindCheapestRoute(string startNodeId, string destNodeId, Player player)
+    /// <summary>
+    /// The cheapest route, or the fee-priced shortest path when the search fails. A route that
+    /// <paramref name="startsNextTurn"/> ignores this turn's roll and fees, also avoids
+    /// <paramref name="extraUsedSegments"/>, and is null when the search fails.
+    /// </summary>
+    private Route? FindCheapestRoute(
+        string startNodeId,
+        string destNodeId,
+        Player player,
+        HashSet<SegmentKey>? extraUsedSegments = null,
+        bool startsNextTurn = false)
     {
         var routePlanningStopwatch = Stopwatch.StartNew();
         // Later turns move an average roll; the first turn moves what's left of this turn's roll (e.g. a bonus out), so
         // the planner knows which railroad the player will be sitting on, and paying for, when the next turn starts.
         var futureTurnMovementCapacity = GetAverageMovementPerTurn(player.LocomotiveType);
-        var firstTurnMovementCapacity = player == CurrentTurn.ActivePlayer
+        var firstTurnMovementCapacity = !startsNextTurn
+            && player == CurrentTurn.ActivePlayer
             && CurrentTurn.Phase == TurnPhase.Move
             && CurrentTurn.MovementRemaining > 0
                 ? CurrentTurn.MovementRemaining
@@ -2662,11 +2781,7 @@ public sealed class GameEngine : ObservableBase
             routePlanningStopwatch);
         // Fee groups the active player already owes this turn (e.g. the railroad they arrived on before moving on
         // with bonus movement). Riding them again before the turn ends costs nothing extra.
-        var feeGroupsOwedThisTurn = player == CurrentTurn.ActivePlayer
-            ? CurrentTurn.RailroadsRiddenThisTurn
-                .Where(RailroadsByIndex.ContainsKey)
-                .Aggregate(0, (paid, railroadIndex) => paid | RouteFeeGroups.ToFlag(GetFeeGroup(player, RailroadsByIndex[railroadIndex])))
-            : 0;
+        var feeGroupsOwedThisTurn = startsNextTurn ? 0 : GetFeeGroupsOwedThisTurn(player);
         var opponentStrengths = BuildOpponentStrengths(player, cityCoverage, networkMetricsByPlayerIndex);
         var clearLeaderPlayerIndex = FindClearLeader(opponentStrengths);
         var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsLeftInCurrentTurn: firstTurnMovementCapacity, PaidFeeGroups: feeGroupsOwedThisTurn);
@@ -2711,7 +2826,7 @@ public sealed class GameEngine : ObservableBase
                     continue;
                 }
 
-                var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, futureTurnMovementCapacity, routePlanningStopwatch);
+                var exitAnalysis = CalculateDestinationExitAnalysis(player, state, stateCost, futureTurnMovementCapacity, !startsNextTurn, routePlanningStopwatch);
                 var tieBreakAnalysis = CalculateTieBreakAnalysis(player, startState, state, previous, opponentStrengths);
                 var destinationChoice = new RoutePlanningDestinationChoice(state, stateCost, exitAnalysis, tieBreakAnalysis);
                 if (bestDestination is null || IsBetterRouteDestination(destinationChoice, bestDestination.Value))
@@ -2735,7 +2850,7 @@ public sealed class GameEngine : ObservableBase
                 }
 
                 var segKey = new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex);
-                if (player.UsedSegments.Contains(segKey))
+                if (player.UsedSegments.Contains(segKey) || extraUsedSegments?.Contains(segKey) == true)
                 {
                     continue;
                 }
@@ -2796,6 +2911,11 @@ public sealed class GameEngine : ObservableBase
         if (bestDestination is not null)
         {
             return BuildRouteFromPlanningResult(startState, bestDestination, previous);
+        }
+
+        if (startsNextTurn)
+        {
+            return null;
         }
 
         // Cheapest route failed (timed out, or every way in is too long): fall back to the shortest path, priced with
@@ -3077,6 +3197,7 @@ public sealed class GameEngine : ObservableBase
         RoutePlanningState destinationState,
         RoutePlanningCostKey arrivalCost,
         int movementPointsPerTurn,
+        bool arrivesWithThisTurnsDice,
         Stopwatch routePlanningStopwatch)
     {
         if (IsRoutePlanningTimedOut(routePlanningStopwatch))
@@ -3095,7 +3216,9 @@ public sealed class GameEngine : ObservableBase
             return new RoutePlanningExitAnalysis(0d, 0, 0d);
         }
 
-        var bonusOutProbability = CalculateBonusOutProbability(player, destinationState, arrivalCost, routePlanningStopwatch);
+        var bonusOutProbability = arrivesWithThisTurnsDice
+            ? CalculateBonusOutProbability(player, destinationState, arrivalCost, routePlanningStopwatch)
+            : 0d;
         var expectedExitCost = worstCaseExitCost * (1d - bonusOutProbability);
         return new RoutePlanningExitAnalysis(expectedExitCost, worstCaseExitCost, bonusOutProbability);
     }

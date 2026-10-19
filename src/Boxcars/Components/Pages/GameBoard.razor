@@ -169,6 +169,7 @@ else
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
                               CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
+                              LocomotiveType="@CurrentLocomotiveType"
                               MovementType="@CurrentMovementType"
                               AverageFutureMovement="@CurrentAverageFutureMovement"
                               PublicFee="@CurrentSuggestionPublicFee"
@@ -317,7 +318,7 @@ else
                         {
                             @if (!ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
                             { 
-                                <MovementStatusPanel State="@_turnViewState" />
+                                <MovementStatusPanel State="@_turnViewState" Approach="@CurrentRouteApproach" />
                             }
 
                             @if (ShouldShowHomeCityChoicePanel)
@@ -385,7 +386,7 @@ else
                             {
                                 <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mx-auto">
                                     <MudPaper Outlined="true" Elevation="4" Class="d-flex align-center gap-4 pa-2 rounded-lg">
-                                        <MovementStatusPanel State="@_turnViewState" UsePaper="false" />
+                                        <MovementStatusPanel State="@_turnViewState" UsePaper="false" Approach="@CurrentRouteApproach" />
                                         <MudButton Variant="Variant.Filled"
                                                    Color="MudBlazor.Color.Primary"
                                                    Disabled="@(!CanCommitMoveAction)"
@@ -450,6 +451,7 @@ else
     private bool _startingLobbyGame;
     private bool _startingReplayGame;
     private GameSettingsSummaryModel _gameSettingsSummary = GameSettingsSummaryModel.Empty;
+    private Boxcars.Engine.Domain.DestinationApproachDecision? _routeApproach;
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
     private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
@@ -1507,6 +1509,7 @@ else
     private async Task OnRouteSuggestionChangedAsync(RouteSuggestionResult suggestion)
     {
         ReportRouteSuggestionFailure(suggestion);
+        _routeApproach = suggestion.Approach;
 
         if (ShouldApplyAutoZoom() && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
         {
@@ -2723,6 +2726,17 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             _ => 7.0d
         };
     }
+
+    /// <summary>The suggested route's lay-up comparison; it's about this turn's roll, so only while moving.</summary>
+    private Boxcars.Engine.Domain.DestinationApproachDecision? CurrentRouteApproach =>
+        string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase) ? _routeApproach : null;
+
+    private LocomotiveType? CurrentLocomotiveType => _gameState is not null
+        && _gameState.ActivePlayerIndex >= 0
+        && _gameState.ActivePlayerIndex < _gameState.Players.Count
+        && Enum.TryParse<LocomotiveType>(_gameState.Players[_gameState.ActivePlayerIndex].LocomotiveType, ignoreCase: true, out var locomotiveType)
+            ? locomotiveType
+            : null;
 
     private PlayerMovementType CurrentMovementType => _turnViewState.RedDie.HasValue && (_turnViewState.WhiteDieOne > 0 || _turnViewState.WhiteDieTwo > 0)
         ? PlayerMovementType.ThreeDie

@@ -1,4 +1,5 @@
 using Boxcars.Data.Maps;
+using Boxcars.Engine.Domain;
 using Boxcars.Engine.Data.Maps;
 using System.Globalization;
 using System.Diagnostics;
@@ -104,7 +105,9 @@ public sealed class MapRouteService
                 StartNodeId = request.StartNodeId,
                 DestinationNodeId = request.DeclaredPlayerCurrentNodeId,
                 MovementType = request.MovementType,
+                LocomotiveType = request.LocomotiveType,
                 MovementCapacity = request.MovementCapacity,
+                MovementUsed = request.MovementUsed,
                 AverageFutureMovement = request.AverageFutureMovement,
                 TraveledSegmentKeys = request.TraveledSegmentKeys,
                 RailroadsRiddenThisTurn = request.RailroadsRiddenThisTurn,
@@ -131,12 +134,193 @@ public sealed class MapRouteService
 
         // No fallback: a route that ignores fees (or track already ridden this trip) is worse than none. When the
         // search finds nothing, the caller shows no suggestion and the player picks the route.
-        return FindCheapestSuggestionCore(
+        var suggestion = FindCheapestSuggestionCore(
             context,
             cachedRequest,
             requireCurrentTurnContinuation: true,
             emitDebug: true,
             searchBudget);
+
+        // Rovering a declared player isn't an approach to the destination.
+        return suggestion.Status == RouteSuggestionStatus.Success && ReferenceEquals(effectiveRequest, request)
+            ? ApplyDestinationApproach(context, cachedRequest, suggestion)
+            : suggestion;
+    }
+
+    /// <summary>
+    /// With this turn's roll known, near a destination reached over opponents' railroads: suggests laying up on
+    /// friendly or public track instead when that's expected to cost less in fees (see
+    /// <see cref="DestinationApproachPlanner"/>).
+    /// </summary>
+    private RouteSuggestionResult ApplyDestinationApproach(MapRouteContext context, RouteSuggestionRequest request, RouteSuggestionResult suggestion)
+    {
+        if (request.LocomotiveType is not LocomotiveType locomotiveType || request.MovementCapacity <= 0)
+        {
+            return suggestion;
+        }
+
+        var traveledSegmentKeys = request.TraveledSegmentKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var continuations = new Dictionary<string, RouteSuggestionResult>(StringComparer.OrdinalIgnoreCase);
+        var futureTurnMovementCapacity = request.AverageFutureMovement > 0
+            ? (int)Math.Round(request.AverageFutureMovement, MidpointRounding.AwayFromZero)
+            : request.MovementType == PlayerMovementType.ThreeDie ? 11 : 7;
+
+        IReadOnlyList<ApproachStep>? FindContinuation(string fromNodeId, IReadOnlyCollection<string> extraUsedSegmentKeys)
+        {
+            var continuation = FindCheapestSuggestionCore(
+                context,
+                CreateNextTurnRequest(request, fromNodeId, [.. traveledSegmentKeys, .. extraUsedSegmentKeys]),
+                requireCurrentTurnContinuation: false,
+                emitDebug: false,
+                new RouteSearchBudget(int.MaxValue, TimeSpan.FromMilliseconds(500)));
+            if (continuation.Status != RouteSuggestionStatus.Success)
+            {
+                return null;
+            }
+
+            continuations[fromNodeId] = continuation;
+            return ToApproachSteps(continuation.Segments);
+        }
+
+        var exitBudget = new RouteSearchBudget(int.MaxValue, TimeSpan.FromSeconds(1));
+        var decision = DestinationApproachPlanner.Evaluate(new DestinationApproachRequest
+        {
+            StartNodeId = request.StartNodeId,
+            DestinationNodeId = request.DestinationNodeId,
+            LocomotiveType = locomotiveType,
+            MovementRemaining = request.MovementCapacity,
+            MovementUsed = request.MovementUsed,
+            WhiteDiceTotal = request.CurrentWhiteDiceMovement,
+            RedDie = request.CurrentFixedBonusMovement > 0 ? request.CurrentFixedBonusMovement : null,
+            BonusRollPending = request.BonusOutAvailable && locomotiveType != LocomotiveType.Superchief,
+            FeeGroupsPaidThisTurn = request.RailroadsRiddenThisTurn.Aggregate(0L, (paid, railroadIndex) => paid | ResolveFeeGroupFlag(request, railroadIndex)),
+            GoRoute = ToApproachSteps(suggestion.Segments),
+            GetEdges = nodeId => context.Adjacency.TryGetValue(nodeId, out var edges)
+                ? edges.Select(edge => new ApproachStep(edge.ToNodeId, edge.RailroadIndex, edge.SegmentKey))
+                : [],
+            IsSegmentUsed = traveledSegmentKeys.Contains,
+            IsOpponentRailroad = railroadIndex => request.ResolveRailroadOwnership(railroadIndex) == RailroadOwnershipCategory.Unfriendly,
+            ResolveFee = railroadIndex => ResolveRailroadFee(request, railroadIndex, request.ResolveRailroadOwnership(railroadIndex)),
+            ResolveFeeGroupFlag = railroadIndex => ResolveFeeGroupFlag(request, railroadIndex),
+            FindContinuation = FindContinuation,
+            DestinationExitCost = railroadIndex =>
+            {
+                var exitCost = CalculateDestinationExitCost(context, request, new RouteSuggestionState(request.DestinationNodeId, railroadIndex, 0), exitBudget);
+                // No way off but the arrival railroad: that's one more fee to its owner.
+                return exitCost >= int.MaxValue / 8
+                    ? ResolveRailroadFee(request, railroadIndex, request.ResolveRailroadOwnership(railroadIndex))
+                    : exitCost;
+            },
+            MinimumBonusOutSegments = railroadIndex => CalculateMinimumBonusOutSegments(
+                context,
+                request,
+                new RouteSuggestionState(request.DestinationNodeId, railroadIndex, 0),
+                exitBudget),
+            AverageMovementPerTurn = futureTurnMovementCapacity
+        });
+
+        if (!decision.Evaluated)
+        {
+            return suggestion;
+        }
+
+        if (!decision.LayUp || decision.LayUpNodeId is null || !continuations.TryGetValue(decision.LayUpNodeId, out var layUpContinuation))
+        {
+            return CopySuggestion(suggestion, decision);
+        }
+
+        var nodeIds = new List<string> { request.StartNodeId };
+        var segments = new List<RouteSuggestionSegment>();
+        var paidFeeGroups = 0L;
+        var layUpFees = 0;
+        foreach (var step in decision.LayUpSteps)
+        {
+            var ownershipCategory = request.ResolveRailroadOwnership(step.RailroadIndex);
+            var costPerTurn = ResolveRailroadFee(request, step.RailroadIndex, ownershipCategory);
+            var feeGroupFlag = ResolveFeeGroupFlag(request, step.RailroadIndex);
+            var costAdded = (paidFeeGroups & feeGroupFlag) == 0 ? costPerTurn : 0;
+            paidFeeGroups |= feeGroupFlag;
+            layUpFees += costAdded;
+            segments.Add(new RouteSuggestionSegment
+            {
+                FromNodeId = nodeIds[^1],
+                ToNodeId = step.ToNodeId,
+                RailroadIndex = step.RailroadIndex,
+                OwnershipCategory = ownershipCategory,
+                Turns = 1,
+                CostPerTurn = costPerTurn,
+                TotalCost = costAdded
+            });
+            nodeIds.Add(step.ToNodeId);
+        }
+
+        return new RouteSuggestionResult
+        {
+            Status = RouteSuggestionStatus.Success,
+            Message = suggestion.Message,
+            StartNodeId = request.StartNodeId,
+            DestinationNodeId = request.DestinationNodeId,
+            NodeIds = [.. nodeIds, .. layUpContinuation.NodeIds.Skip(1)],
+            Segments = [.. segments, .. layUpContinuation.Segments],
+            TotalTurns = 1 + layUpContinuation.TotalTurns,
+            TotalCost = layUpFees + layUpContinuation.TotalCost,
+            Outlook = layUpContinuation.Outlook,
+            Approach = decision
+        };
+    }
+
+    private static List<ApproachStep> ToApproachSteps(IEnumerable<RouteSuggestionSegment> segments)
+    {
+        return segments
+            .Select(segment => new ApproachStep(segment.ToNodeId, segment.RailroadIndex, BuildSegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)))
+            .ToList();
+    }
+
+    private static RouteSuggestionResult CopySuggestion(RouteSuggestionResult suggestion, DestinationApproachDecision approach)
+    {
+        return new RouteSuggestionResult
+        {
+            Status = suggestion.Status,
+            Message = suggestion.Message,
+            StartNodeId = suggestion.StartNodeId,
+            DestinationNodeId = suggestion.DestinationNodeId,
+            NodeIds = suggestion.NodeIds,
+            Segments = suggestion.Segments,
+            TotalTurns = suggestion.TotalTurns,
+            TotalCost = suggestion.TotalCost,
+            Outlook = suggestion.Outlook,
+            Approach = approach
+        };
+    }
+
+    /// <summary>The same request for a route that starts next turn from another node, avoiding the given track.</summary>
+    private static RouteSuggestionRequest CreateNextTurnRequest(RouteSuggestionRequest request, string startNodeId, IReadOnlyList<string> traveledSegmentKeys)
+    {
+        return new RouteSuggestionRequest
+        {
+            PlayerId = request.PlayerId,
+            StartNodeId = startNodeId,
+            DestinationNodeId = request.DestinationNodeId,
+            MovementType = request.MovementType,
+            LocomotiveType = request.LocomotiveType,
+            MovementCapacity = 0,
+            AverageFutureMovement = request.AverageFutureMovement,
+            TraveledSegmentKeys = traveledSegmentKeys,
+            // The route starts next turn, so no railroads have been ridden in it yet.
+            PlayerColor = request.PlayerColor,
+            ResolveRailroadOwnership = request.ResolveRailroadOwnership,
+            ResolveRailroadFee = request.ResolveRailroadFee,
+            ResolveRailroadOwnerPlayerIndex = request.ResolveRailroadOwnerPlayerIndex,
+            ResolvePlayerCash = request.ResolvePlayerCash,
+            ResolvePlayerAccessibleDestinationPercent = request.ResolvePlayerAccessibleDestinationPercent,
+            ResolvePlayerMonopolyDestinationPercent = request.ResolvePlayerMonopolyDestinationPercent,
+            MaximumExploredStates = request.MaximumExploredStates,
+            MaximumSearchMilliseconds = request.MaximumSearchMilliseconds,
+            BonusOutAvailable = request.BonusOutAvailable,
+            CurrentWhiteDiceMovement = request.CurrentWhiteDiceMovement,
+            CurrentFixedBonusMovement = request.CurrentFixedBonusMovement,
+            BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival
+        };
     }
 
     private static RouteSearchBudget CreateRouteSearchBudget(RouteSuggestionRequest request)
@@ -174,7 +358,9 @@ public sealed class MapRouteService
             StartNodeId = request.StartNodeId,
             DestinationNodeId = request.DestinationNodeId,
             MovementType = request.MovementType,
+            LocomotiveType = request.LocomotiveType,
             MovementCapacity = request.MovementCapacity,
+            MovementUsed = request.MovementUsed,
             AverageFutureMovement = request.AverageFutureMovement,
             TraveledSegmentKeys = request.TraveledSegmentKeys,
             RailroadsRiddenThisTurn = request.RailroadsRiddenThisTurn,
@@ -617,30 +803,7 @@ public sealed class MapRouteService
 
         var continuation = FindCheapestSuggestionCore(
             context,
-            new RouteSuggestionRequest
-            {
-                PlayerId = request.PlayerId,
-                StartNodeId = currentTurnProgress.Value.EndpointNodeId,
-                DestinationNodeId = request.DestinationNodeId,
-                MovementType = request.MovementType,
-                MovementCapacity = 0,
-                AverageFutureMovement = request.AverageFutureMovement,
-                TraveledSegmentKeys = [.. augmentedTraveledSegmentKeys],
-                // The continuation starts next turn, so no railroads have been ridden in it yet.
-                PlayerColor = request.PlayerColor,
-                ResolveRailroadOwnership = request.ResolveRailroadOwnership,
-                ResolveRailroadFee = request.ResolveRailroadFee,
-                ResolveRailroadOwnerPlayerIndex = request.ResolveRailroadOwnerPlayerIndex,
-                ResolvePlayerCash = request.ResolvePlayerCash,
-                ResolvePlayerAccessibleDestinationPercent = request.ResolvePlayerAccessibleDestinationPercent,
-                ResolvePlayerMonopolyDestinationPercent = request.ResolvePlayerMonopolyDestinationPercent,
-                MaximumExploredStates = request.MaximumExploredStates,
-                MaximumSearchMilliseconds = request.MaximumSearchMilliseconds,
-                BonusOutAvailable = request.BonusOutAvailable,
-                CurrentWhiteDiceMovement = request.CurrentWhiteDiceMovement,
-                CurrentFixedBonusMovement = request.CurrentFixedBonusMovement,
-                BonusOutRequiresWhiteDiceArrival = request.BonusOutRequiresWhiteDiceArrival
-            },
+            CreateNextTurnRequest(request, currentTurnProgress.Value.EndpointNodeId, [.. augmentedTraveledSegmentKeys]),
             requireCurrentTurnContinuation: false,
             emitDebug: false,
             searchBudget);

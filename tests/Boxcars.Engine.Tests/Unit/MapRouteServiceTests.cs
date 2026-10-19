@@ -92,6 +92,56 @@ public class MapRouteServiceTests
     }
 
     [Fact]
+    public void FindCheapestSuggestion_SuperchiefWouldArriveStuckOnOpponent_SuggestsLayingUp()
+    {
+        // A --[RR1 Bob]--> B --[RR1 Bob]--> D            (go in now, arriving after the white dice: stuck on Bob's railroad)
+        // A --[RR2 public]--> P1 --[RR2 public]--> P2 --[RR1 Bob]--> D
+        // D --[RR1 Bob]--> E --[RR2 public]--> F          (D is served only by Bob)
+        var service = new MapRouteService();
+        var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase);
+        var dotLookup = new Dictionary<string, TrainDot>(StringComparer.OrdinalIgnoreCase);
+        string[] nodes = ["A", "B", "D", "P1", "P2", "E", "F"];
+        for (var index = 0; index < nodes.Length; index++)
+        {
+            adjacency[nodes[index]] = [];
+            dotLookup[nodes[index]] = CreateDot(nodes[index], 0, index);
+        }
+
+        foreach (var (from, to, railroadIndex) in new[] { ("A", "B", 1), ("B", "D", 1), ("A", "P1", 2), ("P1", "P2", 2), ("P2", "D", 1), ("D", "E", 1), ("E", "F", 2) })
+        {
+            AddEdge(adjacency, from, to, railroadIndex);
+            AddEdge(adjacency, to, from, railroadIndex);
+        }
+
+        // White 2+2 and red 1, with 3 dots already moved: the last 2 are past the white dice.
+        var suggestion = service.FindCheapestSuggestion(
+            new MapRouteContext { Adjacency = adjacency, DotLookup = dotLookup },
+            new RouteSuggestionRequest
+            {
+                PlayerId = "player-1",
+                StartNodeId = "A",
+                DestinationNodeId = "D",
+                MovementType = PlayerMovementType.ThreeDie,
+                LocomotiveType = Boxcars.Engine.Domain.LocomotiveType.Superchief,
+                MovementCapacity = 2,
+                MovementUsed = 3,
+                CurrentWhiteDiceMovement = 4,
+                CurrentFixedBonusMovement = 1,
+                BonusOutRequiresWhiteDiceArrival = true,
+                PlayerColor = "#000000",
+                ResolveRailroadOwnership = rr => rr == 1 ? RailroadOwnershipCategory.Unfriendly : RailroadOwnershipCategory.Public,
+                ResolveRailroadFee = rr => rr == 1 ? 5000 : 1000,
+                ResolveRailroadOwnerPlayerIndex = rr => rr == 1 ? 1 : null
+            });
+
+        // Next turn the white dice always reach D and the red die gets off Bob's railroad 5 times in 6.
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.True(suggestion.Approach?.LayUp);
+        Assert.Equal(["A", "P1", "P2", "D"], suggestion.NodeIds);
+        Assert.Equal(6000, suggestion.TotalCost);
+    }
+
+    [Fact]
     public void FindCheapestSuggestion_PrefersMoreDirectRouteWhenDetourOnlySavesOneThousand()
     {
         var service = new MapRouteService();
