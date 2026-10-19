@@ -676,6 +676,12 @@ public sealed class GamePresenceService : IDisposable
         return null;
     }
 
+    /// <summary>Tells open boards the game's record changed (e.g. a player's name or color), so they reload it.</summary>
+    public void NotifyGameMetadataChanged(string gameId)
+    {
+        NotifyPresenceChanged(gameId, metadataChanged: true);
+    }
+
     private void NotifyPresenceChanged(string gameId, bool metadataChanged = false)
     {
         var handlers = PresenceChanged;

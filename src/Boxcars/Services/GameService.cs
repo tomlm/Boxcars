@@ -1116,6 +1116,73 @@ public class GameService
         return gameIds;
     }
 
+    /// <summary>
+    /// Carries a player's new name and color into the seats of their games that are still going, which keep their own
+    /// copy from when the player joined. A color another seat in that game already uses is left alone there. Returns
+    /// the games that changed.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> ApplyProfileToSeatsAsync(string playerId, string? displayName, string? color, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(playerId))
+        {
+            return [];
+        }
+
+        var changedGameIds = new List<string>();
+        foreach (var activeGame in await GetActiveGamesForPlayerAsync(playerId, cancellationToken))
+        {
+            // Re-read just before saving, and try again once if someone else saved in between.
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var game = await GetGameAsync(activeGame.GameId, cancellationToken);
+                if (game is null)
+                {
+                    break;
+                }
+
+                var seats = game.Seats.ToList();
+                var changed = false;
+                for (var index = 0; index < seats.Count; index++)
+                {
+                    var seat = seats[index];
+                    if (!string.Equals(seat.PlayerUserId, playerId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var newDisplayName = string.IsNullOrWhiteSpace(displayName) ? seat.DisplayName : displayName.Trim();
+                    var colorTaken = seats.Any(other => other.SeatIndex != seat.SeatIndex
+                        && string.Equals(other.Color, color, StringComparison.OrdinalIgnoreCase));
+                    var newColor = string.IsNullOrWhiteSpace(color) || colorTaken ? seat.Color : color;
+                    if (!string.Equals(newDisplayName, seat.DisplayName, StringComparison.Ordinal)
+                        || !string.Equals(newColor, seat.Color, StringComparison.Ordinal))
+                    {
+                        seats[index] = seat with { DisplayName = newDisplayName, Color = newColor };
+                        changed = true;
+                    }
+                }
+
+                if (!changed)
+                {
+                    break;
+                }
+
+                game.Seats = seats;
+                try
+                {
+                    await _gamesTable.UpdateEntityAsync(game, game.ETag, TableUpdateMode.Merge, cancellationToken);
+                    changedGameIds.Add(game.GameId);
+                    break;
+                }
+                catch (RequestFailedException exception) when (exception.Status == 412)
+                {
+                }
+            }
+        }
+
+        return changedGameIds;
+    }
+
     private async Task<IReadOnlyList<GameEntity>> GetGamesForPlayerAsync(string playerId, CancellationToken cancellationToken)
     {
         var games = await GetAllGamesAsync(cancellationToken);

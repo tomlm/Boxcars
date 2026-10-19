@@ -8,6 +8,8 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject PlayerProfileService ProfileService
+@inject GameService GameService
+@inject GamePresenceService GamePresenceService
 @inject NavigationManager Navigation
 
 <PageTitle>Preferences - BoxCars</PageTitle>
@@ -279,6 +281,21 @@ CancellationToken.None);
                 }
 
                 _profile.StrategyText = strategyText;
+            }
+
+            if (nicknameChanged || preferredColorChanged)
+            {
+                // The player's games keep their own copy of the name and color; bring the unfinished ones up to date.
+                var seatColor = PlayerColorOptions.NormalizeOrDefault(preferredColor, string.Empty);
+                var changedGameIds = await GameService.ApplyProfileToSeatsAsync(
+                    currentUserId,
+                    nicknameChanged ? nickname : null,
+                    preferredColorChanged && !string.IsNullOrWhiteSpace(seatColor) ? seatColor : null,
+                    CancellationToken.None);
+                foreach (var gameId in changedGameIds)
+                {
+                    GamePresenceService.NotifyGameMetadataChanged(gameId);
+                }
             }
 
             originalNickname = nickname;
