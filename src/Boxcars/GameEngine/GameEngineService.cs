@@ -287,6 +287,27 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return snapshot;
     }
 
+    public async Task<RouteSuggestionResult> SuggestRouteAsync(
+        string gameId,
+        int playerIndex,
+        string? destinationNodeId,
+        IReadOnlyCollection<int> playersNotToRover,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateGameId(gameId);
+        await _mapReady.Task.WaitAsync(cancellationToken);
+        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
+        var gameEngine = await GetOrCreateGameEngineAsync(gameId, cancellationToken);
+
+        // Plan on a copy: the live engine belongs to the action queue, and planning can take a while.
+        var snapshot = gameEngine.ToSnapshot();
+        var options = new RouteSuggestionOptions { DestinationNodeId = destinationNodeId, PlayersNotToRover = playersNotToRover };
+        return await Task.Run(
+            () => EngineRouteSuggestion.Suggest(RestoreGameEngine(gameEntity, snapshot, gameEngine.Settings), playerIndex, options),
+            cancellationToken);
+    }
+
     public async Task SynchronizeStateAsync(string gameId, RailBaronGameState state, CancellationToken cancellationToken = default)
     {
         ValidateGameId(gameId);
@@ -2549,37 +2570,10 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return false;
         }
 
-        var cheapestRoute = routeService.FindCheapestSuggestion(
-            routeContext,
-            new RouteSuggestionRequest
-            {
-                PlayerId = activePlayer.Name,
-                StartNodeId = currentNodeId,
-                DestinationNodeId = homeNodeId,
-                MovementType = activePlayer.LocomotiveType == LocomotiveType.Superchief ? PlayerMovementType.ThreeDie : PlayerMovementType.TwoDie,
-                MovementCapacity = activePlayer.LocomotiveType == LocomotiveType.Superchief ? 3 : 2,
-                PlayerColor = string.Empty,
-                ResolveRailroadOwnership = railroadIndex => ResolveRailroadOwnershipCategory(gameEngine, activePlayer, railroadIndex)
-            });
+        var cheapestRoute = gameEngine.SuggestRouteForPlayer(activePlayer.Index, new RouteSuggestionOptions { DestinationNodeId = homeNodeId });
 
-        return cheapestRoute.Status == RouteSuggestionStatus.Success
+        return cheapestRoute.Segments.Count > 0
             && activePlayer.Cash - cheapestRoute.TotalCost >= gameEngine.Settings.WinningCash;
-    }
-
-    private static RailroadOwnershipCategory ResolveRailroadOwnershipCategory(
-        RailBaronGameEngine gameEngine,
-        Player activePlayer,
-        int railroadIndex)
-    {
-        var railroad = gameEngine.Railroads.FirstOrDefault(candidate => candidate.Index == railroadIndex);
-        if (railroad?.Owner is null)
-        {
-            return RailroadOwnershipCategory.Public;
-        }
-
-        return railroad.Owner == activePlayer
-            ? RailroadOwnershipCategory.Friendly
-            : RailroadOwnershipCategory.Unfriendly;
     }
 
     private static string? TryGetCityNodeId(MapDefinition mapDefinition, CityDefinition city)

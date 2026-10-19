@@ -13,62 +13,6 @@ public enum RailroadOwnershipCategory
     Unfriendly
 }
 
-public sealed class RouteSuggestionRequest
-{
-    public required string PlayerId { get; init; }
-    public required string StartNodeId { get; init; }
-    public required string DestinationNodeId { get; init; }
-    public required PlayerMovementType MovementType { get; init; }
-
-    /// <summary>The player's locomotive, which decides the bonus dice; null when unknown.</summary>
-    public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; init; }
-
-    public int MovementCapacity { get; init; }
-
-    /// <summary>Dots already moved this turn.</summary>
-    public int MovementUsed { get; init; }
-
-    /// <summary>What the trip pays on arrival; with <see cref="TripStartNodeId"/> it sets what a turn is worth.</summary>
-    public int? TripPayout { get; init; }
-
-    /// <summary>Where the trip started.</summary>
-    public string? TripStartNodeId { get; init; }
-    public double AverageFutureMovement { get; init; }
-    public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
-    /// <summary>
-    /// Railroads the player has already ridden this turn. Their fee groups are already owed, so riding them again
-    /// before the turn ends (e.g. moving on after arriving with bonus movement) adds no fee.
-    /// </summary>
-    public IReadOnlyCollection<int> RailroadsRiddenThisTurn { get; init; } = [];
-    public required string PlayerColor { get; init; }
-    public required Func<int, RailroadOwnershipCategory> ResolveRailroadOwnership { get; init; }
-    public Func<int, int>? ResolveRailroadFee { get; init; }
-    public Func<int, int?>? ResolveRailroadOwnerPlayerIndex { get; init; }
-    public Func<int, int>? ResolvePlayerCash { get; init; }
-    public Func<int, double>? ResolvePlayerAccessibleDestinationPercent { get; init; }
-    public Func<int, double>? ResolvePlayerMonopolyDestinationPercent { get; init; }
-    public int MaximumExploredStates { get; init; }
-    public int MaximumSearchMilliseconds { get; init; }
-    public bool BonusOutAvailable { get; init; }
-    public int CurrentWhiteDiceMovement { get; init; }
-    public int CurrentFixedBonusMovement { get; init; }
-    public bool BonusOutRequiresWhiteDiceArrival { get; init; }
-    public IReadOnlyList<string> DeclaredPlayerRouteNodeIds { get; init; } = [];
-    public string? DeclaredPlayerCurrentNodeId { get; init; }
-}
-
-public sealed class RouteSuggestionOutlook
-{
-    public int ArrivalCost { get; init; }
-    public int ExitCost { get; init; }
-    public int CombinedCost { get; init; }
-    public int WorstCaseExitCost { get; init; }
-    public int WorstCaseCombinedCost { get; init; }
-    public double ExpectedExitCost { get; init; }
-    public double ExpectedCombinedCost { get; init; }
-    public double BonusOutProbability { get; init; }
-}
-
 public enum RouteSuggestionStatus
 {
     Success,
@@ -97,10 +41,12 @@ public sealed class RouteSuggestionResult
     public List<RouteSuggestionSegment> Segments { get; init; } = [];
     public int TotalTurns { get; init; }
     public int TotalCost { get; init; }
-    public RouteSuggestionOutlook Outlook { get; init; } = new();
 
     /// <summary>The go-in-or-lay-up comparison for this turn's move; null when it wasn't made.</summary>
     public Boxcars.Engine.Domain.DestinationApproachDecision? Approach { get; init; }
+
+    /// <summary>When this turn's move reaches a destination only opponents serve: whether a bonus gets off.</summary>
+    public Boxcars.Engine.Domain.ArrivalBonus ArrivalBonus { get; init; }
 }
 
 public enum RouteSuggestionHighlightType

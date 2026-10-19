@@ -19,6 +19,10 @@
                 else
                 {
                     <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+                    @if (ArrivalBonusLabel is { } arrivalBonusLabel)
+                    {
+                        <MudText Typo="Typo.body2" Color="@ArrivalBonusColor">@arrivalBonusLabel</MudText>
+                    }
                     <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
                 }
             }
@@ -54,6 +58,10 @@ else
             else
             {
                 <MudText Typo="Typo.body2">Roll: @FormatRoll(State)</MudText>
+                @if (ArrivalBonusLabel is { } arrivalBonusLabel)
+                {
+                    <MudText Typo="Typo.body2" Color="@ArrivalBonusColor">@arrivalBonusLabel</MudText>
+                }
                 <MudText Typo="Typo.body2">Move: @GetMovesTaken(State)/@State.MovementAllowance</MudText>
             }
         }
@@ -82,6 +90,19 @@ else
     /// <summary>The go-in-or-lay-up comparison behind the suggested route, if one was made.</summary>
     [Parameter]
     public Boxcars.Engine.Domain.DestinationApproachDecision? Approach { get; set; }
+
+    /// <summary>When the suggested move reaches a destination only opponents serve: whether a bonus gets off.</summary>
+    [Parameter]
+    public Boxcars.Engine.Domain.ArrivalBonus ArrivalBonus { get; set; }
+
+    private string? ArrivalBonusLabel => ArrivalBonus switch
+    {
+        Boxcars.Engine.Domain.ArrivalBonus.GetsOff => "[BONUS OUT]",
+        Boxcars.Engine.Domain.ArrivalBonus.Possible => "[BONUS]",
+        _ => null
+    };
+
+    private Color ArrivalBonusColor => ArrivalBonus == Boxcars.Engine.Domain.ArrivalBonus.GetsOff ? Color.Success : Color.Info;
 
     private string? LayUpSummary => Approach is { LayUp: true, ExpectedLayUpFees: double layUpFees } approach
         ? $"Lay up: {FormatCurrency((int)Math.Round(layUpFees))} vs {FormatCurrency((int)Math.Round(approach.ExpectedGoFees))} going in"

@@ -169,27 +169,9 @@ else
                               SelectionMode="@_selectionMode" PlayerId="@CurrentMapPlayerId" PlayerColor="@CurrentMapPlayerColor"
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
                               CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
-                              LocomotiveType="@CurrentLocomotiveType"
-                              TripPayout="@CurrentTripPayout"
-                              TripStartCityName="@CurrentTripStartCityName"
                               MovementType="@CurrentMovementType"
-                              AverageFutureMovement="@CurrentAverageFutureMovement"
-                              PublicFee="@CurrentSuggestionPublicFee"
-                              PrivateFee="@CurrentSuggestionPrivateFee"
-                              UnfriendlyFee="@CurrentSuggestionUnfriendlyFee"
-                              GrandfatheredRailroadFees="@CurrentSuggestionGrandfatheredFees"
-                              BonusOutAvailable="@CurrentSuggestionBonusOutAvailable"
-                              RailroadsRiddenThisTurn="@CurrentRailroadsRiddenThisTurn"
-                              CurrentWhiteDiceMovement="@CurrentSuggestionWhiteDiceMovement"
-                              CurrentFixedBonusMovement="@CurrentSuggestionFixedBonusMovement"
-                              BonusOutRequiresWhiteDiceArrival="@CurrentSuggestionBonusOutRequiresWhiteDiceArrival"
-                              DeclaredPlayerRouteNodeIds="@DeclaredPlayerRouteNodeIds"
-                              DeclaredPlayerCurrentNodeId="@DeclaredPlayerCurrentNodeId"
-                              RailroadOwnerPlayerIndices="@RailroadOwnerPlayerIndices"
-                              PlayerCashByPlayerIndex="@PlayerCashByPlayerIndex"
-                              PlayerAccessibleDestinationPercentByPlayerIndex="@PlayerAccessibleDestinationPercentByPlayerIndex"
-                              PlayerMonopolyDestinationPercentByPlayerIndex="@PlayerMonopolyDestinationPercentByPlayerIndex"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+                              RouteSuggestionProvider="@SuggestActivePlayerRouteAsync"
                               PlayerOwnedRailroadIndices="@ActivePlayerOwnedRailroadIndices"
                               OtherOwnedRailroadIndices="@OtherOwnedRailroadIndices"
                               RailroadOwnerColors="@RailroadOwnerColors"
@@ -320,7 +302,7 @@ else
                         {
                             @if (!ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
                             { 
-                                <MovementStatusPanel State="@_turnViewState" Approach="@CurrentRouteApproach" />
+                                <MovementStatusPanel State="@_turnViewState" Approach="@CurrentRouteApproach" ArrivalBonus="@CurrentRouteArrivalBonus" />
                             }
 
                             @if (ShouldShowHomeCityChoicePanel)
@@ -388,7 +370,7 @@ else
                             {
                                 <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mx-auto">
                                     <MudPaper Outlined="true" Elevation="4" Class="d-flex align-center gap-4 pa-2 rounded-lg">
-                                        <MovementStatusPanel State="@_turnViewState" UsePaper="false" Approach="@CurrentRouteApproach" />
+                                        <MovementStatusPanel State="@_turnViewState" UsePaper="false" Approach="@CurrentRouteApproach" ArrivalBonus="@CurrentRouteArrivalBonus" />
                                         <MudButton Variant="Variant.Filled"
                                                    Color="MudBlazor.Color.Primary"
                                                    Disabled="@(!CanCommitMoveAction)"
@@ -454,6 +436,7 @@ else
     private bool _startingReplayGame;
     private GameSettingsSummaryModel _gameSettingsSummary = GameSettingsSummaryModel.Empty;
     private Boxcars.Engine.Domain.DestinationApproachDecision? _routeApproach;
+    private Boxcars.Engine.Domain.ArrivalBonus _routeArrivalBonus;
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
     private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
@@ -1512,6 +1495,7 @@ else
     {
         ReportRouteSuggestionFailure(suggestion);
         _routeApproach = suggestion.Approach;
+        _routeArrivalBonus = suggestion.ArrivalBonus;
 
         if (ShouldApplyAutoZoom() && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
         {
@@ -2611,61 +2595,37 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private int CurrentTurnMovementRemaining => Math.Max(0, _gameState?.Turn.MovementRemaining ?? 0);
 
-    private int CurrentSuggestionPublicFee => _game is null
-        ? Boxcars.Engine.Persistence.GameSettings.Default.PublicFee
-        : GameSettingsResolver.Resolve(_game).Settings.PublicFee;
-
-    private int CurrentSuggestionPrivateFee => _game is null
-        ? Boxcars.Engine.Persistence.GameSettings.Default.PrivateFee
-        : GameSettingsResolver.Resolve(_game).Settings.PrivateFee;
-
-    private int CurrentSuggestionUnfriendlyFee => _game is null
-        ? Boxcars.Engine.Domain.GameEngine.GetUnfriendlyFee(Boxcars.Engine.Persistence.GameSettings.Default, false)
-        : GameEngine.GetUnfriendlyFee(GameSettingsResolver.Resolve(_game).Settings, _gameState?.AllRailroadsSold == true);
-
-    private IReadOnlyDictionary<int, int> CurrentSuggestionGrandfatheredFees => _gameState is not null
-        && _gameState.ActivePlayerIndex >= 0
-        && _gameState.ActivePlayerIndex < _gameState.Players.Count
-            ? _gameState.Players[_gameState.ActivePlayerIndex].GrandfatheredRailroadFees
-                .ToDictionary(fee => fee.RailroadIndex, fee => fee.FeeAmount)
-            : new Dictionary<int, int>();
-
-    private bool CurrentSuggestionBonusOutAvailable => _turnViewState.BonusRollAvailable;
-
-    private IReadOnlyCollection<int> CurrentRailroadsRiddenThisTurn => _gameState?.Turn.RailroadsRiddenThisTurn ?? [];
-
-    private int CurrentSuggestionWhiteDiceMovement => Math.Max(0, _turnViewState.WhiteDieOne + _turnViewState.WhiteDieTwo);
-
-    private int CurrentSuggestionFixedBonusMovement => CurrentMovementType == PlayerMovementType.ThreeDie
-        ? Math.Max(0, _turnViewState.RedDie ?? 0)
-        : 0;
-
-    private bool CurrentSuggestionBonusOutRequiresWhiteDiceArrival => CurrentMovementType == PlayerMovementType.ThreeDie
-        && CurrentSuggestionFixedBonusMovement > 0
-        && CurrentSuggestionWhiteDiceMovement > 0;
-
-    private int? DeclaredPlayerIndexToRover
+    /// <summary>
+    /// The engine's route for the active player to a destination node: the same planner the bots use. Their own
+    /// destination gets the full plan (rovering a declared opponent, laying up); a city picked from the map is just a
+    /// route there.
+    /// </summary>
+    private async Task<RouteSuggestionResult?> SuggestActivePlayerRouteAsync(string destinationNodeId)
     {
-        get
+        if (_gameState is null
+            || _gameState.ActivePlayerIndex < 0
+            || _gameState.ActivePlayerIndex >= _gameState.Players.Count)
         {
-            if (_gameState is null)
-            {
-                return null;
-            }
+            return null;
+        }
 
-            for (var i = 0; i < _gameState.Players.Count; i++)
-            {
-                if (i == _gameState.ActivePlayerIndex || IsActivePlayerSameOwner(i))
-                {
-                    continue;
-                }
+        var activePlayerIndex = _gameState.ActivePlayerIndex;
+        var destinationCityName = _gameState.Players[activePlayerIndex].DestinationCityName;
+        var ownDestinationNodeId = _gameMap?.RouteCityOptions.FirstOrDefault(option =>
+            string.Equals(option.CityName, destinationCityName, StringComparison.OrdinalIgnoreCase)).NodeId;
+        var destinationOverride = string.Equals(ownDestinationNodeId, destinationNodeId, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : destinationNodeId;
+        // Don't send a player to rover their own seat.
+        var playersNotToRover = Enumerable.Range(0, _gameState.Players.Count).Where(IsActivePlayerSameOwner).ToList();
 
-                if (_gameState.Players[i].HasDeclared)
-                {
-                    return i;
-                }
-            }
-
+        try
+        {
+            return await SharedGameEngine.SuggestRouteAsync(GameId, activePlayerIndex, destinationOverride, playersNotToRover, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException)
+        {
+            Logger.LogWarning(exception, "Route suggestion failed for game {GameId}", GameId);
             return null;
         }
     }
@@ -2678,82 +2638,20 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             && string.Equals(activeUserId, otherUserId, StringComparison.OrdinalIgnoreCase);
     }
 
-    private IReadOnlyList<string> DeclaredPlayerRouteNodeIds
-    {
-        get
-        {
-            if (DeclaredPlayerIndexToRover is not int idx)
-            {
-                return [];
-            }
-
-            var player = _gameState!.Players[idx];
-            return player.ActiveRoute is { NodeIds.Count: > 0 }
-                ? player.ActiveRoute.NodeIds
-                : [];
-        }
-    }
-
-    private string? DeclaredPlayerCurrentNodeId
-    {
-        get
-        {
-            if (DeclaredPlayerIndexToRover is not int idx)
-            {
-                return null;
-            }
-
-            var player = _gameState!.Players[idx];
-            return string.IsNullOrWhiteSpace(player.CurrentNodeId) ? null : player.CurrentNodeId;
-        }
-    }
-
-    private double CurrentAverageFutureMovement => _gameState is not null
-        && _gameState.ActivePlayerIndex >= 0
-        && _gameState.ActivePlayerIndex < _gameState.Players.Count
-            ? ResolveAverageFutureMovement(_gameState.Players[_gameState.ActivePlayerIndex].LocomotiveType)
-            : ResolveAverageFutureMovement("Freight");
-
     private bool IsPendingBonusMove => string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
         && _turnViewState.RedDie.HasValue
         && _turnViewState.WhiteDieOne <= 0
         && _turnViewState.WhiteDieTwo <= 0;
 
-    private static double ResolveAverageFutureMovement(string? locomotiveType)
-    {
-        return locomotiveType?.Trim() switch
-        {
-            "Express" => 7.6d,
-            "Superchief" => 10.5d,
-            _ => 7.0d
-        };
-    }
-
     /// <summary>The suggested route's lay-up comparison; it's about this turn's roll, so only while moving.</summary>
     private Boxcars.Engine.Domain.DestinationApproachDecision? CurrentRouteApproach =>
         string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase) ? _routeApproach : null;
 
-    private int? CurrentTripPayout => _gameState is not null
-        && _gameState.ActivePlayerIndex >= 0
-        && _gameState.ActivePlayerIndex < _gameState.Players.Count
-        && CalculateTripPayoff(_gameState.Players[_gameState.ActivePlayerIndex]) is > 0 and var payout
-            ? payout
-            : null;
-
-    private string? CurrentTripStartCityName => _gameState is not null
-        && _gameState.ActivePlayerIndex >= 0
-        && _gameState.ActivePlayerIndex < _gameState.Players.Count
-            ? _gameState.Players[_gameState.ActivePlayerIndex] is var player && !string.IsNullOrWhiteSpace(player.TripStartCityName)
-                ? player.TripStartCityName
-                : player.CurrentCityName
-            : null;
-
-    private LocomotiveType? CurrentLocomotiveType => _gameState is not null
-        && _gameState.ActivePlayerIndex >= 0
-        && _gameState.ActivePlayerIndex < _gameState.Players.Count
-        && Enum.TryParse<LocomotiveType>(_gameState.Players[_gameState.ActivePlayerIndex].LocomotiveType, ignoreCase: true, out var locomotiveType)
-            ? locomotiveType
-            : null;
+    /// <summary>Whether a bonus gets the suggested move off an opponent-served destination; only while moving.</summary>
+    private Boxcars.Engine.Domain.ArrivalBonus CurrentRouteArrivalBonus =>
+        string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
+            ? _routeArrivalBonus
+            : Boxcars.Engine.Domain.ArrivalBonus.None;
 
     private PlayerMovementType CurrentMovementType => _turnViewState.RedDie.HasValue && (_turnViewState.WhiteDieOne > 0 || _turnViewState.WhiteDieTwo > 0)
         ? PlayerMovementType.ThreeDie
@@ -3092,35 +2990,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             .ToDictionary(
                 entry => entry.Key,
                 entry => _players[entry.Value!.Value].Color);
-
-    private IReadOnlyDictionary<int, int?> RailroadOwnerPlayerIndices => _gameState?.RailroadOwnership
-        ?? new Dictionary<int, int?>();
-
-    private IReadOnlyDictionary<int, int> PlayerCashByPlayerIndex => _gameState is null
-        ? new Dictionary<int, int>()
-        : _gameState.Players
-            .Select((player, index) => new { index, player.Cash })
-            .ToDictionary(entry => entry.index, entry => entry.Cash);
-
-    private IReadOnlyDictionary<int, double> PlayerAccessibleDestinationPercentByPlayerIndex => _gameState is null || _playerBoardMapDefinition is null
-        ? new Dictionary<int, double>()
-        : _gameState.Players
-            .Select((player, index) => new
-            {
-                index,
-                Snapshot = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, player.OwnedRailroadIndices)
-            })
-            .ToDictionary(entry => entry.index, entry => (double)entry.Snapshot.AccessibleDestinationPercent);
-
-    private IReadOnlyDictionary<int, double> PlayerMonopolyDestinationPercentByPlayerIndex => _gameState is null || _playerBoardMapDefinition is null
-        ? new Dictionary<int, double>()
-        : _gameState.Players
-            .Select((player, index) => new
-            {
-                index,
-                Snapshot = NetworkCoverageService.BuildSnapshot(_playerBoardMapDefinition, player.OwnedRailroadIndices)
-            })
-            .ToDictionary(entry => entry.index, entry => (double)entry.Snapshot.MonopolyDestinationPercent);
 
     private IReadOnlyCollection<int> SelectableRailroadIndices => _selectionMode == MapSelectionMode.Rail && _playerBoardMapDefinition is not null
         ? _playerBoardMapDefinition.Railroads.Select(railroad => railroad.Index).ToArray()

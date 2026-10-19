@@ -15,6 +15,18 @@ public interface IGameEngine
 
     Task SynchronizeStateAsync(string gameId, RailBaronGameState state, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The engine's suggested route for a player from where they are now: the same advice a bot follows. Plans to
+    /// <paramref name="destinationNodeId"/> when given, otherwise to their destination (or a declared opponent to
+    /// rover, unless they're in <paramref name="playersNotToRover"/>).
+    /// </summary>
+    Task<Boxcars.Data.Maps.RouteSuggestionResult> SuggestRouteAsync(
+        string gameId,
+        int playerIndex,
+        string? destinationNodeId,
+        IReadOnlyCollection<int> playersNotToRover,
+        CancellationToken cancellationToken = default);
+
     bool IsGameBusy(string gameId);
 
     ValueTask EnqueueActionAsync(string gameId, PlayerAction action, CancellationToken cancellationToken = default);

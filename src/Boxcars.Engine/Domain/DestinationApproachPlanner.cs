@@ -438,6 +438,25 @@ public static class DestinationApproachPlanner
         }
     }
 
+    /// <summary>The chance a turn's roll moves exactly <paramref name="dots"/>, counting any extra die as movement.</summary>
+    public static double ChanceOfRolling(LocomotiveType locomotiveType, int dots)
+    {
+        var chances = RollTotalChances[locomotiveType];
+        return dots >= 0 && dots < chances.Length ? chances[dots] : 0d;
+    }
+
+    private static readonly Dictionary<LocomotiveType, double[]> RollTotalChances = Enum.GetValues<LocomotiveType>()
+        .ToDictionary(locomotiveType => locomotiveType, locomotiveType =>
+        {
+            var chances = new double[19];
+            foreach (var roll in EnumerateRolls(locomotiveType))
+            {
+                chances[roll.White + (roll.ExtraDie ?? 0)] += roll.Probability;
+            }
+
+            return chances;
+        });
+
     internal readonly record struct Roll(double Probability, int White, int? ExtraDie);
 
     private readonly record struct NextTurnOutcome(double ExpectedFees, double ExpectedTurns, double ArriveProbability, double BonusOutProbability);

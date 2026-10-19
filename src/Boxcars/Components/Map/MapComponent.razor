@@ -445,72 +445,17 @@
     [Parameter]
     public int CurrentTurnMovementAllowance { get; set; }
 
-    /// <summary>The active player's locomotive, which decides their bonus dice.</summary>
-    [Parameter]
-    public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; set; }
-
-    /// <summary>What the active player's trip pays, which sets what a turn is worth when weighing a lay-up.</summary>
-    [Parameter]
-    public int? TripPayout { get; set; }
-
-    /// <summary>The city the active player's trip started from.</summary>
-    [Parameter]
-    public string? TripStartCityName { get; set; }
-
     [Parameter]
     public bool IsCurrentUserActivePlayer { get; set; }
 
+    /// <summary>
+    /// The engine's suggested route for the active player to a destination node: the same planner the bots use.
+    /// </summary>
+    [Parameter]
+    public Func<string, Task<RouteSuggestionResult?>>? RouteSuggestionProvider { get; set; }
+
     [Parameter]
     public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;
-
-    [Parameter]
-    public double AverageFutureMovement { get; set; }
-
-    [Parameter]
-    public int PublicFee { get; set; } = 1000;
-
-    [Parameter]
-    public int PrivateFee { get; set; } = 1000;
-
-    [Parameter]
-    public int UnfriendlyFee { get; set; } = 5000;
-
-    [Parameter]
-    public IReadOnlyDictionary<int, int>? GrandfatheredRailroadFees { get; set; }
-
-    [Parameter]
-    public bool BonusOutAvailable { get; set; }
-
-    [Parameter]
-    public int CurrentWhiteDiceMovement { get; set; }
-
-    [Parameter]
-    public int CurrentFixedBonusMovement { get; set; }
-
-    [Parameter]
-    public bool BonusOutRequiresWhiteDiceArrival { get; set; }
-
-    /// <summary>Railroads the active player has already ridden this turn; their fees are already owed.</summary>
-    [Parameter]
-    public IReadOnlyCollection<int> RailroadsRiddenThisTurn { get; set; } = [];
-
-    [Parameter]
-    public IReadOnlyList<string> DeclaredPlayerRouteNodeIds { get; set; } = [];
-
-    [Parameter]
-    public string? DeclaredPlayerCurrentNodeId { get; set; }
-
-    [Parameter]
-    public IReadOnlyDictionary<int, int?>? RailroadOwnerPlayerIndices { get; set; }
-
-    [Parameter]
-    public IReadOnlyDictionary<int, int>? PlayerCashByPlayerIndex { get; set; }
-
-    [Parameter]
-    public IReadOnlyDictionary<int, double>? PlayerAccessibleDestinationPercentByPlayerIndex { get; set; }
-
-    [Parameter]
-    public IReadOnlyDictionary<int, double>? PlayerMonopolyDestinationPercentByPlayerIndex { get; set; }
 
     [Parameter]
     public IReadOnlyCollection<int>? PlayerOwnedRailroadIndices { get; set; }
@@ -1861,58 +1806,22 @@
 
     private async Task RecalculateRouteSuggestionAsync(bool applySuggestionToSelection = true, bool notifySuggestionChange = true)
     {
-        if (_routeContext is null || string.IsNullOrWhiteSpace(_destinationNodeId))
+        if (_routeContext is null || RouteSuggestionProvider is null || string.IsNullOrWhiteSpace(_destinationNodeId))
         {
-            Logger.LogWarning("[MapComponent] RecalculateRoute skip: context={HasContext} dest={Dest}", _routeContext is not null, _destinationNodeId ?? "(null)");
+            Logger.LogWarning("[MapComponent] RecalculateRoute skip: context={HasContext} provider={HasProvider} dest={Dest}", _routeContext is not null, RouteSuggestionProvider is not null, _destinationNodeId ?? "(null)");
             return;
         }
 
-        var startNodeId = ResolveCurrentPlayerNodeId();
-        if (string.IsNullOrWhiteSpace(startNodeId))
-        {
-            Logger.LogWarning("[MapComponent] RecalculateRoute skip: no startNodeId");
-            return;
-        }
-
-        var movementCapacity = ResolveEffectiveMovementCapacity();
-        var traveledKeys = GetActivePlayerTraveledSegmentKeys();
-        Logger.LogWarning("[MapComponent] RecalculateRoute FindCheapestSuggestion start={Start} dest={Dest} capacity={Capacity} movementType={Type} avgFuture={AvgFuture} traveledSegments={TraveledCount} whiteDice={White} redDie={Red} bonusOut={BonusOut}",
-            startNodeId, _destinationNodeId, movementCapacity, MovementType, AverageFutureMovement, traveledKeys.Count, CurrentWhiteDiceMovement, CurrentFixedBonusMovement, BonusOutAvailable);
-
+        Logger.LogWarning("[MapComponent] RecalculateRoute SuggestRoute dest={Dest}", _destinationNodeId);
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var suggestion = MapRouteService.FindCheapestSuggestion(
-            _routeContext,
-            new RouteSuggestionRequest
-            {
-                PlayerId = string.IsNullOrWhiteSpace(PlayerId) ? "mock-player" : PlayerId,
-                StartNodeId = startNodeId,
-                DestinationNodeId = _destinationNodeId,
-                MovementType = MovementType,
-                LocomotiveType = LocomotiveType,
-                TripPayout = TripPayout,
-                TripStartNodeId = _routeCityOptions.FirstOrDefault(option =>
-                    string.Equals(option.CityName, TripStartCityName, StringComparison.OrdinalIgnoreCase)).NodeId,
-                MovementCapacity = movementCapacity,
-                MovementUsed = Math.Max(0, CurrentTurnMovementAllowance - CurrentTurnMovementRemaining),
-                AverageFutureMovement = AverageFutureMovement,
-                TraveledSegmentKeys = GetActivePlayerTraveledSegmentKeys(),
-                RailroadsRiddenThisTurn = RailroadsRiddenThisTurn,
-                PlayerColor = PlayerColor,
-                ResolveRailroadOwnership = ResolveRailroadOwnershipCategory,
-                ResolveRailroadFee = ResolveRailroadFee,
-                ResolveRailroadOwnerPlayerIndex = ResolveRailroadOwnerPlayerIndex,
-                ResolvePlayerCash = ResolvePlayerCash,
-                ResolvePlayerAccessibleDestinationPercent = ResolvePlayerAccessibleDestinationPercent,
-                ResolvePlayerMonopolyDestinationPercent = ResolvePlayerMonopolyDestinationPercent,
-                BonusOutAvailable = BonusOutAvailable,
-                CurrentWhiteDiceMovement = CurrentWhiteDiceMovement,
-                CurrentFixedBonusMovement = CurrentFixedBonusMovement,
-                BonusOutRequiresWhiteDiceArrival = BonusOutRequiresWhiteDiceArrival,
-                DeclaredPlayerRouteNodeIds = DeclaredPlayerRouteNodeIds,
-                DeclaredPlayerCurrentNodeId = DeclaredPlayerCurrentNodeId
-            });
+        var suggestion = await RouteSuggestionProvider(_destinationNodeId);
+        if (suggestion is null)
+        {
+            return;
+        }
+
         sw.Stop();
-        Logger.LogWarning("[MapComponent] RecalculateRoute FindCheapestSuggestion done in {ElapsedMs}ms status={Status} segments={Segments} message={Message}",
+        Logger.LogWarning("[MapComponent] RecalculateRoute SuggestRoute done in {ElapsedMs}ms status={Status} segments={Segments} message={Message}",
             sw.ElapsedMilliseconds, suggestion.Status, suggestion.Segments.Count, suggestion.Message ?? "(none)");
 
         _routeSuggestion = suggestion;
@@ -1989,54 +1898,6 @@
                 _projectedOwnedRailroadIndices.Add(segment.RailroadIndex);
             }
         }
-    }
-
-    private int ResolveRailroadFee(int railroadIndex)
-    {
-        if (GrandfatheredRailroadFees is not null
-            && GrandfatheredRailroadFees.TryGetValue(railroadIndex, out var grandfatheredFee))
-        {
-            return grandfatheredFee;
-        }
-
-        return ResolveRailroadOwnershipCategory(railroadIndex) switch
-        {
-            RailroadOwnershipCategory.Friendly => PrivateFee,
-            RailroadOwnershipCategory.Unfriendly => UnfriendlyFee,
-            _ => PublicFee
-        };
-    }
-
-    private int? ResolveRailroadOwnerPlayerIndex(int railroadIndex)
-    {
-        return RailroadOwnerPlayerIndices is not null
-            && RailroadOwnerPlayerIndices.TryGetValue(railroadIndex, out var ownerPlayerIndex)
-                ? ownerPlayerIndex
-                : null;
-    }
-
-    private int ResolvePlayerCash(int playerIndex)
-    {
-        return PlayerCashByPlayerIndex is not null
-            && PlayerCashByPlayerIndex.TryGetValue(playerIndex, out var cash)
-                ? cash
-                : int.MaxValue;
-    }
-
-    private double ResolvePlayerAccessibleDestinationPercent(int playerIndex)
-    {
-        return PlayerAccessibleDestinationPercentByPlayerIndex is not null
-            && PlayerAccessibleDestinationPercentByPlayerIndex.TryGetValue(playerIndex, out var accessibleDestinationPercent)
-                ? accessibleDestinationPercent
-                : double.MaxValue;
-    }
-
-    private double ResolvePlayerMonopolyDestinationPercent(int playerIndex)
-    {
-        return PlayerMonopolyDestinationPercentByPlayerIndex is not null
-            && PlayerMonopolyDestinationPercentByPlayerIndex.TryGetValue(playerIndex, out var monopolyDestinationPercent)
-                ? monopolyDestinationPercent
-                : double.MaxValue;
     }
 
     private string ResolveCurrentPlayerNodeId()

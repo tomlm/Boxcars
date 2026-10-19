@@ -336,6 +336,11 @@ public class GameServiceTests
             throw new NotSupportedException();
         }
 
+        public Task<Boxcars.Data.Maps.RouteSuggestionResult> SuggestRouteAsync(string gameId, int playerIndex, string? destinationNodeId, IReadOnlyCollection<int> playersNotToRover, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
         public bool IsGameBusy(string gameId)
         {
             throw new NotSupportedException();

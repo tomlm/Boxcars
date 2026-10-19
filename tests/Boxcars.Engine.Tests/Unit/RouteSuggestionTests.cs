@@ -427,6 +427,14 @@ public class RouteSuggestionTests
         player.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
         player.TripOriginCity = player.CurrentCity;
 
+        // A known roll of 7 ends the turn one dot short on Owner One's RR2 either way. (Before the roll, the
+        // all-RR2 route is better: a roll of 8 or more gets there paying Owner One once.)
+        engine.CurrentTurn.ActivePlayer = player;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.DiceResult = new DiceResult([3, 4]);
+        engine.CurrentTurn.MovementAllowance = 7;
+        engine.CurrentTurn.MovementRemaining = 7;
+
         var route = engine.SuggestRouteForPlayer(player.Index);
 
         // Both routes run into a second turn and pay two $5,000 fees; the second pays them to different owners.
@@ -584,6 +592,178 @@ public class RouteSuggestionTests
         // Both are 3 dots in one turn and pay the public fee and Bob once each.
         Assert.Equal(["0:0", "0:4", "0:5", "0:3"], route.NodeIds);
         Assert.Equal(6000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_GetsOffAnOpponentsRailroadBeforeTheTurnEnds_RatherThanPayingThemAgain()
+    {
+        // 0 --[RR1 Bob]--> 1 --[RR1 Bob]--> 2 --[RR1 Bob]--> 4 --[RR2 public]--> 3      (4 dots)
+        //                  1 --[RR3 public]--> 5 --> 6 --> 7 --> 3                        (5 dots)
+        // With 2 to move, the short way ends the turn on Bob's railroad and pays him again next turn.
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 2), (1, 2, 4), (2, 4, 3), (3, 1, 5), (3, 5, 6), (3, 6, 7), (3, 7, 3)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        StartMove(engine, player, [1, 1]);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Bob and the public railroads this turn, the public railroads next turn: $7,000 rather than $11,000.
+        Assert.Equal([1, 3, 3, 3, 3], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(7000, route.TotalCost);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_StaysOnPublicTrackToTheLastDot_RatherThanALongStretchOfAnOpponents()
+    {
+        // 0 --[RR2 public]--> 10 --[RR1 Bob x6]--> 3            (7 dots, 6 of them Bob's)
+        // 0 --[RR2 public x7]--> 26 --[RR1 Bob]--> 3            (8 dots, 1 of them Bob's)
+        // Before the roll: a short roll ends the turn on the long stretch of Bob's railroad, paying him again.
+        var segments = new List<(int Railroad, int Start, int End)> { (2, 0, 10), (1, 15, 3), (2, 0, 20), (1, 26, 3), (2, 3, 9) };
+        segments.AddRange(Enumerable.Range(10, 5).Select(dot => (1, dot, dot + 1)));
+        segments.AddRange(Enumerable.Range(20, 6).Select(dot => (2, dot, dot + 1)));
+        var engine = CreateLineEngine(segments);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        Assert.Equal(["0:0", "0:20", "0:21", "0:22", "0:23", "0:24", "0:25", "0:26", "0:3"], route.NodeIds);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_OpponentHasDeclared_RoutesToRoverThem()
+    {
+        // 0 --> 1 --> 3 (Finish), and 1 --> 5 where a declared opponent sits.
+        var engine = CreateLineEngine([(2, 0, 1), (2, 1, 3), (2, 1, 5), (2, 3, 9)]);
+        var player = PlaceOnLine(engine);
+        var declared = engine.Players[1];
+        declared.HasDeclared = true;
+        declared.CurrentNodeId = "0:5";
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        Assert.Equal(["0:0", "0:1", "0:5"], route.NodeIds);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_DeclaredOpponentNotToRover_RoutesToTheDestination()
+    {
+        var engine = CreateLineEngine([(2, 0, 1), (2, 1, 3), (2, 1, 5), (2, 3, 9)]);
+        var player = PlaceOnLine(engine);
+        var declared = engine.Players[1];
+        declared.HasDeclared = true;
+        declared.CurrentNodeId = "0:5";
+
+        var route = engine.SuggestRouteForPlayer(player.Index, new RouteSuggestionOptions { PlayersNotToRover = [declared.Index] });
+
+        Assert.Equal(["0:0", "0:1", "0:3"], route.NodeIds);
+    }
+
+    [Fact]
+    public void SuggestRouteForPlayer_DestinationNodeId_RoutesThereInstead()
+    {
+        var engine = CreateLineEngine([(2, 0, 1), (2, 1, 3), (2, 1, 5), (2, 3, 9)]);
+        var player = PlaceOnLine(engine);
+
+        var route = engine.SuggestRouteForPlayer(player.Index, new RouteSuggestionOptions { DestinationNodeId = "0:5" });
+
+        Assert.Equal(["0:0", "0:1", "0:5"], route.NodeIds);
+    }
+
+    [Fact]
+    public void GetRouteSegmentCosts_MarksEachTurnsFirstDotAndTheFeesItAdds()
+    {
+        // 0 --[RR1 Bob]--> 1 --[RR2 public]--> 2 --[RR2]--> 4 --[RR1 Bob]--> 3, with 2 to move this turn.
+        var engine = CreateLineEngine([(1, 0, 1), (2, 1, 2), (2, 2, 4), (1, 4, 3), (2, 3, 9)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        StartMove(engine, player, [1, 1]);
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        var costs = engine.GetRouteSegmentCosts(player.Index, route);
+
+        Assert.Equal([true, false, true, false], costs.Select(cost => cost.StartsTurn).ToArray());
+        Assert.Equal([5000, 1000, 1000, 5000], costs.Select(cost => cost.FeePerTurn).ToArray());
+        Assert.Equal([5000, 1000, 1000, 5000], costs.Select(cost => cost.FeeAdded).ToArray());
+        Assert.Equal(route.TotalCost, costs.Sum(cost => cost.FeeAdded));
+    }
+
+    [Theory]
+    [InlineData(6, ArrivalBonus.GetsOff)]
+    [InlineData(1, ArrivalBonus.None)]
+    public void GetArrivalBonus_SuperchiefArrivingOnTheWhiteDice_GetsOffWhenTheRedDieReachesOtherTrack(int redDie, ArrivalBonus expected)
+    {
+        // 0 --[RR1 Bob]--> 1 --[RR1 Bob]--> 3 (Finish, served only by Bob) --[RR1 Bob]--> 6 --[RR1 Bob]--> 8 --[RR2 public]--> 7
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (1, 3, 6), (1, 6, 8), (2, 8, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        player.LocomotiveType = LocomotiveType.Superchief;
+        StartMove(engine, player, [2, 2], redDie);
+
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(expected, bonus);
+    }
+
+    [Fact]
+    public void GetArrivalBonus_SuperchiefArrivingPastTheWhiteDice_HasNoBonus()
+    {
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (1, 3, 6), (2, 6, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        player.LocomotiveType = LocomotiveType.Superchief;
+        StartMove(engine, player, [1, 1], 6);
+        engine.CurrentTurn.MovementRemaining = 6;
+
+        // Two dots already moved use up the white dice, so the red die is just more movement.
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(ArrivalBonus.None, bonus);
+    }
+
+    [Fact]
+    public void GetArrivalBonus_FreightWithABonusRollToCome_MightGetOff()
+    {
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (1, 3, 6), (2, 6, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        StartMove(engine, player, [1, 1]);
+        engine.CurrentTurn.BonusRollAvailable = true;
+
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(ArrivalBonus.Possible, bonus);
+    }
+
+    [Fact]
+    public void GetArrivalBonus_DestinationWithAPublicWayOut_NeedsNoBonus()
+    {
+        var engine = CreateLineEngine([(1, 0, 1), (1, 1, 3), (2, 3, 7)]);
+        AssignOwnership(engine, 1, engine.Players[1]);
+        var player = PlaceOnLine(engine);
+        player.LocomotiveType = LocomotiveType.Superchief;
+        StartMove(engine, player, [2, 2], 6);
+
+        var bonus = engine.GetArrivalBonus(player.Index, LineRoute((1, 0, 1), (1, 1, 3)));
+
+        Assert.Equal(ArrivalBonus.None, bonus);
+    }
+
+    private static Route LineRoute(params (int Railroad, int Start, int End)[] segments)
+    {
+        return new Route(
+            [$"0:{segments[0].Start}", .. segments.Select(segment => $"0:{segment.End}")],
+            [.. segments.Select(segment => new RouteSegment { FromNodeId = $"0:{segment.Start}", ToNodeId = $"0:{segment.End}", RailroadIndex = segment.Railroad })],
+            0);
+    }
+
+    private static void StartMove(Boxcars.Engine.Domain.GameEngine engine, Player player, int[] whiteDice, int? redDie = null)
+    {
+        engine.CurrentTurn.ActivePlayer = player;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.DiceResult = new DiceResult(whiteDice, redDie);
+        engine.CurrentTurn.MovementAllowance = whiteDice.Sum() + (redDie ?? 0);
+        engine.CurrentTurn.MovementRemaining = whiteDice.Sum() + (redDie ?? 0);
     }
 
     [Fact]
