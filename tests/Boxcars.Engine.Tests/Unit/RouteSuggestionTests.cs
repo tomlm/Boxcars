@@ -643,6 +643,7 @@ public class RouteSuggestionTests
         var route = engine.SuggestRouteForPlayer(player.Index);
 
         Assert.Equal(["0:0", "0:1", "0:5"], route.NodeIds);
+        Assert.Same(declared, engine.GetRoverTarget(player.Index, new RouteSuggestionOptions()));
     }
 
     [Fact]
@@ -654,9 +655,23 @@ public class RouteSuggestionTests
         declared.HasDeclared = true;
         declared.CurrentNodeId = "0:5";
 
-        var route = engine.SuggestRouteForPlayer(player.Index, new RouteSuggestionOptions { PlayersNotToRover = [declared.Index] });
+        var options = new RouteSuggestionOptions { PlayersNotToRover = [declared.Index] };
+        var route = engine.SuggestRouteForPlayer(player.Index, options);
 
         Assert.Equal(["0:0", "0:1", "0:3"], route.NodeIds);
+        Assert.Null(engine.GetRoverTarget(player.Index, options));
+    }
+
+    [Fact]
+    public void GetRoverTarget_WithADestinationOverride_IsNull()
+    {
+        var engine = CreateLineEngine([(2, 0, 1), (2, 1, 3), (2, 1, 5), (2, 3, 9)]);
+        var player = PlaceOnLine(engine);
+        var declared = engine.Players[1];
+        declared.HasDeclared = true;
+        declared.CurrentNodeId = "0:5";
+
+        Assert.Null(engine.GetRoverTarget(player.Index, new RouteSuggestionOptions { DestinationNodeId = "0:3" }));
     }
 
     [Fact]

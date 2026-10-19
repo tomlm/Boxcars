@@ -304,7 +304,7 @@ else
                         {
                             @if (!ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
                             { 
-                                <MovementStatusPanel State="@_turnViewState" Approach="@CurrentRouteApproach" ArrivalBonus="@CurrentRouteArrivalBonus" />
+                                <MovementStatusPanel State="@_turnViewState" Approach="@CurrentRouteApproach" ArrivalBonus="@CurrentRouteArrivalBonus" RoverTargetPlayerName="@CurrentRouteRoverTargetPlayerName" />
                             }
 
                             @if (ShouldShowHomeCityChoicePanel)
@@ -372,7 +372,7 @@ else
                             {
                                 <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mx-auto">
                                     <MudPaper Outlined="true" Elevation="4" Class="d-flex align-center gap-4 pa-2 rounded-lg">
-                                        <MovementStatusPanel State="@_turnViewState" UsePaper="false" Approach="@CurrentRouteApproach" ArrivalBonus="@CurrentRouteArrivalBonus" />
+                                        <MovementStatusPanel State="@_turnViewState" UsePaper="false" Approach="@CurrentRouteApproach" ArrivalBonus="@CurrentRouteArrivalBonus" RoverTargetPlayerName="@CurrentRouteRoverTargetPlayerName" />
                                         <MudButton Variant="Variant.Filled"
                                                    Color="MudBlazor.Color.Primary"
                                                    Disabled="@(!CanCommitMoveAction)"
@@ -439,6 +439,7 @@ else
     private GameSettingsSummaryModel _gameSettingsSummary = GameSettingsSummaryModel.Empty;
     private Boxcars.Engine.Domain.DestinationApproachDecision? _routeApproach;
     private Boxcars.Engine.Domain.ArrivalBonus _routeArrivalBonus;
+    private string? _routeRoverTargetPlayerName;
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
     private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
@@ -1526,6 +1527,7 @@ else
         ReportRouteSuggestionFailure(suggestion);
         _routeApproach = suggestion.Approach;
         _routeArrivalBonus = suggestion.ArrivalBonus;
+        _routeRoverTargetPlayerName = suggestion.RoverTargetPlayerName;
 
         if (ShouldApplyAutoZoom() && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
         {
@@ -2682,6 +2684,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase)
             ? _routeArrivalBonus
             : Boxcars.Engine.Domain.ArrivalBonus.None;
+
+    /// <summary>The declared opponent the suggested route chases to rover; only while moving.</summary>
+    private string? CurrentRouteRoverTargetPlayerName =>
+        string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase) ? _routeRoverTargetPlayerName : null;
 
     private PlayerMovementType CurrentMovementType => _turnViewState.RedDie.HasValue && (_turnViewState.WhiteDieOne > 0 || _turnViewState.WhiteDieTwo > 0)
         ? PlayerMovementType.ThreeDie
