@@ -3,6 +3,7 @@
 #r "nuget: Azure.Identity, 1.13.2"
 global using static CShellNet.Globals;
 using CShellNet;
+using System.Net.Http;
 using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
@@ -37,14 +38,33 @@ if (Args.Count != 1 || string.IsNullOrWhiteSpace(Args[0]))
 
 var gameId = Args[0].Trim().TrimEnd('/').Split('/')[^1];
 
-var setting = await Cmd($"az webapp config appsettings list -n {WebApp} -g {ResourceGroup} --query \"[?name=='{SettingName}'].value | [0]\" -o tsv").Execute();
-if (!setting.Success || string.IsNullOrWhiteSpace(setting.StandardOutput))
+// The output holds the app's settings, so it's only parsed, never shown. (A --query filter would need quoting that
+// doesn't survive the trip to az on Windows.)
+var settings = await Cmd($"az webapp config appsettings list -n {WebApp} -g {ResourceGroup} -o json").Execute();
+if (!settings.Success)
 {
-    error($"Couldn't read {SettingName} from {WebApp} (exit code {setting.ExitCode}). Run 'az login' and check you can manage {WebApp}.");
+    error($"Couldn't read {WebApp}'s settings (exit code {settings.ExitCode}): {settings.StandardError.Trim()}");
+    error($"Run 'az login' and check you can manage {WebApp}.");
     return 1;
 }
 
-var remoteSetting = setting.StandardOutput.Trim();
+string remoteSetting = null;
+using (var settingsJson = JsonDocument.Parse(settings.StandardOutput))
+{
+    foreach (var appSetting in settingsJson.RootElement.EnumerateArray())
+    {
+        if (appSetting.GetProperty("name").GetString() == SettingName)
+        {
+            remoteSetting = appSetting.GetProperty("value").GetString()?.Trim();
+        }
+    }
+}
+
+if (string.IsNullOrWhiteSpace(remoteSetting))
+{
+    error($"{WebApp} has no {SettingName} setting.");
+    return 1;
+}
 // The setting is either a connection string or, with a managed identity, the storage endpoint.
 var remote = remoteSetting.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
     ? new TableServiceClient(new Uri(remoteSetting), new DefaultAzureCredential())
