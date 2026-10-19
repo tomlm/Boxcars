@@ -177,6 +177,129 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal(2_000, suggestion.TotalCost);
     }
 
+    [Fact]
+    public void ApproachToChattanooga_GoesInOverPoopersLines_InsteadOfDetouringThroughChicago()
+    {
+        // Issue #95: thermous (Superchief) on its own UP in Wyoming, LA -> Chattanooga, rolled 6+1+(3). The way in
+        // ends with 11 dots of Pooper's track, which a short roll next turn pays for twice. The suggestion used to
+        // "lay up" on a 3-dot-longer route north through Chicago that only saved that risk at $1,000 a turn.
+        var (engine, player) = PlaceGame4184Player("6:8", "Los Angeles", "Chattanooga", whiteDice: [6, 1], redDie: 3,
+            usedSegments: ["7:43-7:68:24", "7:43-7:44:24", "7:33-7:44:24", "7:27-7:33:24", "7:26-7:27:24", "7:25-7:26:24", "7:24-7:25:24", "7:23-7:24:24", "6:61-7:23:24", "6:60-6:61:24", "6:58-6:60:24", "6:58-6:59:24", "6:28-6:59:24", "6:17-6:28:24", "6:14-6:17:24", "6:12-6:14:24", "6:12-6:8:24"]);
+        var chicago = FindCityNode(engine, "Chicago");
+
+        var route = engine.SuggestRoute();
+        var suggestion = SuggestForGame4184Player(engine, player, tripPayout: 23_500);
+        WriteRoute(engine, player, route);
+        WriteSuggestion(engine, suggestion);
+
+        Assert.NotEqual(true, engine.LastApproachDecision?.LayUp);
+        Assert.Equal(FindCityNode(engine, "Chattanooga"), route.NodeIds[^1]);
+        Assert.DoesNotContain(chicago, route.NodeIds);
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.NotEqual(true, suggestion.Approach?.LayUp);
+        Assert.DoesNotContain(chicago, suggestion.NodeIds);
+    }
+
+    [Fact]
+    public void TripToPhoenix_TakesTheUnionPacificThroughLasVegas_InsteadOfLayingUp()
+    {
+        // Issue #96: thermous (Superchief) on its own UP east of Kansas City, Chattanooga -> Phoenix, rolled
+        // 2+5+(2). Phoenix is 26 dots away, well beyond next turn, but the suggestion used to weigh a "lay-up" and
+        // sent the player through Minneapolis: once the shared search budget ran out, getting off Phoenix after the
+        // detour was priced at one fee instead of two.
+        var (engine, player) = PlaceGame4184Player("5:66", "Chattanooga", "Phoenix", whiteDice: [2, 5], redDie: 2,
+            usedSegments: ["2:42-4:15:8", "4:15-4:19:8", "4:19-4:21:8", "4:21-4:22:8", "4:22-4:36:26", "3:58-4:36:26", "3:56-3:58:26", "3:56-5:14:26", "5:14-5:16:26", "5:16-5:19:26", "5:19-5:20:26", "5:20-5:77:24", "5:66-5:77:24"]);
+        var lasVegas = FindCityNode(engine, "Las Vegas");
+
+        var route = engine.SuggestRoute();
+        var suggestion = SuggestForGame4184Player(engine, player, tripPayout: 19_000);
+        WriteRoute(engine, player, route);
+        WriteSuggestion(engine, suggestion);
+
+        Assert.False(engine.LastApproachDecision?.Evaluated ?? false);
+        Assert.Contains(lasVegas, route.NodeIds);
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.False(suggestion.Approach?.Evaluated ?? false);
+        Assert.Contains(lasVegas, suggestion.NodeIds);
+    }
+
+    // Railroad owners by index (player index) in game 4184179d, from issues #95 and #96 (all railroads sold).
+    private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
+
+    private static (Boxcars.Engine.Domain.GameEngine Engine, Player Player) PlaceGame4184Player(
+        string nodeId,
+        string tripStartCityName,
+        string destinationName,
+        int[] whiteDice,
+        int redDie,
+        IReadOnlyList<string> usedSegments)
+    {
+        var map = MapDefinition.Parse(File.ReadAllText(FindStandardMapPath())).Definition
+            ?? throw new InvalidOperationException("The standard map could not be parsed.");
+        var engine = new Boxcars.Engine.Domain.GameEngine(
+            map,
+            ["thermous", "Balenco", "Connecto", "Pooper"],
+            new FixedRandomProvider(),
+            GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false });
+        foreach (var railroad in engine.Railroads)
+        {
+            var owner = engine.Players[Game4184Owners[railroad.Index]];
+            railroad.Owner = owner;
+            owner.OwnedRailroads.Add(railroad);
+        }
+
+        typeof(Boxcars.Engine.Domain.GameEngine).GetProperty(nameof(engine.AllRailroadsSold))!.SetValue(engine, true);
+
+        var player = engine.Players[0];
+        player.LocomotiveType = LocomotiveType.Superchief;
+        player.CurrentNodeId = nodeId;
+        player.TripOriginCity = map.Cities.First(city => city.Name == tripStartCityName);
+        player.Destination = map.Cities.First(city => city.Name == destinationName);
+        foreach (var segmentKey in usedSegments)
+        {
+            var separator = segmentKey.LastIndexOf(':');
+            var nodes = segmentKey[..separator].Split('-');
+            player.UsedSegments.Add(new SegmentKey(nodes[0], nodes[1], int.Parse(segmentKey[(separator + 1)..])));
+        }
+
+        engine.CurrentTurn.ActivePlayer = player;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.DiceResult = new DiceResult(whiteDice, redDie);
+        engine.CurrentTurn.MovementAllowance = whiteDice.Sum() + redDie;
+        engine.CurrentTurn.MovementRemaining = whiteDice.Sum() + redDie;
+        return (engine, player);
+    }
+
+    /// <summary>The board's suggestion for the same position, asked for the way <c>MapComponent</c> does.</summary>
+    private static RouteSuggestionResult SuggestForGame4184Player(Boxcars.Engine.Domain.GameEngine engine, Player player, int tripPayout)
+    {
+        RailroadOwnershipCategory Ownership(int railroadIndex) => ResolveOwnership(engine, player, railroadIndex);
+        var dice = engine.CurrentTurn.DiceResult!;
+        var service = new MapRouteService();
+        return service.FindCheapestSuggestion(
+            service.BuildContext(engine.MapDefinition),
+            new RouteSuggestionRequest
+            {
+                PlayerId = player.Name,
+                StartNodeId = player.CurrentNodeId,
+                DestinationNodeId = FindCityNode(engine, player.Destination!.Name),
+                MovementType = PlayerMovementType.ThreeDie,
+                LocomotiveType = LocomotiveType.Superchief,
+                MovementCapacity = engine.CurrentTurn.MovementRemaining,
+                AverageFutureMovement = 10.5,
+                TraveledSegmentKeys = [.. player.UsedSegments.Select(segment => segment.ToString())],
+                TripPayout = tripPayout,
+                TripStartNodeId = FindCityNode(engine, player.TripOriginCity!.Name),
+                PlayerColor = "blue",
+                ResolveRailroadOwnership = Ownership,
+                ResolveRailroadFee = railroadIndex => Ownership(railroadIndex) == RailroadOwnershipCategory.Unfriendly ? 10_000 : 1_000,
+                ResolveRailroadOwnerPlayerIndex = railroadIndex => engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner?.Index,
+                CurrentWhiteDiceMovement = dice.WhiteDice.Sum(),
+                CurrentFixedBonusMovement = dice.RedDie ?? 0,
+                BonusOutRequiresWhiteDiceArrival = true
+            });
+    }
+
     private static RailroadOwnershipCategory ResolveOwnership(Boxcars.Engine.Domain.GameEngine engine, Player player, int railroadIndex)
     {
         var owner = engine.Railroads.First(railroad => railroad.Index == railroadIndex).Owner;

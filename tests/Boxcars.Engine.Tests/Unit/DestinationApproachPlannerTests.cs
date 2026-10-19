@@ -106,6 +106,61 @@ public class DestinationApproachPlannerTests
         Assert.Equal(decision.ExpectedGoFees, decision.ExpectedLayUpFees!.Value, precision: 2);
     }
 
+    [Theory]
+    [InlineData(3000, true)]
+    [InlineData(4000, false)]
+    public void TurnCost_IsWhatTheTripPaysPerTurn(int tripPayout, bool laysUp)
+    {
+        // The trip started 2 dots out, under a turn, so a turn is worth the whole payout. Laying up saves $3,167 in
+        // fees (5000 + 5000 vs 1000 + 5000 + 5000/6) for a second turn.
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, tripPayout: tripPayout);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.Equal(tripPayout, decision.TurnCost);
+        Assert.Equal(laysUp, decision.LayUp);
+    }
+
+    [Fact]
+    public void TurnCost_SpreadsTheTripsPayoutOverItsAverageTurns()
+    {
+        // 0 --pub--> ... --pub--> s14: the trip started 14 dots out, two average turns of 7.
+        var segments = new List<(string From, string To, int RailroadIndex)> { ("0", "n1", Bob), ("n1", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "D", Bob), ("D", "s1", Public) };
+        segments.AddRange(Enumerable.Range(1, 13).Select(index => ($"s{index}", $"s{index + 1}", Public)));
+        var request = CreateRequest(CreateGraph(segments), LocomotiveType.Superchief, goRoute: ["n1", "D"], movementRemaining: 2, whiteDiceTotal: 2, tripPayout: 14_000, tripStartNodeId: "s14");
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.Equal(7_000, decision.TurnCost);
+    }
+
+    [Fact]
+    public void DestinationMoreThanATurnAwayAfterThisMove_IsNotEvaluated()
+    {
+        // Ten dots of Bob's railroad with two to move leaves 8 for next turn, more than an average 7-dot turn.
+        var chain = Enumerable.Range(0, 10).Select(index => (index == 0 ? "0" : $"n{index}", index == 9 ? "D" : $"n{index + 1}", Bob)).ToList();
+        var graph = CreateGraph([.. chain, ("0", "p1", Public), ("p1", "p2", Public), ("p2", "D", Bob)]);
+        var tenDots = CreateRequest(graph, LocomotiveType.Freight, goRoute: [.. chain.Select(segment => segment.Item2)], movementRemaining: 2, whiteDiceTotal: 2);
+
+        Assert.False(DestinationApproachPlanner.Evaluate(tenDots).Evaluated);
+    }
+
+    [Fact]
+    public void LayUpMoreThanATurnFromTheDestination_IsNotConsidered()
+    {
+        // The only lay-up spot (p2) is 2 dots out; with 2-dot turns it's an approach, with 1-dot turns it's a detour.
+        // 0 --Bob--> n1 --Bob--> D  and  0 --pub--> p1 --pub--> p2 --pub--> p3 --Bob--> D
+        var graph = CreateGraph([("0", "n1", Bob), ("n1", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "p3", Public), ("p3", "D", Bob)]);
+
+        var twoDotTurns = DestinationApproachPlanner.Evaluate(CreateRequest(graph, LocomotiveType.Superchief, goRoute: ["n1", "D"], movementRemaining: 2, whiteDiceTotal: 2, averageMovementPerTurn: 2));
+        var oneDotTurns = DestinationApproachPlanner.Evaluate(CreateRequest(graph, LocomotiveType.Superchief, goRoute: ["n1", "D"], movementRemaining: 2, whiteDiceTotal: 2, averageMovementPerTurn: 1));
+
+        Assert.NotNull(twoDotTurns.ExpectedLayUpFees);
+        Assert.True(oneDotTurns.Evaluated);
+        Assert.Null(oneDotTurns.ExpectedLayUpFees);
+        Assert.False(oneDotTurns.LayUp);
+    }
+
     [Fact]
     public void BonusRollStillToCome_IsNotEvaluated()
     {
@@ -127,7 +182,8 @@ public class DestinationApproachPlannerTests
         int? redDie,
         int publicFee = 1000,
         int? bonusOutDots = 2,
-        bool bonusRollPending = false)
+        bool bonusRollPending = false,
+        int? tripPayout = null)
     {
         var graph = CreateGraph([("0", "n1", Bob), ("n1", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "D", Bob)]);
         return CreateRequest(
@@ -140,7 +196,9 @@ public class DestinationApproachPlannerTests
             movementUsed: movementUsed,
             publicFee: publicFee,
             bonusOutDots: bonusOutDots,
-            bonusRollPending: bonusRollPending);
+            bonusRollPending: bonusRollPending,
+            tripPayout: tripPayout,
+            tripStartNodeId: tripPayout is null ? null : "0");
     }
 
     private static DestinationApproachRequest CreateRequest(
@@ -154,7 +212,10 @@ public class DestinationApproachPlannerTests
         int publicFee = 1000,
         int exitCost = 5000,
         int? bonusOutDots = 2,
-        bool bonusRollPending = false)
+        bool bonusRollPending = false,
+        int? tripPayout = null,
+        string? tripStartNodeId = null,
+        int averageMovementPerTurn = 7)
     {
         return new DestinationApproachRequest
         {
@@ -172,12 +233,38 @@ public class DestinationApproachPlannerTests
             IsOpponentRailroad = railroadIndex => railroadIndex == Bob,
             ResolveFee = railroadIndex => railroadIndex == Bob ? (int)BobFee : publicFee,
             ResolveFeeGroupFlag = railroadIndex => 1L << railroadIndex,
-            FindContinuation = (fromNodeId, _) => graph[fromNodeId].Where(edge => edge.ToNodeId == "D").Take(1).ToList() is { Count: 1 } direct
-                ? direct
-                : null,
+            FindContinuation = (fromNodeId, usedSegmentKeys) => ShortestPath(graph, fromNodeId, "D", usedSegmentKeys),
             DestinationExitCost = railroadIndex => railroadIndex == Bob ? exitCost : 0,
-            MinimumBonusOutSegments = _ => bonusOutDots
+            MinimumBonusOutSegments = _ => bonusOutDots,
+            AverageMovementPerTurn = averageMovementPerTurn,
+            TripPayout = tripPayout,
+            TripStartNodeId = tripStartNodeId
         };
+    }
+
+    private static List<ApproachStep>? ShortestPath(Dictionary<string, List<ApproachStep>> graph, string fromNodeId, string toNodeId, IReadOnlyCollection<string> usedSegmentKeys)
+    {
+        var paths = new Dictionary<string, List<ApproachStep>>(StringComparer.OrdinalIgnoreCase) { [fromNodeId] = [] };
+        var queue = new Queue<string>([fromNodeId]);
+        while (queue.Count > 0)
+        {
+            var nodeId = queue.Dequeue();
+            if (nodeId == toNodeId)
+            {
+                return paths[nodeId];
+            }
+
+            foreach (var edge in graph.GetValueOrDefault(nodeId) ?? [])
+            {
+                if (!paths.ContainsKey(edge.ToNodeId) && !usedSegmentKeys.Contains(edge.SegmentKey))
+                {
+                    paths[edge.ToNodeId] = [.. paths[nodeId], edge];
+                    queue.Enqueue(edge.ToNodeId);
+                }
+            }
+        }
+
+        return null;
     }
 
     private static List<ApproachStep> Walk(Dictionary<string, List<ApproachStep>> graph, string fromNodeId, IReadOnlyList<string> nodeIds)

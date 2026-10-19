@@ -170,6 +170,8 @@ else
                               PlayerStates="@_mapPlayerStates" CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
                               CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
                               LocomotiveType="@CurrentLocomotiveType"
+                              TripPayout="@CurrentTripPayout"
+                              TripStartCityName="@CurrentTripStartCityName"
                               MovementType="@CurrentMovementType"
                               AverageFutureMovement="@CurrentAverageFutureMovement"
                               PublicFee="@CurrentSuggestionPublicFee"
@@ -2730,6 +2732,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     /// <summary>The suggested route's lay-up comparison; it's about this turn's roll, so only while moving.</summary>
     private Boxcars.Engine.Domain.DestinationApproachDecision? CurrentRouteApproach =>
         string.Equals(_turnViewState.TurnPhase, "Move", StringComparison.OrdinalIgnoreCase) ? _routeApproach : null;
+
+    private int? CurrentTripPayout => _gameState is not null
+        && _gameState.ActivePlayerIndex >= 0
+        && _gameState.ActivePlayerIndex < _gameState.Players.Count
+        && CalculateTripPayoff(_gameState.Players[_gameState.ActivePlayerIndex]) is > 0 and var payout
+            ? payout
+            : null;
+
+    private string? CurrentTripStartCityName => _gameState is not null
+        && _gameState.ActivePlayerIndex >= 0
+        && _gameState.ActivePlayerIndex < _gameState.Players.Count
+            ? _gameState.Players[_gameState.ActivePlayerIndex] is var player && !string.IsNullOrWhiteSpace(player.TripStartCityName)
+                ? player.TripStartCityName
+                : player.CurrentCityName
+            : null;
 
     private LocomotiveType? CurrentLocomotiveType => _gameState is not null
         && _gameState.ActivePlayerIndex >= 0

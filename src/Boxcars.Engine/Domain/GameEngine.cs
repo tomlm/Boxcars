@@ -656,7 +656,8 @@ public sealed class GameEngine : ObservableBase
             return continuation?.Segments.Select(segment => ToStep(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)).ToList();
         }
 
-        var stopwatch = Stopwatch.StartNew();
+        var exitCosts = new Dictionary<int, int>();
+        var bonusOutSegments = new Dictionary<int, int?>();
         var decision = DestinationApproachPlanner.Evaluate(new DestinationApproachRequest
         {
             StartNodeId = startNodeId,
@@ -679,16 +680,33 @@ public sealed class GameEngine : ObservableBase
                 ? RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad))
                 : 0,
             FindContinuation = FindContinuation,
+            // Each lookup gets its own time limit: sharing one let the continuation searches use it up, so options
+            // priced later saw no way off the destination.
             DestinationExitCost = railroadIndex =>
             {
-                var exitCost = CalculateDestinationExitCost(player, new RoutePlanningState(destNodeId, railroadIndex, 0), futureTurnMovementCapacity, stopwatch);
-                // No way off but the arrival railroad: that's one more fee to its owner.
-                return exitCost >= int.MaxValue / 8 && RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
-                    ? GetTraversalFee(player, railroad)
-                    : exitCost;
+                if (!exitCosts.TryGetValue(railroadIndex, out var exitCost))
+                {
+                    exitCost = CalculateDestinationExitCost(player, new RoutePlanningState(destNodeId, railroadIndex, 0), futureTurnMovementCapacity, Stopwatch.StartNew());
+                    // No way off but the arrival railroad: that's one more fee to its owner.
+                    exitCosts[railroadIndex] = exitCost = exitCost >= int.MaxValue / 8 && RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
+                        ? GetTraversalFee(player, railroad)
+                        : exitCost;
+                }
+
+                return exitCost;
             },
-            MinimumBonusOutSegments = railroadIndex => CalculateMinimumBonusOutSegments(player, new RoutePlanningState(destNodeId, railroadIndex, 0), stopwatch),
-            AverageMovementPerTurn = futureTurnMovementCapacity
+            MinimumBonusOutSegments = railroadIndex =>
+            {
+                if (!bonusOutSegments.TryGetValue(railroadIndex, out var segments))
+                {
+                    bonusOutSegments[railroadIndex] = segments = CalculateMinimumBonusOutSegments(player, new RoutePlanningState(destNodeId, railroadIndex, 0), Stopwatch.StartNew());
+                }
+
+                return segments;
+            },
+            AverageMovementPerTurn = futureTurnMovementCapacity,
+            TripPayout = GetTripPayout(player),
+            TripStartNodeId = player.TripOriginCity is null ? null : FindCityNodeId(player.TripOriginCity)
         });
 
         LastApproachDecision = decision;
@@ -2703,6 +2721,16 @@ public sealed class GameEngine : ObservableBase
     }
 
     private static string NodeKey(int regionIndex, int dotIndex) => $"{regionIndex}:{dotIndex}";
+
+    /// <summary>What the player's current trip pays on arrival, or null when it isn't known.</summary>
+    private int? GetTripPayout(Player player)
+    {
+        return player.TripOriginCity?.PayoutIndex is int originPayoutIndex
+            && player.Destination?.PayoutIndex is int destinationPayoutIndex
+            && MapDefinition.TryGetPayout(originPayoutIndex, destinationPayoutIndex, out var payout)
+                ? payout
+                : null;
+    }
 
     private string? FindCityNodeId(CityDefinition city)
     {

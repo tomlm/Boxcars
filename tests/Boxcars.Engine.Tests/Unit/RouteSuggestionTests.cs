@@ -596,6 +596,8 @@ public class RouteSuggestionTests
         AssignOwnership(engine, 1, engine.Players[1]);
         var player = PlaceOnLine(engine);
         player.LocomotiveType = LocomotiveType.Superchief;
+        // Without a trip, a turn costs the default $1,000. (This 2-dot trip's turn would be worth its whole payout.)
+        player.TripOriginCity = null;
 
         // White 2+2 and red 1, with 3 dots already moved: the last 2 are past the white dice.
         engine.CurrentTurn.Phase = TurnPhase.Move;
