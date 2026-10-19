@@ -19,6 +19,9 @@ public sealed class BotDecisionPromptBuilder
             "In Purchase, PhaseContext.PurchaseRecommendations and the 'Recommended:' tags on options name the best railroad in each category, all within the operating reserve: Blended (best overall), Access (reaches the most new destinations), Connectivity (links the player's networks), Monopoly (destinations only the player would reach), Strategy (denies the leading opponent the most access), LowPrice (cheapest that adds access), and TollBooth.",
             "TollBooth means that railroad is the only way left into an opponent's current destination: owning it forces that opponent to pay the player to arrive. Strongly prefer a TollBooth option over the other categories unless the player's strategy guidance says otherwise.",
             "In AuctionStrategy, choose the maximum bid ceiling the player should tolerate for this auction, not a one-turn action.",
+            "Auction prices rise as railroads sell out. While many are unsold, cash spent here can't buy one of them, so bids stay near the list price; once few or none are left, an auction is the only way to get more track, and experienced players often pay two to four times the list price.",
+            "That premium is a balance against the player's other agendas: saving for a Superchief, for a more important railroad still for sale, or to reach and keep the winning cash. Weigh them against this railroad's value to the player's network, what the other bidders can afford and would gain, and the player's strategy guidance.",
+            "PhaseContext.HeuristicEstimate is a simple formula's ceiling (usefulness times a scarcity premium, minus the reserve and PossibleAgendas). Use it as a reference point, not an answer: go above or below it when the situation calls for it.",
             $"Current phase: {context.Phase}.");
     }
 
@@ -150,6 +153,12 @@ public sealed class BotDecisionPromptBuilder
     {
         if (string.Equals(context.Phase, "AuctionStrategy", StringComparison.OrdinalIgnoreCase))
         {
+            var recommendedOption = context.LegalOptions.FirstOrDefault(option => option.IsPreferredFallback);
+            if (recommendedOption is not null)
+            {
+                return recommendedOption;
+            }
+
             var maximumBidOption = context.LegalOptions.FirstOrDefault(option =>
                 string.Equals(option.OptionType, "AuctionMaxBid", StringComparison.OrdinalIgnoreCase));
             if (maximumBidOption is not null)

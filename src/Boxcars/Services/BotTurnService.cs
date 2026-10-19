@@ -991,7 +991,8 @@ public sealed class BotTurnService
             return (playerState, cachedMaximumBid, "AuctionPlan", null);
         }
 
-        var legalOptions = BuildAuctionStrategyOptions(minimumBid, bidder.Cash);
+        var valuation = EvaluateAuction(gameEngine, mapDefinition, snapshot, bidderPlayerIndex, auctionState.RailroadIndex);
+        var legalOptions = BuildAuctionStrategyOptions(minimumBid, bidder.Cash, valuation.MaximumBid);
         var resolution = await ResolveDecisionAsync(
             gameId,
             playerStates,
@@ -1007,7 +1008,7 @@ public sealed class BotTurnService
                 playerSelections,
                 bidderPlayerIndex,
                 slotUserId,
-                BuildAuctionPhaseContext(gameEngine, snapshot.Turn.Auction!, minimumBid)),
+                BuildAuctionPhaseContext(gameEngine, snapshot.Turn.Auction!, minimumBid, valuation)),
             legalOptions,
             cancellationToken);
         if (resolution is null)
@@ -1473,18 +1474,27 @@ public sealed class BotTurnService
         return operatingReserve.Amount + pendingFeeAmount;
     }
 
-    private static List<BotLegalOption> BuildAuctionStrategyOptions(int minimumBid, int availableCash)
+    /// <summary>
+    /// Ceilings from the minimum bid up to the bidder's cash, plus dropping out. If the AI can't decide, the fallback is the
+    /// highest ceiling that doesn't go over the heuristic maximum bid, or dropping out when even the minimum bid is over it.
+    /// </summary>
+    internal static List<BotLegalOption> BuildAuctionStrategyOptions(int minimumBid, int availableCash, int recommendedMaximumBid)
     {
         var legalOptions = new List<BotLegalOption>();
+        int? recommendedCeiling = recommendedMaximumBid >= minimumBid && availableCash >= minimumBid
+            ? minimumBid + ((Math.Min(recommendedMaximumBid, availableCash) - minimumBid) / RailBaronGameEngine.AuctionBidIncrement * RailBaronGameEngine.AuctionBidIncrement)
+            : null;
 
         for (var maximumBid = minimumBid; maximumBid <= availableCash; maximumBid += RailBaronGameEngine.AuctionBidIncrement)
         {
+            var isRecommended = maximumBid == recommendedCeiling;
             legalOptions.Add(new BotLegalOption
             {
                 OptionId = BuildAuctionMaximumBidOptionId(maximumBid),
                 OptionType = AuctionMaxBidOptionType,
                 DisplayText = $"Stay in until the bid exceeds {maximumBid.ToString("C0", CultureInfo.InvariantCulture)}. Bid {minimumBid.ToString("C0", CultureInfo.InvariantCulture)} now.",
-                Payload = maximumBid.ToString(CultureInfo.InvariantCulture)
+                Payload = maximumBid.ToString(CultureInfo.InvariantCulture),
+                IsPreferredFallback = isRecommended
             });
         }
 
@@ -1493,10 +1503,92 @@ public sealed class BotTurnService
             OptionId = AuctionDropOutOptionId,
             OptionType = "AuctionDropOut",
             DisplayText = $"Drop out now instead of bidding {minimumBid.ToString("C0", CultureInfo.InvariantCulture)}.",
-            Payload = string.Empty
+            Payload = string.Empty,
+            IsPreferredFallback = recommendedCeiling is null
         });
 
         return legalOptions;
+    }
+
+    /// <summary>What the auctioned railroad is worth to the bidder; see <see cref="AuctionValuation"/>.</summary>
+    private AuctionBidValuation EvaluateAuction(
+        RailBaronGameEngine gameEngine,
+        MapDefinition mapDefinition,
+        global::Boxcars.Engine.Persistence.GameState snapshot,
+        int bidderPlayerIndex,
+        int railroadIndex)
+    {
+        var bidder = gameEngine.Players[bidderPlayerIndex];
+        var railroad = gameEngine.Railroads.First(candidate => candidate.Index == railroadIndex);
+        var ownedRailroadIndices = bidder.OwnedRailroads.Select(owned => owned.Index).ToArray();
+        var currentCoverage = _networkCoverageService.BuildSnapshot(mapDefinition, ownedRailroadIndices);
+        var projectedCoverage = _networkCoverageService.BuildProjectedSnapshot(mapDefinition, ownedRailroadIndices, railroadIndex);
+        var privateRailroads = gameEngine.Railroads.Where(candidate => !candidate.IsPublic).ToList();
+        var otherUnsoldRailroads = privateRailroads.Where(candidate => candidate.Owner is null && candidate.Index != railroadIndex).ToList();
+        var operatingReserve = OperatingCapitalService.CalculateOperatingReserve(mapDefinition, snapshot, bidderPlayerIndex, gameEngine.Settings);
+        var accessGain = projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent;
+        var monopolyGain = projectedCoverage.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent;
+
+        return AuctionValuation.Evaluate(
+            railroad.PurchasePrice,
+            accessGain,
+            monopolyGain,
+            otherUnsoldRailroads.Count,
+            privateRailroads.Count,
+            bidder.Cash,
+            operatingReserve.Amount,
+            BuildAuctionCashCommitments(gameEngine, mapDefinition, bidder, ownedRailroadIndices, currentCoverage, otherUnsoldRailroads, AuctionValuation.Usefulness(accessGain, monopolyGain)));
+    }
+
+    /// <summary>
+    /// What else the bidder is saving for, so an auction doesn't spend it: the winning cash once it has declared or
+    /// has enough to, a Superchief it hasn't bought yet, and a still-unsold railroad that would help it more than
+    /// this one.
+    /// </summary>
+    private List<AuctionCashCommitment> BuildAuctionCashCommitments(
+        RailBaronGameEngine gameEngine,
+        MapDefinition mapDefinition,
+        Player bidder,
+        int[] ownedRailroadIndices,
+        NetworkCoverageSnapshot currentCoverage,
+        IReadOnlyList<Railroad> otherUnsoldRailroads,
+        decimal auctionedUsefulness)
+    {
+        var commitments = new List<AuctionCashCommitment>();
+
+        if (bidder.HasDeclared || bidder.Cash >= gameEngine.Settings.WinningCash)
+        {
+            commitments.Add(new AuctionCashCommitment("to win the game", gameEngine.Settings.WinningCash));
+        }
+
+        if (bidder.LocomotiveType != LocomotiveType.Superchief)
+        {
+            var upgradeCost = RailBaronGameEngine.GetUpgradeCost(bidder.LocomotiveType, LocomotiveType.Superchief, gameEngine.Settings);
+            if (upgradeCost > 0)
+            {
+                commitments.Add(new AuctionCashCommitment("for a Superchief", upgradeCost));
+            }
+        }
+
+        var betterRailroad = otherUnsoldRailroads
+            .Select(candidate =>
+            {
+                var projected = _networkCoverageService.BuildProjectedSnapshot(mapDefinition, ownedRailroadIndices, candidate.Index);
+                return (Railroad: candidate, Usefulness: AuctionValuation.Usefulness(
+                    projected.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent,
+                    projected.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent));
+            })
+            .Where(candidate => candidate.Usefulness > auctionedUsefulness)
+            .OrderByDescending(candidate => candidate.Usefulness)
+            .ThenBy(candidate => candidate.Railroad.PurchasePrice)
+            .Select(candidate => candidate.Railroad)
+            .FirstOrDefault();
+        if (betterRailroad is not null)
+        {
+            commitments.Add(new AuctionCashCommitment($"for the {betterRailroad.Name}", betterRailroad.PurchasePrice));
+        }
+
+        return commitments;
     }
 
     private static string BuildAuctionMaximumBidOptionId(int maximumBid)
@@ -1601,7 +1693,8 @@ public sealed class BotTurnService
     private static object BuildAuctionPhaseContext(
         RailBaronGameEngine gameEngine,
         global::Boxcars.Engine.Persistence.AuctionTurnState auctionState,
-        int minimumBid)
+        int minimumBid,
+        AuctionBidValuation valuation)
     {
         return new
         {
@@ -1609,6 +1702,19 @@ public sealed class BotTurnService
             auctionState.CurrentBid,
             auctionState.StartingPrice,
             MinimumBid = minimumBid,
+            HeuristicEstimate = new
+            {
+                MaximumBid = valuation.MaximumBid,
+                ListPrice = gameEngine.Railroads.First(railroad => railroad.Index == auctionState.RailroadIndex).PurchasePrice,
+                valuation.Value,
+                valuation.AffordableCash,
+                valuation.Usefulness,
+                valuation.ScarcityPremium,
+                valuation.OtherUnsoldRailroadCount,
+                valuation.Reason
+            },
+            PossibleAgendas = valuation.Commitments.Select(commitment => new { commitment.Reason, commitment.Amount }).ToList(),
+            gameEngine.Settings.WinningCash,
             Seller = new
             {
                 auctionState.SellerPlayerIndex,

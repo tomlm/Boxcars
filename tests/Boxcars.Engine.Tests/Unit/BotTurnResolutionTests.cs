@@ -464,8 +464,10 @@ public class BotTurnResolutionTests
         var bidderIndex = engine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex;
         Assert.True(bidderIndex.HasValue);
 
+        // A Superchief with enough to bid and still keep the operating reserve.
         var bidder = engine.Players[bidderIndex!.Value];
-        bidder.Cash = railroad.PurchasePrice;
+        bidder.Cash = railroad.PurchasePrice * 3;
+        bidder.LocomotiveType = LocomotiveType.Superchief;
 
         var presenceService = new GamePresenceService();
         BotTurnServiceTestHarness.ConfigureDelegatedControl(
@@ -494,6 +496,60 @@ public class BotTurnResolutionTests
         Assert.Equal(engine.CurrentTurn.AuctionState!.StartingPrice, bidAction.AmountBid);
         Assert.NotNull(bidAction.BotMetadata);
         Assert.Equal("Fallback", bidAction.BotMetadata!.DecisionSource);
+    }
+
+    [Fact]
+    public async Task CreateBotActionAsync_AuctionWhenEveryOtherRailroadIsSold_FallbackCeilingIsAtLeastTwiceListPrice()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames, 3);
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+
+        var seller = engine.CurrentTurn.ActivePlayer;
+        var railroad = engine.Railroads[0];
+        foreach (var owned in engine.Railroads.Where(candidate => !candidate.IsPublic))
+        {
+            owned.Owner = seller;
+            seller.OwnedRailroads.Add(owned);
+        }
+
+        engine.AuctionRailroad(railroad);
+
+        var bidderIndex = engine.CurrentTurn.AuctionState?.CurrentBidderPlayerIndex;
+        Assert.True(bidderIndex.HasValue);
+        // A Superchief already, so it isn't saving for one.
+        engine.Players[bidderIndex!.Value].Cash = railroad.PurchasePrice * 10;
+        engine.Players[bidderIndex.Value].LocomotiveType = LocomotiveType.Superchief;
+
+        var presenceService = new GamePresenceService();
+        BotTurnServiceTestHarness.ConfigureDelegatedControl(
+            presenceService,
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId);
+
+        var botDefinition = BotTurnServiceTestHarness.CreateBotDefinition(
+            botDefinitionId: "bob@example.com",
+            name: "Bot Mode Strategy");
+        var service = BotTurnServiceTestHarness.CreateService(presenceService, botDefinition);
+        var playerStates = BotTurnServiceTestHarness.CreateBotControlledPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                "seller@example.com",
+                "bob@example.com",
+                "charlie@example.com"),
+            "bob@example.com",
+            BotTurnServiceTestHarness.ControllerUserId,
+            botDefinition.BotDefinitionId);
+
+        var bidAction = Assert.IsType<BidAction>(await service.CreateBotActionAsync(BotTurnServiceTestHarness.GameId, playerStates.Cast<GameSeatState>().ToList(), engine, GameEngineFixture.CreateTestMap(), CancellationToken.None));
+
+        Assert.Equal(engine.CurrentTurn.AuctionState!.StartingPrice, bidAction.AmountBid);
+        Assert.Equal("Fallback", bidAction.BotMetadata!.DecisionSource);
+        var cachedBotControl = Assert.Single(playerStates.Where(playerState =>
+            string.Equals(playerState.PlayerUserId, "bob@example.com", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(playerState.BotControlStatus, BotControlStatuses.Active, StringComparison.OrdinalIgnoreCase)
+            && playerState.BotControlClearedUtc is null));
+        Assert.True(
+            cachedBotControl.AuctionPlanMaximumBid >= railroad.PurchasePrice * 2,
+            $"Expected a ceiling of at least 2x the {railroad.PurchasePrice:C0} list price, got {cachedBotControl.AuctionPlanMaximumBid:C0}.");
     }
 
     [Fact]
