@@ -108,6 +108,8 @@ public sealed class MapRouteService
                 LocomotiveType = request.LocomotiveType,
                 MovementCapacity = request.MovementCapacity,
                 MovementUsed = request.MovementUsed,
+                TripPayout = request.TripPayout,
+                TripStartNodeId = request.TripStartNodeId,
                 AverageFutureMovement = request.AverageFutureMovement,
                 TraveledSegmentKeys = request.TraveledSegmentKeys,
                 RailroadsRiddenThisTurn = request.RailroadsRiddenThisTurn,
@@ -154,6 +156,8 @@ public sealed class MapRouteService
     /// </summary>
     private RouteSuggestionResult ApplyDestinationApproach(MapRouteContext context, RouteSuggestionRequest request, RouteSuggestionResult suggestion)
     {
+        static RouteSearchBudget CreateExitBudget() => new(int.MaxValue, TimeSpan.FromSeconds(1));
+
         if (request.LocomotiveType is not LocomotiveType locomotiveType || request.MovementCapacity <= 0)
         {
             return suggestion;
@@ -182,7 +186,8 @@ public sealed class MapRouteService
             return ToApproachSteps(continuation.Segments);
         }
 
-        var exitBudget = new RouteSearchBudget(int.MaxValue, TimeSpan.FromSeconds(1));
+        var exitCosts = new Dictionary<int, int>();
+        var bonusOutSegments = new Dictionary<int, int?>();
         var decision = DestinationApproachPlanner.Evaluate(new DestinationApproachRequest
         {
             StartNodeId = request.StartNodeId,
@@ -203,20 +208,37 @@ public sealed class MapRouteService
             ResolveFee = railroadIndex => ResolveRailroadFee(request, railroadIndex, request.ResolveRailroadOwnership(railroadIndex)),
             ResolveFeeGroupFlag = railroadIndex => ResolveFeeGroupFlag(request, railroadIndex),
             FindContinuation = FindContinuation,
+            // Each lookup gets its own budget: sharing one let the continuation searches use it up, so options priced
+            // later saw no way off the destination.
             DestinationExitCost = railroadIndex =>
             {
-                var exitCost = CalculateDestinationExitCost(context, request, new RouteSuggestionState(request.DestinationNodeId, railroadIndex, 0), exitBudget);
-                // No way off but the arrival railroad: that's one more fee to its owner.
-                return exitCost >= int.MaxValue / 8
-                    ? ResolveRailroadFee(request, railroadIndex, request.ResolveRailroadOwnership(railroadIndex))
-                    : exitCost;
+                if (!exitCosts.TryGetValue(railroadIndex, out var exitCost))
+                {
+                    exitCost = CalculateDestinationExitCost(context, request, new RouteSuggestionState(request.DestinationNodeId, railroadIndex, 0), CreateExitBudget());
+                    // No way off but the arrival railroad: that's one more fee to its owner.
+                    exitCosts[railroadIndex] = exitCost = exitCost >= int.MaxValue / 8
+                        ? ResolveRailroadFee(request, railroadIndex, request.ResolveRailroadOwnership(railroadIndex))
+                        : exitCost;
+                }
+
+                return exitCost;
             },
-            MinimumBonusOutSegments = railroadIndex => CalculateMinimumBonusOutSegments(
-                context,
-                request,
-                new RouteSuggestionState(request.DestinationNodeId, railroadIndex, 0),
-                exitBudget),
-            AverageMovementPerTurn = futureTurnMovementCapacity
+            MinimumBonusOutSegments = railroadIndex =>
+            {
+                if (!bonusOutSegments.TryGetValue(railroadIndex, out var segments))
+                {
+                    bonusOutSegments[railroadIndex] = segments = CalculateMinimumBonusOutSegments(
+                        context,
+                        request,
+                        new RouteSuggestionState(request.DestinationNodeId, railroadIndex, 0),
+                        CreateExitBudget());
+                }
+
+                return segments;
+            },
+            AverageMovementPerTurn = futureTurnMovementCapacity,
+            TripPayout = request.TripPayout,
+            TripStartNodeId = request.TripStartNodeId
         });
 
         if (!decision.Evaluated)
@@ -361,6 +383,8 @@ public sealed class MapRouteService
             LocomotiveType = request.LocomotiveType,
             MovementCapacity = request.MovementCapacity,
             MovementUsed = request.MovementUsed,
+            TripPayout = request.TripPayout,
+            TripStartNodeId = request.TripStartNodeId,
             AverageFutureMovement = request.AverageFutureMovement,
             TraveledSegmentKeys = request.TraveledSegmentKeys,
             RailroadsRiddenThisTurn = request.RailroadsRiddenThisTurn,

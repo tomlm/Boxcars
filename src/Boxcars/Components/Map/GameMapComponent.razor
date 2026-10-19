@@ -25,6 +25,8 @@
 				  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
 				  CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
 				  LocomotiveType="@LocomotiveType"
+				  TripPayout="@TripPayout"
+				  TripStartCityName="@TripStartCityName"
 				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
 				  MovementType="@MovementType"
 				  AverageFutureMovement="@AverageFutureMovement"
@@ -135,6 +137,12 @@
 
 	[Parameter]
 	public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; set; }
+
+	[Parameter]
+	public int? TripPayout { get; set; }
+
+	[Parameter]
+	public string? TripStartCityName { get; set; }
 
 	[Parameter]
 	public bool IsCurrentUserActivePlayer { get; set; }

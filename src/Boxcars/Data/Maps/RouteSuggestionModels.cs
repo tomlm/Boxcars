@@ -27,6 +27,12 @@ public sealed class RouteSuggestionRequest
 
     /// <summary>Dots already moved this turn.</summary>
     public int MovementUsed { get; init; }
+
+    /// <summary>What the trip pays on arrival; with <see cref="TripStartNodeId"/> it sets what a turn is worth.</summary>
+    public int? TripPayout { get; init; }
+
+    /// <summary>Where the trip started.</summary>
+    public string? TripStartNodeId { get; init; }
     public double AverageFutureMovement { get; init; }
     public IReadOnlyList<string> TraveledSegmentKeys { get; init; } = [];
     /// <summary>

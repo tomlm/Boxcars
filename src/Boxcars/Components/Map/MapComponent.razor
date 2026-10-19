@@ -449,6 +449,14 @@
     [Parameter]
     public Boxcars.Engine.Domain.LocomotiveType? LocomotiveType { get; set; }
 
+    /// <summary>What the active player's trip pays, which sets what a turn is worth when weighing a lay-up.</summary>
+    [Parameter]
+    public int? TripPayout { get; set; }
+
+    /// <summary>The city the active player's trip started from.</summary>
+    [Parameter]
+    public string? TripStartCityName { get; set; }
+
     [Parameter]
     public bool IsCurrentUserActivePlayer { get; set; }
 
@@ -1881,6 +1889,9 @@
                 DestinationNodeId = _destinationNodeId,
                 MovementType = MovementType,
                 LocomotiveType = LocomotiveType,
+                TripPayout = TripPayout,
+                TripStartNodeId = _routeCityOptions.FirstOrDefault(option =>
+                    string.Equals(option.CityName, TripStartCityName, StringComparison.OrdinalIgnoreCase)).NodeId,
                 MovementCapacity = movementCapacity,
                 MovementUsed = Math.Max(0, CurrentTurnMovementAllowance - CurrentTurnMovementRemaining),
                 AverageFutureMovement = AverageFutureMovement,

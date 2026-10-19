@@ -48,10 +48,23 @@ public sealed class DestinationApproachRequest
     /// <summary>Dots a bonus move needs to get off the destination after arriving on a railroad; null when it can't.</summary>
     public required Func<int, int?> MinimumBonusOutSegments { get; init; }
 
+    /// <summary>
+    /// Dots in an average turn. Only a destination this close after this turn's move is an approach worth laying up
+    /// for, and a lay-up has to stay this close.
+    /// </summary>
     public int AverageMovementPerTurn { get; init; } = 7;
 
-    /// <summary>What each turn spent reaching the destination is worth, weighed against fees.</summary>
+    /// <summary>
+    /// What each turn spent reaching the destination is worth, weighed against fees. Used when the trip's payout
+    /// isn't known; otherwise a turn is worth what the trip pays per average turn.
+    /// </summary>
     public int TurnCost { get; init; } = DestinationApproachPlanner.DefaultTurnCost;
+
+    /// <summary>The trip's payout, which with <see cref="TripStartNodeId"/> sets what a turn is worth.</summary>
+    public int? TripPayout { get; init; }
+
+    /// <summary>Where the trip started.</summary>
+    public string? TripStartNodeId { get; init; }
 
     public TimeSpan TimeBudget { get; init; } = TimeSpan.FromSeconds(1.5);
 }
@@ -77,6 +90,9 @@ public sealed class DestinationApproachDecision
     /// <summary>Expected turns to reach the destination after laying up, counting this one.</summary>
     public double? ExpectedLayUpTurns { get; init; }
 
+    /// <summary>What each turn was worth in the comparison.</summary>
+    public int TurnCost { get; init; }
+
     public string? LayUpNodeId { get; init; }
 
     /// <summary>This turn's move when laying up: exactly the roll.</summary>
@@ -96,8 +112,8 @@ public sealed class DestinationApproachDecision
 /// Near a destination reached over opponents' railroads, decides whether to go in now or lay up: spend this turn's
 /// roll on friendly or public track and approach next turn. Each option is scored by its expected fees, working
 /// through every roll for next turn: arriving and bonusing out off the opponent's railroad, arriving and paying to
-/// get out, or falling short on their railroad and paying them again. Each turn spent getting there adds
-/// <see cref="DestinationApproachRequest.TurnCost"/>, so laying up has to save more than the turn it usually costs.
+/// get out, or falling short on their railroad and paying them again. Each turn spent getting there costs what the
+/// trip pays per turn, so laying up has to save more than the turn it usually costs.
 /// </summary>
 public static class DestinationApproachPlanner
 {
@@ -117,9 +133,9 @@ public static class DestinationApproachPlanner
             return DestinationApproachDecision.NotEvaluated;
         }
 
-        // Only an approach that next turn's roll can finish is worth laying up for.
-        var maximumNextTurnMovement = request.LocomotiveType == LocomotiveType.Superchief ? 18 : 12;
-        if (goRoute.Count > movement + maximumNextTurnMovement)
+        // Only an approach that an average roll next turn finishes is worth laying up for.
+        var turnLength = Math.Max(1, request.AverageMovementPerTurn);
+        if (goRoute.Count - movement > turnLength)
         {
             return DestinationApproachDecision.NotEvaluated;
         }
@@ -131,10 +147,12 @@ public static class DestinationApproachPlanner
         }
 
         var stopwatch = Stopwatch.StartNew();
+        var distances = DistancesFrom(request, request.DestinationNodeId);
+        var turnCost = ResolveTurnCost(request, distances);
         var go = EvaluateGo(request);
 
         LayUpOption? best = null;
-        foreach (var walk in FindLayUpWalks(request))
+        foreach (var walk in FindLayUpWalks(request, distances))
         {
             if (stopwatch.Elapsed >= request.TimeBudget)
             {
@@ -143,7 +161,8 @@ public static class DestinationApproachPlanner
 
             var walkSegmentKeys = walk.Select(step => step.SegmentKey).ToList();
             var continuation = request.FindContinuation(walk[^1].ToNodeId, walkSegmentKeys);
-            if (continuation is null || continuation.Count == 0)
+            // A lay-up waits within a turn of the destination; anything further is just a different route.
+            if (continuation is null || continuation.Count == 0 || continuation.Count > turnLength)
             {
                 continue;
             }
@@ -156,7 +175,7 @@ public static class DestinationApproachPlanner
                 1 + nextTurn.ExpectedTurns,
                 nextTurn.ArriveProbability,
                 nextTurn.BonusOutProbability);
-            if (best is null || Score(request, layUp.ExpectedFees, layUp.ExpectedTurns) < Score(request, best.ExpectedFees, best.ExpectedTurns))
+            if (best is null || Score(turnCost, layUp.ExpectedFees, layUp.ExpectedTurns) < Score(turnCost, best.ExpectedFees, best.ExpectedTurns))
             {
                 best = layUp;
             }
@@ -166,11 +185,12 @@ public static class DestinationApproachPlanner
         {
             Evaluated = true,
             LayUp = best is not null
-                && Score(request, best.ExpectedFees, best.ExpectedTurns) < Score(request, go.ExpectedFees, go.ExpectedTurns) - MinimumSaving,
+                && Score(turnCost, best.ExpectedFees, best.ExpectedTurns) < Score(turnCost, go.ExpectedFees, go.ExpectedTurns) - MinimumSaving,
             ExpectedGoFees = go.ExpectedFees,
             ExpectedGoTurns = go.ExpectedTurns,
             ExpectedLayUpFees = best?.ExpectedFees,
             ExpectedLayUpTurns = best?.ExpectedTurns,
+            TurnCost = turnCost,
             LayUpNodeId = best?.Walk[^1].ToNodeId,
             LayUpSteps = best?.Walk ?? [],
             ContinuationSteps = best?.Continuation ?? [],
@@ -179,9 +199,27 @@ public static class DestinationApproachPlanner
         };
     }
 
-    private static double Score(DestinationApproachRequest request, double expectedFees, double expectedTurns)
+    private static double Score(int turnCost, double expectedFees, double expectedTurns)
     {
-        return expectedFees + request.TurnCost * expectedTurns;
+        return expectedFees + turnCost * expectedTurns;
+    }
+
+    /// <summary>
+    /// The trip's payout spread over the average turns its shortest way takes (at least one), or
+    /// <see cref="DestinationApproachRequest.TurnCost"/> when the trip isn't known.
+    /// </summary>
+    private static int ResolveTurnCost(DestinationApproachRequest request, Dictionary<string, int> distances)
+    {
+        if (request.TripPayout is not int payout
+            || payout <= 0
+            || request.TripStartNodeId is null
+            || !distances.TryGetValue(request.TripStartNodeId, out var tripDots))
+        {
+            return request.TurnCost;
+        }
+
+        var turnLength = Math.Max(1, request.AverageMovementPerTurn);
+        return (int)Math.Round((double)payout * turnLength / Math.Max(turnLength, tripDots));
     }
 
     private static (double ExpectedFees, double ExpectedTurns) EvaluateGo(DestinationApproachRequest request)
@@ -302,7 +340,7 @@ public static class DestinationApproachPlanner
     /// Ways to spend exactly this turn's roll on friendly or public track without reaching the destination or riding
     /// track twice, one per lay-up spot, nearest the destination first.
     /// </summary>
-    private static List<IReadOnlyList<ApproachStep>> FindLayUpWalks(DestinationApproachRequest request)
+    private static List<IReadOnlyList<ApproachStep>> FindLayUpWalks(DestinationApproachRequest request, Dictionary<string, int> distances)
     {
         var layer = new Dictionary<(string NodeId, int RailroadIndex), List<ApproachStep>>
         {
@@ -338,7 +376,6 @@ public static class DestinationApproachPlanner
             return [];
         }
 
-        var distances = DistancesFrom(request, request.DestinationNodeId);
         return layer.Values
             .Where(walk => walk.Count == request.MovementRemaining)
             .GroupBy(walk => walk[^1].ToNodeId, StringComparer.OrdinalIgnoreCase)
