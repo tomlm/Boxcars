@@ -18,7 +18,7 @@ public sealed record GameSettings
     public int UnfriendlyFee2 { get; init; } = 10_000;
     public bool HomeSwapping { get; init; } = true;
     public bool HomeCityChoice { get; init; } = true;
-    public bool KeepCashSecret { get; init; } = true;
+    public bool KeepCashSecret { get; init; }
     public LocomotiveType StartEngine { get; init; } = LocomotiveType.Freight;
     public int SuperchiefPrice { get; init; } = 40_000;
     public int ExpressPrice { get; init; } = 4_000;
