@@ -74,16 +74,7 @@ else
                         Choose your preferred color:
                     </MudText>
 
-                    <MudChipSet T="string" @bind-SelectedValue="CurrentInput.PreferredColor" 
-                        SelectionMode="SelectionMode.SingleSelection"
-                        CheckMark>
-                        @foreach (var color in PlayerColorOptions.Colors)
-                        {
-                            <MudChip T="string" Value="@color" Style="@GetColorChipStyle(color)">
-                                @PlayerColorOptions.ToLabel(color)
-                            </MudChip>
-                        }
-                    </MudChipSet>
+                    <Boxcars.Components.Shared.PlayerColorPicker @bind-Value="CurrentInput.PreferredColor" />
 
                     <MudStack Row="true" Spacing="4" Style="margin-top: 0.5rem">
                         <MudButton ButtonType="MudBlazor.ButtonType.Submit" Variant="Variant.Filled"
@@ -353,24 +344,5 @@ CancellationToken.None);
         }
 
         return "/dashboard";
-    }
-
-    private static string GetColorChipStyle(string color)
-    {
-        var (bg, fg) = PlayerColorOptions.NormalizeOrDefault(color) switch
-        {
-            "darkblue" => ("#0b3d91", "#f8fbff"),
-            "blue" => ("#2563eb", "#f8fbff"),
-            "cyan" => ("#06b6d4", "#f8fbff"),
-            "red" => ("#dc2626", "#fff7f7"),
-            "darkred" => ("#7f1d1d", "#fff7f7"),
-            "orange" => ("#ea580c", "#fff7ed"),
-            "yellow" => ("#facc15", "#1f2937"),
-            "purple" => ("#9333ea", "#faf5ff"),
-            "green" => ("#16a34a", "#f7fff9"),
-            "darkgreen" => ("#166534", "#f7fff9"),
-            _ => ("#4b5563", "#fff")
-        };
-        return $"background: {bg}; color: {fg}; font-weight: 700; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 10px rgb(0 0 0 / 0.35)";
     }
 }

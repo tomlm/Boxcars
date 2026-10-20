@@ -1184,6 +1184,12 @@ public class GameService
         return changedGameIds;
     }
 
+    /// <summary>The games the player has a seat in that are still in the lobby or being played.</summary>
+    public Task<IReadOnlyList<GameEntity>> ListUnfinishedGamesForPlayerAsync(string playerId, CancellationToken cancellationToken)
+    {
+        return GetActiveGamesForPlayerAsync(playerId, cancellationToken);
+    }
+
     private async Task<IReadOnlyList<GameEntity>> GetGamesForPlayerAsync(string playerId, CancellationToken cancellationToken)
     {
         var games = await GetAllGamesAsync(cancellationToken);
