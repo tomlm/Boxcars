@@ -174,12 +174,21 @@ public class PlayerProfileService
         }
     }
 
+    private const string GeneratedThumbnailUrlPrefix = "https://robohash.org/";
+
+    /// <summary>Whether a picture is the stand-in generated for an account that hasn't set one.</summary>
+    public static bool IsGeneratedThumbnailUrl(string? thumbnailUrl)
+    {
+        return string.IsNullOrWhiteSpace(thumbnailUrl)
+            || thumbnailUrl.StartsWith(GeneratedThumbnailUrlPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static ApplicationUser MapProfile(ApplicationUser user)
     {
         user.RowKey = NormalizeUserId(user.RowKey);
         if (string.IsNullOrWhiteSpace(user.ThumbnailUrl))
         {
-            user.ThumbnailUrl = $"https://robohash.org/{Uri.EscapeDataString(user.Name)}?set=set6";
+            user.ThumbnailUrl = $"{GeneratedThumbnailUrlPrefix}{Uri.EscapeDataString(user.Name)}?set=set6";
         }
 
         user.StrategyText = ResolveStrategyTextOrDefault(user.StrategyText);

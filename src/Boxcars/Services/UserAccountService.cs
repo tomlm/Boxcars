@@ -1,10 +1,12 @@
 using Azure;
+using Boxcars.Auth;
 using Boxcars.Data;
 
 namespace Boxcars.Services;
 
 /// <summary>
-/// The admin's view of every account, people and bots alike: changing a name, color or strategy, and deleting.
+/// The admin's view of every account, people and bots alike: adding, changing a name, color, picture or strategy,
+/// and deleting.
 /// A new name or color reaches the account's unfinished games the same way saving it in Settings does.
 /// </summary>
 public sealed class UserAccountService(UserDirectoryService userDirectory, GameService gameService, GamePresenceService gamePresenceService)
@@ -27,16 +29,111 @@ public sealed class UserAccountService(UserDirectoryService userDirectory, GameS
             : user.RowKey;
     }
 
-    /// <summary>How the account signs in: Bot, Google, Microsoft or Email.</summary>
-    public static string SignInKind(ApplicationUser user)
+    /// <summary>The kind of account; older accounts with no provider recorded are Auth.</summary>
+    public static AccountType GetAccountType(ApplicationUser user)
     {
-        return user.IsBot ? "Bot"
-            : string.IsNullOrWhiteSpace(user.ExternalLoginProvider) ? "Unknown"
-            : user.ExternalLoginProvider;
+        return user.IsBot ? AccountType.Bot
+            : EmailLoginService.IsEmailOnly(user) ? AccountType.Email
+            : AccountType.Auth;
     }
 
     /// <summary>
-    /// Saves an account's name, color and strategy. The name must be unique; a bot's name is also its bot name.
+    /// Adds an account. A bot gets a made-up id; a person is keyed by their email (see <see cref="AccountType"/>).
+    /// </summary>
+    public async Task<UserAccountResult> CreateAsync(
+        string actingUserId,
+        AccountType accountType,
+        string? email,
+        string? name,
+        string? color,
+        string? thumbnailUrl,
+        string? strategyText,
+        CancellationToken cancellationToken)
+    {
+        var nickname = name?.Trim() ?? string.Empty;
+        if (nickname.Length == 0)
+        {
+            return UserAccountResult.Failed("Name is required.");
+        }
+
+        var isBot = accountType == AccountType.Bot;
+        if (!IsValidThumbnailUrl(thumbnailUrl?.Trim() ?? string.Empty))
+        {
+            return UserAccountResult.Failed("Picture must be a web address (https://...) or left blank.");
+        }
+
+        var userId = string.Empty;
+        if (!isBot)
+        {
+            userId = email?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (!EmailLoginService.IsPlausibleEmail(userId))
+            {
+                return UserAccountResult.Failed("Enter the person's email address, like name@example.com.");
+            }
+
+            if (await userDirectory.GetUserAsync(userId, cancellationToken) is { } existing)
+            {
+                return UserAccountResult.Failed($"{DisplayName(existing)} already has that email.");
+            }
+        }
+
+        if (await userDirectory.FindByNormalizedNicknameAsync(nickname.ToUpperInvariant(), cancellationToken) is { } namesake)
+        {
+            return UserAccountResult.Failed($"{DisplayName(namesake)} already uses that name.");
+        }
+
+        if (isBot)
+        {
+            var created = await userDirectory.CreateBotDefinitionAsync(actingUserId, nickname, strategyText ?? string.Empty, cancellationToken);
+            if (!created.Succeeded || created.Bot is null)
+            {
+                return UserAccountResult.Failed(created.ErrorMessage ?? "Unable to add the bot.");
+            }
+
+            userId = created.Bot.BotDefinitionId;
+        }
+        else
+        {
+            var now = DateTimeOffset.UtcNow;
+            try
+            {
+                await userDirectory.AddUserAsync(new ApplicationUser
+                {
+                    PartitionKey = "USER",
+                    RowKey = userId,
+                    Email = userId,
+                    NormalizedEmail = userId.ToUpperInvariant(),
+                    UserName = userId,
+                    NormalizedUserName = userId.ToUpperInvariant(),
+                    Name = nickname,
+                    Nickname = nickname,
+                    NormalizedNickname = nickname.ToUpperInvariant(),
+                    // Left blank for Auth: the first Google or Microsoft sign-in records which one.
+                    ExternalLoginProvider = accountType == AccountType.Email ? EmailLoginService.EmailProvider : string.Empty,
+                    CreatedByUserId = actingUserId,
+                    CreatedUtc = now,
+                    ModifiedByUserId = actingUserId,
+                    ModifiedUtc = now
+                }, cancellationToken);
+            }
+            catch (RequestFailedException exception) when (exception.Status == 409)
+            {
+                return UserAccountResult.Failed("Someone already has that email.");
+            }
+        }
+
+        // The color, picture and strategy go through the same checks as an edit.
+        var saved = await SaveAsync(actingUserId, userId, ETag.All, nickname, color, thumbnailUrl, strategyText, cancellationToken);
+        if (!saved.Success)
+        {
+            await userDirectory.DeleteUserAsync(userId, ETag.All, cancellationToken);
+        }
+
+        return saved;
+    }
+
+    /// <summary>
+    /// Saves an account's name, color, picture and strategy. The name must be unique; a bot's name is also its bot name.
     /// <paramref name="eTag"/> is the version that was edited, so someone else's change in between isn't overwritten.
     /// </summary>
     public async Task<UserAccountResult> SaveAsync(
@@ -45,6 +142,7 @@ public sealed class UserAccountService(UserDirectoryService userDirectory, GameS
         ETag eTag,
         string? name,
         string? color,
+        string? thumbnailUrl,
         string? strategyText,
         CancellationToken cancellationToken)
     {
@@ -67,6 +165,12 @@ public sealed class UserAccountService(UserDirectoryService userDirectory, GameS
             return UserAccountResult.Failed($"{DisplayName(namesake)} already uses that name.");
         }
 
+        var thumbnail = thumbnailUrl?.Trim() ?? string.Empty;
+        if (!IsValidThumbnailUrl(thumbnail))
+        {
+            return UserAccountResult.Failed("Picture must be a web address (https://...) or left blank.");
+        }
+
         var preferredColor = PlayerColorOptions.IsSupported(color) ? PlayerColorOptions.NormalizeOrDefault(color) : string.Empty;
         var nameChanged = !string.Equals(user.Nickname, nickname, StringComparison.Ordinal);
         var colorChanged = !string.Equals(user.PreferredColor, preferredColor, StringComparison.OrdinalIgnoreCase);
@@ -79,6 +183,7 @@ public sealed class UserAccountService(UserDirectoryService userDirectory, GameS
         }
 
         user.PreferredColor = preferredColor;
+        user.ThumbnailUrl = thumbnail;
         user.StrategyText = strategyText?.Trim() ?? string.Empty;
         user.ModifiedByUserId = actingUserId;
         user.ModifiedUtc = DateTimeOffset.UtcNow;
@@ -106,6 +211,18 @@ public sealed class UserAccountService(UserDirectoryService userDirectory, GameS
         }
 
         return UserAccountResult.Succeeded;
+    }
+
+    /// <summary>Blank, a web address, or a path on this site (uploaded photos live under one).</summary>
+    private static bool IsValidThumbnailUrl(string url)
+    {
+        if (url.Length == 0 || (url.StartsWith('/') && !url.StartsWith("//", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
     }
 
     /// <summary>
@@ -147,6 +264,20 @@ public sealed class UserAccountService(UserDirectoryService userDirectory, GameS
 
         return UserAccountResult.Succeeded;
     }
+}
+
+/// <summary>How an account signs in.</summary>
+public enum AccountType
+{
+    /// <summary>With Google or Microsoft, as the account's email.</summary>
+    Auth,
+
+    /// <summary>By email alone, with no password (see <see cref="EmailLoginService"/>). Signing in with Google or
+    /// Microsoft as that email turns it into Auth.</summary>
+    Email,
+
+    /// <summary>An AI player; never signs in.</summary>
+    Bot
 }
 
 public sealed record UserAccountResult(bool Success, string? Error)

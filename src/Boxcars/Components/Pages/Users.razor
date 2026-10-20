@@ -12,7 +12,6 @@
 @attribute [Authorize(Policy = AdminAccess.PolicyName)]
 @inject NavigationManager Navigation
 @inject UserAccountService UserAccounts
-@inject UserDirectoryService UserDirectoryService
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -35,13 +34,47 @@
 
     <MudPaper Class="pa-6">
         <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">@(_editing is null ? "Add Bot" : $"Edit {UserAccountService.DisplayName(_editing)}")</MudText>
+            <MudText Typo="Typo.h6">@(_editing is null ? "Add User" : $"Edit {UserAccountService.DisplayName(_editing)}")</MudText>
             @if (_editing is not null)
             {
-                <MudText Typo="Typo.body2">@_editing.RowKey · @UserAccountService.SignInKind(_editing)</MudText>
+                <MudText Typo="Typo.body2">@_editing.RowKey · @UserAccountService.GetAccountType(_editing)</MudText>
+            }
+            else
+            {
+                <MudToggleGroup T="AccountType" @bind-Value="_editorAccountType" Color="MudBlazor.Color.Primary" Size="Size.Small">
+                    <MudToggleItem Value="AccountType.Auth" Text="Auth" />
+                    <MudToggleItem Value="AccountType.Email" Text="Email" />
+                    <MudToggleItem Value="AccountType.Bot" Text="Bot" />
+                </MudToggleGroup>
+                @if (_editorAccountType != AccountType.Bot)
+                {
+                    <MudTextField @bind-Value="_editorEmail"
+                                  Label="Email"
+                                  Variant="Variant.Outlined"
+                                  InputType="InputType.Email"
+                                  Required="true"
+                                  HelperText="@(_editorAccountType == AccountType.Email ? "They pick their name on the email sign-in page." : "They sign in with Google or Microsoft as this email.")" />
+                }
             }
             <MudTextField @bind-Value="_editorName" Label="Name" Variant="Variant.Outlined" Required="true" />
             <PlayerColorPicker @bind-Value="_editorColor" />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
+                <MudAvatar Size="Size.Large">
+                    @if (!string.IsNullOrWhiteSpace(_editorThumbnailUrl))
+                    {
+                        <MudImage Src="@_editorThumbnailUrl" Alt="Picture" />
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.Person" />
+                    }
+                </MudAvatar>
+                <MudTextField @bind-Value="_editorThumbnailUrl"
+                              Label="Picture URL"
+                              Variant="Variant.Outlined"
+                              Placeholder="https://example.com/avatar.png"
+                              Class="flex-grow-1" />
+            </MudStack>
             <MudTextField @bind-Value="_editorStrategyText"
                           Label="Strategy"
                           Variant="Variant.Outlined"
@@ -57,7 +90,7 @@
                            Color="MudBlazor.Color.Primary"
                            OnClick="SaveAsync"
                            Disabled="@_saving">
-                    @(_editing is null ? "Add Bot" : "Save Changes")
+                    @(_editing is null ? (_editorAccountType == AccountType.Bot ? "Add Bot" : "Add User") : "Save Changes")
                 </MudButton>
                 @if (_editing is not null)
                 {
@@ -81,15 +114,29 @@
             <HeaderContent>
                 <MudTh>Name</MudTh>
                 <MudTh>Email</MudTh>
-                <MudTh>Sign-in</MudTh>
+                <MudTh>Type</MudTh>
                 <MudTh>Color</MudTh>
                 <MudTh>Strategy</MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Name">@UserAccountService.DisplayName(context)</MudTd>
+                <MudTd DataLabel="Name">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudAvatar Size="Size.Small">
+                            @if (!string.IsNullOrWhiteSpace(context.ThumbnailUrl))
+                            {
+                                <MudImage Src="@context.ThumbnailUrl" Alt="@UserAccountService.DisplayName(context)" />
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" />
+                            }
+                        </MudAvatar>
+                        <MudText Typo="Typo.body2">@UserAccountService.DisplayName(context)</MudText>
+                    </MudStack>
+                </MudTd>
                 <MudTd DataLabel="Email">@(context.IsBot ? string.Empty : context.RowKey)</MudTd>
-                <MudTd DataLabel="Sign-in">@UserAccountService.SignInKind(context)</MudTd>
+                <MudTd DataLabel="Type">@UserAccountService.GetAccountType(context)</MudTd>
                 <MudTd DataLabel="Color">@(PlayerColorOptions.IsSupported(context.PreferredColor) ? PlayerColorOptions.ToLabel(context.PreferredColor) : string.Empty)</MudTd>
                 <MudTd DataLabel="Strategy">@BuildStrategyPreview(context)</MudTd>
                 <MudTd>
@@ -114,8 +161,11 @@
 @code {
     private IReadOnlyList<ApplicationUser> _accounts = [];
     private ApplicationUser? _editing;
+    private AccountType _editorAccountType = AccountType.Auth;
+    private string _editorEmail = string.Empty;
     private string _editorName = string.Empty;
     private string? _editorColor;
+    private string _editorThumbnailUrl = string.Empty;
     private string _editorStrategyText = string.Empty;
     private string? _editorError;
     private string? _loadError;
@@ -161,6 +211,7 @@
         _editing = account;
         _editorName = UserAccountService.DisplayName(account);
         _editorColor = PlayerColorOptions.IsSupported(account.PreferredColor) ? PlayerColorOptions.NormalizeOrDefault(account.PreferredColor) : null;
+        _editorThumbnailUrl = account.ThumbnailUrl;
         _editorStrategyText = account.StrategyText;
         _editorError = null;
     }
@@ -168,8 +219,11 @@
     private void ResetEditor()
     {
         _editing = null;
+        _editorAccountType = AccountType.Auth;
+        _editorEmail = string.Empty;
         _editorName = string.Empty;
         _editorColor = null;
+        _editorThumbnailUrl = string.Empty;
         _editorStrategyText = string.Empty;
         _editorError = null;
     }
@@ -181,25 +235,10 @@
 
         try
         {
-            UserAccountResult result;
-            if (_editing is null)
-            {
-                // A new bot: create it, then give it its color.
-                var created = await UserDirectoryService.CreateBotDefinitionAsync(_currentUserId, _editorName, _editorStrategyText, CancellationToken.None);
-                if (!created.Succeeded || created.Bot is null)
-                {
-                    _editorError = created.ErrorMessage ?? "Unable to add the bot.";
-                    return;
-                }
-
-                result = string.IsNullOrWhiteSpace(_editorColor)
-                    ? UserAccountResult.Succeeded
-                    : await UserAccounts.SaveAsync(_currentUserId, created.Bot.BotDefinitionId, ETag.All, _editorName, _editorColor, _editorStrategyText, CancellationToken.None);
-            }
-            else
-            {
-                result = await UserAccounts.SaveAsync(_currentUserId, _editing.RowKey, _editing.ETag, _editorName, _editorColor, _editorStrategyText, CancellationToken.None);
-            }
+            var adding = _editing is null;
+            var result = adding
+                ? await UserAccounts.CreateAsync(_currentUserId, _editorAccountType, _editorEmail, _editorName, _editorColor, _editorThumbnailUrl, _editorStrategyText, CancellationToken.None)
+                : await UserAccounts.SaveAsync(_currentUserId, _editing!.RowKey, _editing.ETag, _editorName, _editorColor, _editorThumbnailUrl, _editorStrategyText, CancellationToken.None);
 
             if (!result.Success)
             {
@@ -207,7 +246,7 @@
                 return;
             }
 
-            Snackbar.Add(_editing is null ? "Bot added." : "Saved.", Severity.Success);
+            Snackbar.Add(adding ? $"{_editorName.Trim()} added." : "Saved.", Severity.Success);
             ResetEditor();
             await RefreshAsync();
         }
