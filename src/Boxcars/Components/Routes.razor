@@ -2,8 +2,14 @@
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
-            <NotAuthorized>
-                @{
+            <NotAuthorized Context="authState">
+                @if (authState.User.Identity?.IsAuthenticated == true)
+                {
+                    @* Signed in, just not allowed here (e.g. an admin page). *@
+                    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Warning" Class="ma-6">You don't have access to this page.</MudBlazor.MudAlert>
+                }
+                else
+                {
                     var returnUrl = Uri.EscapeDataString(new Uri(Navigation.Uri).PathAndQuery);
                     Navigation.NavigateTo($"/login?returnUrl={returnUrl}", forceLoad: true);
                 }

@@ -13,6 +13,7 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject Boxcars.Auth.AdminAccess AdminAccess
 @implements IAsyncDisposable
 
 <PageTitle>Dashboard - BoxCars</PageTitle>
@@ -85,21 +86,24 @@ else
             </MudText>
         </MudPaper>
 
-        <MudPaper Class="pa-6">
-            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="3">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.h5" Class="mb-3">Bots</MudText>
-                    <MudText Typo="Typo.body2" Style="opacity: 0.7">
-                        Manage bot players and their strategies from the dedicated bots page.
-                    </MudText>
+        @if (AdminAccess.IsAdmin(_currentUserId))
+        {
+            <MudPaper Class="pa-6">
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="3">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.h5" Class="mb-3">Users</MudText>
+                        <MudText Typo="Typo.body2" Style="opacity: 0.7">
+                            Manage people and bots: names, colors, strategies and accounts.
+                        </MudText>
+                    </MudStack>
+                    <MudButton Variant="Variant.Filled"
+                               Color="MudBlazor.Color.Primary"
+                               OnClick='@(() => Navigation.NavigateTo("/users"))'>
+                        Manage Users
+                    </MudButton>
                 </MudStack>
-                <MudButton Variant="Variant.Filled"
-                           Color="MudBlazor.Color.Primary"
-                           OnClick='@(() => Navigation.NavigateTo("/bots"))'>
-                    Manage Bots
-                </MudButton>
-            </MudStack>
-        </MudPaper>
+            </MudPaper>
+        }
 
         <MudPaper Class="pa-6">
             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">

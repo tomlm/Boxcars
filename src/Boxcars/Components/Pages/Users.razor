@@ -1,0 +1,258 @@
+@page "/users"
+@page "/bots"
+@rendermode InteractiveServer
+@using Azure
+@using Boxcars.Auth
+@using Boxcars.Components.Shared
+@using Boxcars.Data
+@using Boxcars.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
+@attribute [Authorize(Policy = AdminAccess.PolicyName)]
+@inject NavigationManager Navigation
+@inject UserAccountService UserAccounts
+@inject UserDirectoryService UserDirectoryService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>Users - BoxCars</PageTitle>
+
+<MudStack Spacing="4">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="4">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.h3">Users</MudText>
+            <MudText Typo="Typo.body1">
+                Every account, people and bots. A strategy is what the AI follows when it plays the account: always for a bot, and for a person while their seat is on AI.
+            </MudText>
+        </MudStack>
+        <MudButton Variant="Variant.Outlined"
+                   Color="MudBlazor.Color.Primary"
+                   OnClick='@(() => Navigation.NavigateTo("/dashboard"))'>
+            Back to Dashboard
+        </MudButton>
+    </MudStack>
+
+    <MudPaper Class="pa-6">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">@(_editing is null ? "Add Bot" : $"Edit {UserAccountService.DisplayName(_editing)}")</MudText>
+            @if (_editing is not null)
+            {
+                <MudText Typo="Typo.body2">@_editing.RowKey · @UserAccountService.SignInKind(_editing)</MudText>
+            }
+            <MudTextField @bind-Value="_editorName" Label="Name" Variant="Variant.Outlined" Required="true" />
+            <PlayerColorPicker @bind-Value="_editorColor" />
+            <MudTextField @bind-Value="_editorStrategyText"
+                          Label="Strategy"
+                          Variant="Variant.Outlined"
+                          Lines="5"
+                          AutoGrow="true"
+                          Placeholder="@PlayerProfileService.DefaultStrategyText" />
+            @if (!string.IsNullOrWhiteSpace(_editorError))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_editorError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Primary"
+                           OnClick="SaveAsync"
+                           Disabled="@_saving">
+                    @(_editing is null ? "Add Bot" : "Save Changes")
+                </MudButton>
+                @if (_editing is not null)
+                {
+                    <MudButton Variant="Variant.Text" OnClick="ResetEditor">Cancel</MudButton>
+                }
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="MudBlazor.Color.Primary" />
+    }
+    else if (!string.IsNullOrWhiteSpace(_loadError))
+    {
+        <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+    }
+    else
+    {
+        <MudTable T="ApplicationUser" Items="_accounts" Dense="true" Hover="true" FixedHeader="true" Height="60vh">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Email</MudTh>
+                <MudTh>Sign-in</MudTh>
+                <MudTh>Color</MudTh>
+                <MudTh>Strategy</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">@UserAccountService.DisplayName(context)</MudTd>
+                <MudTd DataLabel="Email">@(context.IsBot ? string.Empty : context.RowKey)</MudTd>
+                <MudTd DataLabel="Sign-in">@UserAccountService.SignInKind(context)</MudTd>
+                <MudTd DataLabel="Color">@(PlayerColorOptions.IsSupported(context.PreferredColor) ? PlayerColorOptions.ToLabel(context.PreferredColor) : string.Empty)</MudTd>
+                <MudTd DataLabel="Strategy">@BuildStrategyPreview(context)</MudTd>
+                <MudTd>
+                    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                       Size="Size.Small"
+                                       Color="MudBlazor.Color.Primary"
+                                       OnClick="() => BeginEdit(context)"
+                                       aria-label="Edit account" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Size="Size.Small"
+                                       Color="MudBlazor.Color.Error"
+                                       OnClick="() => DeleteAsync(context)"
+                                       aria-label="Delete account" />
+                    </MudStack>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudStack>
+
+@code {
+    private IReadOnlyList<ApplicationUser> _accounts = [];
+    private ApplicationUser? _editing;
+    private string _editorName = string.Empty;
+    private string? _editorColor;
+    private string _editorStrategyText = string.Empty;
+    private string? _editorError;
+    private string? _loadError;
+    private bool _loading;
+    private bool _saving;
+    private string _currentUserId = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            _currentUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        }
+
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _loadError = null;
+
+        try
+        {
+            _accounts = await UserAccounts.ListAccountsAsync(CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _loadError = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void BeginEdit(ApplicationUser account)
+    {
+        _editing = account;
+        _editorName = UserAccountService.DisplayName(account);
+        _editorColor = PlayerColorOptions.IsSupported(account.PreferredColor) ? PlayerColorOptions.NormalizeOrDefault(account.PreferredColor) : null;
+        _editorStrategyText = account.StrategyText;
+        _editorError = null;
+    }
+
+    private void ResetEditor()
+    {
+        _editing = null;
+        _editorName = string.Empty;
+        _editorColor = null;
+        _editorStrategyText = string.Empty;
+        _editorError = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _editorError = null;
+        _saving = true;
+
+        try
+        {
+            UserAccountResult result;
+            if (_editing is null)
+            {
+                // A new bot: create it, then give it its color.
+                var created = await UserDirectoryService.CreateBotDefinitionAsync(_currentUserId, _editorName, _editorStrategyText, CancellationToken.None);
+                if (!created.Succeeded || created.Bot is null)
+                {
+                    _editorError = created.ErrorMessage ?? "Unable to add the bot.";
+                    return;
+                }
+
+                result = string.IsNullOrWhiteSpace(_editorColor)
+                    ? UserAccountResult.Succeeded
+                    : await UserAccounts.SaveAsync(_currentUserId, created.Bot.BotDefinitionId, ETag.All, _editorName, _editorColor, _editorStrategyText, CancellationToken.None);
+            }
+            else
+            {
+                result = await UserAccounts.SaveAsync(_currentUserId, _editing.RowKey, _editing.ETag, _editorName, _editorColor, _editorStrategyText, CancellationToken.None);
+            }
+
+            if (!result.Success)
+            {
+                _editorError = result.Error;
+                return;
+            }
+
+            Snackbar.Add(_editing is null ? "Bot added." : "Saved.", Severity.Success);
+            ResetEditor();
+            await RefreshAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteAsync(ApplicationUser account)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Delete account?",
+            $"Delete {UserAccountService.DisplayName(account)}? This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        var result = await UserAccounts.DeleteAsync(_currentUserId, account.RowKey, account.ETag, CancellationToken.None);
+        if (!result.Success)
+        {
+            Snackbar.Add(result.Error ?? "Unable to delete that account.", Severity.Warning);
+            return;
+        }
+
+        Snackbar.Add($"{UserAccountService.DisplayName(account)} deleted.", Severity.Success);
+        if (_editing is not null && string.Equals(_editing.RowKey, account.RowKey, StringComparison.OrdinalIgnoreCase))
+        {
+            ResetEditor();
+        }
+
+        await RefreshAsync();
+    }
+
+    private static string BuildStrategyPreview(ApplicationUser account)
+    {
+        var strategyText = account.StrategyText;
+        if (string.IsNullOrWhiteSpace(strategyText))
+        {
+            return string.Empty;
+        }
+
+        return strategyText.Length <= 100 ? strategyText : string.Concat(strategyText[..97], "...");
+    }
+}

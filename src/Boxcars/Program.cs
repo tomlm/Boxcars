@@ -36,7 +36,11 @@ public class Program
         builder.Services.AddCascadingAuthenticationState();
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<AuthenticationStateProvider, ServerAuthenticationStateProvider>();
-        builder.Services.AddAuthorization();
+        var adminAccess = new AdminAccess(builder.Configuration);
+        builder.Services.AddSingleton(adminAccess);
+        builder.Services.AddAuthorization(options => options.AddPolicy(
+            AdminAccess.PolicyName,
+            policy => policy.RequireAssertion(context => adminAccess.IsAdmin(context.User))));
 
         builder.Services.AddSingleton<ExternalLoginProvisioner>();
         builder.Services.AddSingleton<EmailLoginService>();
@@ -171,6 +175,7 @@ public class Program
 
         // Application services
         builder.Services.AddScoped<PlayerProfileService>();
+        builder.Services.AddScoped<UserAccountService>();
         builder.Services.AddScoped<GameService>();
         builder.Services.AddSingleton<GameSettingsResolver>();
         builder.Services.AddScoped<GameCircuitPresenceTracker>();
@@ -216,7 +221,7 @@ public class Program
             (Email: "balenco@boxcars.net", Name: "Balenco", Nickname: "Balenco", PreferredColor: "orange", Strategy: "This bot strategically hybrid balance of access, connectivity, regional access and opportunities to monopolize cities." ),
             (Email: "pooper@boxcars.net", Name: "Pooper", Nickname: "Pooper", PreferredColor: "yellow", Strategy: "This bot likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
             (Email: "rat@boxcars.net", Name: "Rat Bastard", Nickname: "Rat Bastard", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" ),
-            (Email: "cheapo@boxcars.net", Name: "El Cheapo", Nickname: "El Cheapo", PreferredColor: "darkred", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" )
+            (Email: "cheapo@boxcars.net", Name: "El Cheapo", Nickname: "El Cheapo", PreferredColor: "darkred", Strategy: "Chooses the cheapest railroad that connects. Will bid but does not like to pay more than original price when there are RRs to be bought and after all RRs are sold does not like to pay more than 2X the original price." )
         };
 
         foreach (var bot in bots)
@@ -225,15 +230,22 @@ public class Program
             var existing = await usersTable.GetEntityIfExistsAsync<ApplicationUser>("USER", userId);
             if (existing.HasValue && existing.Value is { } existingUser)
             {
-                var normalizedPreferredColor = PlayerColorOptions.NormalizeOrDefault(bot.PreferredColor);
-                var desiredStrategy = bot.Strategy;
-                if (!string.Equals(existingUser.PreferredColor, normalizedPreferredColor, StringComparison.OrdinalIgnoreCase)
-                    || !existingUser.IsBot
-                    || !string.Equals(existingUser.StrategyText, desiredStrategy, StringComparison.Ordinal))
+                // Only fill in what's missing; a color or strategy set on the Users page is kept.
+                var missingColor = !PlayerColorOptions.IsSupported(existingUser.PreferredColor);
+                var missingStrategy = string.IsNullOrWhiteSpace(existingUser.StrategyText);
+                if (missingColor || missingStrategy || !existingUser.IsBot)
                 {
-                    existingUser.PreferredColor = normalizedPreferredColor;
+                    if (missingColor)
+                    {
+                        existingUser.PreferredColor = PlayerColorOptions.NormalizeOrDefault(bot.PreferredColor);
+                    }
+
+                    if (missingStrategy)
+                    {
+                        existingUser.StrategyText = bot.Strategy ?? PlayerProfileService.DefaultStrategyText;
+                    }
+
                     existingUser.IsBot = true;
-                    existingUser.StrategyText = existingUser.StrategyText ?? desiredStrategy ?? PlayerProfileService.DefaultStrategyText;
                     existingUser.ModifiedUtc = DateTimeOffset.UtcNow;
                     await usersTable.UpdateEntityAsync(existingUser, existingUser.ETag, TableUpdateMode.Replace);
                 }
