@@ -62,7 +62,7 @@ public class GameBoardSettingsSummaryTests
         Assert.True(summary.HasContent);
         Assert.True(summary.UsesDefaultFallback);
         Assert.Equal("$20,000", GetValue(summary, "Cash Rules", "Starting Cash"));
-        Assert.Equal("Hidden below announcing threshold", GetValue(summary, "Cash Rules", "Cash Visibility"));
+        Assert.Equal("Always visible", GetValue(summary, "Cash Rules", "Cash Visibility"));
         Assert.Equal("Player chooses city", GetValue(summary, "Home Setup", "Home City Choice"));
         Assert.Equal("Freight", GetValue(summary, "Engines", "Starting Engine"));
     }
