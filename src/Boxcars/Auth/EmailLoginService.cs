@@ -95,7 +95,8 @@ public sealed class EmailLoginService(UserDirectoryService userDirectory)
         return EmailLoginResult.SignIn(user);
     }
 
-    private static bool IsPlausibleEmail(string email)
+    /// <summary>Whether a lowercased, trimmed address looks like a real person's email (not a bot's).</summary>
+    public static bool IsPlausibleEmail(string email)
     {
         var at = email.IndexOf('@');
         return email.Length <= 254

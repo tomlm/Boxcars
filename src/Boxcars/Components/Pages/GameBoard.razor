@@ -1986,9 +1986,13 @@ else
                 {
                     Index = index,
                     Name = selection?.DisplayName ?? player.Name,
-                    ThumbnailUrl = (isBotUser || activeBotAssignment is not null)
-                        ? ResolveBotThumbnailUrl(selection?.DisplayName ?? player.Name)
-                        : ResolveThumbnailUrl(resolvedUserId),
+                    // A bot uses its own picture when it has one; a person's seat on AI shows a robot.
+                    ThumbnailUrl = isBotUser && ResolveThumbnailUrl(resolvedUserId) is var botThumbnailUrl
+                        && !PlayerProfileService.IsGeneratedThumbnailUrl(botThumbnailUrl)
+                        ? botThumbnailUrl
+                        : (isBotUser || activeBotAssignment is not null)
+                            ? ResolveBotThumbnailUrl(selection?.DisplayName ?? player.Name)
+                            : ResolveThumbnailUrl(resolvedUserId),
                     Color = ResolvePlayerColor(selection, index),
                     IsAtDestination = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         || string.Equals(player.CurrentCityName, player.DestinationCityName, StringComparison.OrdinalIgnoreCase),

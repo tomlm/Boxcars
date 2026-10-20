@@ -42,13 +42,14 @@ public class UserAccountServiceTests
         var games = new FakeGamesTable(CreateGame("game-1", "pat@example.com", "sam@example.com"));
         var service = CreateService(users, games);
 
-        var result = await service.SaveAsync("admin@example.com", "pat@example.com", ETag.All, " Patty ", "green", "Buy the B&O.", CancellationToken.None);
+        var result = await service.SaveAsync("admin@example.com", "pat@example.com", ETag.All, " Patty ", "green", " https://example.com/patty.png ", "Buy the B&O.", CancellationToken.None);
 
         Assert.True(result.Success, result.Error);
         var user = users.Users.Single(candidate => candidate.RowKey == "pat@example.com");
         Assert.Equal("Patty", user.Nickname);
         Assert.Equal("PATTY", user.NormalizedNickname);
         Assert.Equal("green", user.PreferredColor);
+        Assert.Equal("https://example.com/patty.png", user.ThumbnailUrl);
         Assert.Equal("Buy the B&O.", user.StrategyText);
         var seat = games.Games.Single().Seats.Single(candidate => candidate.PlayerUserId == "pat@example.com");
         Assert.Equal("Patty", seat.DisplayName);
@@ -61,7 +62,7 @@ public class UserAccountServiceTests
         var users = new FakeUsersTable(CreateUser("pat@example.com", "Pat"), CreateUser("sam@example.com", "Sam"));
         var service = CreateService(users, new FakeGamesTable());
 
-        var result = await service.SaveAsync("admin@example.com", "pat@example.com", ETag.All, "sam", "green", string.Empty, CancellationToken.None);
+        var result = await service.SaveAsync("admin@example.com", "pat@example.com", ETag.All, "sam", "green", string.Empty, string.Empty, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal("Pat", users.Users.Single(candidate => candidate.RowKey == "pat@example.com").Nickname);
@@ -75,11 +76,82 @@ public class UserAccountServiceTests
         var users = new FakeUsersTable(bot);
         var service = CreateService(users, new FakeGamesTable());
 
-        var result = await service.SaveAsync("admin@example.com", "bot-1@boxcars.bot", ETag.All, "Balenco", null, "Rover the leader.", CancellationToken.None);
+        var result = await service.SaveAsync("admin@example.com", "bot-1@boxcars.bot", ETag.All, "Balenco", null, "/user-photo/balenco.png", "Rover the leader.", CancellationToken.None);
 
         Assert.True(result.Success, result.Error);
         Assert.Equal("Balenco", users.Users.Single().Name);
         Assert.Equal("Balenco", users.Users.Single().Nickname);
+    }
+
+    [Fact]
+    public async Task SaveAsync_PictureThatIsNotAWebAddress_IsRefused()
+    {
+        var users = new FakeUsersTable(CreateUser("pat@example.com", "Pat"));
+        var service = CreateService(users, new FakeGamesTable());
+
+        var result = await service.SaveAsync("admin@example.com", "pat@example.com", ETag.All, "Pat", "green", "javascript:alert(1)", string.Empty, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(string.Empty, users.Users.Single().ThumbnailUrl);
+    }
+
+    [Fact]
+    public async Task CreateAsync_EmailPerson_SignsInWithTheirEmail()
+    {
+        var users = new FakeUsersTable();
+        var service = CreateService(users, new FakeGamesTable());
+
+        var result = await service.CreateAsync("admin@example.com", AccountType.Email, " Pat@Example.com ", "Pat", "green", string.Empty, "Buy the B&O.", CancellationToken.None);
+
+        Assert.True(result.Success, result.Error);
+        var user = users.Users.Single();
+        Assert.Equal("pat@example.com", user.RowKey);
+        Assert.Equal("Pat", user.Nickname);
+        Assert.Equal("green", user.PreferredColor);
+        Assert.False(user.IsBot);
+        Assert.Equal(AccountType.Email, UserAccountService.GetAccountType(user));
+    }
+
+    [Fact]
+    public async Task CreateAsync_AuthPerson_CantSignInByEmailAlone()
+    {
+        var users = new FakeUsersTable();
+        var service = CreateService(users, new FakeGamesTable());
+
+        var result = await service.CreateAsync("admin@example.com", AccountType.Auth, "sam@example.com", "Sam", null, string.Empty, string.Empty, CancellationToken.None);
+
+        Assert.True(result.Success, result.Error);
+        var user = users.Users.Single();
+        Assert.Equal(AccountType.Auth, UserAccountService.GetAccountType(user));
+        Assert.False(EmailLoginService.IsEmailOnly(user));
+    }
+
+    [Fact]
+    public async Task CreateAsync_Bot_GetsAMadeUpId()
+    {
+        var users = new FakeUsersTable();
+        var service = CreateService(users, new FakeGamesTable());
+
+        var result = await service.CreateAsync("admin@example.com", AccountType.Bot, null, "Balenco", "orange", "https://example.com/b.png", "Rover the leader.", CancellationToken.None);
+
+        Assert.True(result.Success, result.Error);
+        var bot = users.Users.Single();
+        Assert.True(bot.IsBot);
+        Assert.EndsWith("@boxcars.bot", bot.RowKey, StringComparison.Ordinal);
+        Assert.Equal("orange", bot.PreferredColor);
+        Assert.Equal("https://example.com/b.png", bot.ThumbnailUrl);
+    }
+
+    [Fact]
+    public async Task CreateAsync_EmailAlreadyInUse_IsRefused()
+    {
+        var users = new FakeUsersTable(CreateUser("pat@example.com", "Pat"));
+        var service = CreateService(users, new FakeGamesTable());
+
+        var result = await service.CreateAsync("admin@example.com", AccountType.Auth, "pat@example.com", "Patty", null, string.Empty, string.Empty, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("Pat", users.Users.Single().Nickname);
     }
 
     [Fact]
@@ -174,6 +246,18 @@ public class UserAccountServiceTests
             return AsyncPageable<T>.FromPages([Page<T>.FromValues(matches, null, new FakeResponse((int)HttpStatusCode.OK))]);
         }
 
+        public override Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
+        {
+            var user = (ApplicationUser)(ITableEntity)entity;
+            if (Users.Any(candidate => candidate.RowKey == user.RowKey))
+            {
+                throw new RequestFailedException((int)HttpStatusCode.Conflict, "Conflict");
+            }
+
+            Users.Add(Copy(user));
+            return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
+        }
+
         public override Task<Response> UpdateEntityAsync<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
         {
             var user = (ApplicationUser)(ITableEntity)entity;
@@ -198,6 +282,7 @@ public class UserAccountServiceTests
                 Nickname = user.Nickname,
                 NormalizedNickname = user.NormalizedNickname,
                 PreferredColor = user.PreferredColor,
+                ThumbnailUrl = user.ThumbnailUrl,
                 StrategyText = user.StrategyText,
                 IsBot = user.IsBot,
                 ExternalLoginProvider = user.ExternalLoginProvider
