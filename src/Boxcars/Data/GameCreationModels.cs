@@ -208,6 +208,29 @@ public static class ReplayGamePresetSerialization
     }
 }
 
+public static class ReplayTurnOrder
+{
+    /// <summary>
+    /// Turn order for a rematch: the poorest player goes first, then up by final cash, and the winner always goes last,
+    /// so moving first goes to whoever did worst. Players with the same cash keep their old order.
+    /// </summary>
+    /// <param name="players">The finished game's players, in seat order.</param>
+    /// <param name="finalState">The finished game's state; its players are in the same seat order.</param>
+    public static IReadOnlyList<GamePlayerSelection> Order(IReadOnlyList<GamePlayerSelection> players, GameState finalState)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(finalState);
+
+        return players
+            .Select((player, seatIndex) => (Player: player, SeatIndex: seatIndex))
+            .OrderBy(entry => entry.SeatIndex == finalState.WinnerIndex)
+            .ThenBy(entry => entry.SeatIndex < finalState.Players.Count ? finalState.Players[entry.SeatIndex].Cash : int.MaxValue)
+            .ThenBy(entry => entry.SeatIndex)
+            .Select(entry => entry.Player)
+            .ToList();
+    }
+}
+
 public static class ReplayGameNaming
 {
     public static string BuildReplayName(string? gameName)
