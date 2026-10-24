@@ -733,7 +733,7 @@ public sealed class GameBoardStateMapper(
             cashAvailable,
             OperatingCapitalService.CalculateFeesOwed(state, buyerPlayerIndex, settings),
             OperatingCapitalService.CalculateOperatingReserve(mapDefinition, state, buyerPlayerIndex, settings).Amount,
-            ownedRailroadIndices => OperatingCapitalService.EstimateIncomingFees(state, buyerPlayerIndex, ownedRailroadIndices, settings));
+            ownedRailroadIndices => OperatingCapitalService.EstimateIncomingFees(mapDefinition, state, buyerPlayerIndex, ownedRailroadIndices, settings));
         var candidates = railroadOptions
             .Where(option => option.IsAffordable)
             .Select(option => new PurchaseCandidate(option.RailroadIndex, option.RailroadName, option.PurchasePrice))

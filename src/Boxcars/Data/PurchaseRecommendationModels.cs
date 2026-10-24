@@ -24,7 +24,7 @@ public sealed record PurchaseRecommendation(
     string Reason,
     int SpareCash);
 
-/// <param name="IncomingFees">Fees opponents are about to pay the buyer with their current railroads.</param>
+/// <param name="IncomingFees">Fees opponents are expected to pay the buyer soon with their current railroads.</param>
 /// <param name="OperatingReserve">Reserve the buyer should keep with their current network (each pick uses its own).</param>
 public sealed record PurchaseRecommendationSet(
     IReadOnlyList<PurchaseRecommendation> Recommendations,
@@ -41,7 +41,7 @@ public sealed record RecommendationOpponent(string Name, int Cash, IReadOnlyColl
 
 /// <summary>What the buyer can safely spend.</summary>
 /// <param name="OperatingReserve">Cash to keep after buying (see <c>OperatingCapitalService.CalculateOperatingReserve</c>).</param>
-/// <param name="EstimateIncomingFees">Fees opponents are about to pay for a given set of owned railroads.</param>
+/// <param name="EstimateIncomingFees">Fees opponents are expected to pay soon for a given set of owned railroads (see <c>OperatingCapitalService.EstimateIncomingFees</c>).</param>
 public sealed record PurchaseFinances(
     int Cash,
     int FeesOwed,
