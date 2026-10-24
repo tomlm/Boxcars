@@ -27,6 +27,30 @@ public class GameServiceTests
     }
 
     [Fact]
+    public void ReplayTurnOrder_PoorestGoesFirstAndTheWinnerLast()
+    {
+        // Ann won with less cash than Bob ended with; Cy and Di tied.
+        var players = new[] { "Ann", "Bob", "Cy", "Di" }
+            .Select(name => new GamePlayerSelection { UserId = name, DisplayName = name, Color = "#000" })
+            .ToList();
+        var finalState = new GameState
+        {
+            WinnerIndex = 0,
+            Players =
+            [
+                new PlayerState { Name = "Ann", Cash = 200_000 },
+                new PlayerState { Name = "Bob", Cash = 250_000 },
+                new PlayerState { Name = "Cy", Cash = 40_000 },
+                new PlayerState { Name = "Di", Cash = 40_000 }
+            ]
+        };
+
+        var order = ReplayTurnOrder.Order(players, finalState);
+
+        Assert.Equal(["Cy", "Di", "Bob", "Ann"], order.Select(player => player.DisplayName).ToArray());
+    }
+
+    [Fact]
     public async Task UpdateSeatStatesAsync_ControlChange_ProjectsUpdatedSeatState()
     {
         var gameEntity = new GameEntity

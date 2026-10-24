@@ -800,7 +800,10 @@ else
                 Settings = GameSettingsResolver.Resolve(gameEntity).Settings,
                 CityProbabilityOverrides = gameEntity.CityProbabilityOverrides,
                 RailroadPriceOverrides = gameEntity.RailroadPriceOverrides,
-                Players = GameSeatStateProjection.BuildSeatSelections(playerStates)
+                // A rematch: whoever did worst moves first, and the winner moves last.
+                Players = _gameState is null
+                    ? GameSeatStateProjection.BuildSeatSelections(playerStates)
+                    : ReplayTurnOrder.Order(GameSeatStateProjection.BuildSeatSelections(playerStates), _gameState)
             });
 
             var result = await GameService.DeleteGameAsync(_currentUserId, GameId, CancellationToken.None);
