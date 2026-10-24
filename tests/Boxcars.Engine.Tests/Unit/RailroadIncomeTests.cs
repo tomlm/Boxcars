@@ -38,7 +38,7 @@ public class RailroadIncomeTests
         // East cost $11,000 and has collected $5,500.
         var east = income.Rows.Single(row => row.RailroadIndex == East);
         Assert.Equal(11_000, east.PurchasePrice);
-        Assert.Equal(50m, east.ReturnPercentage);
+        Assert.Equal(0.5m, east.Multiplier);
     }
 
     private static GameState CreateState(int activePlayer, int aliceFees, int bobFees, int[] ridden, int[]? fullRate = null, int? grandfatheredWestFee = null)

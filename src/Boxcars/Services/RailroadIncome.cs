@@ -95,6 +95,6 @@ public sealed record RailroadIncome(IReadOnlyList<RailroadIncomeRow> Rows)
 /// <param name="FeesCollected">Fees opponents have paid for riding it this game, whoever owned it at the time.</param>
 public sealed record RailroadIncomeRow(int RailroadIndex, string RailroadName, string ShortName, int PurchasePrice, int? OwnerIndex, int FeesCollected)
 {
-    /// <summary>Fees collected as a percentage of the purchase price; 100% means it has paid for itself.</summary>
-    public decimal ReturnPercentage => PurchasePrice > 0 ? FeesCollected * 100m / PurchasePrice : 0m;
+    /// <summary>Fees collected as a multiple of the purchase price; 1 means it has paid for itself.</summary>
+    public decimal Multiplier => PurchasePrice > 0 ? (decimal)FeesCollected / PurchasePrice : 0m;
 }

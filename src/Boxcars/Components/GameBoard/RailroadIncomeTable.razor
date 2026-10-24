@@ -21,13 +21,13 @@ else
                             <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.RailroadName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.PurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.FeesCollected)"><strong>Fees</strong></MudTableSortLabel></MudTh>
-                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.ReturnPercentage)"><strong>Fees / Price</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.Multiplier)"><strong>Multiplier</strong></MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd Style="white-space: nowrap">@context.RailroadName</MudTd>
                             <MudTd>@FormatCurrency(context.PurchasePrice)</MudTd>
                             <MudTd>@FormatCurrency(context.FeesCollected)</MudTd>
-                            <MudTd>@FormatPercent(context.ReturnPercentage)</MudTd>
+                            <MudTd>@FormatMultiplier(context.Multiplier)</MudTd>
                         </RowTemplate>
                     </MudTable>
                 </MudPaper>
@@ -64,8 +64,8 @@ else
         return $"${value:N0}";
     }
 
-    private static string FormatPercent(decimal value)
+    private static string FormatMultiplier(decimal value)
     {
-        return string.Create(CultureInfo.InvariantCulture, $"{value:0}%");
+        return string.Create(CultureInfo.InvariantCulture, $"{value:0.0}x");
     }
 }
