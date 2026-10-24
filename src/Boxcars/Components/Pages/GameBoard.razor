@@ -1735,17 +1735,19 @@ else
 
         _ = InvokeAsync(async () =>
         {
+            // Before any await: updates start in the order they arrive, but a bot's events land milliseconds apart,
+            // so after the refresh below a later update can finish first. Its play-by-play must not jump ahead.
+            if (!update.ReplaceTimeline)
+            {
+                ApplyLiveTimelineItems(update.TimelineItems);
+            }
+
             await RefreshGameEntityAsync();
             var priorTurnNumber = _gameState?.TurnNumber ?? -1;
             var priorGameState = _gameState;
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
-
-            if (!update.ReplaceTimeline)
-            {
-                ApplyLiveTimelineItems(update.TimelineItems);
-            }
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
             {
