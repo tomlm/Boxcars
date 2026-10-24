@@ -221,7 +221,7 @@ public class Program
             (Email: "balenco@boxcars.net", Name: "Balenco", Nickname: "Balenco", PreferredColor: "orange", Strategy: "This bot strategically hybrid balance of access, connectivity, regional access and opportunities to monopolize cities." ),
             (Email: "pooper@boxcars.net", Name: "Pooper", Nickname: "Pooper", PreferredColor: "yellow", Strategy: "This bot likes to purchase a Superchief before any RRs, and then uses that engine to race to make money to buy a balanced mixture of access and monopoly." ),
             (Email: "rat@boxcars.net", Name: "Rat Bastard", Nickname: "Rat Bastard", PreferredColor: "black", Strategy: "This bot loves to create monopolies for cities and regions and using the proceeds from that to buy access and larger RRs" ),
-            (Email: "cheapo@boxcars.net", Name: "El Cheapo", Nickname: "El Cheapo", PreferredColor: "pink", Strategy: "Chooses the cheapest railroad that connects. Will bid but does not like to pay more than original price when there are RRs to be bought and after all RRs are sold does not like to pay more than 2X the original price." )
+            (Email: "cheapo@boxcars.net", Name: "El Cheapo", Nickname: "El Cheapo", PreferredColor: "hotpink", Strategy: "Chooses the cheapest railroad that connects. Will bid but does not like to pay more than original price when there are RRs to be bought and after all RRs are sold does not like to pay more than 2X the original price." )
         };
 
         foreach (var bot in bots)
