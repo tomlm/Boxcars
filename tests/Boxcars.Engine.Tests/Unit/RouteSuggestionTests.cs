@@ -647,6 +647,30 @@ public class RouteSuggestionTests
     }
 
     [Fact]
+    public void SuggestRouteForPlayer_RoverReachableThisTurnOnTheirRailroad_PaysThemRatherThanArrivingNextTurn()
+    {
+        // 0 --[RR1 Bob]--> 1 --> 2 --> 5                       (3 dots, Bob's railroad: catches him this turn)
+        // 0 --[RR2 own]--> 20 --> 21 --> 22 --> 23 --> 24 --> 5  (6 dots, the player's own: a turn too late)
+        // Bob, the clear leader, has declared and sits on dot 5; the player has 4 to move.
+        var segments = new List<(int Railroad, int Start, int End)> { (1, 0, 1), (1, 1, 2), (1, 2, 5), (2, 0, 20), (2, 24, 5), (3, 3, 9) };
+        segments.AddRange(Enumerable.Range(20, 4).Select(dot => (2, dot, dot + 1)));
+        var engine = CreateLineEngine(segments);
+        var bob = engine.Players[1];
+        AssignOwnership(engine, 1, bob);
+        var player = PlaceOnLine(engine);
+        AssignOwnership(engine, 2, player);
+        bob.Cash = 300_000;
+        bob.HasDeclared = true;
+        bob.CurrentNodeId = "0:5";
+        StartMove(engine, player, [2, 2]);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        // Paying Bob $5,000 now is worth the $50,000 rover; next turn he will have moved on.
+        Assert.Equal(["0:0", "0:1", "0:2", "0:5"], route.NodeIds);
+    }
+
+    [Fact]
     public void SuggestRouteForPlayer_DeclaredOpponentNotToRover_RoutesToTheDestination()
     {
         var engine = CreateLineEngine([(2, 0, 1), (2, 1, 3), (2, 1, 5), (2, 3, 9)]);
