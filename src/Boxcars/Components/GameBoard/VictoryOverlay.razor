@@ -1,0 +1,28 @@
+@using System.Globalization
+
+@* Celebrates a win over the map: the winner's name grows from a speck to fill the map. Click to dismiss. *@
+<div class="victory-overlay" @onclick="DismissRequested" title="Click to close">
+    <div class="victory-burst"></div>
+    <div class="victory-text" style="@TextStyle">
+        <div class="victory-trophy">🏆</div>
+        <div class="victory-name">@WinnerName</div>
+        <div class="victory-wins">WINS!</div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string WinnerName { get; set; } = string.Empty;
+
+    /// <summary>The winner's color, used for the glow behind the text.</summary>
+    [Parameter]
+    public string WinnerColor { get; set; } = "#ffd54f";
+
+    [Parameter]
+    public EventCallback DismissRequested { get; set; }
+
+    // Size the name so it spans most of the map's width without overflowing, whatever its length.
+    private string TextStyle => string.Create(
+        CultureInfo.InvariantCulture,
+        $"--victory-glow: {WinnerColor}; --victory-name-size: min(28cqh, {170d / Math.Max(4, WinnerName.Length):0.##}cqw);");
+}

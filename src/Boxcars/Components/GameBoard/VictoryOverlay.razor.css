@@ -1,0 +1,99 @@
+.victory-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    container-type: size;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+    background: radial-gradient(circle at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.75));
+    animation: victory-fade-in 0.4s ease-out both;
+}
+
+/* Rays of light turning slowly behind the text. */
+.victory-burst {
+    position: absolute;
+    width: 220cqmax;
+    height: 220cqmax;
+    background: repeating-conic-gradient(from 0deg, rgba(255, 213, 79, 0.18) 0deg 8deg, transparent 8deg 22deg);
+    border-radius: 50%;
+    animation: victory-burst-in 1.6s ease-out both, victory-spin 30s linear infinite;
+}
+
+.victory-text {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 0.95;
+    text-align: center;
+    animation: victory-grow 1.6s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+
+.victory-trophy {
+    font-size: 16cqh;
+    animation: victory-bounce 1.2s ease-in-out 1.6s infinite alternate;
+}
+
+.victory-name,
+.victory-wins {
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    background: linear-gradient(180deg, #fff8e1 0%, #ffd54f 45%, #ff8f00 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 0.08em var(--victory-glow)) drop-shadow(0 0.04em 0.02em rgba(0, 0, 0, 0.6));
+}
+
+.victory-name {
+    font-size: var(--victory-name-size);
+}
+
+.victory-wins {
+    font-size: 20cqh;
+    animation: victory-pulse 1.2s ease-in-out 1.6s infinite alternate;
+}
+
+@keyframes victory-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes victory-grow {
+    0% { transform: scale(0.02); opacity: 0; }
+    15% { opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes victory-burst-in {
+    from { transform: scale(0); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes victory-spin {
+    to { rotate: 360deg; }
+}
+
+@keyframes victory-pulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.08); }
+}
+
+@keyframes victory-bounce {
+    from { transform: translateY(0); }
+    to { transform: translateY(-0.12em); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .victory-overlay,
+    .victory-burst,
+    .victory-text,
+    .victory-trophy,
+    .victory-wins {
+        animation: none;
+    }
+}
