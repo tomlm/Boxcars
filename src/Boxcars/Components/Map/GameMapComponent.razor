@@ -40,28 +40,36 @@
 				  StartCityChanged="@StartCityChanged"
 				  MapReady="@MapReady" />
 
-		<MudPaper Class="game-map-zoom-overlay" Outlined="true" Square="false">
+		<MudPaper Class="@(_zoomControlsExpanded ? "game-map-zoom-overlay" : "game-map-zoom-overlay game-map-zoom-overlay-collapsed")" Outlined="true" Square="false">
 			<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="game-map-zoom-overlay-content">
-				<MudText Typo="Typo.caption" Class="game-map-zoom-overlay-label">Zoom</MudText>
-				<MudText Typo="Typo.caption" Class="game-map-zoom-overlay-readout">@GetZoomPercentLabel()</MudText>
-				<div class="game-map-zoom-overlay-slider-host">
-					<MudSlider T="double"
-							   Min="100"
-							   Max="500"
-							   Step="50"
-							   Color="MudBlazor.Color.Primary"
-							   Value="@_zoomPercent"
-							   ValueChanged="OnZoomOverlayChangedAsync"
-							   Class="game-map-zoom-overlay-slider" />
-				</div>
-				<div class="game-map-autozoom-toggle">
-					<MudCheckBox T="bool"
-							 Value="@AutoZoomEnabled"
-							 ValueChanged="OnAutoZoomChangedAsync"
-							 Label="Auto-zoom"
-							 Color="MudBlazor.Color.Primary"
-							 Dense="true" />
-				</div>
+				<MudIconButton Icon="@Icons.Material.Filled.ZoomIn"
+							   Size="Size.Small"
+							   Color="@(_zoomControlsExpanded ? MudBlazor.Color.Primary : MudBlazor.Color.Default)"
+							   aria-label="@(_zoomControlsExpanded ? "Hide zoom controls" : "Show zoom controls")"
+							   title="@(_zoomControlsExpanded ? "Hide zoom controls" : "Show zoom controls")"
+							   OnClick="() => _zoomControlsExpanded = !_zoomControlsExpanded" />
+				@if (_zoomControlsExpanded)
+				{
+					<MudText Typo="Typo.caption" Class="game-map-zoom-overlay-readout">@GetZoomPercentLabel()</MudText>
+					<div class="game-map-zoom-overlay-slider-host">
+						<MudSlider T="double"
+								   Min="100"
+								   Max="500"
+								   Step="50"
+								   Color="MudBlazor.Color.Primary"
+								   Value="@_zoomPercent"
+								   ValueChanged="OnZoomOverlayChangedAsync"
+								   Class="game-map-zoom-overlay-slider" />
+					</div>
+					<div class="game-map-autozoom-toggle">
+						<MudCheckBox T="bool"
+								 Value="@AutoZoomEnabled"
+								 ValueChanged="OnAutoZoomChangedAsync"
+								 Label="Auto-zoom"
+								 Color="MudBlazor.Color.Primary"
+								 Dense="true" />
+					</div>
+				}
 			</MudStack>
 		</MudPaper>
 	</div>
@@ -163,6 +171,8 @@
 
 	private MapComponent? _mapComponent;
 	private double _zoomPercent = 100;
+	// The zoom slider and auto-zoom box stay tucked behind the zoom button until the player opens them.
+	private bool _zoomControlsExpanded;
 
 	protected override void OnParametersSet()
 	{
