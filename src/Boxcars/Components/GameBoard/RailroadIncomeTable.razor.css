@@ -1,0 +1,14 @@
+/* Size the table to its contents instead of MudBlazor's full width. */
+.railroad-income-table ::deep table {
+    width: auto;
+}
+
+.railroad-income-table ::deep td,
+.railroad-income-table ::deep th {
+    white-space: nowrap;
+}
+
+.railroad-income-table ::deep td:last-child,
+.railroad-income-table ::deep th:last-child {
+    padding-left: 2rem;
+}
