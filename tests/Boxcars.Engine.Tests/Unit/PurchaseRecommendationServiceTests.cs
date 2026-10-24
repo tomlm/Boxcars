@@ -136,22 +136,57 @@ public class PurchaseRecommendationServiceTests
     }
 
     [Fact]
-    public void EstimateIncomingFees_CountsOpponentsWhoseNextTurnRidesTheBuyersRailroads()
+    public void BuildRecommendations_IncomingFeesStandInForTheReserveButNotForFeesOwed()
+    {
+        // $20,000 coming in covers the whole $10,000 reserve, but the $10,000 owed now must still be paid from cash.
+        var result = BuildSet(new PurchaseFinances(40_000, 10_000, 10_000, _ => 20_000));
+
+        Assert.Equal(0, result.Recommendations.First(r => r.RailroadIndex == BigCity).SpareCash);
+    }
+
+    [Fact]
+    public void EstimateIncomingFees_WeightsPlannedRoutesByHowSoonTheyRideTheBuyersRailroads()
     {
         var state = new GameState
         {
             Players =
             [
                 new PlayerState { Name = "Buyer", LocomotiveType = "Freight" },
-                // Rides railroad 7 within the next 7 dots.
+                // Rides railroad 7 within the next 7 dots: next turn.
                 CreateTraveler("Near", [1, 1, 7, 1], routeProgressIndex: 1),
-                // Railroad 7 is 9 dots ahead, past a Freight's next turn.
-                CreateTraveler("Far", [1, 1, 1, 1, 1, 1, 1, 1, 1, 7], routeProgressIndex: 0)
+                // Railroad 7 is 9 dots ahead: the turn after.
+                CreateTraveler("Far", [1, 1, 1, 1, 1, 1, 1, 1, 1, 7], routeProgressIndex: 0),
+                // Railroad 7 is 15 dots ahead, past both turns.
+                CreateTraveler("Beyond", [.. Enumerable.Repeat(1, 15), 7], routeProgressIndex: 0)
             ]
         };
 
-        Assert.Equal(5_000, OperatingCapitalService.EstimateIncomingFees(state, 0, [7], GameSettings.Default));
-        Assert.Equal(0, OperatingCapitalService.EstimateIncomingFees(state, 0, [2], GameSettings.Default));
+        Assert.Equal(3_750 + 2_500, OperatingCapitalService.EstimateIncomingFees(null, state, 0, [7], GameSettings.Default));
+        Assert.Equal(0, OperatingCapitalService.EstimateIncomingFees(null, state, 0, [2], GameSettings.Default));
+    }
+
+    [Theory]
+    // Every railroad at Start is the buyer's, so Bob must pay a full fee to leave.
+    [InlineData(new[] { 1, 2 }, 5_000)]
+    // RR2 lets Bob leave without paying.
+    [InlineData(new[] { 1 }, 0)]
+    public void EstimateIncomingFees_AnOpponentWhoCanOnlyLeaveOnTheBuyersRailroadsPaysInFull(int[] ownedRailroadIndices, int expected)
+    {
+        var state = CreateReserveState(allRailroadsSold: false, []);
+        state.Players[1].CurrentNodeId = "0:0";
+
+        Assert.Equal(expected, OperatingCapitalService.EstimateIncomingFees(CreateReserveMap(), state, 0, ownedRailroadIndices, GameSettings.Default));
+    }
+
+    [Fact]
+    public void EstimateIncomingFees_CountsAGrandfatheredOpponentAtTheirGrandfatheredRate()
+    {
+        var state = CreateReserveState(allRailroadsSold: false, []);
+        state.Players[1].CurrentNodeId = "0:0";
+        state.Players[1].GrandfatheredRailroadIndices = [1];
+        state.Players[1].GrandfatheredRailroadFees = [new GrandfatheredRailroadFeeState { RailroadIndex = 1, FeeAmount = 1_000 }];
+
+        Assert.Equal(1_000, OperatingCapitalService.EstimateIncomingFees(CreateReserveMap(), state, 0, [1, 2], GameSettings.Default));
     }
 
     [Fact]
