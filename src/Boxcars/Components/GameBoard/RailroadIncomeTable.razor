@@ -1,0 +1,71 @@
+@using System.Globalization
+@using Boxcars.Data
+@using Boxcars.Services
+@using MudBlazor
+
+@if (Income.Rows.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">Railroad income is not available yet.</MudAlert>
+}
+else
+{
+    <MudGrid Spacing="3" Justify="Justify.FlexStart">
+        @foreach (var group in Groups)
+        {
+            <MudItem>
+                <MudPaper Class="pa-3" Outlined="true" Style="width: fit-content; max-width: 100%; min-width: 0">
+                    <MudText Typo="Typo.h6" Style="margin-bottom: 0.2rem">@group.OwnerName</MudText>
+                    <MudText Typo="Typo.caption" Style="display: block; margin-bottom: 0.6rem">Fees Collected: @FormatCurrency(group.Rows.Sum(row => row.FeesCollected))</MudText>
+                    <MudTable T="RailroadIncomeRow" Items="group.Rows" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.RailroadName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.PurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.FeesCollected)"><strong>Fees</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.Multiplier)"><strong>Multiplier</strong></MudTableSortLabel></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd Style="white-space: nowrap">@context.RailroadName</MudTd>
+                            <MudTd>@FormatCurrency(context.PurchasePrice)</MudTd>
+                            <MudTd>@FormatCurrency(context.FeesCollected)</MudTd>
+                            <MudTd>@FormatMultiplier(context.Multiplier)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    [Parameter]
+    public RailroadIncome Income { get; set; } = RailroadIncome.Empty;
+
+    [Parameter]
+    public IReadOnlyList<PlayerBoardModel> Players { get; set; } = [];
+
+    // Rows arrive ordered by owner, with the bank's railroads last.
+    private IEnumerable<(string OwnerName, List<RailroadIncomeRow> Rows)> Groups => Income.Rows
+        .GroupBy(row => row.OwnerIndex)
+        .Select(group => (ResolveOwnerName(group.Key), group.ToList()));
+
+    private string ResolveOwnerName(int? ownerIndex)
+    {
+        if (ownerIndex is not int index)
+        {
+            return "Unowned";
+        }
+
+        var name = Players.FirstOrDefault(player => player.Index == index)?.Name;
+        return string.IsNullOrWhiteSpace(name) ? $"Seat {index + 1}" : name;
+    }
+
+    private static string FormatCurrency(int value)
+    {
+        return $"${value:N0}";
+    }
+
+    private static string FormatMultiplier(decimal value)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"{value:0.0}x");
+    }
+}
