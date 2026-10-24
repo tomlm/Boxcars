@@ -312,12 +312,22 @@ else
                 <MudStack Row="true" Spacing="4" Justify="@StatusContentJustify" AlignItems="AlignItems.Center" Class="@StatusContentClass">
                         @if (ShouldShowStatusControls)
                         {
-                            @if (!ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
+                            @if (!ShouldShowDeclarePanel && !ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
                             { 
                                 <MovementStatusPanel State="@_turnViewState" Approach="@CurrentRouteApproach" ArrivalBonus="@CurrentRouteArrivalBonus" RoverTargetPlayerName="@CurrentRouteRoverTargetPlayerName" />
                             }
 
-                            @if (ShouldShowHomeCityChoicePanel)
+                            @if (ShouldShowDeclarePanel && CurrentDeclarePlayer is { } declarePlayer)
+                            {
+                                <DeclarePanel PlayerName="@declarePlayer.Name"
+                                              HomeCityName="@declarePlayer.HomeCityName"
+                                              Cash="@declarePlayer.Cash"
+                                              DistanceToHome="@CalculateDistanceToHome(declarePlayer)"
+                                              IsBusy="@_awaitingAuthoritativeUpdate"
+                                              DeclareRequested="() => OnDeclareDecisionAsync(true)"
+                                              KeepPlayingRequested="() => OnDeclareDecisionAsync(false)" />
+                            }
+                            else if (ShouldShowHomeCityChoicePanel)
                             {
                                 <HomeCityChoicePanel Phase="CurrentHomeCityChoicePhase!"
                                                      SelectedCityName="@_selectedHomeCityName"
@@ -2902,6 +2912,16 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         && IsCurrentUserActivePlayer
         && string.Equals(_turnViewState.TurnPhase, TurnPhase.RegionChoice.ToString(), StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The declare choice is waiting in the action bar for the active player's answer.</summary>
+    private bool ShouldShowDeclarePanel => ShouldSuppressPhasePanelsForDeclarePrompt
+        && !_pendingDrawDestinationShouldDeclare.HasValue;
+
+    private Boxcars.Engine.Persistence.PlayerState? CurrentDeclarePlayer => _gameState is not null
+        && _gameState.ActivePlayerIndex >= 0
+        && _gameState.ActivePlayerIndex < _gameState.Players.Count
+            ? _gameState.Players[_gameState.ActivePlayerIndex]
+            : null;
+
     private bool ShouldSuppressPhasePanelsForDeclarePrompt
     {
         get
@@ -5059,19 +5079,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         try
         {
+            // The declare choice is in the action bar; wait for the player to answer it.
             if (activePlayer.Cash >= winningCash && !_pendingDrawDestinationShouldDeclare.HasValue)
             {
-                var homeDistance = CalculateDistanceToHome(activePlayer);
-                var distanceText = homeDistance.HasValue
-                    ? homeDistance.Value.ToString(CultureInfo.InvariantCulture)
-                    : "an unknown distance";
-                var result = await DialogService.ShowMessageBox(
-                    "Declare Attempt",
-                    $"You are {distanceText} away from {activePlayer.HomeCityName} and you have ${activePlayer.Cash:N0}. Do you want to declare you are going home?",
-                    yesText: "Yes",
-                    noText: "No");
-
-                _pendingDrawDestinationShouldDeclare = result == true;
+                return;
             }
 
             if (_gameState is null
@@ -5165,6 +5176,17 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             state.Turn.MovementRemaining,
             state.Turn.MovementAllowance,
             state.Turn.Phase);
+    }
+
+    private async Task OnDeclareDecisionAsync(bool declare)
+    {
+        if (!ShouldShowDeclarePanel)
+        {
+            return;
+        }
+
+        _pendingDrawDestinationShouldDeclare = declare;
+        await ResolveDrawDestinationPhaseAsync();
     }
 
     private void ClearPendingDrawDestinationDecision()
