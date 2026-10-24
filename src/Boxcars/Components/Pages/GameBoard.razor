@@ -192,6 +192,13 @@ else
                                              DismissRequested="DismissSelectedRailroadOverlayAsync" />
                 </div>
             }
+
+            @if (_victoryAnnouncement is { } victory && IsGameCompleted)
+            {
+                <VictoryOverlay WinnerName="@victory.WinnerName"
+                                WinnerColor="@victory.WinnerColor"
+                                DismissRequested="() => _victoryAnnouncement = null" />
+            }
         </div>
 
         @if (ShouldShowPurchaseExperienceTabs)
@@ -5222,6 +5229,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             : null;
     }
 
+    /// <summary>The win being celebrated over the map, until the player dismisses it.</summary>
+    private sealed record VictoryAnnouncement(string WinnerName, string WinnerColor);
+
+    private VictoryAnnouncement? _victoryAnnouncement;
+
     private void NotifyGameCompleted(RailBaronGameState? previousState, RailBaronGameState currentState)
     {
         var wasCompleted = previousState is not null
@@ -5232,18 +5244,27 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
-        var winnerName = currentState.WinnerIndex.HasValue
+        var winner = currentState.WinnerIndex.HasValue
             && currentState.WinnerIndex.Value >= 0
             && currentState.WinnerIndex.Value < _players.Count
-                ? _players[currentState.WinnerIndex.Value].Name
-                : "A player";
+                ? _players[currentState.WinnerIndex.Value]
+                : null;
+        var winnerName = winner?.Name ?? "A player";
 
-        ShowNotification(
+        AddNotificationHistory(
+            $"game-won:{currentState.TurnNumber}:{currentState.WinnerIndex?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}",
             $"{winnerName} Won",
             Severity.Success,
-            historyKey: $"game-won:{currentState.TurnNumber}:{currentState.WinnerIndex?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}",
-            icon: Icons.Material.Filled.EmojiEvents,
-            visibleStateDuration: 5000);
+            Icons.Material.Filled.EmojiEvents,
+            snackbarClass: null,
+            detail: null,
+            DateTimeOffset.UtcNow);
+
+        // Celebrate only a win seen as it happens, not every time a finished game is opened.
+        if (previousState is not null)
+        {
+            _victoryAnnouncement = new VictoryAnnouncement(winnerName, winner?.Color ?? "#ffd54f");
+        }
     }
 
     private string BuildCompletedGameStatusMessage()
