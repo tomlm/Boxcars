@@ -45,7 +45,11 @@
     align-items: center;
 }
 
-.game-map-host ::deep .game-map-zoom-overlay-label,
+/* Just the zoom button. */
+.game-map-host ::deep .game-map-zoom-overlay-collapsed {
+    padding: 0.15rem;
+}
+
 .game-map-host ::deep .game-map-zoom-overlay-readout {
     color: var(--mud-palette-text-primary);
 }
