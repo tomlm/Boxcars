@@ -591,8 +591,7 @@ public sealed class GameBoardStateMapper(
             Message = state.Turn.ArrivalResolution.Message,
             IsVisible = true,
             PurchasePhase = purchasePhase,
-            HasActivePurchaseControls = purchasePhase?.HasActivePurchaseControls == true,
-            NoPurchaseNotification = purchasePhase?.NoPurchaseNotification
+            HasActivePurchaseControls = purchasePhase?.HasActivePurchaseControls == true
         };
     }
 
@@ -662,14 +661,8 @@ public sealed class GameBoardStateMapper(
                 railroad => networkCoverageService.BuildProjectedSnapshot(mapDefinition, activePlayer.OwnedRailroadIndices, railroad.Index));
 
         var allEligibleEngineTypes = GetEligibleUpgradeTargets(ParseLocomotiveType(activePlayer.LocomotiveType)).ToList();
-        var hasAvailableEngineUpgrades = engineOptions.Count > 0;
-        var hasUnownedRailroads = railroadOptions.Count > 0;
-        var hasAvailablePurchases = hasUnownedRailroads || hasAvailableEngineUpgrades;
         var canAffordAnyPurchase = railroadOptions.Any(option => option.IsAffordable)
             || engineOptions.Any(option => option.IsEligible);
-        var noPurchaseNotification = hasAvailablePurchases && !canAffordAnyPurchase
-            ? $"{activePlayer.Name} can't afford to purchase anything"
-            : null;
         var hasActivePurchaseControls = canAffordAnyPurchase;
         var recommendations = mapDefinition is null
             ? PurchaseRecommendationsModel.Empty
@@ -703,7 +696,6 @@ public sealed class GameBoardStateMapper(
                 ? networkCoverageService.BuildRailroadOverlayInfo(mapDefinition, activePlayer.OwnedRailroadIndices, selectedRailroad)
                 : null,
             HasActivePurchaseControls = hasActivePurchaseControls,
-            NoPurchaseNotification = noPurchaseNotification,
             RecommendationInputs = mapAnalysisReport is null
                 ? null
                 : purchaseRecommendationService.BuildInputSet(

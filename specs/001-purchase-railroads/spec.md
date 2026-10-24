@@ -35,7 +35,7 @@ As the active player, I want to use the purchase phase to buy either one unowned
 3. **Given** the active player selects an engine upgrade they can afford, **When** they activate the BUY button, **Then** the player's engine is upgraded, the player's cash is reduced by exactly that engine upgrade's purchase price, no railroad ownership changes are made, and the turn proceeds to fee payment before the player can end the turn.
 4. **Given** the active player does not have enough cash for the selected railroad or engine upgrade, **When** they attempt to confirm the purchase, **Then** the purchase is not completed and the player's cash, engine, and railroad ownership remain unchanged.
 5. **Given** the active player completes one purchase action during the purchase phase, **When** the purchase result is applied, **Then** no second railroad purchase or engine upgrade may be completed during that same purchase phase.
-6. **Given** unowned railroads remain but the active player cannot afford any railroad or engine upgrade option, **When** the purchase phase begins, **Then** no purchase selection is activated, the system shows the notification "{Player} does not have enough money to purchase anything.", and the turn proceeds directly to fee payment.
+6. **Given** unowned railroads remain but the active player cannot afford any railroad or engine upgrade option, **When** the purchase phase begins, **Then** no purchase selection is activated, no notification is shown, and the turn proceeds directly to fee payment.
 
 ---
 
@@ -91,8 +91,8 @@ As the active player, I want purchase controls anchored to the map page instead 
 
 ### Edge Cases
 
-- If there are no unowned railroads and no affordable engine upgrades, the purchase step must not activate a purchase selection, must not present stale or empty controls, and must let the turn continue without recording a purchase or showing an affordability notification.
-- If unowned railroads remain or engine upgrades exist but the active player cannot afford any purchase option, the purchase step must not activate a purchase selection, must show the notification "{Player} does not have enough money to purchase anything.", and must continue to fee payment without changing ownership, engine, or cash.
+- If there are no unowned railroads and no affordable engine upgrades, the purchase step must not activate a purchase selection, must not present stale or empty controls, and must let the turn continue without recording a purchase.
+- If unowned railroads remain or engine upgrades exist but the active player cannot afford any purchase option, the purchase step must not activate a purchase selection, must not show a notification, and must continue to fee payment without changing ownership, engine, or cash.
 - If another game event makes the selected railroad unavailable before confirmation, the purchase must fail safely and require the player to choose again or exit.
 - If the player leaves the purchase phase without activating BUY, no cash, engine, or ownership changes may be applied, and the map must switch to move mode while remaining zoomed out.
 - If the purchase step is skipped, the map must not briefly enter railroad-selection mode before switching to move mode.
@@ -107,8 +107,8 @@ As the active player, I want purchase controls anchored to the map page instead 
 
 - **FR-001**: The system MUST replace the existing railroad-purchase placeholder with a usable purchase flow during the active player's turn.
 - **FR-001A**: The purchase phase MUST offer the active player eligible purchase actions for railroad buying and engine upgrading.
-- **FR-001B**: If unowned railroads remain or engine upgrades exist but the active player cannot afford any purchase option, the system MUST not activate a purchase selection, MUST show the notification "{Player} does not have enough money to purchase anything.", and MUST proceed directly to the fee-payment step.
-- **FR-001C**: If no unowned railroads remain and no eligible engine upgrade is available, the system MUST proceed without activating purchase controls and without showing the affordability notification.
+- **FR-001B**: If unowned railroads remain or engine upgrades exist but the active player cannot afford any purchase option, the system MUST not activate a purchase selection, MUST NOT show a notification, and MUST proceed directly to the fee-payment step.
+- **FR-001C**: If no unowned railroads remain and no eligible engine upgrade is available, the system MUST proceed without activating purchase controls.
 - **FR-002**: When the purchase phase begins and at least one railroad purchase option is available, the system MUST switch the map into railroad-selection mode and present a zoom level that supports evaluation of the full railroad network.
 - **FR-002A**: When the purchase phase ends, whether by successful purchase, skipped purchase, or failed confirmation followed by phase exit, the system MUST switch the map to move mode while keeping the zoomed-out view.
 - **FR-002B**: When the purchase phase is skipped because no purchase option can be selected, the system MUST not switch the map into railroad-selection mode before switching to move mode.

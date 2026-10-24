@@ -4991,8 +4991,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             ':',
             _gameState.TurnNumber.ToString(CultureInfo.InvariantCulture),
             _gameState.ActivePlayerIndex.ToString(CultureInfo.InvariantCulture),
-            CurrentPurchasePhase.CashAfterPayout.ToString(CultureInfo.InvariantCulture),
-            CurrentPurchasePhase.NoPurchaseNotification ?? string.Empty);
+            CurrentPurchasePhase.CashAfterPayout.ToString(CultureInfo.InvariantCulture));
 
         if (string.Equals(_lastPurchaseResolutionKey, purchaseResolutionKey, StringComparison.Ordinal))
         {
@@ -5000,11 +4999,6 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
 
         _lastPurchaseResolutionKey = purchaseResolutionKey;
-
-        if (!string.IsNullOrWhiteSpace(CurrentPurchasePhase.NoPurchaseNotification))
-        {
-            ShowNotification(CurrentPurchasePhase.NoPurchaseNotification, Severity.Warning);
-        }
 
         await DeclinePurchaseCoreAsync(requireConfirmation: false);
     }
