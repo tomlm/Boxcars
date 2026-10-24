@@ -223,6 +223,9 @@ else
                         <MudTabPanel Text="Visits">
                             <DestinationVisitsTable Visits="_destinationVisits" />
                         </MudTabPanel>
+                        <MudTabPanel Text="Railroads">
+                            <RailroadIncomeTable Income="_railroadIncome" Players="_players" />
+                        </MudTabPanel>
                     </MudTabs>
                 }
                 else if (IsHistoryPurchaseTabActive)
@@ -429,6 +432,7 @@ else
     private List<Boxcars.Engine.Persistence.GameState> _gameStateHistory = [];
     private NetWorthHistory _netWorthHistory = NetWorthHistory.Empty;
     private DestinationVisits _destinationVisits = DestinationVisits.Empty;
+    private RailroadIncome _railroadIncome = RailroadIncome.Empty;
     private MapAnalysisReport? _mapAnalysisReport;
     private BoardTurnViewState _turnViewState = new();
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
@@ -978,6 +982,10 @@ else
 
         _netWorthHistory = NetWorthHistory.Build(_gameStateHistory, _playerBoardMapDefinition);
         _destinationVisits = DestinationVisits.Build(_gameStateHistory, _playerBoardMapDefinition);
+        _railroadIncome = RailroadIncome.Build(
+            _gameStateHistory,
+            _playerBoardMapDefinition,
+            _game is null ? Boxcars.Engine.Persistence.GameSettings.Default : GameSettingsResolver.Resolve(_game).Settings);
     }
 
     private void ExtendGameStateHistory(Boxcars.Engine.Persistence.GameState state)
@@ -1742,6 +1750,7 @@ else
                 _gameStateHistory.Clear();
                 _netWorthHistory = NetWorthHistory.Empty;
                 _destinationVisits = DestinationVisits.Empty;
+                _railroadIncome = RailroadIncome.Empty;
                 if (IsStatsPurchaseTabActive)
                 {
                     await LoadGameStateHistoryAsync();
