@@ -727,7 +727,8 @@ public sealed class BotTurnService
         var legalOptions = new List<BotLegalOption>();
         var pendingFeeAmount = OperatingCapitalService.CalculateFeesOwed(snapshot, player.Index, gameEngine.Settings);
         var operatingReserve = OperatingCapitalService.CalculateOperatingReserve(mapDefinition, snapshot, player.Index, gameEngine.Settings);
-        var reserveTarget = BuildReserveTarget(operatingReserve, pendingFeeAmount);
+        var ownedRailroadIndices = player.OwnedRailroads.Select(railroad => railroad.Index).ToList();
+        int EstimateIncomingFees(IReadOnlyCollection<int> owned) => OperatingCapitalService.EstimateIncomingFees(mapDefinition, snapshot, player.Index, owned, gameEngine.Settings);
         var affordableRailroads = gameEngine.Railroads
             .Where(railroad => railroad.Owner is null && !railroad.IsPublic && railroad.PurchasePrice <= player.Cash)
             .OrderByDescending(railroad => railroad.PurchasePrice)
@@ -735,7 +736,7 @@ public sealed class BotTurnService
             .ToList();
         var recommendations = PurchaseRecommendationService.BuildRecommendations(
             mapDefinition,
-            player.OwnedRailroads.Select(railroad => railroad.Index).ToList(),
+            ownedRailroadIndices,
             affordableRailroads.Select(railroad => new PurchaseCandidate(railroad.Index, railroad.Name, railroad.PurchasePrice)).ToList(),
             gameEngine.Players
                 .Where(opponent => opponent != player && !opponent.IsBankrupt)
@@ -745,7 +746,7 @@ public sealed class BotTurnService
                 player.Cash,
                 pendingFeeAmount,
                 operatingReserve.Amount,
-                ownedRailroadIndices => OperatingCapitalService.EstimateIncomingFees(snapshot, player.Index, ownedRailroadIndices, gameEngine.Settings)))
+                EstimateIncomingFees))
             .Recommendations;
         // Without the AI, a toll booth (the only way into an opponent's destination) beats the blended pick.
         var fallbackRailroadIndex = (recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.TollBooth)
@@ -756,6 +757,7 @@ public sealed class BotTurnService
         {
             var projectedCashAfterPurchase = player.Cash - railroad.PurchasePrice;
             var projectedFeeShortfall = Math.Max(0, pendingFeeAmount - projectedCashAfterPurchase);
+            var reserveTarget = BuildReserveTarget(operatingReserve, pendingFeeAmount, EstimateIncomingFees([.. ownedRailroadIndices, railroad.Index]));
             var reserveShortfall = Math.Max(0, reserveTarget - projectedCashAfterPurchase);
             var optionId = $"buy-railroad:{railroad.Index}";
             var recommendedFor = recommendations
@@ -790,6 +792,7 @@ public sealed class BotTurnService
             };
         }
 
+        var engineReserveTarget = BuildReserveTarget(operatingReserve, pendingFeeAmount, EstimateIncomingFees(ownedRailroadIndices));
         var currentEngineType = player.LocomotiveType;
         foreach (var engineType in Enum.GetValues<LocomotiveType>().Where(candidate => candidate > currentEngineType))
         {
@@ -801,7 +804,7 @@ public sealed class BotTurnService
 
             var projectedCashAfterPurchase = player.Cash - amountPaid;
             var projectedFeeShortfall = Math.Max(0, pendingFeeAmount - projectedCashAfterPurchase);
-            var reserveShortfall = Math.Max(0, reserveTarget - projectedCashAfterPurchase);
+            var reserveShortfall = Math.Max(0, engineReserveTarget - projectedCashAfterPurchase);
             var optionId = $"buy-engine:{engineType}";
             legalOptions.Add(new BotLegalOption
             {
@@ -813,7 +816,7 @@ public sealed class BotTurnService
                     projectedCashAfterPurchase,
                     pendingFeeAmount,
                     projectedFeeShortfall,
-                    reserveTarget,
+                    engineReserveTarget,
                     reserveShortfall),
                 Payload = engineType.ToString()
             });
@@ -1336,7 +1339,9 @@ public sealed class BotTurnService
         var currentCoverage = _networkCoverageService.BuildSnapshot(mapDefinition, ownedRailroadIndices);
         var pendingFeeAmount = OperatingCapitalService.CalculateFeesOwed(snapshot, playerIndex, gameEngine.Settings);
         var operatingReserve = OperatingCapitalService.CalculateOperatingReserve(mapDefinition, snapshot, playerIndex, gameEngine.Settings);
-        var reserveTarget = BuildReserveTarget(operatingReserve, pendingFeeAmount);
+        int EstimateIncomingFees(IReadOnlyCollection<int> owned) => OperatingCapitalService.EstimateIncomingFees(mapDefinition, snapshot, playerIndex, owned, gameEngine.Settings);
+        var incomingFees = EstimateIncomingFees(ownedRailroadIndices);
+        var reserveTarget = BuildReserveTarget(operatingReserve, pendingFeeAmount, incomingFees);
 
         return new
         {
@@ -1361,6 +1366,8 @@ public sealed class BotTurnService
             PurchaseRisk = new
             {
                 RecommendedOperatingReserveCash = reserveTarget,
+                // Fees opponents are expected to pay soon, weighted by certainty; they lower the reserve, not the fees owed now.
+                ExpectedIncomingFees = incomingFees,
                 operatingReserve.AtFriendlyCity,
                 operatingReserve.OpponentFee
             },
@@ -1373,7 +1380,9 @@ public sealed class BotTurnService
                     var projectedCoverage = _networkCoverageService.BuildProjectedSnapshot(mapDefinition, ownedRailroadIndices, railroad.Index);
                     var cashAfterPurchase = player.Cash - railroad.PurchasePrice;
                     var feeShortfall = Math.Max(0, pendingFeeAmount - cashAfterPurchase);
-                    var reserveShortfall = Math.Max(0, reserveTarget - cashAfterPurchase);
+                    var incomingFeesAfterPurchase = EstimateIncomingFees([.. ownedRailroadIndices, railroad.Index]);
+                    var railroadReserveTarget = BuildReserveTarget(operatingReserve, pendingFeeAmount, incomingFeesAfterPurchase);
+                    var reserveShortfall = Math.Max(0, railroadReserveTarget - cashAfterPurchase);
                     return new
                     {
                         railroad.Index,
@@ -1384,10 +1393,11 @@ public sealed class BotTurnService
                         CashAfterFees = cashAfterPurchase - pendingFeeAmount,
                         WouldTriggerForcedSale = feeShortfall > 0,
                         FeeShortfall = feeShortfall,
-                        RecommendedOperatingReserveCash = reserveTarget,
+                        ExpectedIncomingFees = incomingFeesAfterPurchase,
+                        RecommendedOperatingReserveCash = railroadReserveTarget,
                         PreservesRecommendedOperatingReserve = reserveShortfall == 0,
                         OperatingReserveShortfall = reserveShortfall,
-                        CashVsRecommendedOperatingReserve = cashAfterPurchase - reserveTarget,
+                        CashVsRecommendedOperatingReserve = cashAfterPurchase - railroadReserveTarget,
                         CurrentAccessibleDestinationPercent = currentCoverage.AccessibleDestinationPercent,
                         ProjectedAccessibleDestinationPercent = projectedCoverage.AccessibleDestinationPercent,
                         AccessDeltaPercent = Math.Round(projectedCoverage.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent, 1, MidpointRounding.AwayFromZero),
@@ -1468,10 +1478,13 @@ public sealed class BotTurnService
         return $"{label} for {purchasePrice.ToString("C0", currencyCulture)} (cash after purchase {cashAfterPurchase.ToString("C0", currencyCulture)}, fees due {pendingFeeAmount.ToString("C0", currencyCulture)}, fees still covered{reserveText})";
     }
 
-    /// <summary>The bot's reserve target: the operating reserve plus the fees it owes this turn.</summary>
-    private static int BuildReserveTarget(OperatingReserve operatingReserve, int pendingFeeAmount)
+    /// <summary>
+    /// The bot's reserve target: the fees it owes this turn plus the operating reserve, less the fees opponents are
+    /// expected to pay it soon.
+    /// </summary>
+    private static int BuildReserveTarget(OperatingReserve operatingReserve, int pendingFeeAmount, int incomingFees)
     {
-        return operatingReserve.Amount + pendingFeeAmount;
+        return OperatingCapitalService.ReserveAfterIncomingFees(operatingReserve.Amount, incomingFees) + pendingFeeAmount;
     }
 
     /// <summary>
@@ -1536,7 +1549,10 @@ public sealed class BotTurnService
             otherUnsoldRailroads.Count,
             privateRailroads.Count,
             bidder.Cash,
-            operatingReserve.Amount,
+            // Fees expected soon, counting the auctioned railroad, stand in for part of the reserve.
+            OperatingCapitalService.ReserveAfterIncomingFees(
+                operatingReserve.Amount,
+                OperatingCapitalService.EstimateIncomingFees(mapDefinition, snapshot, bidderPlayerIndex, [.. ownedRailroadIndices, railroadIndex], gameEngine.Settings)),
             BuildAuctionCashCommitments(gameEngine, mapDefinition, bidder, ownedRailroadIndices, currentCoverage, otherUnsoldRailroads, AuctionValuation.Usefulness(accessGain, monopolyGain)));
     }
 

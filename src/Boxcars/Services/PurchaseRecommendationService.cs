@@ -44,8 +44,8 @@ public sealed class PurchaseRecommendationService
 
     /// <summary>
     /// The best railroad to buy in each category for the buyer. Only railroads the buyer can safely afford count:
-    /// after paying for it and the fees owed, and collecting fees opponents are about to pay, the buyer must still
-    /// hold the operating reserve. Categories with no railroad that helps are left out, and the same railroad can
+    /// after paying for it and the fees owed, the buyer must still hold the operating reserve, less the fees opponents
+    /// are expected to pay soon (income can stand in for the reserve, but not for fees owed now). Categories with no railroad that helps are left out, and the same railroad can
     /// win several.
     /// </summary>
     public static PurchaseRecommendationSet BuildRecommendations(
@@ -83,7 +83,7 @@ public sealed class PurchaseRecommendationService
                 var projected = NetworkCoverage.BuildProjectedSnapshot(mapDefinition, buyerOwnedRailroadIndices, candidate.RailroadIndex);
                 var ownedAfterPurchase = buyerOwnedRailroadIndices.Append(candidate.RailroadIndex).ToList();
                 var spareCash = finances.Cash - candidate.PurchasePrice - finances.FeesOwed
-                    + finances.EstimateIncomingFees(ownedAfterPurchase) - operatingReserve;
+                    - OperatingCapitalService.ReserveAfterIncomingFees(operatingReserve, finances.EstimateIncomingFees(ownedAfterPurchase));
                 var candidateNodes = nodesByRailroad.GetValueOrDefault(candidate.RailroadIndex) ?? [];
                 var networksJoined = ownedNetworks.Count(network => network.Overlaps(candidateNodes));
                 var connections = nodesByRailroad.Count(pair => pair.Key != candidate.RailroadIndex && pair.Value.Overlaps(candidateNodes));
