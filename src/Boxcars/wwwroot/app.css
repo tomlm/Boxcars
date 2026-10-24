@@ -100,3 +100,19 @@ h1:focus {
     --player-snackbar-color: darkgreen;
 }
 
+.player-snackbar-white {
+    --player-snackbar-color: white;
+}
+
+.player-snackbar-lavender {
+    --player-snackbar-color: lavender;
+}
+
+.player-snackbar-black {
+    --player-snackbar-color: black;
+}
+
+.player-snackbar-hotpink {
+    --player-snackbar-color: hotpink;
+}
+

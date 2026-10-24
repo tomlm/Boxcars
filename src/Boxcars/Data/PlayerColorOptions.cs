@@ -13,7 +13,11 @@ public static class PlayerColorOptions
         "yellow",
         "purple",
         "green",
-        "darkgreen"
+        "darkgreen",
+        "white",
+        "lavender",
+        "black",
+        "hotpink"
     ];
 
     public static bool IsSupported(string? color)
@@ -44,6 +48,10 @@ public static class PlayerColorOptions
             "purple" => "Purple",
             "green" => "Green",
             "darkgreen" => "Dark Green",
+            "white" => "White",
+            "lavender" => "Lavender",
+            "black" => "Black",
+            "hotpink" => "Pink",
             _ => string.Empty
         };
     }
