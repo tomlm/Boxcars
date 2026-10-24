@@ -1,3 +1,4 @@
+@using System.Globalization
 @using Boxcars.Data
 @using Boxcars.Services
 @using MudBlazor
@@ -8,37 +9,31 @@
 }
 else
 {
-    <MudPaper Outlined="true" Class="pa-3 d-flex flex-column overflow-auto align-self-start" Style="width: fit-content; max-width: 100%">
-        <MudText Typo="Typo.caption" Class="mb-2">
-            Fees opponents have paid to ride each railroad this game, grouped by its current owner.
-        </MudText>
-        <div class="railroad-income-table">
-            <MudSimpleTable Dense="true" Hover="true" FixedHeader="true">
-                <thead>
-                    <tr>
-                        <th>Railroad</th>
-                        <th style="text-align: right">Fees Collected</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var group in Groups)
-                    {
-                        <tr>
-                            <td><strong>@group.OwnerName</strong></td>
-                            <td style="text-align: right"><strong>@FormatCurrency(group.Rows.Sum(row => row.FeesCollected))</strong></td>
-                        </tr>
-                        @foreach (var row in group.Rows)
-                        {
-                            <tr>
-                                <td style="padding-left: 2rem">@row.RailroadName</td>
-                                <td style="text-align: right">@FormatCurrency(row.FeesCollected)</td>
-                            </tr>
-                        }
-                    }
-                </tbody>
-            </MudSimpleTable>
-        </div>
-    </MudPaper>
+    <MudGrid Spacing="3" Justify="Justify.FlexStart">
+        @foreach (var group in Groups)
+        {
+            <MudItem>
+                <MudPaper Class="pa-3" Outlined="true" Style="width: fit-content; max-width: 100%; min-width: 0">
+                    <MudText Typo="Typo.h6" Style="margin-bottom: 0.2rem">@group.OwnerName</MudText>
+                    <MudText Typo="Typo.caption" Style="display: block; margin-bottom: 0.6rem">Fees Collected: @FormatCurrency(group.Rows.Sum(row => row.FeesCollected))</MudText>
+                    <MudTable T="RailroadIncomeRow" Items="group.Rows" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.RailroadName)"><strong>Railroad</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.PurchasePrice)"><strong>Price</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.FeesCollected)"><strong>Fees</strong></MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.ReturnPercentage)"><strong>Fees / Price</strong></MudTableSortLabel></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd Style="white-space: nowrap">@context.RailroadName</MudTd>
+                            <MudTd>@FormatCurrency(context.PurchasePrice)</MudTd>
+                            <MudTd>@FormatCurrency(context.FeesCollected)</MudTd>
+                            <MudTd>@FormatPercent(context.ReturnPercentage)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
 }
 
 @code {
@@ -67,5 +62,10 @@ else
     private static string FormatCurrency(int value)
     {
         return $"${value:N0}";
+    }
+
+    private static string FormatPercent(decimal value)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"{value:0}%");
     }
 }

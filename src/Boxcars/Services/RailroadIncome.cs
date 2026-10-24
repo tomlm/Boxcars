@@ -48,6 +48,7 @@ public sealed record RailroadIncome(IReadOnlyList<RailroadIncomeRow> Rows)
                 railroad.Index,
                 railroad.Name,
                 railroad.ShortName ?? railroad.Name,
+                railroad.PurchasePrice ?? RailBaronGameEngine.GetRailroadPurchasePrice(railroad.Index),
                 ownership.GetValueOrDefault(railroad.Index),
                 income.GetValueOrDefault(railroad.Index)))
             .OrderBy(row => row.OwnerIndex ?? int.MaxValue)
@@ -89,6 +90,11 @@ public sealed record RailroadIncome(IReadOnlyList<RailroadIncomeRow> Rows)
     }
 }
 
+/// <param name="PurchasePrice">The railroad's list price in this game.</param>
 /// <param name="OwnerIndex">The railroad's owner in the latest state, or null when the bank holds it.</param>
 /// <param name="FeesCollected">Fees opponents have paid for riding it this game, whoever owned it at the time.</param>
-public sealed record RailroadIncomeRow(int RailroadIndex, string RailroadName, string ShortName, int? OwnerIndex, int FeesCollected);
+public sealed record RailroadIncomeRow(int RailroadIndex, string RailroadName, string ShortName, int PurchasePrice, int? OwnerIndex, int FeesCollected)
+{
+    /// <summary>Fees collected as a percentage of the purchase price; 100% means it has paid for itself.</summary>
+    public decimal ReturnPercentage => PurchasePrice > 0 ? FeesCollected * 100m / PurchasePrice : 0m;
+}

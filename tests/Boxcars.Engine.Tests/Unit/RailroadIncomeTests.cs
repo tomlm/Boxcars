@@ -35,6 +35,10 @@ public class RailroadIncomeTests
                 (Spare, null, 0)
             ],
             income.Rows.Select(row => (row.RailroadIndex, row.OwnerIndex, row.FeesCollected)).ToArray());
+        // East cost $11,000 and has collected $5,500.
+        var east = income.Rows.Single(row => row.RailroadIndex == East);
+        Assert.Equal(11_000, east.PurchasePrice);
+        Assert.Equal(50m, east.ReturnPercentage);
     }
 
     private static GameState CreateState(int activePlayer, int aliceFees, int bobFees, int[] ridden, int[]? fullRate = null, int? grandfatheredWestFee = null)
@@ -60,7 +64,7 @@ public class RailroadIncomeTests
         var map = new MapDefinition { Name = "Income Test", Version = "1.0" };
         foreach (var (index, name) in new[] { (West, "West Line"), (East, "East Line"), (South, "South Line"), (Spare, "Spare Line") })
         {
-            map.Railroads.Add(new RailroadDefinition { Index = index, Name = name, ShortName = name[..2] });
+            map.Railroads.Add(new RailroadDefinition { Index = index, Name = name, ShortName = name[..2], PurchasePrice = 11_000 });
         }
 
         return map;
