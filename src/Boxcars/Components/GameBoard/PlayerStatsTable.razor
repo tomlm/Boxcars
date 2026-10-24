@@ -93,6 +93,7 @@ else
 
     private IReadOnlyList<PlayerStatisticRow> StatisticRows =>
     [
+        new("Cash", "Cash", (state, seatIndex) => FormatCash(state, seatIndex)),
         new("Movement", "Turns Taken", (state, _) => FormatCount(state.TurnsTaken)),
         new("Movement", "Avg Freight", (state, _) => FormatAverage(state.FreightRollTotal, state.FreightTurnCount)),
         new("Movement", "Avg Express", (state, _) => FormatAverage(state.ExpressRollTotal, state.ExpressTurnCount)),
@@ -120,6 +121,18 @@ else
         new("Destinations", "Destinations", (state, _) => FormatDestinationLog(state)),
         new("Destinations", "% Unfriendly", (state, _) => FormatPercentage(state.UnfriendlyDestinationCount, state.DestinationCount))
     ];
+
+    /// <summary>
+    /// The player's cash right now. When the game keeps cash secret and the viewer may not see this player's, it's
+    /// the same coarse $–$$$$$ indicator the player board shows.
+    /// </summary>
+    private string FormatCash(PlayerState state, int seatIndex)
+    {
+        var player = Players.FirstOrDefault(candidate => candidate.Index == seatIndex);
+        return player is null || player.CanViewExactCash
+            ? FormatCurrency(state.Cash)
+            : player.GetMoneyDisplay();
+    }
 
     private static string FormatCount(int value)
     {

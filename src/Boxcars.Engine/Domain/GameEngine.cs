@@ -626,7 +626,9 @@ public sealed class GameEngine : ObservableBase
                 LastApproachDecision = null;
             }
 
-            return FindCheapestRoute(startNodeId, targetNodeId, player)!;
+            // Catching a declared player is worth the rover cash, and each turn spent getting there gives them a turn
+            // to move on: a route that catches them sooner wins unless it costs more than the rover pays.
+            return FindCheapestRoute(startNodeId, targetNodeId, player, extraTurnWeight: _settings.RoverCash)!;
         }
 
         if (player.Destination == null)
@@ -3020,14 +3022,16 @@ public sealed class GameEngine : ObservableBase
     /// <summary>
     /// The cheapest route, or the fee-priced shortest path when the search fails. A route that
     /// <paramref name="startsNextTurn"/> ignores this turn's roll and fees, also avoids
-    /// <paramref name="extraUsedSegments"/>, and is null when the search fails.
+    /// <paramref name="extraUsedSegments"/>, and is null when the search fails. <paramref name="extraTurnWeight"/> is
+    /// added to a route's weight for each turn it needs after the first, when arriving sooner is worth that much.
     /// </summary>
     private Route? FindCheapestRoute(
         string startNodeId,
         string destNodeId,
         Player player,
         HashSet<SegmentKey>? extraUsedSegments = null,
-        bool startsNextTurn = false)
+        bool startsNextTurn = false,
+        int extraTurnWeight = 0)
     {
         var routePlanningStopwatch = Stopwatch.StartNew();
         // Later turns move an average roll; the first turn moves what's left of this turn's roll (e.g. a bonus out), so
@@ -3159,7 +3163,8 @@ public sealed class GameEngine : ObservableBase
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty
-                        + (isUnfriendlySegment ? RoutePlanningUnfriendlyPenaltyPerSegment : 0),
+                        + (isUnfriendlySegment ? RoutePlanningUnfriendlyPenaltyPerSegment : 0)
+                        + (exhaustedTurnCapacity ? extraTurnWeight : 0),
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1,
                     UnfriendlySegments: stateCost.UnfriendlySegments + (isUnfriendlySegment ? 1 : 0));
