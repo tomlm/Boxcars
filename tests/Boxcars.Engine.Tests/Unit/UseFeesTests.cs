@@ -567,7 +567,34 @@ public class UseFeesTests
         Assert.Equal(5_000, route.TotalCost);
     }
 
-    private static GE CreateRoutePlanningEngine()
+    [Fact]
+    public void SuggestRoute_ChargesFullOwnerRateForRejoiningGrandfatheredRailroadAfterLeavingIt()
+    {
+        // Start -GF- 1 -public- 2 -GF- Finish, or Start -owner's other line- 4 -owner's other line- Finish. Leaving GF
+        // ends the grandfathered rate, so coming back to it pays the owner's full $5,000 that turn: $6,000 in all,
+        // more than the $5,000 of the owner's other line.
+        var engine = CreateRoutePlanningEngine(CreateRejoinRoutePlanningMap());
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        foreach (var railroad in engine.Railroads.Where(rr => rr.Index is 0 or 2))
+        {
+            railroad.Owner = owner;
+            owner.OwnedRailroads.Add(railroad);
+        }
+
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        rider.GrandfatheredRailroadIndices.Add(0);
+        rider.GrandfatheredRailroadFees[0] = 1_000;
+
+        var route = engine.SuggestRouteForPlayer(rider.Index);
+
+        Assert.Equal([2, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(5_000, route.TotalCost);
+    }
+
+    private static GE CreateRoutePlanningEngine(MapDefinition? map = null)
     {
         var random = new FixedRandomProvider();
         random.QueueWeightedDraw(0);
@@ -575,7 +602,7 @@ public class UseFeesTests
         random.QueueWeightedDraw(0);
         random.QueueWeightedDraw(1);
         return new GE(
-            CreateRoutePlanningMap(),
+            map ?? CreateRoutePlanningMap(),
             GameEngineFixture.DefaultPlayerNames,
             random,
             GameSettings.Default with
@@ -617,6 +644,44 @@ public class UseFeesTests
         map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 0, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 2 });
         map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 3 });
         map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 3, EndRegionIndex = 0, EndDotIndex = 2 });
+
+        return map;
+    }
+
+    private static MapDefinition CreateRejoinRoutePlanningMap()
+    {
+        var map = new MapDefinition
+        {
+            Name = "RejoinRoutePlanningMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 3 });
+
+        map.Railroads.Add(new RailroadDefinition { Index = 0, Name = "Grandfather Line", ShortName = "GF" });
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "Public Line", ShortName = "PUB" });
+        map.Railroads.Add(new RailroadDefinition { Index = 2, Name = "Owner's Other Line", ShortName = "OTH" });
+
+        for (var dot = 0; dot < 5; dot++)
+        {
+            map.TrainDots.Add(new TrainDot
+            {
+                Id = $"0:{dot}",
+                RegionIndex = 0,
+                DotIndex = dot,
+                X = dot * 10,
+                Y = dot * 10
+            });
+        }
+
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 0, StartRegionIndex = 0, StartDotIndex = 0, EndRegionIndex = 0, EndDotIndex = 1 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 2 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 0, StartRegionIndex = 0, StartDotIndex = 2, EndRegionIndex = 0, EndDotIndex = 3 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 2, StartRegionIndex = 0, StartDotIndex = 0, EndRegionIndex = 0, EndDotIndex = 4 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 2, StartRegionIndex = 0, StartDotIndex = 4, EndRegionIndex = 0, EndDotIndex = 3 });
 
         return map;
     }
