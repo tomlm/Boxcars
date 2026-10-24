@@ -806,13 +806,7 @@ else
                     : ReplayTurnOrder.Order(GameSeatStateProjection.BuildSeatSelections(playerStates), _gameState)
             });
 
-            var result = await GameService.DeleteGameAsync(_currentUserId, GameId, CancellationToken.None);
-            if (!result.Success)
-            {
-                ShowNotification(result.Reason ?? "Unable to prepare replay.", Severity.Error);
-                return;
-            }
-
+            // The finished game stays, with its history and stats; the rematch is a new game.
             Navigation.NavigateTo($"/games/new?preset={presetPayload}");
         }
         finally
