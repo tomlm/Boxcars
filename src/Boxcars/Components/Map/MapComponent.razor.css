@@ -9,6 +9,9 @@
     background-color: var(--mud-palette-surface);
     position: relative;
     cursor: grab;
+    /* Dragging and clicking the map shouldn't select its city names and labels. */
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .game-map-viewport.panning {
