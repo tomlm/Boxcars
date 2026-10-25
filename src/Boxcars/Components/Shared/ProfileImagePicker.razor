@@ -112,7 +112,7 @@
             using var buffer = new MemoryStream();
             await stream.CopyToAsync(buffer);
             buffer.Position = 0;
-            var resized = await ProfileImageResizer.ResizeAsync(buffer, CancellationToken.None);
+            var resized = ProfileImageResizer.Resize(buffer);
             if (resized is null)
             {
                 _error = "Unable to read that image.";
