@@ -129,12 +129,19 @@ else
                                     <MudText Typo="Typo.caption" Style="opacity: 0.7">
                                         @(game.GameDate?.ToLocalTime().ToString("MMM d, yyyy") ?? game.CreatedAt.ToLocalTime().ToString("MMM d, yyyy"))
                                         • @game.PlayerCount players
-                                        • @game.State
+                                        • @(game.WinnerName is null ? game.State : "Finished")
                                         @if (game.IsCreator)
                                         {
                                             <span> • Created by you</span>
                                         }
                                     </MudText>
+                                    @if (game.WinnerName is { } winnerName)
+                                    {
+                                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                            <MudIcon Icon="@Icons.Material.Filled.EmojiEvents" Color="MudBlazor.Color.Warning" Size="Size.Small" />
+                                            <MudText Typo="Typo.body2" Color="MudBlazor.Color.Warning" Style="font-weight: 700">Winner: @winnerName</MudText>
+                                        </MudStack>
+                                    }
                                 </MudStack>
                                 <MudStack Row="true" Spacing="2">
                                     <MudButton Variant="Variant.Filled"
