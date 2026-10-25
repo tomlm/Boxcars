@@ -3717,9 +3717,11 @@ public sealed class GameEngine : ObservableBase
                 }
 
                 var nextSegmentsUsed = state.SegmentsUsed + 1;
+                // Reaching a junction with the player's own or public track is enough: next turn starts on it, and
+                // only railroads ridden during a turn are charged.
                 if (!IsUnfriendlyRailroadFrom(player, destinationState, edge.RailroadIndex))
                 {
-                    return nextSegmentsUsed;
+                    return state.SegmentsUsed;
                 }
 
                 if (edge.RailroadIndex != destinationState.LastRailroadIndex)
