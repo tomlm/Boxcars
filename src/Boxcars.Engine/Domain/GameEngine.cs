@@ -1650,7 +1650,8 @@ public sealed class GameEngine : ObservableBase
 
             foreach (var segStr in ps.UsedSegments)
             {
-                var colonIndex = segStr.IndexOf(':');
+                // "4:58-4:59:17": node ids contain colons too, so the railroad follows the last one.
+                var colonIndex = segStr.LastIndexOf(':');
                 if (colonIndex >= 0)
                 {
                     var nodePart = segStr.Substring(0, colonIndex);
