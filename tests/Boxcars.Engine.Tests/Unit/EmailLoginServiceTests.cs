@@ -82,7 +82,7 @@ public class EmailLoginServiceTests
     }
 
     [Fact]
-    public async Task ListEmailPlayersAsync_ListsOnlyEmailOnlyPeople_ByName()
+    public async Task ListPeopleAsync_ListsEveryoneButBots_ByName()
     {
         var bot = CreateUser("bot-1@boxcars.bot", EmailLoginService.EmailProvider, nickname: "Bot");
         bot.IsBot = true;
@@ -94,9 +94,44 @@ public class EmailLoginServiceTests
             CreateUser("amy@example.com", EmailLoginService.EmailProvider, nickname: "Amy"));
         var service = new EmailLoginService(new UserDirectoryService(users));
 
-        var players = await service.ListEmailPlayersAsync(CancellationToken.None);
+        var players = await service.ListPeopleAsync(CancellationToken.None);
 
-        Assert.Equal(["Amy", "Zed"], players.Select(EmailLoginService.DisplayName));
+        Assert.Equal(["Amy", "Old", "Owner", "Zed"], players.Select(EmailLoginService.DisplayName));
+    }
+
+    [Fact]
+    public async Task ResolvePlayerAsync_EmailOnlyPerson_SignsIn()
+    {
+        var pat = CreateUser("pat@example.com", EmailLoginService.EmailProvider, nickname: "Pat");
+        var users = new FakeUsersTableClient(pat, CreateUser("owner@example.com", "Google", nickname: "Owner"));
+        var service = new EmailLoginService(new UserDirectoryService(users));
+
+        var result = await service.ResolvePlayerAsync(EmailLoginService.PlayerKey(pat), CancellationToken.None);
+
+        Assert.Equal("pat@example.com", result.User?.RowKey);
+    }
+
+    [Fact]
+    public async Task ResolvePlayerAsync_GoogleOrMicrosoftPersonOrBot_IsRefused()
+    {
+        var owner = CreateUser("owner@example.com", "Google", nickname: "Owner");
+        var bot = CreateUser("bot-1@boxcars.bot", EmailLoginService.EmailProvider, nickname: "Bot");
+        bot.IsBot = true;
+        var users = new FakeUsersTableClient(owner, bot);
+        var service = new EmailLoginService(new UserDirectoryService(users));
+
+        Assert.Null((await service.ResolvePlayerAsync(EmailLoginService.PlayerKey(owner), CancellationToken.None)).User);
+        Assert.Null((await service.ResolvePlayerAsync(EmailLoginService.PlayerKey(bot), CancellationToken.None)).User);
+        Assert.Null((await service.ResolvePlayerAsync("not-a-key", CancellationToken.None)).User);
+    }
+
+    [Fact]
+    public void PlayerKey_DoesNotContainTheEmail()
+    {
+        var key = EmailLoginService.PlayerKey(CreateUser("pat@example.com", EmailLoginService.EmailProvider));
+
+        Assert.Equal(16, key.Length);
+        Assert.DoesNotContain("pat", key, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ApplicationUser CreateUser(string email, string provider, string? nickname = null)

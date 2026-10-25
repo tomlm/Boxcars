@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Boxcars.Data;
 using Boxcars.Services;
 
@@ -23,14 +25,45 @@ public sealed class EmailLoginService(UserDirectoryService userDirectory)
         return !user.IsBot && string.Equals(user.ExternalLoginProvider, EmailProvider, StringComparison.Ordinal);
     }
 
-    /// <summary>The email-only players, to pick from by name.</summary>
-    public async Task<IReadOnlyList<ApplicationUser>> ListEmailPlayersAsync(CancellationToken cancellationToken)
+    /// <summary>Everyone who plays (not bots), by name, for the sign-in page's "Who are you?" list.</summary>
+    public async Task<IReadOnlyList<ApplicationUser>> ListPeopleAsync(CancellationToken cancellationToken)
     {
         var users = await userDirectory.ListUsersAsync(cancellationToken);
         return users
-            .Where(IsEmailOnly)
+            .Where(user => !user.IsBot)
             .OrderBy(DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// Identifies a person on the sign-in page without putting their email address in the page, which anyone can see.
+    /// </summary>
+    public static string PlayerKey(ApplicationUser user)
+    {
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(user.RowKey)))[..16];
+    }
+
+    /// <summary>The person a <see cref="PlayerKey"/> stands for, or null when no one (or only a bot) has it.</summary>
+    public async Task<ApplicationUser?> FindByPlayerKeyAsync(string? playerKey, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(playerKey))
+        {
+            return null;
+        }
+
+        var people = await ListPeopleAsync(cancellationToken);
+        return people.FirstOrDefault(user => string.Equals(PlayerKey(user), playerKey, StringComparison.Ordinal));
+    }
+
+    /// <summary>Signs in as the email-only person picked on the sign-in page.</summary>
+    public async Task<EmailLoginResult> ResolvePlayerAsync(string? playerKey, CancellationToken cancellationToken)
+    {
+        var user = await FindByPlayerKeyAsync(playerKey, cancellationToken);
+        return user is null
+            ? EmailLoginResult.Failed("That player wasn't found. Pick your name again.")
+            : IsEmailOnly(user)
+                ? EmailLoginResult.SignIn(user)
+                : EmailLoginResult.Failed("That account signs in with Google or Microsoft.");
     }
 
     /// <summary>The name a player is listed under.</summary>
