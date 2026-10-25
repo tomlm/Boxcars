@@ -20,12 +20,11 @@ public sealed class GameEngine : ObservableBase
     // instead of riding an opponent longer just because that turn's fee is already paid.
     private const int RoutePlanningUnfriendlyPenaltyPerSegment = 500;
     private const int RoutePlanningHostileExitPenalty = 1500;
-    // Added to a route's ranking (not its cost) for each fee paid to the clear leader, so bots take a route that
-    // pays a laggard instead when it costs no more in fees or turns and is at most 3 dots longer (3 x 250).
-    // Kept below the smallest fee so avoiding the leader never means paying an extra fee or taking an extra turn.
-    private const int RoutePlanningClearLeaderPaymentPenalty = 3 * RoutePlanningDirectnessPenaltyPerSegment;
-    // The strongest opponent is the clear leader when their strength is at least this many times the next one's.
-    private const decimal RoutePlanningClearLeaderStrengthRatio = 1.25m;
+    // Added to what route planning thinks a fee to the front runner costs (see FindFrontRunner), not to what's paid,
+    // so routes and lay-ups pay someone else whenever that costs about the same.
+    internal const int RoutePlanningFrontRunnerFeeSurcharge = 1000;
+    // Opponents with announcing cash whose cash is within this share of the richest one's are told apart by network.
+    private const decimal RoutePlanningFrontRunnerCashTieShare = 0.9m;
     private static TimeSpan RoutePlanningTimeLimit { get; set; } = TimeSpan.FromSeconds(10);
 
     private GameStatus _gameStatus;
@@ -107,7 +106,7 @@ public sealed class GameEngine : ObservableBase
 
     private IReadOnlyDictionary<int, Railroad> RailroadsByIndex => _railroadsByIndex ??= Railroads.ToDictionary(railroad => railroad.Index);
 
-    private IReadOnlyList<RoutePlanningCityCoverageEntry> RoutePlanningCityCoverage => _routePlanningCityCoverage ??= BuildRoutePlanningCityCoverage();
+    internal IReadOnlyList<RoutePlanningCityCoverageEntry> RoutePlanningCityCoverage => _routePlanningCityCoverage ??= BuildRoutePlanningCityCoverage();
 
     #endregion
 
@@ -818,6 +817,7 @@ public sealed class GameEngine : ObservableBase
 
         var exitCosts = new Dictionary<int, int>();
         var bonusOutSegments = new Dictionary<int, int?>();
+        var frontRunnerIndex = FindFrontRunner(player);
         var decision = DestinationApproachPlanner.Evaluate(new DestinationApproachRequest
         {
             StartNodeId = startNodeId,
@@ -835,7 +835,12 @@ public sealed class GameEngine : ObservableBase
                 : [],
             IsSegmentUsed = usedSegmentKeys.Contains,
             IsOpponentRailroad = railroadIndex => IsUnfriendlyRailroadForPlayer(player, railroadIndex),
-            ResolveFee = railroadIndex => RailroadsByIndex.TryGetValue(railroadIndex, out var railroad) ? GetTraversalFee(player, railroad) : 0,
+            // A fee to the front runner counts for more, as in the route search.
+            ResolveFee = railroadIndex => RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
+                ? GetTraversalFee(player, railroad) is var fee && fee > 0 && railroad.Owner?.Index == frontRunnerIndex
+                    ? fee + RoutePlanningFrontRunnerFeeSurcharge
+                    : fee
+                : 0,
             ResolveFeeGroupFlag = railroadIndex => RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
                 ? RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad))
                 : 0,
@@ -3039,7 +3044,7 @@ public sealed class GameEngine : ObservableBase
         // with bonus movement). Riding them again before the turn ends costs nothing extra.
         var feeGroupsOwedThisTurn = startsNextTurn ? 0 : GetFeeGroupsOwedThisTurn(player);
         var opponentStrengths = BuildOpponentStrengths(player, cityCoverage, networkMetricsByPlayerIndex);
-        var clearLeaderPlayerIndex = FindClearLeader(opponentStrengths);
+        var frontRunnerPlayerIndex = FindFrontRunner(player, cityCoverage, networkMetricsByPlayerIndex);
         var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsLeftInCurrentTurn: firstTurnMovementCapacity, PaidFeeGroups: feeGroupsOwedThisTurn);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
         var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
@@ -3132,8 +3137,8 @@ public sealed class GameEngine : ObservableBase
                 var additionalCost = fee.FeeAdded;
                 var isUnfriendlySegment = railroad.Owner is not null && railroad.Owner != player && !fee.Grandfathered;
                 var hostileExitPenalty = CalculateHostileExitPenalty(player, state, edges, isUnfriendlySegment, friendlyDestinationReachableNodes);
-                var clearLeaderPenalty = additionalCost > 0 && railroad.Owner is not null && railroad.Owner.Index == clearLeaderPlayerIndex
-                    ? RoutePlanningClearLeaderPaymentPenalty
+                var frontRunnerSurcharge = additionalCost > 0 && railroad.Owner is not null && railroad.Owner.Index == frontRunnerPlayerIndex
+                    ? RoutePlanningFrontRunnerFeeSurcharge
                     : 0;
                 var nextPointsLeft = (exhaustedTurnCapacity ? futureTurnMovementCapacity : state.PointsLeftInCurrentTurn) - 1;
                 var weightedFee = CalculateRiskWeightedFee(
@@ -3151,7 +3156,7 @@ public sealed class GameEngine : ObservableBase
                 var nextState = NextPlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, fee);
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
-                    WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + clearLeaderPenalty
+                    WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + frontRunnerSurcharge
                         + (isUnfriendlySegment ? RoutePlanningUnfriendlyPenaltyPerSegment : 0)
                         + (exhaustedTurnCapacity ? extraTurnWeight : 0),
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
@@ -3826,17 +3831,49 @@ public sealed class GameEngine : ObservableBase
             opponent => (totalCash > 0m ? opponent.Cash / totalCash : 0m) + (totalAccess > 0m ? opponent.Access / totalAccess : 0m));
     }
 
-    private static int? FindClearLeader(Dictionary<int, decimal> opponentStrengths)
+    /// <summary>The opponent closest to winning, whom route planning avoids paying; see the overload.</summary>
+    internal int? FindFrontRunner(Player player)
     {
-        if (opponentStrengths.Count < 2)
+        return FindFrontRunner(player, RoutePlanningCityCoverage, new Dictionary<int, RoutePlanningNetworkMetrics>());
+    }
+
+    /// <summary>
+    /// The opponent closest to winning. Once anyone has announcing cash it's the richest of them, unless others are
+    /// within 10% of that cash, when the one with the most access plus monopoly among them is. Before that it's the
+    /// opponent with the most access plus monopoly, or nobody when the top two are level. Null when there's none.
+    /// </summary>
+    private int? FindFrontRunner(
+        Player player,
+        IReadOnlyList<RoutePlanningCityCoverageEntry> cityCoverage,
+        Dictionary<int, RoutePlanningNetworkMetrics> networkMetricsByPlayerIndex)
+    {
+        var opponents = Players.Where(opponent => opponent != player && !opponent.IsBankrupt).ToList();
+        if (opponents.Count == 0)
         {
             return null;
         }
 
-        var ranked = opponentStrengths.OrderByDescending(pair => pair.Value).ToList();
-        return ranked[0].Value >= ranked[1].Value * RoutePlanningClearLeaderStrengthRatio
-            ? ranked[0].Key
-            : null;
+        decimal Network(Player opponent)
+        {
+            var metrics = GetRoutePlanningNetworkMetrics(opponent.Index, cityCoverage, networkMetricsByPlayerIndex);
+            return metrics.AccessibleDestinationPercent + metrics.MonopolyDestinationPercent;
+        }
+
+        var announced = opponents.Where(opponent => opponent.Cash >= _settings.AnnouncingCash).ToList();
+        if (announced.Count == 0)
+        {
+            // Two opponents with equal networks: nobody is out in front.
+            var ranked = opponents.Select(opponent => (opponent.Index, Network: Network(opponent))).OrderByDescending(entry => entry.Network).ToList();
+            return ranked.Count > 1 && ranked[0].Network == ranked[1].Network ? null : ranked[0].Index;
+        }
+
+        var richest = announced.Max(opponent => opponent.Cash);
+        return announced
+            .Where(opponent => opponent.Cash >= richest * RoutePlanningFrontRunnerCashTieShare)
+            .OrderByDescending(Network)
+            .ThenByDescending(opponent => opponent.Cash)
+            .First()
+            .Index;
     }
 
     private RoutePlanningNetworkMetrics GetRoutePlanningNetworkMetrics(

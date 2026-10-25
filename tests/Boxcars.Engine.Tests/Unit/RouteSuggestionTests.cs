@@ -522,11 +522,12 @@ public class RouteSuggestionTests
     }
 
     [Fact]
-    public void SuggestRouteForPlayer_ClearLeader_PaysLaggardWhenItCostsNoMore()
+    public void SuggestRouteForPlayer_FrontRunner_PaysAnotherOpponentWhenItCostsNoMore()
     {
+        // The leader has announcing cash, so they're the front runner.
         var engine = CreateLeaderAvoidanceEngine(laggardRouteSegments: 2);
         var player = PrepareLeaderAvoidancePlayer(engine);
-        SetOpponents(engine, leaderCash: 150_000, laggardCash: 10_000);
+        SetOpponents(engine, leaderCash: 260_000, laggardCash: 10_000);
 
         var route = engine.SuggestRouteForPlayer(player.Index);
 
@@ -536,8 +537,9 @@ public class RouteSuggestionTests
     }
 
     [Fact]
-    public void SuggestRouteForPlayer_NoClearLeader_TakesTheDirectRoute()
+    public void SuggestRouteForPlayer_NoFrontRunner_TakesTheDirectRoute()
     {
+        // Nobody has announcing cash and both networks are the same, so nobody is out in front.
         var engine = CreateLeaderAvoidanceEngine(laggardRouteSegments: 2);
         var player = PrepareLeaderAvoidancePlayer(engine);
         SetOpponents(engine, leaderCash: 50_000, laggardCash: 50_000);
@@ -549,11 +551,11 @@ public class RouteSuggestionTests
     }
 
     [Fact]
-    public void SuggestRouteForPlayer_ClearLeader_StillPaysLeaderWhenAvoidingCostsAnotherTurn()
+    public void SuggestRouteForPlayer_FrontRunner_StillPaidWhenAvoidingCostsAnotherTurn()
     {
         var engine = CreateLeaderAvoidanceEngine(laggardRouteSegments: 5);
         var player = PrepareLeaderAvoidancePlayer(engine);
-        SetOpponents(engine, leaderCash: 150_000, laggardCash: 10_000);
+        SetOpponents(engine, leaderCash: 260_000, laggardCash: 10_000);
 
         var route = engine.SuggestRouteForPlayer(player.Index);
 

@@ -205,6 +205,56 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.True(suggestion.Approach?.LayUp);
     }
 
+    [Fact]
+    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_HasTheMostAccessPlusMonopoly()
+    {
+        // thermous and El Cheapo own 8 railroads each, Balenco 5. Nobody has $250k, so cash doesn't matter.
+        var engine = CreateEngine(StandardGameOwners);
+        var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
+        engine.Players.First(candidate => candidate.Name == "Balenco").Cash = 240_000;
+
+        var frontRunner = engine.FindFrontRunner(pooper);
+
+        var expected = engine.Players.Where(candidate => candidate != pooper).MaxBy(candidate => NetworkScore(engine, candidate))!;
+        Assert.Equal(expected.Index, frontRunner);
+        Assert.NotEqual("Balenco", expected.Name);
+    }
+
+    [Fact]
+    public void FrontRunner_WithAnnouncingCash_IsTheRichest()
+    {
+        var engine = CreateEngine(StandardGameOwners);
+        var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
+        var balenco = engine.Players.First(candidate => candidate.Name == "Balenco");
+        balenco.Cash = 260_000;
+        engine.Players.First(candidate => candidate.Name == "thermous").Cash = 200_000;
+
+        Assert.Equal(balenco.Index, engine.FindFrontRunner(pooper));
+    }
+
+    [Fact]
+    public void FrontRunner_RichestWithin10Percent_HasTheMostAccessPlusMonopolyAmongThem()
+    {
+        // Balenco is richest, but thermous is within 10% and has the bigger network.
+        var engine = CreateEngine(StandardGameOwners);
+        var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
+        var thermous = engine.Players.First(candidate => candidate.Name == "thermous");
+        var balenco = engine.Players.First(candidate => candidate.Name == "Balenco");
+        balenco.Cash = 270_000;
+        thermous.Cash = 255_000;
+        Assert.True(NetworkScore(engine, thermous) > NetworkScore(engine, balenco));
+
+        Assert.Equal(thermous.Index, engine.FindFrontRunner(pooper));
+    }
+
+    private static decimal NetworkScore(Boxcars.Engine.Domain.GameEngine engine, Player player)
+    {
+        var owned = player.OwnedRailroads.Select(railroad => railroad.Index).ToHashSet();
+        var coverage = engine.RoutePlanningCityCoverage;
+        return coverage.Where(entry => entry.ServingRailroads.Overlaps(owned)).Sum(entry => entry.GlobalAccessPercentage)
+            + coverage.Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(owned.Contains)).Sum(entry => entry.GlobalAccessPercentage);
+    }
+
     // Railroad owners by index (player index) in game 3ccd9ee8, from issue #130 (all railroads sold). Index 0 is unused.
     private static readonly Dictionary<int, int> Game3ccdOwners = new()
     {
