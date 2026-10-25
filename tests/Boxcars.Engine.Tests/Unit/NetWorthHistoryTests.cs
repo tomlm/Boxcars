@@ -22,7 +22,7 @@ public class NetWorthHistoryTests
             // Round 2: Alice has bought the railroad.
             CreateState(turnNumber: 3, aliceCash: 25_000 - price, bobCash: 18_000, aliceRailroads: [railroad.Index]),
             CreateState(turnNumber: 4, aliceCash: 30_000 - price, bobCash: 19_000, aliceRailroads: [railroad.Index])
-        ], map);
+        ], map, GameSettings.Default);
 
         Assert.Equal([1, 2], history.RoundNumbers);
         var alice = history.Series.Single(series => series.PlayerName == "Alice");
@@ -34,22 +34,42 @@ public class NetWorthHistoryTests
     }
 
     [Fact]
+    public void Build_CountsEngineAtThisGamesPrice()
+    {
+        var settings = GameSettings.Default with { ExpressPrice = 5_000, SuperchiefPrice = 30_000 };
+        var map = new global::Boxcars.Engine.Data.Maps.MapDefinition { Name = "Net Worth Test", Version = "1.0" };
+
+        var history = NetWorthHistory.Build(
+        [
+            CreateState(turnNumber: 1, aliceCash: 20_000, bobCash: 20_000),
+            CreateState(turnNumber: 2, aliceCash: 20_000, bobCash: 20_000, aliceEngine: "Express"),
+            CreateState(turnNumber: 4, aliceCash: 20_000, bobCash: 20_000, aliceEngine: "Superchief")
+        ], map, settings);
+
+        var alice = history.Series.Single(series => series.PlayerName == "Alice");
+        var bob = history.Series.Single(series => series.PlayerName == "Bob");
+        Assert.Equal([25_000, 50_000], alice.Values);
+        // Bob still has the Freight he started with, which adds nothing.
+        Assert.Equal([20_000, 20_000], bob.Values);
+    }
+
+    [Fact]
     public void Build_NoStates_IsEmpty()
     {
-        var history = NetWorthHistory.Build([], GameEngineFixture.CreateTestMap());
+        var history = NetWorthHistory.Build([], GameEngineFixture.CreateTestMap(), GameSettings.Default);
 
         Assert.Empty(history.RoundNumbers);
         Assert.Empty(history.Series);
     }
 
-    private static GameState CreateState(int turnNumber, int aliceCash, int bobCash, List<int>? aliceRailroads = null)
+    private static GameState CreateState(int turnNumber, int aliceCash, int bobCash, List<int>? aliceRailroads = null, string aliceEngine = "Freight")
     {
         return new GameState
         {
             TurnNumber = turnNumber,
             Players =
             [
-                new PlayerState { Name = "Alice", Cash = aliceCash, OwnedRailroadIndices = aliceRailroads ?? [] },
+                new PlayerState { Name = "Alice", Cash = aliceCash, OwnedRailroadIndices = aliceRailroads ?? [], LocomotiveType = aliceEngine },
                 new PlayerState { Name = "Bob", Cash = bobCash }
             ]
         };

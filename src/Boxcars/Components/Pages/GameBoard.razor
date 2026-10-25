@@ -995,7 +995,10 @@ else
             return;
         }
 
-        _netWorthHistory = NetWorthHistory.Build(_gameStateHistory, _playerBoardMapDefinition);
+        _netWorthHistory = NetWorthHistory.Build(
+            _gameStateHistory,
+            _playerBoardMapDefinition,
+            _game is null ? Boxcars.Engine.Persistence.GameSettings.Default : GameSettingsResolver.Resolve(_game).Settings);
         _destinationVisits = DestinationVisits.Build(_gameStateHistory, _playerBoardMapDefinition);
         _railroadIncome = RailroadIncome.Build(
             _gameStateHistory,
