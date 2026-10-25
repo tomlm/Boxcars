@@ -68,6 +68,22 @@ public class SerializationTests
     }
 
     [Fact]
+    public void FromSnapshot_RestoresUsedSegments()
+    {
+        // Node ids are "region:dot", so a saved segment like "4:58-4:59:17" has three colons. Restoring used to split at
+        // the first one and drop every segment, letting routes ride track already used on the trip.
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.Players[0].UsedSegments.Add(new SegmentKey("4:58", "4:59", 17));
+        engine.Players[0].UsedSegments.Add(new SegmentKey("4:57", "4:58", 17));
+
+        var restored = GE.FromSnapshot(engine.ToSnapshot(), engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal(
+            [new SegmentKey("4:57", "4:58", 17), new SegmentKey("4:58", "4:59", 17)],
+            restored.Players[0].UsedSegments.OrderBy(segment => segment));
+    }
+
+    [Fact]
     public void FromSnapshot_RestoresEngineState()
     {
         var (engine, random) = GameEngineFixture.CreateTestEngine();

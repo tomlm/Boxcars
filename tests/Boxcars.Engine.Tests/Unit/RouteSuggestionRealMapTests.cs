@@ -182,6 +182,127 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Contains(lasVegas, suggestion.NodeIds);
     }
 
+    [Fact]
+    public void ApproachToNashville_LaysUpOnOwnTrack_InsteadOfPayingRatBastardTwice()
+    {
+        // Issue #130: thermous (Superchief) at Oklahoma City -> Nashville, rolled 1+6+(4). Only Rat Bastard's L&N
+        // reaches Nashville. Going in rides 9 dots of his CRI&P and L&N on the red die, so there's no bonus out and
+        // leaving next turn pays him again. Laying up on thermous's own track pays him once going in next turn, and
+        // usually bonuses out. The suggestion used to go in, judging the $4,600 saved not worth the extra turn.
+        var (engine, player) = PlaceGame3ccdPlayer("5:113", "Oklahoma City", "Nashville", whiteDice: [1, 6], redDie: 4);
+
+        var route = engine.SuggestRoute();
+        var suggestion = EngineRouteSuggestion.Suggest(engine, player.Index, new RouteSuggestionOptions());
+        WriteRoute(engine, player, route);
+        WriteSuggestion(engine, suggestion);
+
+        Assert.True(engine.LastApproachDecision?.LayUp);
+        Assert.Equal("Laying up saves a fee", engine.LastApproachDecision!.Reason);
+        Assert.Equal(FindCityNode(engine, "Nashville"), route.NodeIds[^1]);
+        // This turn's 11 dots stay off Rat Bastard's railroads.
+        Assert.Equal(0, CountOpponentDots(engine, player, new Route(route.NodeIds.Take(12).ToList(), route.Segments.Take(11).ToList(), 0)));
+        Assert.Equal(RouteSuggestionStatus.Success, suggestion.Status);
+        Assert.True(suggestion.Approach?.LayUp);
+    }
+
+    [Fact]
+    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_HasTheMostAccessPlusMonopoly()
+    {
+        // thermous and El Cheapo own 8 railroads each, Balenco 5. Nobody has $250k, so cash doesn't matter.
+        var engine = CreateEngine(StandardGameOwners);
+        var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
+        engine.Players.First(candidate => candidate.Name == "Balenco").Cash = 240_000;
+
+        var frontRunner = engine.FindFrontRunner(pooper);
+
+        var expected = engine.Players.Where(candidate => candidate != pooper).MaxBy(candidate => NetworkScore(engine, candidate))!;
+        Assert.Equal(expected.Index, frontRunner);
+        Assert.NotEqual("Balenco", expected.Name);
+    }
+
+    [Fact]
+    public void FrontRunner_WithAnnouncingCash_IsTheRichest()
+    {
+        var engine = CreateEngine(StandardGameOwners);
+        var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
+        var balenco = engine.Players.First(candidate => candidate.Name == "Balenco");
+        balenco.Cash = 260_000;
+        engine.Players.First(candidate => candidate.Name == "thermous").Cash = 200_000;
+
+        Assert.Equal(balenco.Index, engine.FindFrontRunner(pooper));
+    }
+
+    [Fact]
+    public void FrontRunner_RichestWithin10Percent_HasTheMostAccessPlusMonopolyAmongThem()
+    {
+        // Balenco is richest, but thermous is within 10% and has the bigger network.
+        var engine = CreateEngine(StandardGameOwners);
+        var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
+        var thermous = engine.Players.First(candidate => candidate.Name == "thermous");
+        var balenco = engine.Players.First(candidate => candidate.Name == "Balenco");
+        balenco.Cash = 270_000;
+        thermous.Cash = 255_000;
+        Assert.True(NetworkScore(engine, thermous) > NetworkScore(engine, balenco));
+
+        Assert.Equal(thermous.Index, engine.FindFrontRunner(pooper));
+    }
+
+    private static decimal NetworkScore(Boxcars.Engine.Domain.GameEngine engine, Player player)
+    {
+        var owned = player.OwnedRailroads.Select(railroad => railroad.Index).ToHashSet();
+        var coverage = engine.RoutePlanningCityCoverage;
+        return coverage.Where(entry => entry.ServingRailroads.Overlaps(owned)).Sum(entry => entry.GlobalAccessPercentage)
+            + coverage.Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(owned.Contains)).Sum(entry => entry.GlobalAccessPercentage);
+    }
+
+    // Railroad owners by index (player index) in game 3ccd9ee8, from issue #130 (all railroads sold). Index 0 is unused.
+    private static readonly Dictionary<int, int> Game3ccdOwners = new()
+    {
+        [1] = 3, [2] = 1, [3] = 1, [4] = 2, [5] = 2, [6] = 2, [7] = 2, [8] = 2, [9] = 1, [10] = 1, [11] = 2, [12] = 2, [13] = 0, [14] = 2,
+        [15] = 1, [16] = 3, [17] = 2, [18] = 1, [19] = 2, [20] = 1, [21] = 1, [22] = 2, [23] = 3, [24] = 1, [25] = 2, [26] = 1, [27] = 3, [28] = 2
+    };
+
+    private static (Boxcars.Engine.Domain.GameEngine Engine, Player Player) PlaceGame3ccdPlayer(
+        string nodeId,
+        string tripStartCityName,
+        string destinationName,
+        int[] whiteDice,
+        int redDie)
+    {
+        var map = MapDefinition.Parse(File.ReadAllText(FindStandardMapPath())).Definition
+            ?? throw new InvalidOperationException("The standard map could not be parsed.");
+        var engine = new Boxcars.Engine.Domain.GameEngine(
+            map,
+            ["El Cheapo", "Pooper", "thermous", "Rat Bastard"],
+            new FixedRandomProvider(),
+            GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false });
+        foreach (var railroad in engine.Railroads)
+        {
+            if (Game3ccdOwners.TryGetValue(railroad.Index, out var ownerIndex))
+            {
+                var owner = engine.Players[ownerIndex];
+                railroad.Owner = owner;
+                owner.OwnedRailroads.Add(railroad);
+            }
+        }
+
+        typeof(Boxcars.Engine.Domain.GameEngine).GetProperty(nameof(engine.AllRailroadsSold))!.SetValue(engine, true);
+
+        var player = engine.Players[2];
+        player.LocomotiveType = LocomotiveType.Superchief;
+        player.CurrentNodeId = nodeId;
+        player.CurrentCity = map.Cities.First(city => city.Name == tripStartCityName);
+        player.TripOriginCity = player.CurrentCity;
+        player.Destination = map.Cities.First(city => city.Name == destinationName);
+
+        engine.CurrentTurn.ActivePlayer = player;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.DiceResult = new DiceResult(whiteDice, redDie);
+        engine.CurrentTurn.MovementAllowance = whiteDice.Sum() + redDie;
+        engine.CurrentTurn.MovementRemaining = whiteDice.Sum() + redDie;
+        return (engine, player);
+    }
+
     // Railroad owners by index (player index) in game 4184179d, from issues #95 and #96 (all railroads sold).
     private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
 
