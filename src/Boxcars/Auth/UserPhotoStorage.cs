@@ -17,6 +17,8 @@ public sealed class UserPhotoStorage : IDisposable
 
     private const string ContainerName = "user-photos";
 
+    private const string UploadedImagePrefix = "upload-";
+
     private readonly BlobContainerClient _container;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialized;
@@ -40,31 +42,55 @@ public sealed class UserPhotoStorage : IDisposable
             return null;
         }
 
-        var extension = contentType switch
-        {
-            "image/png" => "png",
-            "image/gif" => "gif",
-            "image/webp" => "webp",
-            _ => "jpg",
-        };
         // Hashed so photo URLs don't expose the user's email address.
-        var blobName = $"{HashUserId(userId)}.{extension}";
-        var blob = _container.GetBlobClient(blobName);
+        var blobName = $"{HashUserId(userId)}.{GetExtension(contentType)}";
 
         // Best-effort: a storage failure must not fail sign-in.
-        try
-        {
-            await EnsureContainerAsync(cancellationToken);
-            using var stream = new MemoryStream(bytes, writable: false);
-            await blob.UploadAsync(
-                stream,
-                new BlobHttpHeaders { ContentType = contentType },
-                cancellationToken: cancellationToken);
-            return $"{PhotoPathPrefix}/{blobName}";
-        }
-        catch
+        return await TryUploadBlobAsync(blobName, bytes, contentType, cancellationToken);
+    }
+
+    /// <summary>
+    /// Uploads a profile image picked in the app (already resized by <see cref="ProfileImageResizer"/>) and returns the
+    /// app URL it's served from, or null if it couldn't be stored. Each upload gets its own blob name so sign-in's
+    /// photo refresh (which reuses the hashed name) can't overwrite it, and browsers don't keep showing a cached
+    /// earlier image.
+    /// </summary>
+    public async Task<string?> UploadUserImageAsync(byte[] bytes, CancellationToken cancellationToken)
+    {
+        if (bytes.Length == 0)
         {
             return null;
+        }
+
+        var blobName = $"{UploadedImagePrefix}{Guid.NewGuid():N}.webp";
+        return await TryUploadBlobAsync(blobName, bytes, ProfileImageResizer.ContentType, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes an image uploaded with <see cref="UploadUserImageAsync"/>. Other URLs (sign-in photos, external links)
+    /// are ignored. Pass only a URL read from the user's saved record.
+    /// </summary>
+    public async Task DeleteUserImageAsync(string? photoUrl, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(photoUrl)
+            || !photoUrl.StartsWith($"{PhotoPathPrefix}/{UploadedImagePrefix}", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var blobName = photoUrl[(PhotoPathPrefix.Length + 1)..];
+        if (blobName.Contains('/', StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // Best-effort: a leftover blob is harmless.
+        try
+        {
+            await _container.GetBlobClient(blobName).DeleteIfExistsAsync(cancellationToken: cancellationToken);
+        }
+        catch (RequestFailedException)
+        {
         }
     }
 
@@ -85,6 +111,39 @@ public sealed class UserPhotoStorage : IDisposable
         {
             return null;
         }
+    }
+
+    private async Task<string?> TryUploadBlobAsync(
+        string blobName,
+        byte[] bytes,
+        string contentType,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await EnsureContainerAsync(cancellationToken);
+            using var stream = new MemoryStream(bytes, writable: false);
+            await _container.GetBlobClient(blobName).UploadAsync(
+                stream,
+                new BlobHttpHeaders { ContentType = contentType },
+                cancellationToken: cancellationToken);
+            return $"{PhotoPathPrefix}/{blobName}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GetExtension(string contentType)
+    {
+        return contentType switch
+        {
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            _ => "jpg",
+        };
     }
 
     private static string HashUserId(string userId)

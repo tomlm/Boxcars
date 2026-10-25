@@ -3,11 +3,13 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using MudBlazor
+@using Boxcars.Auth
 @using Boxcars.Data
 @using Boxcars.Services
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject PlayerProfileService ProfileService
+@inject UserPhotoStorage PhotoStorage
 @inject GameService GameService
 @inject GamePresenceService GamePresenceService
 @inject NavigationManager Navigation
@@ -57,8 +59,9 @@ else
                     <MudTextField @bind-Value="CurrentInput.Nickname" Label="Nickname" Placeholder="Enter your display name"
                                   Variant="Variant.Outlined" FullWidth="true" />
 
-                    <MudTextField @bind-Value="CurrentInput.ThumbnailUrl" Label="Thumbnail URL"
-                                  Placeholder="https://example.com/avatar.png" Variant="Variant.Outlined" FullWidth="true" />
+                    <Boxcars.Components.Shared.ProfileImagePicker @bind-ImageUrl="CurrentInput.ThumbnailUrl"
+                                                                  @bind-PendingImage="_pendingImage"
+                                                                  Disabled="@_saving" />
 
                     <MudTextField @bind-Value="CurrentInput.StrategyText"
                                   Label="Strategy"
@@ -106,6 +109,7 @@ else
     private string originalThumbnailUrl = string.Empty;
     private string originalPreferredColor = PlayerColorOptions.Colors[0];
     private string originalStrategyText = string.Empty;
+    private byte[]? _pendingImage;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -187,7 +191,8 @@ else
         var preferredColor = PlayerColorOptions.NormalizeOrDefault(CurrentInput.PreferredColor);
         var strategyText = PlayerProfileService.NormalizeStrategyText(CurrentInput.StrategyText);
         var nicknameChanged = !string.Equals(nickname, originalNickname, StringComparison.Ordinal);
-        var thumbnailChanged = !string.Equals(thumbnailUrl, originalThumbnailUrl, StringComparison.Ordinal);
+        var thumbnailChanged = _pendingImage is not null
+            || !string.Equals(thumbnailUrl, originalThumbnailUrl, StringComparison.Ordinal);
         var preferredColorChanged = !string.Equals(preferredColor, originalPreferredColor, StringComparison.Ordinal);
         var strategyChanged = !string.Equals(strategyText, originalStrategyText, StringComparison.Ordinal);
 
@@ -235,16 +240,37 @@ else
 
             if (thumbnailChanged)
             {
+                if (_pendingImage is not null)
+                {
+                    var uploadedUrl = await PhotoStorage.UploadUserImageAsync(_pendingImage, CancellationToken.None);
+                    if (uploadedUrl is null)
+                    {
+                        message = "Error: Image upload failed, please try again.";
+                        messageSeverity = Severity.Error;
+                        return;
+                    }
+
+                    thumbnailUrl = uploadedUrl;
+                }
+
                 var thumbnailUpdated = await ProfileService.UpdateThumbnailUrlAsync(currentUserId, thumbnailUrl,
 CancellationToken.None);
                 if (!thumbnailUpdated)
                 {
+                    if (_pendingImage is not null)
+                    {
+                        await PhotoStorage.DeleteUserImageAsync(thumbnailUrl, CancellationToken.None);
+                    }
+
                     message = "Error: Save failed, please try again.";
                     messageSeverity = Severity.Error;
                     return;
                 }
 
+                await PhotoStorage.DeleteUserImageAsync(originalThumbnailUrl, CancellationToken.None);
                 _profile.ThumbnailUrl = thumbnailUrl;
+                CurrentInput.ThumbnailUrl = thumbnailUrl;
+                _pendingImage = null;
             }
 
             if (preferredColorChanged)

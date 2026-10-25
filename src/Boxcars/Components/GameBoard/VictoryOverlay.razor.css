@@ -37,6 +37,27 @@
     animation: victory-bounce 1.2s ease-in-out 1.6s infinite alternate;
 }
 
+/* The winner's picture, whole (not cropped), framed in their color. */
+.victory-picture {
+    display: block;
+    height: 42cqh;
+    max-width: 70cqw;
+    margin: 1cqh 0 2cqh;
+    object-fit: contain;
+    border-radius: 2cqh;
+    border: 0.8cqh solid var(--victory-glow);
+    box-shadow: 0 0 6cqh var(--victory-glow), 0 1cqh 3cqh rgba(0, 0, 0, 0.6);
+}
+
+/* With a picture, the trophy and "WINS!" shrink to leave it room. */
+.victory-text--with-picture .victory-trophy {
+    font-size: 10cqh;
+}
+
+.victory-text--with-picture .victory-wins {
+    font-size: 14cqh;
+}
+
 .victory-name,
 .victory-wins {
     font-weight: 900;

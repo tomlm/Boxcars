@@ -12,6 +12,7 @@
 @attribute [Authorize(Policy = AdminAccess.PolicyName)]
 @inject NavigationManager Navigation
 @inject UserAccountService UserAccounts
+@inject UserPhotoStorage PhotoStorage
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -58,23 +59,10 @@
             }
             <MudTextField @bind-Value="_editorName" Label="Name" Variant="Variant.Outlined" Required="true" />
             <PlayerColorPicker @bind-Value="_editorColor" />
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
-                <MudAvatar Size="Size.Large">
-                    @if (!string.IsNullOrWhiteSpace(_editorThumbnailUrl))
-                    {
-                        <MudImage Src="@_editorThumbnailUrl" Alt="Picture" />
-                    }
-                    else
-                    {
-                        <MudIcon Icon="@Icons.Material.Filled.Person" />
-                    }
-                </MudAvatar>
-                <MudTextField @bind-Value="_editorThumbnailUrl"
-                              Label="Picture URL"
-                              Variant="Variant.Outlined"
-                              Placeholder="https://example.com/avatar.png"
-                              Class="flex-grow-1" />
-            </MudStack>
+            <ProfileImagePicker @bind-ImageUrl="_editorThumbnailUrl"
+                                @bind-PendingImage="_editorPendingImage"
+                                ShowUrlField="true"
+                                Disabled="@_saving" />
             <MudTextField @bind-Value="_editorStrategyText"
                           Label="Strategy"
                           Variant="Variant.Outlined"
@@ -165,7 +153,8 @@
     private string _editorEmail = string.Empty;
     private string _editorName = string.Empty;
     private string? _editorColor;
-    private string _editorThumbnailUrl = string.Empty;
+    private string? _editorThumbnailUrl = string.Empty;
+    private byte[]? _editorPendingImage;
     private string _editorStrategyText = string.Empty;
     private string? _editorError;
     private string? _loadError;
@@ -212,6 +201,7 @@
         _editorName = UserAccountService.DisplayName(account);
         _editorColor = PlayerColorOptions.IsSupported(account.PreferredColor) ? PlayerColorOptions.NormalizeOrDefault(account.PreferredColor) : null;
         _editorThumbnailUrl = account.ThumbnailUrl;
+        _editorPendingImage = null;
         _editorStrategyText = account.StrategyText;
         _editorError = null;
     }
@@ -224,6 +214,7 @@
         _editorName = string.Empty;
         _editorColor = null;
         _editorThumbnailUrl = string.Empty;
+        _editorPendingImage = null;
         _editorStrategyText = string.Empty;
         _editorError = null;
     }
@@ -236,14 +227,38 @@
         try
         {
             var adding = _editing is null;
+            var previousThumbnailUrl = _editing?.ThumbnailUrl;
+            var thumbnailUrl = _editorThumbnailUrl?.Trim() ?? string.Empty;
+            if (_editorPendingImage is not null)
+            {
+                var uploadedUrl = await PhotoStorage.UploadUserImageAsync(_editorPendingImage, CancellationToken.None);
+                if (uploadedUrl is null)
+                {
+                    _editorError = "Image upload failed, please try again.";
+                    return;
+                }
+
+                thumbnailUrl = uploadedUrl;
+            }
+
             var result = adding
-                ? await UserAccounts.CreateAsync(_currentUserId, _editorAccountType, _editorEmail, _editorName, _editorColor, _editorThumbnailUrl, _editorStrategyText, CancellationToken.None)
-                : await UserAccounts.SaveAsync(_currentUserId, _editing!.RowKey, _editing.ETag, _editorName, _editorColor, _editorThumbnailUrl, _editorStrategyText, CancellationToken.None);
+                ? await UserAccounts.CreateAsync(_currentUserId, _editorAccountType, _editorEmail, _editorName, _editorColor, thumbnailUrl, _editorStrategyText, CancellationToken.None)
+                : await UserAccounts.SaveAsync(_currentUserId, _editing!.RowKey, _editing.ETag, _editorName, _editorColor, thumbnailUrl, _editorStrategyText, CancellationToken.None);
 
             if (!result.Success)
             {
+                if (_editorPendingImage is not null)
+                {
+                    await PhotoStorage.DeleteUserImageAsync(thumbnailUrl, CancellationToken.None);
+                }
+
                 _editorError = result.Error;
                 return;
+            }
+
+            if (!string.Equals(previousThumbnailUrl, thumbnailUrl, StringComparison.Ordinal))
+            {
+                await PhotoStorage.DeleteUserImageAsync(previousThumbnailUrl, CancellationToken.None);
             }
 
             Snackbar.Add(adding ? $"{_editorName.Trim()} added." : "Saved.", Severity.Success);
