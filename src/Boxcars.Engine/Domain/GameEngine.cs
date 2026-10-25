@@ -3044,6 +3044,9 @@ public sealed class GameEngine : ObservableBase
         // with bonus movement). Riding them again before the turn ends costs nothing extra.
         var feeGroupsOwedThisTurn = startsNextTurn ? 0 : GetFeeGroupsOwedThisTurn(player);
         var opponentStrengths = BuildOpponentStrengths(player, cityCoverage, networkMetricsByPlayerIndex);
+        // With this turn's roll known, how far each dot is from the destination, to tell when an opponent's railroad
+        // already paid for this turn can carry the player all the way in.
+        var dotsToDestination = thisTurnIsKnown ? CountDotsTo(destNodeId) : null;
         var frontRunnerPlayerIndex = FindFrontRunner(player, cityCoverage, networkMetricsByPlayerIndex);
         var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsLeftInCurrentTurn: firstTurnMovementCapacity, PaidFeeGroups: feeGroupsOwedThisTurn);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
@@ -3136,11 +3139,22 @@ public sealed class GameEngine : ObservableBase
                 var fee = PlanTraversalFee(player, railroad, state, startsNewTurnFees: exhaustedTurnCapacity);
                 var additionalCost = fee.FeeAdded;
                 var isUnfriendlySegment = railroad.Owner is not null && railroad.Owner != player && !fee.Grandfathered;
-                var hostileExitPenalty = CalculateHostileExitPenalty(player, state, edges, isUnfriendlySegment, friendlyDestinationReachableNodes);
+                var nextPointsLeft = (exhaustedTurnCapacity ? futureTurnMovementCapacity : state.PointsLeftInCurrentTurn) - 1;
+                // Riding an opponent's railroad already paid for this turn, with the destination still within this
+                // turn's roll, can't leave the player on it when the turn ends; getting off the destination is weighed
+                // when it's reached. So it isn't held against the route, e.g. a bonus move riding the line it arrived on.
+                var paidWayInThisTurn = isUnfriendlySegment
+                    && additionalCost == 0
+                    && stateCost.TotalTurns + turnsAdded == 1
+                    && dotsToDestination is not null
+                    && dotsToDestination.TryGetValue(edge.ToNodeId, out var dotsLeftToDestination)
+                    && dotsLeftToDestination <= nextPointsLeft;
+                var hostileExitPenalty = paidWayInThisTurn
+                    ? 0
+                    : CalculateHostileExitPenalty(player, state, edges, isUnfriendlySegment, friendlyDestinationReachableNodes);
                 var frontRunnerSurcharge = additionalCost > 0 && railroad.Owner is not null && railroad.Owner.Index == frontRunnerPlayerIndex
                     ? RoutePlanningFrontRunnerFeeSurcharge
                     : 0;
-                var nextPointsLeft = (exhaustedTurnCapacity ? futureTurnMovementCapacity : state.PointsLeftInCurrentTurn) - 1;
                 var weightedFee = CalculateRiskWeightedFee(
                     player,
                     state,
@@ -3157,7 +3171,7 @@ public sealed class GameEngine : ObservableBase
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + frontRunnerSurcharge
-                        + (isUnfriendlySegment ? RoutePlanningUnfriendlyPenaltyPerSegment : 0)
+                        + (isUnfriendlySegment && !paidWayInThisTurn ? RoutePlanningUnfriendlyPenaltyPerSegment : 0)
                         + (exhaustedTurnCapacity ? extraTurnWeight : 0),
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
                     TotalSegments: stateCost.TotalSegments + 1,
@@ -3489,6 +3503,32 @@ public sealed class GameEngine : ObservableBase
         }
 
         return reachableNodes;
+    }
+
+    /// <summary>The fewest dots from each node to <paramref name="nodeId"/>, on any railroad.</summary>
+    private Dictionary<string, int> CountDotsTo(string nodeId)
+    {
+        var dots = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [nodeId] = 0 };
+        var queue = new Queue<string>();
+        queue.Enqueue(nodeId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!_adjacency.TryGetValue(current, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                if (dots.TryAdd(edge.ToNodeId, dots[current] + 1))
+                {
+                    queue.Enqueue(edge.ToNodeId);
+                }
+            }
+        }
+
+        return dots;
     }
 
     private int CalculateHostileExitPenalty(
