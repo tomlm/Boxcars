@@ -11,7 +11,7 @@
                 {
                     <MudSelectItem T="string" Value="@option.OptionKey">
                         <MudText Typo="Typo.body1" Inline="true" Style="white-space: nowrap">@option.DisplayName</MudText>
-                        <MudText Typo="Typo.body2" Inline="true" Color="@GetOptionPriceColor(option)" Style="font-weight: 700; white-space: nowrap"> (@FormatCurrency(option.PurchasePrice))</MudText>
+                        <MudText Typo="Typo.body2" Inline="true" Color="@PurchaseAffordabilityStyles.TextColor(GetLevel(option))" Style="font-weight: 700; white-space: nowrap"> (@FormatCurrency(option.PurchasePrice))</MudText>
                     </MudSelectItem>
                 }
             </MudSelect>
@@ -57,6 +57,16 @@
                 </MudMenu>
             }
         </MudStack>
+
+        @if (SelectedAffordability is { } affordability)
+        {
+            <MudText Typo="Typo.caption">
+                After paying
+                <MudText Typo="Typo.caption" Inline="true" Color="MudBlazor.Color.Error" Style="font-weight: 700">@FormatCurrency(Budget?.FeesOwed ?? 0)</MudText>
+                fees this purchase will leave you with
+                <MudText Typo="Typo.caption" Inline="true" Color="@PurchaseAffordabilityStyles.TextColor(affordability.Level)" Style="font-weight: 700">@FormatSignedCurrency(affordability.Remaining)</MudText>
+            </MudText>
+        }
     </MudStack>
 
 </MudPaper>
@@ -97,6 +107,32 @@
     [Parameter]
     public bool ShowRecommendations { get; set; }
 
+    /// <summary>The buyer's cash, fees and reserve, which color each price green / yellow / red.</summary>
+    [Parameter]
+    public PurchaseBudget? Budget { get; set; }
+
+    /// <summary>Only the player whose turn it is sees what the purchase leaves them with, since cash can be secret.</summary>
+    [Parameter]
+    public bool ShowCashPreview { get; set; }
+
+    private PurchaseOptionModel? SelectedOption => TaskbarState.Options.FirstOrDefault(option => option.OptionKey == SelectedOptionKey);
+
+    // What buying the selection leaves the player, when they're allowed to see it and could buy it at all.
+    private PurchaseAffordability? SelectedAffordability =>
+        ShowCashPreview && SelectedOption is { } selected && Budget is { } budget && GetLevel(selected) != PurchaseAffordabilityLevel.Unaffordable
+            ? budget.Assess(selected.PurchasePrice)
+            : null;
+
+    private PurchaseAffordabilityLevel GetLevel(PurchaseOptionModel option)
+    {
+        if (!option.IsAffordable)
+        {
+            return PurchaseAffordabilityLevel.Unaffordable;
+        }
+
+        return Budget?.Assess(option.PurchasePrice).Level ?? PurchaseAffordabilityLevel.Comfortable;
+    }
+
     private async Task OnSelectedOptionChangedAsync(string? optionKey)
     {
         await SelectedOptionKeyChanged.InvokeAsync(optionKey);
@@ -117,9 +153,9 @@
         return $"${Math.Max(0, value):N0}";
     }
 
-    private static Color GetOptionPriceColor(PurchaseOptionModel option)
+    private static string FormatSignedCurrency(int value)
     {
-        return option.IsAffordable ? Color.Success : Color.Error;
+        return value < 0 ? $"-${-value:N0}" : $"${value:N0}";
     }
 
     private static string FormatPercent(decimal? value)

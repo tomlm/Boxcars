@@ -80,12 +80,16 @@
             .ToArray()
             ?? [];
 
-    private Color OverlayPriceColor => Overlay?.ValueKind switch
+    // A sale is always good news; a price uses the shared green / yellow / red.
+    private PurchaseAffordabilityLevel OverlayPriceLevel => Overlay switch
     {
-        RailroadOverlayValueKind.TooExpensive => Color.Error,
-        RailroadOverlayValueKind.Sale => Color.Success,
-        _ => Overlay?.IsAffordable == false ? Color.Error : Color.Success
+        null or { ValueKind: RailroadOverlayValueKind.Sale } => PurchaseAffordabilityLevel.Comfortable,
+        { AffordabilityLevel: { } level } => level,
+        { ValueKind: RailroadOverlayValueKind.TooExpensive } or { IsAffordable: false } => PurchaseAffordabilityLevel.Unaffordable,
+        _ => PurchaseAffordabilityLevel.Comfortable
     };
+
+    private Color OverlayPriceColor => PurchaseAffordabilityStyles.TextColor(OverlayPriceLevel);
 
     private string OverlayPriceStyle => "font-weight: 700";
 

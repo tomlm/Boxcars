@@ -71,6 +71,9 @@ public sealed class RailroadOverlayInfo
 
     public RailroadOverlayValueKind ValueKind { get; init; } = RailroadOverlayValueKind.Affordable;
 
+    /// <summary>How easily the player can pay <see cref="PurchasePrice"/>; null falls back to <see cref="IsAffordable"/>.</summary>
+    public PurchaseAffordabilityLevel? AffordabilityLevel { get; init; }
+
     public IReadOnlyList<RailroadOverlayMetricRow> MetricRows { get; init; } = [];
 }
 
