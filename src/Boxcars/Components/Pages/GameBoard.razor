@@ -197,6 +197,7 @@ else
             {
                 <VictoryOverlay WinnerName="@victory.WinnerName"
                                 WinnerColor="@victory.WinnerColor"
+                                WinnerImageUrl="@victory.WinnerImageUrl"
                                 DismissRequested="() => _victoryAnnouncement = null" />
             }
         </div>
@@ -5237,7 +5238,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     }
 
     /// <summary>The win being celebrated over the map, until the player dismisses it.</summary>
-    private sealed record VictoryAnnouncement(string WinnerName, string WinnerColor);
+    private sealed record VictoryAnnouncement(string WinnerName, string WinnerColor, string? WinnerImageUrl);
 
     private VictoryAnnouncement? _victoryAnnouncement;
 
@@ -5270,7 +5271,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         // Celebrate only a win seen as it happens, not every time a finished game is opened.
         if (previousState is not null)
         {
-            _victoryAnnouncement = new VictoryAnnouncement(winnerName, winner?.Color ?? "#ffd54f");
+            _victoryAnnouncement = new VictoryAnnouncement(winnerName, winner?.Color ?? "#ffd54f", winner?.ThumbnailUrl);
         }
     }
 

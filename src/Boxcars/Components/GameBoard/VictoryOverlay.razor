@@ -1,10 +1,14 @@
 @using System.Globalization
 
-@* Celebrates a win over the map: the winner's name grows from a speck to fill the map. Click to dismiss. *@
+@* Celebrates a win over the map: the winner's picture and name grow from a speck to fill the map. Click to dismiss. *@
 <div class="victory-overlay" @onclick="DismissRequested" title="Click to close">
     <div class="victory-burst"></div>
-    <div class="victory-text" style="@TextStyle">
+    <div class="@(HasPicture ? "victory-text victory-text--with-picture" : "victory-text")" style="@TextStyle">
         <div class="victory-trophy">🏆</div>
+        @if (HasPicture)
+        {
+            <img class="victory-picture" src="@WinnerImageUrl" alt="@WinnerName" />
+        }
         <div class="victory-name">@WinnerName</div>
         <div class="victory-wins">WINS!</div>
     </div>
@@ -18,11 +22,18 @@
     [Parameter]
     public string WinnerColor { get; set; } = "#ffd54f";
 
+    /// <summary>The winner's profile picture, shown whole above their name. Optional.</summary>
+    [Parameter]
+    public string? WinnerImageUrl { get; set; }
+
     [Parameter]
     public EventCallback DismissRequested { get; set; }
 
-    // Size the name so it spans most of the map's width without overflowing, whatever its length.
+    private bool HasPicture => !string.IsNullOrWhiteSpace(WinnerImageUrl);
+
+    // Size the name so it spans most of the map's width without overflowing, whatever its length. With a picture it's
+    // capped lower so the picture, name and "WINS!" all fit the map's height.
     private string TextStyle => string.Create(
         CultureInfo.InvariantCulture,
-        $"--victory-glow: {WinnerColor}; --victory-name-size: min(28cqh, {170d / Math.Max(4, WinnerName.Length):0.##}cqw);");
+        $"--victory-glow: {WinnerColor}; --victory-name-size: min({(HasPicture ? 18 : 28)}cqh, {170d / Math.Max(4, WinnerName.Length):0.##}cqw);");
 }
