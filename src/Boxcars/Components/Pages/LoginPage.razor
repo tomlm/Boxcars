@@ -1,135 +1,118 @@
 @page "/login"
+@using Boxcars.Auth
+@using Boxcars.Data
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Components.Authorization
 @using MudBlazor
 @inject NavigationManager Navigation
 @inject IAuthenticationSchemeProvider SchemeProvider
-@inject Boxcars.Auth.EmailLoginService EmailLogin
+@inject EmailLoginService EmailLogin
 
 <PageTitle>Sign in - BoxCars</PageTitle>
 
-<MudStack Style="max-width: 28rem; margin: 4rem auto" Spacing="6" AlignItems="AlignItems.Stretch">
-    <MudText Typo="Typo.h3" Align="Align.Center">Sign in to BoxCars</MudText>
-    <MudText Typo="Typo.body2" Align="Align.Center" Style="opacity: 0.75">
-        Choose a provider below. Your email is used as your BoxCars identity.
-    </MudText>
+@* "Who are you?": everyone who plays, by picture and name. Picking an email-only player signs them straight in (no
+   password); picking someone who uses Google or Microsoft goes straight to that sign-in, or offers both when it isn't
+   known which they use. Email sign-ins are plain forms, so the
+   sign-in cookie is set by a normal request. People are identified by EmailLoginService.PlayerKey, never their email,
+   since anyone can see this page. *@
+<MudStack Style="max-width: 48rem; margin: 4rem auto" Spacing="6" AlignItems="AlignItems.Stretch">
+    <MudText Typo="Typo.h3" Align="Align.Center">Who are you?</MudText>
 
-    <MudPaper Class="pa-6">
-        <MudStack Spacing="3">
-            @if (_googleEnabled)
-            {
-                <MudButton Variant="Variant.Filled"
-                           Color="MudBlazor.Color.Surface"
-                           FullWidth="true"
-                           Size="Size.Large"
-                           Style="color: rgba(0,0,0,0.87); background: #ffffff; text-transform: none; font-weight: 600; justify-content: flex-start; padding-left: 1rem"
-                           Href="@($"/login/Google?returnUrl={ReturnUrlEncoded}")">
-                    <span style="display: inline-flex; align-items: center; gap: 0.75rem">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
-                            <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" />
-                            <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" />
-                            <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z" />
-                            <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" />
-                        </svg>
-                        Continue with Google
-                    </span>
-                </MudButton>
-            }
-            @if (_microsoftEnabled)
-            {
-                <MudButton Variant="Variant.Filled"
-                           Color="MudBlazor.Color.Surface"
-                           FullWidth="true"
-                           Size="Size.Large"
-                           Style="color: rgba(0,0,0,0.87); background: #ffffff; text-transform: none; font-weight: 600; justify-content: flex-start; padding-left: 1rem"
-                           Href="@($"/login/Microsoft?returnUrl={ReturnUrlEncoded}")">
-                    <span style="display: inline-flex; align-items: center; gap: 0.75rem">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="20" height="20" aria-hidden="true">
-                            <path fill="#f25022" d="M1 1h10v10H1z" />
-                            <path fill="#7fba00" d="M12 1h10v10H12z" />
-                            <path fill="#00a4ef" d="M1 12h10v10H1z" />
-                            <path fill="#ffb900" d="M12 12h10v10H12z" />
-                        </svg>
-                        Continue with Microsoft
-                    </span>
-                </MudButton>
-            }
-            @if (!_googleEnabled && !_microsoftEnabled)
-            {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                    No identity providers are configured. Set <code>Auth:Google:ClientId</code> /
-                    <code>Auth:Microsoft:ClientId</code> (and matching secrets) in user-secrets or
-                    app configuration.
-                </MudAlert>
-            }
-        </MudStack>
-    </MudPaper>
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@Error</MudAlert>
+    }
 
-    @* No password: pick your name, or type your email the first time. Accounts that use Google or Microsoft aren't
-       listed and can't be signed in to this way. Plain forms, so the sign-in cookie is set by a normal request. *@
-    <MudPaper Class="pa-6">
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.h6">Sign in with your email</MudText>
-
-            @if (!string.IsNullOrWhiteSpace(Error))
-            {
-                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@Error</MudAlert>
-            }
-
-            @if (_emailPlayers.Count > 0)
-            {
-                <form method="post" action="/login/email">
-                    <AntiforgeryToken />
-                    <input type="hidden" name="email" value="@_selectedEmail" />
-                    <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
-                    <MudStack Spacing="3">
-                        <MudSelect T="string" @bind-Value="_selectedEmail" Label="Your name" Variant="Variant.Outlined">
-                            @foreach (var player in _emailPlayers)
-                            {
-                                <MudSelectItem T="string" Value="@player.RowKey">@Boxcars.Auth.EmailLoginService.DisplayName(player)</MudSelectItem>
-                            }
-                        </MudSelect>
-                        <MudButton ButtonType="ButtonType.Submit"
-                                   Variant="Variant.Filled"
-                                   Color="MudBlazor.Color.Primary"
-                                   Size="Size.Large"
-                                   FullWidth="true"
-                                   Disabled="@string.IsNullOrWhiteSpace(_selectedEmail)">
-                            OK
-                        </MudButton>
-                    </MudStack>
-                </form>
-
-                <MudDivider />
-                <MudText Typo="Typo.body2">Not listed? Type your email address.</MudText>
-            }
-
-            <form method="post" action="/login/email">
-                <AntiforgeryToken />
-                <input type="hidden" name="email" value="@_typedEmail" />
-                <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
-                <MudStack Spacing="3">
-                    <MudTextField T="string" @bind-Value="_typedEmail" Immediate="true" Label="Email address" InputType="InputType.Email" Variant="Variant.Outlined" />
-                    <MudButton ButtonType="ButtonType.Submit"
-                               Variant="Variant.Outlined"
-                               Color="MudBlazor.Color.Primary"
-                               Size="Size.Large"
-                               FullWidth="true"
-                               Disabled="@string.IsNullOrWhiteSpace(_typedEmail)">
-                        Sign in
-                    </MudButton>
+    @if (_selected is { } selected)
+    {
+        <MudPaper Class="pa-6">
+            <MudStack Spacing="4" AlignItems="AlignItems.Center">
+                @PersonTile(selected)
+                <MudText Typo="Typo.body2" Align="Align.Center">
+                    Sign in as @EmailLoginService.DisplayName(selected)
+                </MudText>
+                <MudStack Spacing="3" Style="width: 100%">
+                    @ProviderButtons((SelectedProviders, EmailLoginService.PlayerKey(selected)))
                 </MudStack>
-            </form>
-        </MudStack>
-    </MudPaper>
+                <MudButton Variant="Variant.Text" Color="MudBlazor.Color.Primary" OnClick="@(() => _selected = null)">
+                    Not you? Pick again
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+    else
+    {
+        @if (_people.Count > 0)
+        {
+            <MudGrid Spacing="3">
+                @foreach (var person in _people)
+                {
+                    <MudItem xs="6" sm="4" md="3">
+                        @if (EmailLoginService.IsEmailOnly(person))
+                        {
+                            <form method="post" action="/login/email">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="player" value="@EmailLoginService.PlayerKey(person)" />
+                                <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+                                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Outlined" FullWidth="true" Class="pa-3">
+                                    @PersonTile(person)
+                                </MudButton>
+                            </form>
+                        }
+                        else if (ProviderFor(person) is { } provider)
+                        {
+                            <MudButton Variant="Variant.Outlined" FullWidth="true" Class="pa-3" Href="@ProviderUrl(provider, EmailLoginService.PlayerKey(person))">
+                                @PersonTile(person)
+                            </MudButton>
+                        }
+                        else
+                        {
+                            @* Which provider they use isn't known: let them choose. *@
+                            <MudButton Variant="Variant.Outlined" FullWidth="true" Class="pa-3" OnClick="@(() => _selected = person)">
+                                @PersonTile(person)
+                            </MudButton>
+                        }
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+
+        @* For someone playing for the first time; open from the start when there's no one to pick. *@
+        <MudExpansionPanels>
+            <MudExpansionPanel Text="@(_people.Count > 0 ? "Not listed?" : "Sign in")" Expanded="@(_people.Count == 0)">
+                <MudStack Spacing="3">
+                    @ProviderButtons((AllProviders, null))
+
+                    <MudDivider />
+                    <MudText Typo="Typo.body2">Or type your email address.</MudText>
+                    <form method="post" action="/login/email">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="email" value="@_typedEmail" />
+                        <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+                        <MudStack Spacing="3">
+                            <MudTextField T="string" @bind-Value="_typedEmail" Immediate="true" Label="Email address" InputType="InputType.Email" Variant="Variant.Outlined" />
+                            <MudButton ButtonType="ButtonType.Submit"
+                                       Variant="Variant.Outlined"
+                                       Color="MudBlazor.Color.Primary"
+                                       Size="Size.Large"
+                                       FullWidth="true"
+                                       Disabled="@string.IsNullOrWhiteSpace(_typedEmail)">
+                                Sign in
+                            </MudButton>
+                        </MudStack>
+                    </form>
+                </MudStack>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    }
 </MudStack>
 
 @code {
     private bool _googleEnabled;
     private bool _microsoftEnabled;
 
-    private IReadOnlyList<Boxcars.Data.ApplicationUser> _emailPlayers = [];
-    private string? _selectedEmail;
+    private IReadOnlyList<ApplicationUser> _people = [];
+    private ApplicationUser? _selected;
     private string? _typedEmail;
 
     [SupplyParameterFromQuery(Name = "returnUrl")]
@@ -143,13 +126,128 @@
         ? ReturnUrl!
         : "/";
 
-    private string ReturnUrlEncoded => Uri.EscapeDataString(SafeReturnUrl);
+    private IReadOnlyList<string> AllProviders => new[] { ("Google", _googleEnabled), ("Microsoft", _microsoftEnabled) }
+        .Where(provider => provider.Item2)
+        .Select(provider => provider.Item1)
+        .ToList();
+
+    // Only reached for someone whose provider couldn't be worked out, so offer every one.
+    private IReadOnlyList<string> SelectedProviders => AllProviders;
+
+    /// <summary>
+    /// The provider to send someone to: the one they signed in with before, a guess from their email's domain for
+    /// older accounts that didn't record it, or the only one set up. Null when it can't be told.
+    /// </summary>
+    private string? ProviderFor(ApplicationUser person)
+    {
+        if (AllProviders.Contains(person.ExternalLoginProvider))
+        {
+            return person.ExternalLoginProvider;
+        }
+
+        var domain = person.RowKey[(person.RowKey.LastIndexOf('@') + 1)..];
+        var guess = domain switch
+        {
+            "gmail.com" or "googlemail.com" => "Google",
+            "outlook.com" or "hotmail.com" or "live.com" or "msn.com" => "Microsoft",
+            _ => null
+        };
+        if (guess is not null && AllProviders.Contains(guess))
+        {
+            return guess;
+        }
+
+        return AllProviders.Count == 1 ? AllProviders[0] : null;
+    }
 
     protected override async Task OnInitializedAsync()
     {
         var schemes = await SchemeProvider.GetAllSchemesAsync();
         _googleEnabled = schemes.Any(s => s.Name == "Google");
         _microsoftEnabled = schemes.Any(s => s.Name == "Microsoft");
-        _emailPlayers = await EmailLogin.ListEmailPlayersAsync(CancellationToken.None);
+        _people = await EmailLogin.ListPeopleAsync(CancellationToken.None);
     }
+
+    private string ProviderUrl(string scheme, string? playerKey)
+    {
+        var url = $"/login/{scheme}?returnUrl={Uri.EscapeDataString(SafeReturnUrl)}";
+        return playerKey is null ? url : $"{url}&player={Uri.EscapeDataString(playerKey)}";
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant()
+            : name[..Math.Min(2, name.Length)].ToUpperInvariant();
+    }
+
+    private RenderFragment PersonTile(ApplicationUser person) => __builder =>
+    {
+        var name = EmailLoginService.DisplayName(person);
+        <MudStack Spacing="2" AlignItems="AlignItems.Center">
+            <MudAvatar Size="Size.Large" Color="MudBlazor.Color.Primary">
+                @if (string.IsNullOrWhiteSpace(person.ThumbnailUrl))
+                {
+                    @Initials(name)
+                }
+                else
+                {
+                    <MudImage Src="@person.ThumbnailUrl" Alt="@name" />
+                }
+            </MudAvatar>
+            <MudText Typo="Typo.body1" Align="Align.Center" Style="text-transform: none">@name</MudText>
+        </MudStack>
+    };
+
+    private RenderFragment ProviderButtons((IReadOnlyList<string> Providers, string? PlayerKey) args) => __builder =>
+    {
+        var playerKey = args.PlayerKey;
+        @if (args.Providers.Contains("Google"))
+        {
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Surface"
+                           FullWidth="true"
+                           Size="Size.Large"
+                           Style="color: rgba(0,0,0,0.87); background: #ffffff; text-transform: none; font-weight: 600; justify-content: flex-start; padding-left: 1rem"
+                           Href="@ProviderUrl("Google", playerKey)">
+                    <span style="display: inline-flex; align-items: center; gap: 0.75rem">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
+                            <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" />
+                            <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" />
+                            <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z" />
+                            <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" />
+                        </svg>
+                        Continue with Google
+                    </span>
+                </MudButton>
+        }
+        @if (args.Providers.Contains("Microsoft"))
+        {
+                <MudButton Variant="Variant.Filled"
+                           Color="MudBlazor.Color.Surface"
+                           FullWidth="true"
+                           Size="Size.Large"
+                           Style="color: rgba(0,0,0,0.87); background: #ffffff; text-transform: none; font-weight: 600; justify-content: flex-start; padding-left: 1rem"
+                           Href="@ProviderUrl("Microsoft", playerKey)">
+                    <span style="display: inline-flex; align-items: center; gap: 0.75rem">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="20" height="20" aria-hidden="true">
+                            <path fill="#f25022" d="M1 1h10v10H1z" />
+                            <path fill="#7fba00" d="M12 1h10v10H12z" />
+                            <path fill="#00a4ef" d="M1 12h10v10H1z" />
+                            <path fill="#ffb900" d="M12 12h10v10H12z" />
+                        </svg>
+                        Continue with Microsoft
+                    </span>
+                </MudButton>
+        }
+        @if (args.Providers.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                No identity providers are configured. Set <code>Auth:Google:ClientId</code> /
+                <code>Auth:Microsoft:ClientId</code> (and matching secrets) in user-secrets or
+                app configuration.
+            </MudAlert>
+        }
+    };
 }
