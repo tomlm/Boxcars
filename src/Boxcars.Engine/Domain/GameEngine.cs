@@ -640,7 +640,49 @@ public sealed class GameEngine : ObservableBase
 
         // Use Dijkstra to find cheapest route considering use fees
         var route = FindCheapestRoute(startNodeId, destNodeId, player)!;
+
+        // A declared player who can get home this turn with the winning cash left after fees goes and wins.
+        if (FindWinningRoute(player, startNodeId, destNodeId, route) is { } winningRoute)
+        {
+            if (player == CurrentTurn.ActivePlayer)
+            {
+                LastApproachDecision = new DestinationApproachDecision { Evaluated = true, Reason = "Going in wins the game" };
+            }
+
+            return winningRoute;
+        }
+
         return ApplyDestinationApproach(player, startNodeId, destNodeId, route);
+    }
+
+    /// <summary>
+    /// For a declared player headed home with this turn's roll known: a route that gets home this turn with the
+    /// winning cash left after this turn's fees (see <see cref="TryWinAtHomeAfterFees"/>), or null when none does. The
+    /// cheapest route is used when it wins; otherwise the quickest, which may pay more but still win.
+    /// </summary>
+    private Route? FindWinningRoute(Player player, string startNodeId, string destNodeId, Route cheapest)
+    {
+        if (!player.HasDeclared
+            || !IsThisTurnsMovementKnown(player)
+            || !string.Equals(player.Destination?.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var feesAlreadyOwed = CalculatePendingFeeAmount(player);
+        bool WinsThisTurn(Route? candidate) => candidate is not null
+            && candidate.Segments.Count > 0
+            && candidate.Segments.Count <= CurrentTurn.MovementRemaining
+            && string.Equals(candidate.NodeIds[^1], destNodeId, StringComparison.OrdinalIgnoreCase)
+            && player.Cash - feesAlreadyOwed - candidate.TotalCost >= _settings.WinningCash;
+
+        if (WinsThisTurn(cheapest))
+        {
+            return cheapest;
+        }
+
+        var quickest = FindCheapestRoute(startNodeId, destNodeId, player, extraTurnWeight: _settings.WinningCash);
+        return WinsThisTurn(quickest) ? quickest : null;
     }
 
     /// <summary>

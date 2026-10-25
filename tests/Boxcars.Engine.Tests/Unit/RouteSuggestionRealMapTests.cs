@@ -347,6 +347,30 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal(0, route.TotalCost);
     }
 
+    [Fact]
+    public void DeclaredPlayerWhoCanGetHomeThisTurn_GoesHomeAndWins()
+    {
+        // thermous (Superchief, declared, $323,250) at Memphis, home Pittsburgh, rolled 6+2+(4). The cheapest way home is
+        // 14 dots, mostly its own IC and NYC, so the suggestion laid up. An 11-dot way pays Pooper $11,000 and still leaves
+        // $312,250, over the $300,000 to win.
+        var (engine, player) = PlaceGame4184Player("4:22", "Memphis", "Pittsburgh", whiteDice: [6, 2], redDie: 4, usedSegments: []);
+        var railroad22 = engine.Railroads.First(railroad => railroad.Index == 22);
+        railroad22.Owner!.OwnedRailroads.Remove(railroad22);
+        railroad22.Owner = player;
+        player.OwnedRailroads.Add(railroad22);
+        player.HomeCity = engine.MapDefinition.Cities.First(city => city.Name == "Pittsburgh");
+        player.HasDeclared = true;
+        player.Cash = 323_250;
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal(FindCityNode(engine, "Pittsburgh"), route.NodeIds[^1]);
+        Assert.True(route.Segments.Count <= 12);
+        Assert.True(player.Cash - route.TotalCost >= engine.Settings.WinningCash);
+        Assert.Equal("Going in wins the game", engine.LastApproachDecision?.Reason);
+    }
+
     // Railroad owners by index (player index) in game 4184179d, from issues #95 and #96 (all railroads sold).
     private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
 
