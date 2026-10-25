@@ -107,13 +107,27 @@ public class DestinationApproachPlannerTests
         Assert.Equal("Going in bonuses out this turn", decision.Reason);
     }
 
+    [Fact]
+    public void LayUpThatCostsNoMoreWithoutABonusOut_IsWorthAnyChanceOfOne()
+    {
+        // Free public track: missing the bonus out pays Bob twice, exactly like going in, so even a 1-in-6 bonus out
+        // (only a 6 gets off) makes laying up worth it.
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, publicFee: 0, bonusOutDots: 6);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.True(decision.LayUp);
+        Assert.Equal(1d / 6, decision.BonusOutNextTurnProbability, precision: 10);
+        Assert.Equal("Laying up can't cost more than going in", decision.Reason);
+    }
+
     [Theory]
     [InlineData(6, false)] // only a 6 bonuses out: 1 in 6
     [InlineData(5, true)]  // a 5 or 6: 1 in 3
-    public void LayUpThatOnlySavesByBonusingOut_NeedsALikelyBonusOut(int bonusOutDots, bool laysUp)
+    public void LayUpThatCostsMoreWithoutABonusOut_NeedsALikelyBonusOut(int bonusOutDots, bool laysUp)
     {
-        // Free public track: the lay-up is cheaper on average, but without a bonus out it pays Bob twice, just like going in.
-        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, publicFee: 0, bonusOutDots: bonusOutDots);
+        // $500 public track: cheaper on average, but missing the bonus out pays Bob twice plus the $500, more than going in.
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, publicFee: 500, bonusOutDots: bonusOutDots);
 
         var decision = DestinationApproachPlanner.Evaluate(request);
 
@@ -122,13 +136,30 @@ public class DestinationApproachPlannerTests
     }
 
     [Fact]
-    public void LayUpThatMightFallShort_GoesIn()
+    public void LayUpThatCanOnlyFallShortOnFreeTrack_LaysUp()
     {
         // Going in falls short on Bob's railroad (3 dots, 2 to move); there's no fee to get off D. The lay-up spot p2 is
-        // 9 dots out, and a Superchief's three dice reach 9 only 74% of the time.
+        // 9 dots out on free public track, so a Superchief arrives next turn only 74% of the time, but falling short
+        // leaves it on free track: it can't cost more than going in.
         var segments = new List<(string From, string To, int RailroadIndex)> { ("0", "n1", Bob), ("n1", "n2", Bob), ("n2", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "q1", Public), ("q8", "D", Bob) };
         segments.AddRange(Enumerable.Range(1, 7).Select(index => ($"q{index}", $"q{index + 1}", Public)));
         var request = CreateRequest(CreateGraph(segments), LocomotiveType.Superchief, goRoute: ["n1", "n2", "D"], movementRemaining: 2, whiteDiceTotal: 2, publicFee: 0, exitCost: 0, averageMovementPerTurn: 10);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.Equal(1 - 56d / 216, decision.ArriveNextTurnProbability, precision: 10);
+        Assert.True(decision.LayUp);
+        Assert.Equal("Laying up can't cost more than going in", decision.Reason);
+    }
+
+    [Fact]
+    public void LayUpThatMightFallShortOntoAnOpponent_GoesIn()
+    {
+        // As above, but the last 6 dots into D are Bob's and public track costs $1,000: falling short on Bob's railroad
+        // pays him again the turn after, more than going in, and that happens too often (only 74% arrive).
+        var segments = new List<(string From, string To, int RailroadIndex)> { ("0", "n1", Bob), ("n1", "n2", Bob), ("n2", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "q1", Public), ("q1", "q2", Public), ("q2", "q3", Public), ("q3", "b1", Bob), ("b5", "D", Bob) };
+        segments.AddRange(Enumerable.Range(1, 4).Select(index => ($"b{index}", $"b{index + 1}", Bob)));
+        var request = CreateRequest(CreateGraph(segments), LocomotiveType.Superchief, goRoute: ["n1", "n2", "D"], movementRemaining: 2, whiteDiceTotal: 2, exitCost: 0, averageMovementPerTurn: 10);
 
         var decision = DestinationApproachPlanner.Evaluate(request);
 
