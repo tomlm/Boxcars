@@ -127,6 +127,10 @@
     [Parameter]
     public PurchaseExperienceTab View { get; set; } = PurchaseExperienceTab.Railroads;
 
+    /// <summary>The player's cash, fees and reserve, which color each price green / yellow / red.</summary>
+    [Parameter]
+    public PurchaseBudget? Budget { get; set; }
+
     private string SectionHeading => View switch
     {
         PurchaseExperienceTab.Regions => "Region Analysis",
@@ -250,8 +254,9 @@
 
     private string GetRailroadPriceStyle(RailroadAnalysisRow row)
     {
-        return IsAffordableRailroad(row)
-            ? "color: var(--mud-palette-success); font-weight: 700"
-            : "color: var(--mud-palette-error); font-weight: 700";
+        var level = !IsAffordableRailroad(row)
+            ? PurchaseAffordabilityLevel.Unaffordable
+            : Budget?.Assess(row.PurchasePrice).Level ?? PurchaseAffordabilityLevel.Comfortable;
+        return $"color: {PurchaseAffordabilityStyles.CssColor(level)}; font-weight: 700";
     }
 }

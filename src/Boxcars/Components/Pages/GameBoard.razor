@@ -299,6 +299,7 @@ else
                 {
                     <PurchaseAnalysisReport Report="@CurrentMapAnalysisReport"
                                             RecommendationInputs="@DisplayRecommendationInputs"
+                                            Budget="@CurrentPurchaseBudget"
                                             View="@_selectedPurchaseTab" />
                 }
                
@@ -364,7 +365,9 @@ else
                                                      ProjectedCoverage="SelectedProjectedCoverage"
                                                      SelectedEngineOption="SelectedEngineOption"
                                                      Recommendations="@(CurrentPurchasePhase?.Recommendations ?? PurchaseRecommendationsModel.Empty)"
-                                                     ShowRecommendations="@IsCurrentUserActivePlayer" />
+                                                     ShowRecommendations="@IsCurrentUserActivePlayer"
+                                                     Budget="@CurrentPurchaseBudget"
+                                                     ShowCashPreview="@IsCurrentUserActivePlayer" />
                                 </div>
                                 <RailroadComparisonStrip Cards="ComparedRailroadCards"
                                                          RailroadSelected="OnComparedRailroadSelectedAsync" />
@@ -3361,6 +3364,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 PurchasePrice = bankSalePrice,
                 IsAffordable = canAffordAuctionOpeningBid,
                 ValueKind = canAffordAuctionOpeningBid ? RailroadOverlayValueKind.Affordable : RailroadOverlayValueKind.TooExpensive,
+                AffordabilityLevel = CurrentPurchaseBudget?.Assess(bankSalePrice).Level,
                 MetricRows = BuildOverlayMetricRows(currentCoverage, projectedPurchaseCoverage, CurrentMapAnalysisReport)
             };
         }
@@ -3375,6 +3379,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             PurchasePrice = purchasePrice,
             IsAffordable = isAffordable,
             ValueKind = isAffordable ? RailroadOverlayValueKind.Affordable : RailroadOverlayValueKind.TooExpensive,
+            AffordabilityLevel = CurrentPurchaseBudget?.Assess(purchasePrice).Level,
             MetricRows = BuildOverlayMetricRows(currentCoverage, projectedPurchaseCoverage, CurrentMapAnalysisReport)
         };
     }
@@ -3413,6 +3418,43 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 .OrderByDescending(option => option.PurchasePrice)
                 .ThenBy(option => option.RailroadName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+    }
+
+    /// <summary>
+    /// What the player the purchase views are for has to spend, which colors prices green / yellow / red. In the
+    /// purchase phase it's the real cash, fees owed and reserve; otherwise it's the cash they'd have (see
+    /// <see cref="GetEffectivePurchaseCash"/>, which already takes off a planned route's fees) and their reserve where
+    /// they stand.
+    /// </summary>
+    private PurchaseBudget? CurrentPurchaseBudget
+    {
+        get
+        {
+            if (_gameState is null || _playerBoardMapDefinition is null)
+            {
+                return null;
+            }
+
+            var playerIndex = EffectiveRecommendationPlayerIndex;
+            if (playerIndex < 0 || playerIndex >= _gameState.Players.Count)
+            {
+                return null;
+            }
+
+            if (CurrentPurchasePhase is { } purchasePhase && purchasePhase.PlayerIndex == playerIndex)
+            {
+                return new PurchaseBudget(
+                    purchasePhase.CashAfterPayout,
+                    purchasePhase.Recommendations.FeesOwed,
+                    purchasePhase.Recommendations.OperatingReserve);
+            }
+
+            var settings = _game is null ? Boxcars.Engine.Persistence.GameSettings.Default : GameSettingsResolver.Resolve(_game).Settings;
+            return new PurchaseBudget(
+                GetEffectivePurchaseCash(playerIndex),
+                0,
+                OperatingCapitalService.CalculateOperatingReserve(_playerBoardMapDefinition, _gameState, playerIndex, settings).Amount);
         }
     }
 
