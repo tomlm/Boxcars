@@ -303,6 +303,28 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         return (engine, player);
     }
 
+    [Fact]
+    public void ArrivalAtCharleston_BonusesOutBackToOwnTrack()
+    {
+        // thermous (Superchief) south of Baltimore, -> Charleston, rolled 5+5+(6). The way in is 2 dots of its N&W and
+        // 6 of Connecto's ACL, within the white dice, and the red 6 rides the ACL back to the N&W junction. The bonus out
+        // used to count a dot of the N&W too (7), so the board didn't show [BONUS OUT].
+        var (engine, player) = PlaceGame4184Player("2:16", "Baltimore", "Charleston", whiteDice: [5, 5], redDie: 6,
+            usedSegments: ["1:21-1:22:2", "1:22-2:5:8", "2:5-2:8:8", "2:16-2:8:8"]);
+        // Since issues #95 and #96, thermous has bought railroad 22.
+        var railroad22 = engine.Railroads.First(railroad => railroad.Index == 22);
+        railroad22.Owner!.OwnedRailroads.Remove(railroad22);
+        railroad22.Owner = player;
+        player.OwnedRailroads.Add(railroad22);
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal(FindCityNode(engine, "Charleston"), route.NodeIds[^1]);
+        Assert.Equal(8, route.Segments.Count);
+        Assert.Equal(ArrivalBonus.GetsOff, engine.GetArrivalBonus(player.Index, route));
+    }
+
     // Railroad owners by index (player index) in game 4184179d, from issues #95 and #96 (all railroads sold).
     private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
 
