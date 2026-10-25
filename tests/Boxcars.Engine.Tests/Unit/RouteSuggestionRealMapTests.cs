@@ -325,6 +325,28 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal(ArrivalBonus.GetsOff, engine.GetArrivalBonus(player.Index, route));
     }
 
+    [Fact]
+    public void BonusMoveFromChattanooga_RidesThePaidLineIntoMemphis()
+    {
+        // thermous (Superchief) just reached Chattanooga on Pooper's SOU and has a red 4 to bonus on toward Memphis.
+        // The SOU runs 4 dots into Memphis, already paid for this turn, and Memphis has thermous's own IC and SLSF to
+        // leave on. The suggestion used to stop a dot short on its own GM&O and finish next turn, because every dot on
+        // an opponent's railroad weighed against the route even when riding it cost nothing.
+        var (engine, player) = PlaceGame4184Player("2:42", "Chattanooga", "Memphis", whiteDice: [0, 0], redDie: 4, usedSegments: []);
+        var railroad22 = engine.Railroads.First(railroad => railroad.Index == 22);
+        railroad22.Owner!.OwnedRailroads.Remove(railroad22);
+        railroad22.Owner = player;
+        player.OwnedRailroads.Add(railroad22);
+        engine.CurrentTurn.RailroadsRiddenThisTurn.UnionWith([24, 26, 8]);
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal(["4:15", "4:19", "4:21", "4:22"], route.NodeIds.Skip(1));
+        Assert.All(route.Segments, segment => Assert.Equal(8, segment.RailroadIndex));
+        Assert.Equal(0, route.TotalCost);
+    }
+
     // Railroad owners by index (player index) in game 4184179d, from issues #95 and #96 (all railroads sold).
     private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
 
