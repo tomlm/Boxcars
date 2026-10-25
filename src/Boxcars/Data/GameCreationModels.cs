@@ -89,6 +89,9 @@ public sealed record DashboardGameSummary
     public bool IsCreator { get; init; }
     public int PlayerCount { get; init; }
     public int HumanPlayerCount { get; init; }
+
+    /// <summary>Who won, once the game is over; null while it's still being played.</summary>
+    public string? WinnerName { get; init; }
 }
 
 public sealed record EventTimelineItem

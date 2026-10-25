@@ -53,24 +53,25 @@ public class GameService
 
     public async Task<DashboardState> GetDashboardStateAsync(string playerId, CancellationToken cancellationToken)
     {
-        var participantGames = await GetActiveGamesForPlayerAsync(playerId, cancellationToken);
+        var participantGames = await GetActiveGameStatusesForPlayerAsync(playerId, cancellationToken);
 
         return new DashboardState
         {
             Games = participantGames
-                .OrderBy(game => ResolveStateSortOrder(game.State))
-                .ThenByDescending(game => game.GameDate ?? game.CreatedAt)
-                .ThenByDescending(game => game.CreatedAt)
-                .Select(game => new DashboardGameSummary
+                .OrderBy(entry => ResolveStateSortOrder(entry.Game.State))
+                .ThenByDescending(entry => entry.Game.GameDate ?? entry.Game.CreatedAt)
+                .ThenByDescending(entry => entry.Game.CreatedAt)
+                .Select(entry => new DashboardGameSummary
                 {
-                    GameId = game.GameId,
-                    Name = string.IsNullOrWhiteSpace(game.Name) ? BuildFallbackGameName(game) : game.Name,
-                    CreatedAt = game.CreatedAt,
-                    GameDate = game.GameDate,
-                    State = NormalizePersistedGameState(game.State),
-                    IsCreator = string.Equals(game.CreatorId, playerId, StringComparison.OrdinalIgnoreCase),
-                    PlayerCount = game.Seats.Count,
-                    HumanPlayerCount = game.Seats.Count(seat => !IsBotSeatUserId(seat.PlayerUserId))
+                    GameId = entry.Game.GameId,
+                    Name = string.IsNullOrWhiteSpace(entry.Game.Name) ? BuildFallbackGameName(entry.Game) : entry.Game.Name,
+                    CreatedAt = entry.Game.CreatedAt,
+                    GameDate = entry.Game.GameDate,
+                    State = NormalizePersistedGameState(entry.Game.State),
+                    IsCreator = string.Equals(entry.Game.CreatorId, playerId, StringComparison.OrdinalIgnoreCase),
+                    PlayerCount = entry.Game.Seats.Count,
+                    HumanPlayerCount = entry.Game.Seats.Count(seat => !IsBotSeatUserId(seat.PlayerUserId)),
+                    WinnerName = entry.Status.WinnerName
                 })
                 .ToList()
         };
@@ -1200,14 +1201,24 @@ public class GameService
 
     private async Task<IReadOnlyList<GameEntity>> GetActiveGamesForPlayerAsync(string playerId, CancellationToken cancellationToken)
     {
+        return (await GetActiveGameStatusesForPlayerAsync(playerId, cancellationToken))
+            .Select(entry => entry.Game)
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<(GameEntity Game, GameListingStatus Status)>> GetActiveGameStatusesForPlayerAsync(
+        string playerId,
+        CancellationToken cancellationToken)
+    {
         var participantGames = await GetGamesForPlayerAsync(playerId, cancellationToken);
-        var activeGames = new List<GameEntity>(participantGames.Count);
+        var activeGames = new List<(GameEntity Game, GameListingStatus Status)>(participantGames.Count);
 
         foreach (var game in participantGames)
         {
-            if (await IsGameActiveAsync(game, cancellationToken))
+            var status = await GetGameListingStatusAsync(game, cancellationToken);
+            if (status.IsActive)
             {
-                activeGames.Add(game);
+                activeGames.Add((game, status));
             }
         }
 
@@ -1253,30 +1264,38 @@ public class GameService
 
     private async Task<bool> IsGameActiveAsync(GameEntity game, CancellationToken cancellationToken)
     {
+        return (await GetGameListingStatusAsync(game, cancellationToken)).IsActive;
+    }
+
+    /// <summary>Whether a game still belongs on the dashboard, and who won it once it's over.</summary>
+    private readonly record struct GameListingStatus(bool IsActive, string? WinnerName);
+
+    private async Task<GameListingStatus> GetGameListingStatusAsync(GameEntity game, CancellationToken cancellationToken)
+    {
         if (string.Equals(NormalizePersistedGameState(game.State), PersistedGameStates.Lobby, StringComparison.Ordinal))
         {
-            return true;
+            return new GameListingStatus(true, null);
         }
 
         var latestEvent = await GetLatestEventAsync(game.GameId, cancellationToken);
         if (latestEvent is null || string.IsNullOrWhiteSpace(latestEvent.SerializedGameState))
         {
-            return true;
+            return new GameListingStatus(true, null);
         }
 
         var latestSnapshot = GameEventSerialization.DeserializeSnapshot(latestEvent.SerializedGameState);
         if (!string.Equals(latestSnapshot.GameStatus, Boxcars.Engine.Domain.GameStatus.Completed.ToString(), StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return new GameListingStatus(true, null);
         }
+
+        var winnerName = latestSnapshot.WinnerIndex is int winnerIndex && winnerIndex >= 0 && winnerIndex < latestSnapshot.Players.Count
+            ? latestSnapshot.Players[winnerIndex].Name
+            : null;
 
         // Show finished games on the dashboard if they completed today
-        if (latestEvent.Timestamp.HasValue && latestEvent.Timestamp.Value.Date == DateTimeOffset.UtcNow.Date)
-        {
-            return true;
-        }
-
-        return false;
+        var completedToday = latestEvent.Timestamp.HasValue && latestEvent.Timestamp.Value.Date == DateTimeOffset.UtcNow.Date;
+        return new GameListingStatus(completedToday, winnerName ?? "Unknown");
     }
 
     private static string BuildFallbackGameName(GameEntity game)

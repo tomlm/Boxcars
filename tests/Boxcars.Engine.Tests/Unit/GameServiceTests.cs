@@ -129,6 +129,26 @@ public class GameServiceTests
     }
 
     [Fact]
+    public async Task GetDashboardStateAsync_GameFinishedToday_ShowsTheWinner()
+    {
+        var playingGame = CreateGame("game-playing", PersistedGameStates.Playing, "alice@example.com", "bob@example.com");
+        var finishedGame = CreateGame("game-finished", PersistedGameStates.Playing, "alice@example.com", "bob@example.com");
+        var gamesTable = new FakeGamesTableClient(
+            [playingGame, finishedGame],
+            [],
+            [
+                CreateSnapshotEvent("game-playing", GameStatus.InProgress),
+                CreateSnapshotEvent("game-finished", GameStatus.Completed, winnerIndex: 1, timestamp: DateTimeOffset.UtcNow)
+            ]);
+        var service = new GameService(gamesTable, new FakeUsersTableClient(), new FakeHubContext(), new FakeGameEngine());
+
+        var result = await service.GetDashboardStateAsync("alice@example.com", CancellationToken.None);
+
+        Assert.Null(result.Games.Single(game => game.GameId == "game-playing").WinnerName);
+        Assert.Equal("Bob", result.Games.Single(game => game.GameId == "game-finished").WinnerName);
+    }
+
+    [Fact]
     public async Task JoinGameAsync_CompletedGame_ReturnsInactiveFailure()
     {
         var completedGame = CreateGame("game-completed", PersistedGameStates.Playing, "alice@example.com", "bob@example.com");
@@ -593,11 +613,12 @@ public class GameServiceTests
         };
     }
 
-    private static GameEventEntity CreateSnapshotEvent(string gameId, GameStatus gameStatus)
+    private static GameEventEntity CreateSnapshotEvent(string gameId, GameStatus gameStatus, int? winnerIndex = null, DateTimeOffset? timestamp = null)
     {
         return new GameEventEntity
         {
             PartitionKey = gameId,
+            Timestamp = timestamp,
             RowKey = "Event_00000000000000000001_00000001",
             GameId = gameId,
             EventKind = "StateUpdated",
@@ -607,6 +628,7 @@ public class GameServiceTests
             SerializedGameState = GameEventSerialization.SerializeSnapshot(new GameState
             {
                 GameStatus = gameStatus.ToString(),
+                WinnerIndex = winnerIndex,
                 Players =
                 [
                     new PlayerState { Name = "Alice", IsActive = true },
