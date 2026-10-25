@@ -54,18 +54,6 @@ public sealed class DestinationApproachRequest
     /// </summary>
     public int AverageMovementPerTurn { get; init; } = 7;
 
-    /// <summary>
-    /// What each turn spent reaching the destination is worth, weighed against fees. Used when the trip's payout
-    /// isn't known; otherwise a turn is worth what the trip pays per average turn.
-    /// </summary>
-    public int TurnCost { get; init; } = DestinationApproachPlanner.DefaultTurnCost;
-
-    /// <summary>The trip's payout, which with <see cref="TripStartNodeId"/> sets what a turn is worth.</summary>
-    public int? TripPayout { get; init; }
-
-    /// <summary>Where the trip started.</summary>
-    public string? TripStartNodeId { get; init; }
-
     public TimeSpan TimeBudget { get; init; } = TimeSpan.FromSeconds(1.5);
 }
 
@@ -90,8 +78,8 @@ public sealed class DestinationApproachDecision
     /// <summary>Expected turns to reach the destination after laying up, counting this one.</summary>
     public double? ExpectedLayUpTurns { get; init; }
 
-    /// <summary>What each turn was worth in the comparison.</summary>
-    public int TurnCost { get; init; }
+    /// <summary>Why the planner went in or laid up, in a few words.</summary>
+    public string Reason { get; init; } = string.Empty;
 
     public string? LayUpNodeId { get; init; }
 
@@ -112,12 +100,23 @@ public sealed class DestinationApproachDecision
 /// Near a destination reached over opponents' railroads, decides whether to go in now or lay up: spend this turn's
 /// roll on friendly or public track and approach next turn. Each option is scored by its expected fees, working
 /// through every roll for next turn: arriving and bonusing out off the opponent's railroad, arriving and paying to
-/// get out, or falling short on their railroad and paying them again. Each turn spent getting there costs what the
-/// trip pays per turn, so laying up has to save more than the turn it usually costs.
+/// get out, or falling short on their railroad and paying them again. It then decides the way experienced players do
+/// (issue #130): lay up whenever that saves a fee, unless going in bonuses out this turn, the lay-up might fall short of
+/// the destination next turn, or its saving depends on a bonus out that's unlikely.
 /// </summary>
 public static class DestinationApproachPlanner
 {
-    public const int DefaultTurnCost = 1000;
+    /// <summary>A lay-up has to reach the destination next turn at least this often, or it might fall short.</summary>
+    public const double MinimumArriveNextTurnProbability = 0.8;
+
+    /// <summary>
+    /// When a lay-up only beats going in by bonusing out next turn, the bonus out has to be at least this likely: a 5
+    /// or 6 on the red die is, a 6 alone isn't.
+    /// </summary>
+    public const double MinimumBonusOutProbability = 1d / 3;
+
+    // Rounding in summed roll chances shouldn't push an exact 1-in-3 under the line.
+    private const double ProbabilityTolerance = 1e-9;
 
     private const int MaximumLayUpSpots = 12;
     private const double MinimumSaving = 0.5;
@@ -148,7 +147,6 @@ public static class DestinationApproachPlanner
 
         var stopwatch = Stopwatch.StartNew();
         var distances = DistancesFrom(request, request.DestinationNodeId);
-        var turnCost = ResolveTurnCost(request, distances);
         var go = EvaluateGo(request);
 
         LayUpOption? best = null;
@@ -168,29 +166,31 @@ public static class DestinationApproachPlanner
             }
 
             var nextTurn = EvaluateNextTurn(request, continuation);
+            var walkFees = FeesThisTurn(request, walk, 0, walk.Count);
             var layUp = new LayUpOption(
                 walk,
                 continuation,
-                FeesThisTurn(request, walk, 0, walk.Count) + nextTurn.ExpectedFees,
+                walkFees + nextTurn.ExpectedFees,
                 1 + nextTurn.ExpectedTurns,
                 nextTurn.ArriveProbability,
-                nextTurn.BonusOutProbability);
-            if (best is null || Score(turnCost, layUp.ExpectedFees, layUp.ExpectedTurns) < Score(turnCost, best.ExpectedFees, best.ExpectedTurns))
+                nextTurn.BonusOutProbability,
+                walkFees + FreshTurnFees(request, continuation, 0, continuation.Count) + request.DestinationExitCost(continuation[^1].RailroadIndex));
+            if (best is null || IsBetterLayUp(layUp, best, go.ExpectedFees))
             {
                 best = layUp;
             }
         }
 
+        var (laysUp, reason) = Decide(go, best);
         return new DestinationApproachDecision
         {
             Evaluated = true,
-            LayUp = best is not null
-                && Score(turnCost, best.ExpectedFees, best.ExpectedTurns) < Score(turnCost, go.ExpectedFees, go.ExpectedTurns) - MinimumSaving,
+            LayUp = laysUp,
+            Reason = reason,
             ExpectedGoFees = go.ExpectedFees,
             ExpectedGoTurns = go.ExpectedTurns,
             ExpectedLayUpFees = best?.ExpectedFees,
             ExpectedLayUpTurns = best?.ExpectedTurns,
-            TurnCost = turnCost,
             LayUpNodeId = best?.Walk[^1].ToNodeId,
             LayUpSteps = best?.Walk ?? [],
             ContinuationSteps = best?.Continuation ?? [],
@@ -199,37 +199,86 @@ public static class DestinationApproachPlanner
         };
     }
 
-    private static double Score(int turnCost, double expectedFees, double expectedTurns)
+    /// <summary>Goes in or lays up the way experienced players do; see the class summary.</summary>
+    private static (bool LayUp, string Reason) Decide(GoOption go, LayUpOption? layUp)
     {
-        return expectedFees + turnCost * expectedTurns;
-    }
-
-    /// <summary>
-    /// The trip's payout spread over the average turns its shortest way takes (at least one), or
-    /// <see cref="DestinationApproachRequest.TurnCost"/> when the trip isn't known.
-    /// </summary>
-    private static int ResolveTurnCost(DestinationApproachRequest request, Dictionary<string, int> distances)
-    {
-        if (request.TripPayout is not int payout
-            || payout <= 0
-            || request.TripStartNodeId is null
-            || !distances.TryGetValue(request.TripStartNodeId, out var tripDots))
+        if (layUp is null)
         {
-            return request.TurnCost;
+            return (false, "No spot to lay up on friendly or public track");
         }
 
-        var turnLength = Math.Max(1, request.AverageMovementPerTurn);
-        return (int)Math.Round((double)payout * turnLength / Math.Max(turnLength, tripDots));
+        if (go.BonusesOut)
+        {
+            return (false, "Going in bonuses out this turn");
+        }
+
+        if (!SavesFees(layUp, go.ExpectedFees))
+        {
+            return (false, "Laying up doesn't save any fees");
+        }
+
+        if (!ArrivesReliably(layUp))
+        {
+            return (false, $"Laying up might fall short ({Percent(layUp.ArriveProbability)} to arrive next turn)");
+        }
+
+        if (!BonusOutReliable(layUp, go.ExpectedFees))
+        {
+            return (false, $"Bonusing out next turn is unlikely ({Percent(layUp.BonusOutProbability)})");
+        }
+
+        return (true, "Laying up saves a fee");
     }
 
-    private static (double ExpectedFees, double ExpectedTurns) EvaluateGo(DestinationApproachRequest request)
+    /// <summary>Lay-ups the rules would take come first, then the cheapest, then the quickest.</summary>
+    private static bool IsBetterLayUp(LayUpOption candidate, LayUpOption best, double goFees)
+    {
+        var candidateQualifies = Qualifies(candidate, goFees);
+        var bestQualifies = Qualifies(best, goFees);
+        if (candidateQualifies != bestQualifies)
+        {
+            return candidateQualifies;
+        }
+
+        return candidate.ExpectedFees < best.ExpectedFees - MinimumSaving
+            || (Math.Abs(candidate.ExpectedFees - best.ExpectedFees) <= MinimumSaving && candidate.ExpectedTurns < best.ExpectedTurns);
+    }
+
+    private static bool Qualifies(LayUpOption layUp, double goFees)
+    {
+        return SavesFees(layUp, goFees) && ArrivesReliably(layUp) && BonusOutReliable(layUp, goFees);
+    }
+
+    private static bool SavesFees(LayUpOption layUp, double goFees)
+    {
+        return layUp.ExpectedFees < goFees - MinimumSaving;
+    }
+
+    private static bool ArrivesReliably(LayUpOption layUp)
+    {
+        return layUp.ArriveProbability + ProbabilityTolerance >= MinimumArriveNextTurnProbability;
+    }
+
+    // A lay-up that's cheaper even without a bonus out doesn't need one.
+    private static bool BonusOutReliable(LayUpOption layUp, double goFees)
+    {
+        return layUp.FeesWithoutBonusOut < goFees - MinimumSaving
+            || layUp.BonusOutProbability + ProbabilityTolerance >= MinimumBonusOutProbability;
+    }
+
+    private static string Percent(double probability)
+    {
+        return $"{Math.Round(probability * 100):0}%";
+    }
+
+    private static GoOption EvaluateGo(DestinationApproachRequest request)
     {
         var goRoute = request.GoRoute;
         var movement = request.MovementRemaining;
         if (goRoute.Count > movement)
         {
             var nextTurn = EvaluateNextTurn(request, goRoute.Skip(movement).ToList());
-            return (FeesThisTurn(request, goRoute, 0, movement) + nextTurn.ExpectedFees, 1 + nextTurn.ExpectedTurns);
+            return new GoOption(FeesThisTurn(request, goRoute, 0, movement) + nextTurn.ExpectedFees, 1 + nextTurn.ExpectedTurns, BonusesOut: false);
         }
 
         // Arrives this turn. A Superchief that arrives within the white dice bonuses out with the red die.
@@ -243,7 +292,7 @@ public static class DestinationApproachPlanner
             && request.MovementUsed + goRoute.Count <= request.WhiteDiceTotal
             && request.MinimumBonusOutSegments(arrivalRailroad) is int escape
             && redDie >= escape;
-        return (fees + (bonusesOut ? 0 : exitCost), 1);
+        return new GoOption(fees + (bonusesOut ? 0 : exitCost), 1, bonusesOut);
     }
 
     /// <summary>Expected fees and turns from the start of next turn, following <paramref name="path"/> to the destination.</summary>
@@ -461,11 +510,16 @@ public static class DestinationApproachPlanner
 
     private readonly record struct NextTurnOutcome(double ExpectedFees, double ExpectedTurns, double ArriveProbability, double BonusOutProbability);
 
+    /// <param name="BonusesOut">Arrives this turn and bonuses out off the opponent's railroad.</param>
+    private readonly record struct GoOption(double ExpectedFees, double ExpectedTurns, bool BonusesOut);
+
+    /// <param name="FeesWithoutBonusOut">Fees if it arrives next turn but doesn't bonus out.</param>
     private sealed record LayUpOption(
         IReadOnlyList<ApproachStep> Walk,
         IReadOnlyList<ApproachStep> Continuation,
         double ExpectedFees,
         double ExpectedTurns,
         double ArriveProbability,
-        double BonusOutProbability);
+        double BonusOutProbability,
+        double FeesWithoutBonusOut);
 }

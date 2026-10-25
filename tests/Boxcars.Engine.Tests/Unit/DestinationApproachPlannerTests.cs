@@ -80,17 +80,62 @@ public class DestinationApproachPlannerTests
     }
 
     [Fact]
-    public void LayUpSavesLessThanTheTurnItCosts_GoesIn()
+    public void LayUpSavesAnyFee_LaysUp_EvenThoughItTakesAnotherTurn()
     {
-        // Pricey public track: laying up saves $667 in fees (5000 + 5000 vs 3500 + 5000 + 5000/6) but takes a second turn.
+        // Pricey public track: laying up saves only $667 in fees (5000 + 5000 vs 3500 + 5000 + 5000/6) and takes a
+        // second turn, but players stay friendly whenever it saves a fee.
         var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, publicFee: 3500);
 
         var decision = DestinationApproachPlanner.Evaluate(request);
 
-        Assert.False(decision.LayUp);
+        Assert.True(decision.LayUp);
         Assert.Equal(1d, decision.ExpectedGoTurns, precision: 10);
         Assert.Equal(2d, decision.ExpectedLayUpTurns!.Value, precision: 10);
+        Assert.Equal("Laying up saves a fee", decision.Reason);
+    }
+
+    [Fact]
+    public void GoingInBonusesOutThisTurn_GoesIn()
+    {
+        // Arrives on the white dice (2 of 4) and the red die's 3 is enough to get off Bob's railroad.
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 0, whiteDiceTotal: 4, redDie: 3);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.False(decision.LayUp);
+        Assert.Equal(BobFee, decision.ExpectedGoFees, precision: 2);
+        Assert.Equal("Going in bonuses out this turn", decision.Reason);
+    }
+
+    [Theory]
+    [InlineData(6, false)] // only a 6 bonuses out: 1 in 6
+    [InlineData(5, true)]  // a 5 or 6: 1 in 3
+    public void LayUpThatOnlySavesByBonusingOut_NeedsALikelyBonusOut(int bonusOutDots, bool laysUp)
+    {
+        // Free public track: the lay-up is cheaper on average, but without a bonus out it pays Bob twice, just like going in.
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, publicFee: 0, bonusOutDots: bonusOutDots);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.Equal(laysUp, decision.LayUp);
+        Assert.Equal(laysUp ? "Laying up saves a fee" : "Bonusing out next turn is unlikely (17%)", decision.Reason);
+    }
+
+    [Fact]
+    public void LayUpThatMightFallShort_GoesIn()
+    {
+        // Going in falls short on Bob's railroad (3 dots, 2 to move); there's no fee to get off D. The lay-up spot p2 is
+        // 9 dots out, and a Superchief's three dice reach 9 only 74% of the time.
+        var segments = new List<(string From, string To, int RailroadIndex)> { ("0", "n1", Bob), ("n1", "n2", Bob), ("n2", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "q1", Public), ("q8", "D", Bob) };
+        segments.AddRange(Enumerable.Range(1, 7).Select(index => ($"q{index}", $"q{index + 1}", Public)));
+        var request = CreateRequest(CreateGraph(segments), LocomotiveType.Superchief, goRoute: ["n1", "n2", "D"], movementRemaining: 2, whiteDiceTotal: 2, publicFee: 0, exitCost: 0, averageMovementPerTurn: 10);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
         Assert.True(decision.ExpectedLayUpFees < decision.ExpectedGoFees);
+        Assert.Equal(1 - 56d / 216, decision.ArriveNextTurnProbability, precision: 10);
+        Assert.False(decision.LayUp);
+        Assert.Equal("Laying up might fall short (74% to arrive next turn)", decision.Reason);
     }
 
     [Fact]
@@ -104,34 +149,7 @@ public class DestinationApproachPlannerTests
         Assert.True(decision.Evaluated);
         Assert.False(decision.LayUp);
         Assert.Equal(decision.ExpectedGoFees, decision.ExpectedLayUpFees!.Value, precision: 2);
-    }
-
-    [Theory]
-    [InlineData(3000, true)]
-    [InlineData(4000, false)]
-    public void TurnCost_IsWhatTheTripPaysPerTurn(int tripPayout, bool laysUp)
-    {
-        // The trip started 2 dots out, under a turn, so a turn is worth the whole payout. Laying up saves $3,167 in
-        // fees (5000 + 5000 vs 1000 + 5000 + 5000/6) for a second turn.
-        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, tripPayout: tripPayout);
-
-        var decision = DestinationApproachPlanner.Evaluate(request);
-
-        Assert.Equal(tripPayout, decision.TurnCost);
-        Assert.Equal(laysUp, decision.LayUp);
-    }
-
-    [Fact]
-    public void TurnCost_SpreadsTheTripsPayoutOverItsAverageTurns()
-    {
-        // 0 --pub--> ... --pub--> s14: the trip started 14 dots out, two average turns of 7.
-        var segments = new List<(string From, string To, int RailroadIndex)> { ("0", "n1", Bob), ("n1", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "D", Bob), ("D", "s1", Public) };
-        segments.AddRange(Enumerable.Range(1, 13).Select(index => ($"s{index}", $"s{index + 1}", Public)));
-        var request = CreateRequest(CreateGraph(segments), LocomotiveType.Superchief, goRoute: ["n1", "D"], movementRemaining: 2, whiteDiceTotal: 2, tripPayout: 14_000, tripStartNodeId: "s14");
-
-        var decision = DestinationApproachPlanner.Evaluate(request);
-
-        Assert.Equal(7_000, decision.TurnCost);
+        Assert.Equal("Laying up doesn't save any fees", decision.Reason);
     }
 
     [Fact]
@@ -182,8 +200,7 @@ public class DestinationApproachPlannerTests
         int? redDie,
         int publicFee = 1000,
         int? bonusOutDots = 2,
-        bool bonusRollPending = false,
-        int? tripPayout = null)
+        bool bonusRollPending = false)
     {
         var graph = CreateGraph([("0", "n1", Bob), ("n1", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "D", Bob)]);
         return CreateRequest(
@@ -196,9 +213,7 @@ public class DestinationApproachPlannerTests
             movementUsed: movementUsed,
             publicFee: publicFee,
             bonusOutDots: bonusOutDots,
-            bonusRollPending: bonusRollPending,
-            tripPayout: tripPayout,
-            tripStartNodeId: tripPayout is null ? null : "0");
+            bonusRollPending: bonusRollPending);
     }
 
     private static DestinationApproachRequest CreateRequest(
@@ -213,8 +228,6 @@ public class DestinationApproachPlannerTests
         int exitCost = 5000,
         int? bonusOutDots = 2,
         bool bonusRollPending = false,
-        int? tripPayout = null,
-        string? tripStartNodeId = null,
         int averageMovementPerTurn = 7)
     {
         return new DestinationApproachRequest
@@ -237,8 +250,6 @@ public class DestinationApproachPlannerTests
             DestinationExitCost = railroadIndex => railroadIndex == Bob ? exitCost : 0,
             MinimumBonusOutSegments = _ => bonusOutDots,
             AverageMovementPerTurn = averageMovementPerTurn,
-            TripPayout = tripPayout,
-            TripStartNodeId = tripStartNodeId
         };
     }
 

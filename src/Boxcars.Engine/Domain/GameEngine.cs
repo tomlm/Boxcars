@@ -864,9 +864,7 @@ public sealed class GameEngine : ObservableBase
 
                 return segments;
             },
-            AverageMovementPerTurn = futureTurnMovementCapacity,
-            TripPayout = GetTripPayout(player),
-            TripStartNodeId = player.TripOriginCity is null ? null : FindCityNodeId(player.TripOriginCity)
+            AverageMovementPerTurn = futureTurnMovementCapacity
         });
 
         LastApproachDecision = decision;
@@ -2962,16 +2960,6 @@ public sealed class GameEngine : ObservableBase
     }
 
     private static string NodeKey(int regionIndex, int dotIndex) => $"{regionIndex}:{dotIndex}";
-
-    /// <summary>What the player's current trip pays on arrival, or null when it isn't known.</summary>
-    private int? GetTripPayout(Player player)
-    {
-        return player.TripOriginCity?.PayoutIndex is int originPayoutIndex
-            && player.Destination?.PayoutIndex is int destinationPayoutIndex
-            && MapDefinition.TryGetPayout(originPayoutIndex, destinationPayoutIndex, out var payout)
-                ? payout
-                : null;
-    }
 
     private string? FindCityNodeId(CityDefinition city)
     {
