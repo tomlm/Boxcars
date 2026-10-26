@@ -2620,6 +2620,7 @@ public sealed class GameEngine : ObservableBase
         {
             player.IsBankrupt = true;
             player.IsActive = false;
+            ClearTrip(player);
             PlayerBankrupt?.Invoke(this, new PlayerBankruptEventArgs(player));
 
             // Check if only one player remains
@@ -2631,6 +2632,22 @@ public sealed class GameEngine : ObservableBase
                 GameOver?.Invoke(this, new GameOverEventArgs(activePlayers[0]));
             }
         }
+    }
+
+    /// <summary>A bankrupt player leaves the board: no position, trip, route or used track.</summary>
+    private static void ClearTrip(Player player)
+    {
+        player.Destination = null;
+        player.AlternateDestination = null;
+        player.TripOriginCity = null;
+        player.ActiveRoute = null;
+        player.RouteProgressIndex = 0;
+        player.CurrentNodeId = null;
+        player.HasDeclared = false;
+        player.PendingImmediateArrival = false;
+        player.UsedSegments.Clear();
+        player.GrandfatheredRailroadIndices.Clear();
+        player.GrandfatheredRailroadFees.Clear();
     }
 
     private void ClearForcedSaleContext()

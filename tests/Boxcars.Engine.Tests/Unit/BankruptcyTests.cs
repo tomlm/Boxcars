@@ -38,6 +38,41 @@ public class BankruptcyTests
     }
 
     [Fact]
+    public void Elimination_TakesThePlayerOffTheBoard()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
+
+        var player = engine.CurrentTurn.ActivePlayer;
+        var feeRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var feeOwner = engine.Players[1];
+        feeRailroad.Owner = feeOwner;
+        feeOwner.OwnedRailroads.Add(feeRailroad);
+        player.Cash = 0;
+        player.CurrentNodeId = "1:2";
+        player.TripOriginCity = engine.MapDefinition.Cities.First(city => city.Name == "Miami");
+        player.Destination = engine.MapDefinition.Cities.First(city => city.Name == "Atlanta");
+        player.ActiveRoute = new Route(["1:2", "1:1"], [new RouteSegment { FromNodeId = "1:2", ToNodeId = "1:1", RailroadIndex = 1 }], 0);
+        player.UsedSegments.Add(new SegmentKey("1:2", "1:3", 1));
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Clear();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(feeRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(feeRailroad.Index);
+
+        engine.DeclinePurchase();
+
+        Assert.True(player.IsBankrupt);
+        var snapshot = engine.ToSnapshot().Players[player.Index];
+        Assert.Null(snapshot.CurrentNodeId);
+        Assert.Null(snapshot.TripStartCityName);
+        Assert.Null(snapshot.DestinationCityName);
+        Assert.Null(snapshot.ActiveRoute);
+        Assert.Empty(snapshot.SelectedRouteNodeIds);
+        Assert.Empty(snapshot.UsedSegments);
+    }
+
+    [Fact]
     public void SellRailroadToBank_WhenFinalSaleStillCannotCoverFees_EliminatesPlayer()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
