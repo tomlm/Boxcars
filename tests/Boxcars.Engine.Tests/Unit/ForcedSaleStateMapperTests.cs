@@ -66,4 +66,37 @@ public class ForcedSaleStateMapperTests
             firstRailroadSummary.AccessDeltaPercentAfterSale);
     }
 
+    [Fact]
+    public void BuildPlayerMapStates_BankruptPlayer_HasNothingOnTheBoard()
+    {
+        // A game saved before elimination cleared the trip still has the bankrupt player's position and route.
+        var mapDefinition = GameEngineFixture.CreateTestMap();
+        var engine = new Boxcars.Engine.Domain.GameEngine(mapDefinition, GameEngineFixture.DefaultPlayerNames, GameEngineFixture.CreateDeterministicRandom(2));
+        var snapshot = engine.ToSnapshot();
+        var bankrupt = snapshot.Players[1];
+        bankrupt.IsBankrupt = true;
+        bankrupt.IsActive = false;
+        bankrupt.CurrentNodeId = "1:2";
+        bankrupt.TripStartCityName = "Miami";
+        bankrupt.DestinationCityName = "Atlanta";
+        bankrupt.UsedSegments = ["1:2-1:3:1"];
+        bankrupt.SelectedRouteSegmentKeys = ["1:1-1:2:1"];
+
+        var mapper = new GameBoardStateMapper(
+            new NetworkCoverageService(),
+            new MapAnalysisService(new MapRouteService()),
+            new PurchaseRecommendationService());
+        var mapStates = mapper.BuildPlayerMapStates(null, snapshot, null);
+
+        Assert.Equal(snapshot.Players.Count, mapStates.Count);
+        var bankruptMapState = mapStates[1];
+        Assert.Null(bankruptMapState.HomeCityName);
+        Assert.Null(bankruptMapState.CurrentNodeId);
+        Assert.Null(bankruptMapState.CurrentCityName);
+        Assert.Null(bankruptMapState.TripStartCityName);
+        Assert.Null(bankruptMapState.DestinationCityName);
+        Assert.Empty(bankruptMapState.TraveledSegmentKeys);
+        Assert.Empty(bankruptMapState.SelectedRouteSegmentKeys);
+        Assert.NotNull(mapStates[0].HomeCityName);
+    }
 }

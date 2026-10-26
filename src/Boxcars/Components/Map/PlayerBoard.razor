@@ -104,6 +104,9 @@
                                         </MudAvatar>
                                     </MudBadge>
                                 </MudButton>
+                                <MudOverlay Visible="@player.IsEliminated" Absolute="true">
+                                    <MudIcon Icon="@Icons.Material.Filled.Close" Color="MudBlazor.Color.Error" Size="Size.Large" />
+                                </MudOverlay>
                             </MudStack>
                             <MudStack Class="flex-grow-1" Style="min-width: 0" Spacing="0">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="w-100" Style="min-width: 0">
@@ -116,33 +119,43 @@
                                         </MudTooltip>
                                     }
                                 </MudStack>
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">Home: @player.HomeCity</MudText>
-                                </MudStack>
+                                @if (!player.IsEliminated)
+                                {
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">Home: @player.HomeCity</MudText>
+                                    </MudStack>
+                                }
                             </MudStack>
                         </MudStack>
 
                         <MudStack Class="flex-grow-1" Style="padding: 0.4rem 0.5rem 0.45rem" Spacing="1">
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                @if (player.IsAtDestination)
-                                {
-                                    <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">At Destination:</MudText>
-                                    <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripDestinationLabel</MudText>
-                                }
-                                else
-                                {
-                                    <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">Trip:</MudText>
-                                    <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripStartLabel @("=>") @player.TripDestinationLabel</MudText>
-                                }
-                            </MudStack>
-                            @if (!player.IsAtDestination)
+                            @if (player.IsEliminated)
+                            {
+                                <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true" NoIcon="true" ContentAlignment="HorizontalAlignment.Center">BANKRUPT</MudAlert>
+                            }
+                            else
                             {
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                    <MudText Typo="Typo.subtitle2">Distance:</MudText>
-                                    <MudText Typo="Typo.caption">@player.DistanceToDestination</MudText>
-                                    <MudText Typo="Typo.subtitle2">Payout:</MudText>
-                                    <MudText Typo="Typo.caption">$@player.Payoff.ToString("N0")</MudText>
+                                    @if (player.IsAtDestination)
+                                    {
+                                        <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">At Destination:</MudText>
+                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripDestinationLabel</MudText>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">Trip:</MudText>
+                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripStartLabel @("=>") @player.TripDestinationLabel</MudText>
+                                    }
                                 </MudStack>
+                                @if (!player.IsAtDestination)
+                                {
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                        <MudText Typo="Typo.subtitle2">Distance:</MudText>
+                                        <MudText Typo="Typo.caption">@player.DistanceToDestination</MudText>
+                                        <MudText Typo="Typo.subtitle2">Payout:</MudText>
+                                        <MudText Typo="Typo.caption">$@player.Payoff.ToString("N0")</MudText>
+                                    </MudStack>
+                                }
                             }
                             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
                                 <MudText Typo="Typo.subtitle2">Engine:</MudText>
@@ -224,7 +237,8 @@
 
         if (player.IsEliminated)
         {
-            style += "; opacity: 0.45; filter: saturate(0.35)";
+            // Faded, but not desaturated, so the BANKRUPT banner and the X over the picture stay red.
+            style += "; opacity: 0.45";
         }
 
         // A declared player can be rovered until they get home and win: make that hard to miss.
