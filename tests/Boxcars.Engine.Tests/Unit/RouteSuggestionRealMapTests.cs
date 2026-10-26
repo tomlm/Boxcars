@@ -452,6 +452,34 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal("1:20", route.NodeIds[^1]);
     }
 
+    [Fact]
+    public void ApproachToRapidCity_LaysUpNorthOfDenver_InsteadOfPayingBalencoTwice()
+    {
+        // Issue #138: thermous (Superchief) at Omaha -> Rapid City, rolled 2+2+(6). Only Balenco's C&NW reaches Rapid
+        // City; going in is 7 dots of it, past the white dice, so leaving pays him again. Thermous's CB&Q reaches 6:13,
+        // north of Denver, in exactly 10 dots, 5 from Rapid City. The lay-up search kept one walk per dot and railroad,
+        // and the walk that came round from the north reached 6:12 first, so the one through Denver was dropped and
+        // 6:13 was never tried.
+        var (engine, player) = PlaceGame4184Player("5:59", "Mobile", "Rapid City", whiteDice: [2, 2], redDie: 6,
+            usedSegments: ["3:49-3:52:11", "3:48-3:49:11", "3:48-5:8:11", "5:8-5:9:11", "5:22-5:9:11", "5:22-5:58:11", "5:58-5:59:11"],
+            owners: GameEa6bOwners);
+
+        var route = engine.SuggestRoute();
+        var suggestion = EngineRouteSuggestion.Suggest(engine, player.Index, new RouteSuggestionOptions());
+        WriteRoute(engine, player, route);
+        WriteSuggestion(engine, suggestion);
+
+        Assert.True(engine.LastApproachDecision?.LayUp);
+        Assert.Equal("6:13", engine.LastApproachDecision!.LayUpNodeId);
+        Assert.Equal(FindCityNode(engine, "Rapid City"), route.NodeIds[^1]);
+        // This turn's 10 dots stay on thermous's own track.
+        Assert.Equal(0, CountOpponentDots(engine, player, new Route(route.NodeIds.Take(11).ToList(), route.Segments.Take(10).ToList(), 0)));
+        Assert.True(suggestion.Approach?.LayUp);
+    }
+
+    // Railroad owners by index (player index) in game ea6bc7b8, from issue #138 (all railroads sold). Index 0 is unused.
+    private static readonly int[] GameEa6bOwners = [0, 0, 1, 0, 0, 1, 1, 0, 2, 0, 2, 0, 0, 1, 1, 1, 2, 0, 2, 0, 2, 1, 0, 2, 1, 1, 0, 0, 0];
+
     private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
 
     private static (Boxcars.Engine.Domain.GameEngine Engine, Player Player) PlaceGame4184Player(
@@ -460,8 +488,10 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         string destinationName,
         int[] whiteDice,
         int redDie,
-        IReadOnlyList<string> usedSegments)
+        IReadOnlyList<string> usedSegments,
+        int[]? owners = null)
     {
+        owners ??= Game4184Owners;
         var map = MapDefinition.Parse(File.ReadAllText(FindStandardMapPath())).Definition
             ?? throw new InvalidOperationException("The standard map could not be parsed.");
         var engine = new Boxcars.Engine.Domain.GameEngine(
@@ -471,7 +501,7 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
             GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false });
         foreach (var railroad in engine.Railroads)
         {
-            var owner = engine.Players[Game4184Owners[railroad.Index]];
+            var owner = engine.Players[owners[railroad.Index]];
             railroad.Owner = owner;
             owner.OwnedRailroads.Add(railroad);
         }
