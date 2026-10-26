@@ -423,23 +423,25 @@ public static class DestinationApproachPlanner
 
     /// <summary>
     /// Ways to spend exactly this turn's roll on friendly or public track without reaching the destination or riding
-    /// track twice, one per lay-up spot, nearest the destination first.
+    /// track twice, one per lay-up spot, nearest the destination first. Each step keeps one walk per dot, railroad and
+    /// the dot it came from: walks that meet head-on have ridden different track, so each can go where the other can't
+    /// (issue #138).
     /// </summary>
     private static List<IReadOnlyList<ApproachStep>> FindLayUpWalks(DestinationApproachRequest request, Dictionary<string, int> distances)
     {
-        var layer = new Dictionary<(string NodeId, int RailroadIndex), List<ApproachStep>>
+        var layer = new Dictionary<(string NodeId, int RailroadIndex, string FromNodeId), List<ApproachStep>>
         {
-            [(request.StartNodeId, -1)] = []
+            [(request.StartNodeId, -1, string.Empty)] = []
         };
 
         for (var step = 0; step < request.MovementRemaining && layer.Count > 0; step++)
         {
-            var nextLayer = new Dictionary<(string NodeId, int RailroadIndex), List<ApproachStep>>();
-            foreach (var ((nodeId, _), walk) in layer)
+            var nextLayer = new Dictionary<(string NodeId, int RailroadIndex, string FromNodeId), List<ApproachStep>>();
+            foreach (var ((nodeId, _, _), walk) in layer)
             {
                 foreach (var edge in request.GetEdges(nodeId))
                 {
-                    var key = (edge.ToNodeId.ToUpperInvariant(), edge.RailroadIndex);
+                    var key = (edge.ToNodeId.ToUpperInvariant(), edge.RailroadIndex, nodeId.ToUpperInvariant());
                     if (nextLayer.ContainsKey(key)
                         || request.IsOpponentRailroad(edge.RailroadIndex)
                         || string.Equals(edge.ToNodeId, request.DestinationNodeId, StringComparison.OrdinalIgnoreCase)
