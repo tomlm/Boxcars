@@ -23,8 +23,6 @@ public sealed class GameEngine : ObservableBase
     // Added to what route planning thinks a fee to the front runner costs (see FindFrontRunner), not to what's paid,
     // so routes and lay-ups pay someone else whenever that costs about the same.
     internal const int RoutePlanningFrontRunnerFeeSurcharge = 1000;
-    // Opponents with announcing cash whose cash is within this share of the richest one's are told apart by network.
-    private const decimal RoutePlanningFrontRunnerCashTieShare = 0.9m;
     private static TimeSpan RoutePlanningTimeLimit { get; set; } = TimeSpan.FromSeconds(10);
 
     private GameStatus _gameStatus;
@@ -4035,9 +4033,10 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
-    /// The opponent closest to winning. Once anyone has announcing cash it's the richest of them, unless others are
-    /// within 10% of that cash, when the one with the most access plus monopoly among them is. Before that it's the
-    /// opponent with the most access plus monopoly, or nobody when the top two are level. Null when there's none.
+    /// The opponent closest to winning. Once anyone has announcing cash only cash counts: it's the richest of them (the
+    /// bigger access plus monopoly breaks an exact tie). Before that it's the
+    /// opponent with the highest share of opponents' cash plus share of opponents' access plus monopoly, so a big lead
+    /// in cash outweighs a slightly better network; nobody when the top two are level. Null when there's none.
     /// </summary>
     private int? FindFrontRunner(
         Player player,
@@ -4059,16 +4058,20 @@ public sealed class GameEngine : ObservableBase
         var announced = opponents.Where(opponent => opponent.Cash >= _settings.AnnouncingCash).ToList();
         if (announced.Count == 0)
         {
-            // Two opponents with equal networks: nobody is out in front.
-            var ranked = opponents.Select(opponent => (opponent.Index, Network: Network(opponent))).OrderByDescending(entry => entry.Network).ToList();
-            return ranked.Count > 1 && ranked[0].Network == ranked[1].Network ? null : ranked[0].Index;
+            var totalCash = opponents.Sum(opponent => (decimal)Math.Max(0, opponent.Cash));
+            var totalNetwork = opponents.Sum(Network);
+            decimal Strength(Player opponent) =>
+                (totalCash > 0m ? Math.Max(0, opponent.Cash) / totalCash : 0m)
+                + (totalNetwork > 0m ? Network(opponent) / totalNetwork : 0m);
+
+            // Two opponents level on cash and network: nobody is out in front.
+            var ranked = opponents.Select(opponent => (opponent.Index, Strength: Strength(opponent))).OrderByDescending(entry => entry.Strength).ToList();
+            return ranked.Count > 1 && ranked[0].Strength == ranked[1].Strength ? null : ranked[0].Index;
         }
 
-        var richest = announced.Max(opponent => opponent.Cash);
         return announced
-            .Where(opponent => opponent.Cash >= richest * RoutePlanningFrontRunnerCashTieShare)
-            .OrderByDescending(Network)
-            .ThenByDescending(opponent => opponent.Cash)
+            .OrderByDescending(opponent => opponent.Cash)
+            .ThenByDescending(Network)
             .First()
             .Index;
     }
