@@ -227,6 +227,12 @@
             style += "; opacity: 0.45; filter: saturate(0.35)";
         }
 
+        // A declared player can be rovered until they get home and win: make that hard to miss.
+        if (player.HasDeclared && !player.IsWinner && !player.IsEliminated)
+        {
+            style += "; border-color: var(--mud-palette-error); animation: player-declared-pulse 1s ease-in-out infinite";
+        }
+
         return style;
     }
 

@@ -617,17 +617,32 @@ public sealed class GameEngine : ObservableBase
         if (startNodeId == null)
             throw new InvalidOperationException("Player has no current node position.");
 
-        var targetNodeId = options.DestinationNodeId ?? FindRoverTarget(player, startNodeId, options)?.CurrentNodeId;
-        if (targetNodeId is not null)
+        if (options.DestinationNodeId is { } destinationOverride)
         {
             if (player == CurrentTurn.ActivePlayer)
             {
                 LastApproachDecision = null;
             }
 
+            return FindCheapestRoute(startNodeId, destinationOverride, player)!;
+        }
+
+        if (FindRoverTarget(player, startNodeId, options)?.CurrentNodeId is { } roverTargetNodeId)
+        {
             // Catching a declared player is worth the rover cash, and each turn spent getting there gives them a turn
             // to move on: a route that catches them sooner wins unless it costs more than the rover pays.
-            return FindCheapestRoute(startNodeId, targetNodeId, player, extraTurnWeight: _settings.RoverCash)!;
+            var roverRoute = FindCheapestRoute(startNodeId, roverTargetNodeId, player, extraTurnWeight: _settings.RoverCash)!;
+            // They may be out of reach on unused track (e.g. on a dot already ridden this trip): then the trip goes on.
+            if (roverRoute.Segments.Count > 0
+                && string.Equals(roverRoute.NodeIds[^1], roverTargetNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                if (player == CurrentTurn.ActivePlayer)
+                {
+                    LastApproachDecision = null;
+                }
+
+                return roverRoute;
+            }
         }
 
         if (player.Destination == null)
@@ -686,8 +701,9 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
-    /// A declared opponent to chase, when there is one: passing through them on the way rovers them (see
-    /// <see cref="TryResolveRovers"/>), and the route is planned on to the destination once they're caught.
+    /// A declared opponent to chase, when there is one the player can reach without riding track already used this
+    /// trip: passing through them on the way rovers them (see <see cref="TryResolveRovers"/>), and the route is planned
+    /// on to the destination once they're caught.
     /// </summary>
     private Player? FindRoverTarget(Player player, string startNodeId, RouteSuggestionOptions options)
     {
@@ -700,7 +716,40 @@ public sealed class GameEngine : ObservableBase
             && candidate.HasDeclared
             && !options.PlayersNotToRover.Contains(candidate.Index)
             && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId)
-            && !string.Equals(candidate.CurrentNodeId, startNodeId, StringComparison.OrdinalIgnoreCase));
+            && !string.Equals(candidate.CurrentNodeId, startNodeId, StringComparison.OrdinalIgnoreCase)
+            && IsReachableOnUnusedTrack(player, startNodeId, candidate.CurrentNodeId));
+    }
+
+    /// <summary>Whether <paramref name="player"/> can get from one node to another without reusing track this trip.</summary>
+    private bool IsReachableOnUnusedTrack(Player player, string fromNodeId, string toNodeId)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { fromNodeId };
+        var queue = new Queue<string>();
+        queue.Enqueue(fromNodeId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (string.Equals(current, toNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!_adjacency.TryGetValue(current, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                if (!player.UsedSegments.Contains(new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex))
+                    && visited.Add(edge.ToNodeId))
+                {
+                    queue.Enqueue(edge.ToNodeId);
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
