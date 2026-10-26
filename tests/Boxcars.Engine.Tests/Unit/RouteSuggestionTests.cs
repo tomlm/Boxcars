@@ -645,7 +645,7 @@ public class RouteSuggestionTests
         var route = engine.SuggestRouteForPlayer(player.Index);
 
         Assert.Equal(["0:0", "0:1", "0:5"], route.NodeIds);
-        Assert.Same(declared, engine.GetRoverTarget(player.Index, new RouteSuggestionOptions()));
+        Assert.Same(declared, Assert.Single(engine.GetPlayersRoveredBy(player.Index, route)));
     }
 
     [Fact]
@@ -685,11 +685,11 @@ public class RouteSuggestionTests
         var route = engine.SuggestRouteForPlayer(player.Index, options);
 
         Assert.Equal(["0:0", "0:1", "0:3"], route.NodeIds);
-        Assert.Null(engine.GetRoverTarget(player.Index, options));
+        Assert.Empty(engine.GetPlayersRoveredBy(player.Index, route));
     }
 
     [Fact]
-    public void GetRoverTarget_WithADestinationOverride_IsNull()
+    public void DestinationOverride_DoesNotChaseADeclaredPlayer()
     {
         var engine = CreateLineEngine([(2, 0, 1), (2, 1, 3), (2, 1, 5), (2, 3, 9)]);
         var player = PlaceOnLine(engine);
@@ -697,7 +697,10 @@ public class RouteSuggestionTests
         declared.HasDeclared = true;
         declared.CurrentNodeId = "0:5";
 
-        Assert.Null(engine.GetRoverTarget(player.Index, new RouteSuggestionOptions { DestinationNodeId = "0:3" }));
+        var route = engine.SuggestRouteForPlayer(player.Index, new RouteSuggestionOptions { DestinationNodeId = "0:3" });
+
+        Assert.Equal(["0:0", "0:1", "0:3"], route.NodeIds);
+        Assert.Empty(engine.GetPlayersRoveredBy(player.Index, route));
     }
 
     [Fact]

@@ -401,6 +401,35 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal(["3:32", "3:52"], route.NodeIds.Skip(1));
     }
 
+    [Fact]
+    public void TwoDeclaredOpponents_CatchesTheNearerThisTurn_ThenGoesOnThroughTheOther()
+    {
+        // Game 986cd0d8: thermous at Omaha (5:59) -> Pittsburgh rolled 5+1+5. Pooper has declared at Cincinnati (3:15),
+        // 10 dots away, and Balenco further on at 2:2. The suggestion used to chase only Balenco, the first declared
+        // seat, two turns away, and ran right past Pooper.
+        var (engine, player) = PlaceGame4184Player("5:59", "San Diego", "Pittsburgh", whiteDice: [5, 1], redDie: 5,
+            usedSegments:
+            [
+                "7:41-7:42:14", "7:42-7:68:14", "7:43-7:68:24", "7:43-7:44:24", "7:33-7:44:24", "7:27-7:33:24",
+                "7:26-7:27:24", "7:25-7:26:24", "7:24-7:25:24", "7:23-7:24:24", "6:61-7:23:24", "6:60-6:61:24",
+                "6:58-6:60:24", "6:58-6:59:24", "6:28-6:59:24", "6:17-6:28:24", "6:14-6:17:24", "6:12-6:14:24",
+                "6:12-6:8:24", "5:63-6:8:24", "5:62-5:63:24", "5:62-5:68:24", "5:60-5:68:24", "5:59-5:60:24"
+            ]);
+        var balenco = engine.Players[1];
+        balenco.CurrentNodeId = "2:2";
+        balenco.HasDeclared = true;
+        var pooper = engine.Players[3];
+        pooper.CurrentNodeId = "3:15";
+        pooper.HasDeclared = true;
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal([pooper, balenco], engine.GetPlayersRoveredBy(player.Index, route));
+        Assert.Contains("3:15", route.NodeIds.Take(12));
+        Assert.Equal("1:20", route.NodeIds[^1]);
+    }
+
     private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
 
     private static (Boxcars.Engine.Domain.GameEngine Engine, Player Player) PlaceGame4184Player(

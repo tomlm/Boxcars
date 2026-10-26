@@ -9,5 +9,7 @@ public sealed class TurnMovementPreview
     public int MoveCount { get; init; }
     public int FeeEstimate { get; init; }
     public bool HasUnfriendlyFee { get; init; }
+    /// <summary>The rover cash the move collects from declared opponents it lands on or passes through.</summary>
+    public int RoverCashEstimate { get; init; }
     public bool ExhaustsMovement { get; init; }
 }
