@@ -206,18 +206,40 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_HasTheMostAccessPlusMonopoly()
+    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_LevelCash_HasTheMostAccessPlusMonopoly()
     {
-        // thermous and El Cheapo own 8 railroads each, Balenco 5. Nobody has $250k, so cash doesn't matter.
+        // thermous and El Cheapo own 8 railroads each, Balenco 5. With cash level, the network decides.
         var engine = CreateEngine(StandardGameOwners);
         var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
-        engine.Players.First(candidate => candidate.Name == "Balenco").Cash = 240_000;
+        foreach (var candidate in engine.Players)
+        {
+            candidate.Cash = 60_000;
+        }
 
         var frontRunner = engine.FindFrontRunner(pooper);
 
         var expected = engine.Players.Where(candidate => candidate != pooper).MaxBy(candidate => NetworkScore(engine, candidate))!;
         Assert.Equal(expected.Index, frontRunner);
         Assert.NotEqual("Balenco", expected.Name);
+    }
+
+    [Fact]
+    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_AFarRicherPlayerWithASmallerNetworkLeads()
+    {
+        // Balenco has the smallest network but $240k against the others' $40k: nearly at announcing cash, so they're
+        // the one to avoid paying, not whoever's network is slightly bigger.
+        var engine = CreateEngine(StandardGameOwners);
+        var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
+        var balenco = engine.Players.First(candidate => candidate.Name == "Balenco");
+        foreach (var candidate in engine.Players)
+        {
+            candidate.Cash = 40_000;
+        }
+
+        balenco.Cash = 240_000;
+        Assert.True(engine.Players.Where(candidate => candidate != pooper && candidate != balenco).All(candidate => NetworkScore(engine, candidate) > NetworkScore(engine, balenco)));
+
+        Assert.Equal(balenco.Index, engine.FindFrontRunner(pooper));
     }
 
     [Fact]
@@ -233,9 +255,9 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void FrontRunner_RichestWithin10Percent_HasTheMostAccessPlusMonopolyAmongThem()
+    public void FrontRunner_WithAnnouncingCash_OnlyCashCounts()
     {
-        // Balenco is richest, but thermous is within 10% and has the bigger network.
+        // Both have announcing cash and thermous has the bigger network, but Balenco has more cash.
         var engine = CreateEngine(StandardGameOwners);
         var pooper = engine.Players.First(candidate => candidate.Name == "Pooper");
         var thermous = engine.Players.First(candidate => candidate.Name == "thermous");
@@ -244,7 +266,7 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         thermous.Cash = 255_000;
         Assert.True(NetworkScore(engine, thermous) > NetworkScore(engine, balenco));
 
-        Assert.Equal(thermous.Index, engine.FindFrontRunner(pooper));
+        Assert.Equal(balenco.Index, engine.FindFrontRunner(pooper));
     }
 
     private static decimal NetworkScore(Boxcars.Engine.Domain.GameEngine engine, Player player)
