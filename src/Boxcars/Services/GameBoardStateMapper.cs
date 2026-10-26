@@ -226,6 +226,7 @@ public sealed class GameBoardStateMapper(
             MovementRemaining = movementRemaining,
             PreviewFee = selectedRoutePreview.FeeEstimate,
             PreviewHasUnfriendlyFee = selectedRoutePreview.HasUnfriendlyFee,
+            PreviewRoverCash = selectedRoutePreview.RoverCashEstimate,
             CurrentRollTotal = CalculateRollTotal(state),
             IsActivePlayerAtDestination = IsPlayerAtDestination(activePlayer),
             ActivePlayerDestinationCity = activePlayer.DestinationCityName ?? string.Empty,
@@ -367,8 +368,30 @@ public sealed class GameBoardStateMapper(
             MoveCount = moveCount,
             FeeEstimate = feeSummary.FeeEstimate,
             HasUnfriendlyFee = feeSummary.HasUnfriendlyFee,
+            RoverCashEstimate = CalculatePreviewRoverCash(state, activePlayerIndex, preview.NodeIds, settings),
             ExhaustsMovement = movementRemaining > 0 && moveCount >= movementRemaining
         };
+    }
+
+    /// <summary>Rover cash for each declared opponent the move lands on or passes through.</summary>
+    private static int CalculatePreviewRoverCash(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> nodeIds, GameSettings settings)
+    {
+        if (activePlayerIndex < 0 || activePlayerIndex >= state.Players.Count || nodeIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var startNodeId = state.Players[activePlayerIndex].CurrentNodeId;
+        var movedThrough = nodeIds
+            .Where(nodeId => !string.Equals(nodeId, startNodeId, StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var roveredCount = state.Players
+            .Where((player, index) => index != activePlayerIndex
+                && player.HasDeclared
+                && player.CurrentNodeId is { } nodeId
+                && movedThrough.Contains(nodeId))
+            .Count();
+        return roveredCount * settings.RoverCash;
     }
 
     private static PreviewFeeSummary CalculatePreviewFeeSummary(RailBaronGameState state, int activePlayerIndex, IReadOnlyList<string> segmentKeys, GameSettings settings)
