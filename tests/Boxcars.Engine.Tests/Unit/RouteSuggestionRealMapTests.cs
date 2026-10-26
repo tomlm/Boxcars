@@ -372,6 +372,35 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
     }
 
     // Railroad owners by index (player index) in game 4184179d, from issues #95 and #96 (all railroads sold).
+    [Fact]
+    public void DeclaredOpponentBehindUsedTrack_IsNotChased_AndTheTripCarriesOn()
+    {
+        // Game 986cd0d8: Pooper, 2 dots from St. Louis, rolled 6+5+4 just after Balenco declared at 2:2, a dot Pooper
+        // had already ridden through on this trip. With no way back to 2:2 on unused track the rover chase came back
+        // empty, so the bot had no move and the game stopped.
+        var (engine, player) = PlaceGame4184Player("3:24", "San Diego", "St. Louis", whiteDice: [6, 5], redDie: 4,
+            usedSegments:
+            [
+                "7:41-7:42:14", "7:42-7:68:14", "7:43-7:68:14", "7:43-7:44:14", "7:34-7:44:14", "7:32-7:34:14",
+                "7:31-7:32:14", "7:30-7:31:14", "7:29-7:30:14", "7:28-7:29:14", "7:18-7:28:14", "7:16-7:18:14",
+                "7:11-7:16:14", "7:11-7:9:14", "7:2-7:9:21", "4:66-7:2:23", "4:65-4:66:23", "4:65-5:104:23",
+                "5:103-5:104:23", "5:103-5:96:23", "5:88-5:96:23", "5:77-5:88:23", "5:20-5:77:23", "5:20-5:21:23",
+                "5:21-5:22:23", "5:22-5:23:23", "5:10-5:23:23", "5:10-5:7:23", "3:45-5:7:23", "3:38-3:45:23",
+                "3:28-3:38:5", "3:21-3:28:5", "3:18-3:21:5", "3:18-3:9:5", "3:8-3:9:5", "1:20-3:8:5",
+                "1:20-1:24:5", "1:24-2:1:5", "2:1-2:2:5", "2:2-2:3:5", "2:3-2:4:5", "2:4-3:12:5",
+                "3:12-3:15:5", "3:15-3:23:5", "3:23-3:24:5"
+            ]);
+        var declared = engine.Players[1];
+        declared.CurrentNodeId = "2:2";
+        declared.HasDeclared = true;
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.NotEmpty(route.Segments);
+        Assert.Equal(["3:32", "3:52"], route.NodeIds.Skip(1));
+    }
+
     private static readonly int[] Game4184Owners = [0, 0, 3, 3, 0, 1, 2, 2, 3, 1, 0, 3, 0, 3, 3, 0, 1, 2, 0, 0, 0, 1, 2, 2, 0, 0, 0, 3, 2];
 
     private static (Boxcars.Engine.Domain.GameEngine Engine, Player Player) PlaceGame4184Player(

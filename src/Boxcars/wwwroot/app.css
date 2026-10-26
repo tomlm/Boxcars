@@ -116,3 +116,21 @@ h1:focus {
     --player-snackbar-color: hotpink;
 }
 
+/* Pulses the border of a declared player's card (PlayerBoard). Global so the card's inline style can name it. */
+@keyframes player-declared-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 2px var(--mud-palette-error), 0 0 6px 2px color-mix(in srgb, var(--mud-palette-error) 40%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px var(--mud-palette-error), 0 0 28px 10px color-mix(in srgb, var(--mud-palette-error) 80%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    @keyframes player-declared-pulse {
+        0%, 100% {
+            box-shadow: 0 0 0 2px var(--mud-palette-error), 0 0 10px 3px color-mix(in srgb, var(--mud-palette-error) 55%, transparent);
+        }
+    }
+}
