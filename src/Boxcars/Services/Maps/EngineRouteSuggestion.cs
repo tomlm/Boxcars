@@ -70,7 +70,9 @@ public static class EngineRouteSuggestion
             TotalCost = route.TotalCost,
             Approach = player == engine.CurrentTurn.ActivePlayer ? engine.LastApproachDecision : null,
             ArrivalBonus = engine.GetArrivalBonus(playerIndex, route),
-            RoverTargetPlayerName = engine.GetRoverTarget(playerIndex, options)?.Name
+            RoverTargetPlayerName = engine.GetPlayersRoveredBy(playerIndex, route) is { Count: > 0 } rovered
+                ? string.Join(" and ", rovered.Select(roveredPlayer => roveredPlayer.Name))
+                : null
         };
     }
 

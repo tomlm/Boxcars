@@ -627,24 +627,6 @@ public sealed class GameEngine : ObservableBase
             return FindCheapestRoute(startNodeId, destinationOverride, player)!;
         }
 
-        if (FindRoverTarget(player, startNodeId, options)?.CurrentNodeId is { } roverTargetNodeId)
-        {
-            // Catching a declared player is worth the rover cash, and each turn spent getting there gives them a turn
-            // to move on: a route that catches them sooner wins unless it costs more than the rover pays.
-            var roverRoute = FindCheapestRoute(startNodeId, roverTargetNodeId, player, extraTurnWeight: _settings.RoverCash)!;
-            // They may be out of reach on unused track (e.g. on a dot already ridden this trip): then the trip goes on.
-            if (roverRoute.Segments.Count > 0
-                && string.Equals(roverRoute.NodeIds[^1], roverTargetNodeId, StringComparison.OrdinalIgnoreCase))
-            {
-                if (player == CurrentTurn.ActivePlayer)
-                {
-                    LastApproachDecision = null;
-                }
-
-                return roverRoute;
-            }
-        }
-
         if (player.Destination == null)
             throw new InvalidOperationException("No destination assigned.");
 
@@ -652,6 +634,16 @@ public sealed class GameEngine : ObservableBase
         string? destNodeId = FindCityNodeId(player.Destination);
         if (destNodeId == null)
             throw new InvalidOperationException($"Cannot find node for destination city '{player.Destination.Name}'.");
+
+        if (PlanRoverChase(player, startNodeId, destNodeId, options) is { } roverRoute)
+        {
+            if (player == CurrentTurn.ActivePlayer)
+            {
+                LastApproachDecision = null;
+            }
+
+            return roverRoute;
+        }
 
         // Use Dijkstra to find cheapest route considering use fees
         var route = FindCheapestRoute(startNodeId, destNodeId, player)!;
@@ -701,23 +693,91 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
-    /// A declared opponent to chase, when there is one the player can reach without riding track already used this
-    /// trip: passing through them on the way rovers them (see <see cref="TryResolveRovers"/>), and the route is planned
-    /// on to the destination once they're caught.
+    /// A route that rovers every declared opponent the player can reach, or null when there are none. Landing on or
+    /// passing through a declared player rovers them (see <see cref="TryResolveRovers"/>), so the route catches the one
+    /// it gets to soonest (then the cheaper way), goes on from there to the next, and once they're all caught carries on
+    /// to the destination, so movement left after a catch isn't wasted. Catching a declared player is worth the rover
+    /// cash, and each turn spent getting there gives them a turn to move on: a leg that catches them sooner wins unless
+    /// it costs more than the rover pays.
     /// </summary>
-    private Player? FindRoverTarget(Player player, string startNodeId, RouteSuggestionOptions options)
+    private Route? PlanRoverChase(Player player, string startNodeId, string destNodeId, RouteSuggestionOptions options)
     {
-        if (options.DestinationNodeId is not null)
+        // Out of reach on unused track (e.g. on a dot already ridden this trip), a declared player isn't chased.
+        var remaining = Players.Where(candidate => candidate != player
+                && candidate.HasDeclared
+                && !options.PlayersNotToRover.Contains(candidate.Index)
+                && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId)
+                && !string.Equals(candidate.CurrentNodeId, startNodeId, StringComparison.OrdinalIgnoreCase)
+                && IsReachableOnUnusedTrack(player, startNodeId, candidate.CurrentNodeId))
+            .ToList();
+        if (remaining.Count == 0)
         {
             return null;
         }
 
-        return Players.FirstOrDefault(candidate => candidate != player
-            && candidate.HasDeclared
-            && !options.PlayersNotToRover.Contains(candidate.Index)
-            && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId)
-            && !string.Equals(candidate.CurrentNodeId, startNodeId, StringComparison.OrdinalIgnoreCase)
-            && IsReachableOnUnusedTrack(player, startNodeId, candidate.CurrentNodeId));
+        var averageMovement = GetAverageMovementPerTurn(player.LocomotiveType);
+        var firstTurnMovement = IsThisTurnsMovementKnown(player) ? CurrentTurn.MovementRemaining : averageMovement;
+        int TurnsFor(int segmentCount) => segmentCount <= firstTurnMovement
+            ? 1
+            : 1 + (int)Math.Ceiling((segmentCount - firstTurnMovement) / (double)averageMovement);
+
+        var nodeIds = new List<string> { startNodeId };
+        var segments = new List<RouteSegment>();
+        var usedSegments = new HashSet<SegmentKey>();
+        void Append(Route leg)
+        {
+            nodeIds.AddRange(leg.NodeIds.Skip(1));
+            segments.AddRange(leg.Segments);
+            usedSegments.UnionWith(leg.Segments.Select(segment => new SegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)));
+        }
+
+        while (remaining.Count > 0)
+        {
+            var fromNodeId = nodeIds[^1];
+            var isFirstLeg = segments.Count == 0;
+            (Route Leg, int Turns)? best = null;
+            foreach (var target in remaining)
+            {
+                var leg = isFirstLeg
+                    ? FindCheapestRoute(fromNodeId, target.CurrentNodeId!, player, extraTurnWeight: _settings.RoverCash)
+                    : FindCheapestRoute(fromNodeId, target.CurrentNodeId!, player, usedSegments, startsNextTurn: true, extraTurnWeight: _settings.RoverCash);
+                if (leg is null
+                    || leg.Segments.Count == 0
+                    || !string.Equals(leg.NodeIds[^1], target.CurrentNodeId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var turns = TurnsFor(segments.Count + leg.Segments.Count);
+                if (best is null || turns < best.Value.Turns || (turns == best.Value.Turns && leg.TotalCost < best.Value.Leg.TotalCost))
+                {
+                    best = (leg, turns);
+                }
+            }
+
+            if (best is null)
+            {
+                break;
+            }
+
+            Append(best.Value.Leg);
+            var caughtNodeIds = best.Value.Leg.NodeIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            remaining.RemoveAll(candidate => caughtNodeIds.Contains(candidate.CurrentNodeId!));
+        }
+
+        if (segments.Count == 0)
+        {
+            return null;
+        }
+
+        if (!string.Equals(nodeIds[^1], destNodeId, StringComparison.OrdinalIgnoreCase)
+            && FindCheapestRoute(nodeIds[^1], destNodeId, player, usedSegments, startsNextTurn: true) is { Segments.Count: > 0 } trip
+            && string.Equals(trip.NodeIds[^1], destNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            Append(trip);
+        }
+
+        return new Route(nodeIds, segments, PriceRoute(segments, player, GetFeeGroupsOwedThisTurn(player), firstTurnMovement, averageMovement));
     }
 
     /// <summary>Whether <paramref name="player"/> can get from one node to another without reusing track this trip.</summary>
@@ -752,18 +812,22 @@ public sealed class GameEngine : ObservableBase
         return false;
     }
 
-    /// <summary>
-    /// The declared opponent <see cref="SuggestRouteForPlayer(int, RouteSuggestionOptions)"/> chases to rover, or null
-    /// when it plans for the destination.
-    /// </summary>
-    public Player? GetRoverTarget(int playerIndex, RouteSuggestionOptions options)
+    /// <summary>The declared opponents riding <paramref name="route"/> would rover, in the order it reaches them.</summary>
+    public IReadOnlyList<Player> GetPlayersRoveredBy(int playerIndex, Route route)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(route);
         if (playerIndex < 0 || playerIndex >= Players.Count)
             throw new ArgumentOutOfRangeException(nameof(playerIndex));
 
         var player = Players[playerIndex];
-        return player.CurrentNodeId is { } startNodeId ? FindRoverTarget(player, startNodeId, options) : null;
+        var positions = route.NodeIds.Skip(1).ToList();
+        return Players
+            .Where(candidate => candidate != player && candidate.HasDeclared && !string.IsNullOrWhiteSpace(candidate.CurrentNodeId))
+            .Select(candidate => (Player: candidate, Position: positions.FindIndex(nodeId => string.Equals(nodeId, candidate.CurrentNodeId, StringComparison.OrdinalIgnoreCase))))
+            .Where(entry => entry.Position >= 0)
+            .OrderBy(entry => entry.Position)
+            .Select(entry => entry.Player)
+            .ToList();
     }
 
     /// <summary>
