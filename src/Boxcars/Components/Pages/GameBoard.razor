@@ -991,7 +991,8 @@ else
             return;
         }
 
-        _gameStateHistory = (await GameService.GetGameStateHistoryAsync(GameId, CancellationToken.None)).ToList();
+        // The history charts plot oldest to newest, and live states are appended to the end.
+        _gameStateHistory = (await GameService.GetGameStateHistoryAsync(GameId, CancellationToken.None)).Reverse().ToList();
         RebuildGameHistoryStats();
     }
 
@@ -2288,7 +2289,7 @@ destinationPayoutIndex)
 
             if (newEvents.Count > 0)
             {
-                _gameEngineEvents.AddRange(newEvents);
+                _gameEngineEvents.InsertRange(0, newEvents);
             }
         }
         else
@@ -2343,7 +2344,7 @@ destinationPayoutIndex)
     private async Task<IReadOnlyList<EventTimelineItem>> LoadTimelineEventsAsync(bool waitForNewItems)
     {
         var lastKnownEventRowKey = _gameEngineEvents.Count > 0
-            ? GetTimelineEventBaseId(_gameEngineEvents[^1])
+            ? GetTimelineEventBaseId(_gameEngineEvents[0])
             : null;
 
         return waitForNewItems && !string.IsNullOrWhiteSpace(lastKnownEventRowKey)
@@ -2371,7 +2372,7 @@ destinationPayoutIndex)
             return;
         }
 
-        _gameEngineEvents.AddRange(newItems);
+        _gameEngineEvents.InsertRange(0, newItems);
         _timelineInitialized = true;
         NotifyNewTimelineItems(previousEventIds);
         TriggerMoveAnimationForNewItems(newItems);
@@ -4368,9 +4369,11 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private void NotifyNewTimelineItems(HashSet<string> existingEventIds)
     {
+        // The timeline is newest first; play-by-play shows new items in the order they happened.
         var newItems = _gameEngineEvents
             .Where(item => !existingEventIds.Contains(item.EventId))
             .Where(item => !IsHiddenTimelineItem(item))
+            .Reverse()
             .ToList();
 
         foreach (var item in newItems)
