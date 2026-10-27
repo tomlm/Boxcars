@@ -25,6 +25,7 @@
 				  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
 				  CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
 				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+				  PulsePlayerLocations="@PulsePlayerLocations"
 				  RouteSuggestionProvider="@RouteSuggestionProvider"
 				  MovementType="@MovementType"
 				  PlayerOwnedRailroadIndices="@PlayerOwnedRailroadIndices"
@@ -126,6 +127,10 @@
 
 	[Parameter]
 	public bool IsCurrentUserActivePlayer { get; set; }
+
+	/// <summary>Pulses every player's location marker, e.g. while the active player weighs declaring.</summary>
+	[Parameter]
+	public bool PulsePlayerLocations { get; set; }
 
 	[Parameter]
 	public PlayerMovementType MovementType { get; set; } = PlayerMovementType.TwoDie;

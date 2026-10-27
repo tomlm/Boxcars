@@ -235,6 +235,11 @@
     pointer-events: none;
 }
 
+.game-map-player-current-location-pulsing {
+    animation: game-map-player-locate-pulse 1.2s ease-in-out infinite;
+    pointer-events: none;
+}
+
 @keyframes game-map-player-locate-pulse {
     0% {
         transform-box: fill-box;
