@@ -448,6 +448,10 @@
     [Parameter]
     public bool IsCurrentUserActivePlayer { get; set; }
 
+    /// <summary>Pulses every player's location marker, e.g. while the active player weighs declaring.</summary>
+    [Parameter]
+    public bool PulsePlayerLocations { get; set; }
+
     /// <summary>
     /// The engine's suggested route for the active player to a destination node: the same planner the bots use.
     /// </summary>
@@ -2747,6 +2751,10 @@
         if (_locatedPlayerIndex == marker.PlayerIndex)
         {
             cls += " game-map-player-current-location-located";
+        }
+        else if (PulsePlayerLocations)
+        {
+            cls += " game-map-player-current-location-pulsing";
         }
 
         return cls;
