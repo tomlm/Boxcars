@@ -304,10 +304,24 @@ public sealed class GameBoardStateMapper(
             .Select((player, index) =>
             {
                 var selection = index < selections.Count ? selections[index] : null;
+                var playerId = selection?.UserId ?? player.Name;
+                var color = selection?.Color ?? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length];
+                // A bankrupt player is off the board: no train, home, trip or track, even in games saved before the
+                // engine cleared them.
+                if (player.IsBankrupt)
+                {
+                    return new PlayerMapState
+                    {
+                        PlayerId = playerId,
+                        Color = color,
+                        IsCurrentUser = PlayerControlRules.IsDirectlyBoundToUser(selection?.UserId, currentUserId)
+                    };
+                }
+
                 return new PlayerMapState
                 {
-                    PlayerId = selection?.UserId ?? player.Name,
-                    Color = selection?.Color ?? PlayerColorOptions.Colors[index % PlayerColorOptions.Colors.Length],
+                    PlayerId = playerId,
+                    Color = color,
                     HomeCityName = player.HomeCityName,
                     TripStartCityName = player.TripStartCityName,
                     CurrentCityName = player.CurrentCityName,
