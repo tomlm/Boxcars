@@ -16,8 +16,10 @@
     @if (!IsGameRoute)
     {
         <MudAppBar Elevation="1" Style="overflow: visible">
-            <MudLink Href="/" Underline="Underline.None" Color="MudBlazor.Color.Inherit">
-                <MudText Typo="Typo.h5">BoxCars</MudText>
+            <MudLink Href="/" Underline="Underline.None" Class="d-flex">
+                <MudAvatar Rounded="true" Size="Size.Large">
+                    <MudImage Src="boxcars-logo.png" Alt="BoxCars" />
+                </MudAvatar>
             </MudLink>
             <MudSpacer />
             <UserMenu />

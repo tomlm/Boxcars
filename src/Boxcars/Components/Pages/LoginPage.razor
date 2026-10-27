@@ -16,6 +16,11 @@
    sign-in cookie is set by a normal request. People are identified by EmailLoginService.PlayerKey, never their email,
    since anyone can see this page. *@
 <MudStack Style="max-width: 48rem; margin: 4rem auto" Spacing="6" AlignItems="AlignItems.Stretch">
+    <MudGrid Justify="Justify.Center">
+        <MudItem xs="6" sm="4">
+            <MudImage Src="boxcars-logo.png" Alt="BoxCars logo" Fluid="true" />
+        </MudItem>
+    </MudGrid>
     <MudText Typo="Typo.h3" Align="Align.Center">Who are you?</MudText>
 
     @if (!string.IsNullOrWhiteSpace(Error))
