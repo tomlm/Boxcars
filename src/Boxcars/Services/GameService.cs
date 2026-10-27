@@ -13,8 +13,6 @@ namespace Boxcars.Services;
 public class GameService
 {
     public const string DefaultMapFileName = "U21MAP.RB3";
-    private const string EventRowKeyPrefix = "Event_";
-    private const string EventRowKeyExclusiveUpperBound = "Event`";
 
     private readonly TableClient _gamesTable;
     private readonly TableClient _usersTable;
@@ -288,21 +286,9 @@ public class GameService
             : GameEventSerialization.DeserializeSnapshot(latestEvent.SerializedGameState);
     }
 
-    private async Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
+    private Task<GameEventEntity?> GetLatestEventAsync(string gameId, CancellationToken cancellationToken)
     {
-        var latest = (GameEventEntity?)null;
-        var filter = TableClient.CreateQueryFilter(
-            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
-
-        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(filter: filter, cancellationToken: cancellationToken))
-        {
-            if (latest is null || string.CompareOrdinal(gameEvent.RowKey, latest.RowKey) > 0)
-            {
-                latest = gameEvent;
-            }
-        }
-
-        return latest;
+        return _gamesTable.GetLatestEventAsync(gameId, cancellationToken);
     }
 
     private async Task PersistControlStateSnapshotAsync(
@@ -314,8 +300,7 @@ public class GameService
     {
         _ = playerStates;
 
-        var tick = DateTime.UtcNow.Ticks;
-        var rowKey = $"Event_{tick:D20}_{Guid.NewGuid():N}";
+        var rowKey = GameEventRows.CreateRowKey(DateTime.UtcNow);
         var entity = new GameEventEntity
         {
             PartitionKey = game.GameId,
@@ -381,8 +366,36 @@ public class GameService
             return [];
         }
 
-        var events = await GetGameEventsAsync(gameId, lastSeenEventRowKey: null, cancellationToken);
-        return events.TakeLast(maxEvents).ToList();
+        var game = await GetGameAsync(gameId, cancellationToken);
+        var settings = game is null
+            ? GameSettings.Default
+            : _gameSettingsResolver.Resolve(game).Settings;
+
+        // An event's items need the event before it, which is the next one read, so each event is described once that
+        // one arrives. Stops as soon as there are enough items.
+        var items = new List<EventTimelineItem>();
+        GameEventEntity? newer = null;
+        await foreach (var gameEvent in _gamesTable.ReadNewestFirst(gameId, pageSize: maxEvents + 1, cancellationToken: cancellationToken))
+        {
+            if (newer is not null)
+            {
+                items.AddRange(BuildTimelineItems(newer, gameEvent, settings));
+                if (items.Count >= maxEvents)
+                {
+                    newer = null;
+                    break;
+                }
+            }
+
+            newer = gameEvent;
+        }
+
+        if (newer is not null)
+        {
+            items.AddRange(BuildTimelineItems(newer, previousGameEvent: null, settings));
+        }
+
+        return items.Take(maxEvents).ToList();
     }
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, string? lastSeenEventRowKey, CancellationToken cancellationToken)
@@ -391,32 +404,13 @@ public class GameService
         var settings = game is null
             ? GameSettings.Default
             : _gameSettingsResolver.Resolve(game).Settings;
-        var orderedEvents = new List<GameEventEntity>();
         var normalizedLastSeenEventRowKey = string.IsNullOrWhiteSpace(lastSeenEventRowKey)
             ? null
             : lastSeenEventRowKey.Trim();
-        var inclusiveLowerRowKey = string.IsNullOrWhiteSpace(normalizedLastSeenEventRowKey)
-            ? EventRowKeyPrefix
-            : normalizedLastSeenEventRowKey;
-        var filter = TableClient.CreateQueryFilter(
-            $"PartitionKey eq {gameId} and RowKey ge {inclusiveLowerRowKey} and RowKey lt {EventRowKeyExclusiveUpperBound}");
 
-        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
-                           filter: filter,
-                           cancellationToken: cancellationToken))
-        {
-            orderedEvents.Add(gameEvent);
-        }
-
-        orderedEvents.Sort(static (left, right) => string.CompareOrdinal(left.RowKey, right.RowKey));
-
-        var events = new List<EventTimelineItem>();
-        GameEventEntity? previousGameEvent = null;
-        foreach (var gameEvent in orderedEvents)
-        {
-            events.AddRange(BuildTimelineItems(gameEvent, previousGameEvent, settings));
-            previousGameEvent = gameEvent;
-        }
+        var newestFirst = await _gamesTable.ReadNewestFirst(gameId, normalizedLastSeenEventRowKey, cancellationToken: cancellationToken)
+            .ToListAsync(cancellationToken);
+        var events = BuildTimelineItemsFromNewestFirst(newestFirst, settings);
 
         if (string.IsNullOrWhiteSpace(normalizedLastSeenEventRowKey))
         {
@@ -428,21 +422,14 @@ public class GameService
             .ToList();
     }
 
-    /// <summary>Every saved game state for the game, oldest first.</summary>
+    /// <summary>Every saved game state for the game, newest first.</summary>
     public async Task<IReadOnlyList<GameState>> GetGameStateHistoryAsync(string gameId, CancellationToken cancellationToken)
     {
-        var filter = TableClient.CreateQueryFilter(
-            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
-        var events = new List<GameEventEntity>();
-        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(
-                           filter: filter,
-                           select: [nameof(GameEventEntity.RowKey), nameof(GameEventEntity.SerializedGameState)],
-                           cancellationToken: cancellationToken))
-        {
-            events.Add(gameEvent);
-        }
-
-        events.Sort(static (left, right) => string.CompareOrdinal(left.RowKey, right.RowKey));
+        var events = await _gamesTable.ReadNewestFirst(
+                gameId,
+                select: [nameof(GameEventEntity.RowKey), nameof(GameEventEntity.SerializedGameState)],
+                cancellationToken: cancellationToken)
+            .ToListAsync(cancellationToken);
         return events
             .Where(gameEvent => !string.IsNullOrWhiteSpace(gameEvent.SerializedGameState))
             .Select(gameEvent => GameEventSerialization.DeserializeSnapshot(gameEvent.SerializedGameState))
@@ -455,6 +442,22 @@ public class GameService
         return separatorIndex >= 0
             ? item.EventId[..separatorIndex]
             : item.EventId;
+    }
+
+    /// <summary>
+    /// Timeline items, newest first, for events read newest first. Each event is described against the one before it,
+    /// which is the next in the list.
+    /// </summary>
+    internal static List<EventTimelineItem> BuildTimelineItemsFromNewestFirst(IReadOnlyList<GameEventEntity> newestFirst, GameSettings settings)
+    {
+        var items = new List<EventTimelineItem>();
+        for (var index = 0; index < newestFirst.Count; index++)
+        {
+            var previousGameEvent = index + 1 < newestFirst.Count ? newestFirst[index + 1] : null;
+            items.AddRange(BuildTimelineItems(newestFirst[index], previousGameEvent, settings));
+        }
+
+        return items;
     }
 
     internal static List<EventTimelineItem> BuildTimelineItems(GameEventEntity gameEvent, GameEventEntity? previousGameEvent)
@@ -1211,18 +1214,12 @@ public class GameService
         CancellationToken cancellationToken)
     {
         var participantGames = await GetGamesForPlayerAsync(playerId, cancellationToken);
-        var activeGames = new List<(GameEntity Game, GameListingStatus Status)>(participantGames.Count);
+        var statuses = await Task.WhenAll(participantGames.Select(game => GetGameListingStatusAsync(game, cancellationToken)));
 
-        foreach (var game in participantGames)
-        {
-            var status = await GetGameListingStatusAsync(game, cancellationToken);
-            if (status.IsActive)
-            {
-                activeGames.Add((game, status));
-            }
-        }
-
-        return activeGames;
+        return participantGames
+            .Zip(statuses)
+            .Where(entry => entry.Second.IsActive)
+            .ToList();
     }
 
     private async Task<GameActionResult> JoinGameCoreAsync(string playerId, string gameId, CancellationToken cancellationToken)

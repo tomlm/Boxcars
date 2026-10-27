@@ -214,6 +214,8 @@ public class Program
             await tableService.CreateTableIfNotExistsAsync(tableName);
         }
 
+        await GameEventRowKeyMigration.RunAsync(tableService.GetTableClient(TableNames.GamesTable), app.Logger);
+
         var usersTable = tableService.GetTableClient(TableNames.UsersTable);
         var bots = new[]
         {

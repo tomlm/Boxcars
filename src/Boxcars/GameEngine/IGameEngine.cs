@@ -36,6 +36,7 @@ public interface IGameEngine
     Task<bool> UndoToEventAsync(string gameId, string targetEventRowKey, string targetDescription, string actorUserId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>A new game state and its timeline items, newest first.</summary>
 public sealed record GameStateUpdate(RailBaronGameState State, IReadOnlyList<EventTimelineItem> TimelineItems, bool ReplaceTimeline = false);
 
 public sealed record GameCreationOptions

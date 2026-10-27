@@ -20,8 +20,6 @@ public sealed class GamePresenceService : IDisposable
     private readonly Dictionary<string, Dictionary<string, bool>> _mockPresenceByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _delegatedControllersByGameAndUser = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (string GameId, string UserId)> _connectionLookup = new(StringComparer.Ordinal);
-    private const string EventRowKeyPrefix = "Event_";
-    private const string EventRowKeyExclusiveUpperBound = "Event`";
 
     [ActivatorUtilitiesConstructor]
     public GamePresenceService(TableServiceClient tableServiceClient)
@@ -730,24 +728,7 @@ public sealed class GamePresenceService : IDisposable
 
     private async Task<GameEventEntity?> GetLatestEventAsync(string gameId)
     {
-        if (_gamesTable is null)
-        {
-            return null;
-        }
-
-        GameEventEntity? latest = null;
-        var filter = TableClient.CreateQueryFilter(
-            $"PartitionKey eq {gameId} and RowKey ge {EventRowKeyPrefix} and RowKey lt {EventRowKeyExclusiveUpperBound}");
-
-        await foreach (var gameEvent in _gamesTable.QueryAsync<GameEventEntity>(filter: filter))
-        {
-            if (latest is null || string.CompareOrdinal(gameEvent.RowKey, latest.RowKey) > 0)
-            {
-                latest = gameEvent;
-            }
-        }
-
-        return latest;
+        return _gamesTable is null ? null : await _gamesTable.GetLatestEventAsync(gameId);
     }
 
     private async Task PersistControlSnapshotAsync(string gameId, GameState snapshot, string clearReason)
@@ -757,7 +738,7 @@ public sealed class GamePresenceService : IDisposable
             return;
         }
 
-        var rowKey = $"Event_{DateTime.UtcNow.Ticks:D20}_{Guid.NewGuid():N}";
+        var rowKey = GameEventRows.CreateRowKey(DateTime.UtcNow);
         await _gamesTable.AddEntityAsync(new GameEventEntity
         {
             PartitionKey = gameId,
