@@ -27,7 +27,7 @@
     <MudPaper Class="pa-6" >
         <MudStack Spacing="4">
             <MudText Typo="Typo.body1">
-                Configure the players, their colors, and the starting turn order before entering the board.
+                Configure the players and the starting turn order before entering the board. When two players prefer the same color, choose a color for each.
             </MudText>
 
             <MudDivider />
@@ -84,21 +84,34 @@
                                            OnClick="@(() => MovePlayer(slot, 1))" />
                         </MudStack>
 
+                        @{ var showColor = HasPreferredColorClash(slot); }
                         <MudGrid>
-                            <MudItem xs="12" md="7">
-                                <MudSelect T="string"
-                                           Label="Player"
-                                           Value="@slot.UserId"
-                                           ValueChanged="@(value => OnPlayerChangedAsync(slot, value))"
-                                           Variant="Variant.Outlined"
-                                           Disabled="@(slot.IsCreatorSeat || IsBusy)"
-                                           FullWidth="true">
-                                    @foreach (var profile in GetSelectablePlayers(slot))
-                                    {
-                                        <MudSelectItem Value="@profile.RowKey">@GetPlayerLabel(profile)</MudSelectItem>
-                                    }
-                                </MudSelect>
+                            <MudItem xs="12" md="@(showColor ? 7 : 12)">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                    @PlayerAvatar(FindProfile(slot.UserId))
+                                    <MudSelect T="string"
+                                               Label="Player"
+                                               Value="@slot.UserId"
+                                               ValueChanged="@(value => OnPlayerChangedAsync(slot, value))"
+                                               ToStringFunc="@(userId => FindProfile(userId) is { } profile ? GetPlayerLabel(profile) : string.Empty)"
+                                               Variant="Variant.Outlined"
+                                               Disabled="@(slot.IsCreatorSeat || IsBusy)"
+                                               FullWidth="true"
+                                               Class="flex-grow-1">
+                                        @foreach (var profile in GetSelectablePlayers(slot))
+                                        {
+                                            <MudSelectItem Value="@profile.RowKey">
+                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                                    @PlayerAvatar(profile)
+                                                    <MudText Typo="Typo.body2">@GetPlayerLabel(profile)</MudText>
+                                                </MudStack>
+                                            </MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudStack>
                             </MudItem>
+                            @if (showColor)
+                            {
                             <MudItem xs="12" md="5">
                                 <MudSelect T="string"
                                            Label="Color"
@@ -113,6 +126,7 @@
                                     }
                                 </MudSelect>
                             </MudItem>
+                            }
                         </MudGrid>
                     </MudPaper>
                 }
@@ -680,6 +694,25 @@
         _appliedPresetPayload = Preset;
     }
 
+    /// <summary>
+    /// Whether the slot's player prefers the same color as another seated player. Only then is there a color to
+    /// choose; otherwise each player simply gets their preferred color (or the first free one if they have none).
+    /// </summary>
+    private bool HasPreferredColorClash(PlayerSlot slot)
+    {
+        var preferredColor = GetPreferredColor(slot);
+        return !string.IsNullOrEmpty(preferredColor)
+            && _playerSlots.Any(other => !ReferenceEquals(other, slot)
+                && string.Equals(GetPreferredColor(other), preferredColor, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string GetPreferredColor(PlayerSlot slot)
+    {
+        var profile = FindProfile(slot.UserId);
+        var preferredColor = profile is null ? string.Empty : PlayerColorOptions.NormalizeOrDefault(profile.PreferredColor, string.Empty);
+        return PlayerColorOptions.IsSupported(preferredColor) ? preferredColor : string.Empty;
+    }
+
     private string ResolveDefaultColor(ApplicationUser? profile, HashSet<string> usedColors)
     {
         var preferredColor = profile is null ? null : PlayerColorOptions.NormalizeOrDefault(profile.PreferredColor, string.Empty);
@@ -698,6 +731,24 @@
         return PlayerColorOptions.Colors.FirstOrDefault(color => !usedColors.Contains(color))
             ?? PlayerColorOptions.Colors[0];
     }
+
+    private ApplicationUser? FindProfile(string? userId)
+    {
+        return _availablePlayers.FirstOrDefault(candidate => string.Equals(candidate.RowKey, userId, StringComparison.Ordinal));
+    }
+
+    /// <summary>The player's profile picture, or a person or robot icon when they have none.</summary>
+    private static RenderFragment PlayerAvatar(ApplicationUser? profile) =>
+        @<MudAvatar Size="Size.Medium">
+            @if (!string.IsNullOrWhiteSpace(profile?.ThumbnailUrl))
+            {
+                <MudImage Src="@profile.ThumbnailUrl" Alt="@profile.Nickname" />
+            }
+            else
+            {
+                <MudIcon Icon="@(profile?.IsBot == true ? Icons.Material.Filled.SmartToy : Icons.Material.Filled.Person)" />
+            }
+        </MudAvatar>;
 
     private static string GetPlayerLabel(ApplicationUser profile)
     {
