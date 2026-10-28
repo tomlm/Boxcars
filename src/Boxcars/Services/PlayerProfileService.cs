@@ -209,7 +209,8 @@ public class PlayerProfileService
         user.RowKey = NormalizeUserId(user.RowKey);
         if (string.IsNullOrWhiteSpace(user.ThumbnailUrl))
         {
-            user.ThumbnailUrl = $"{GeneratedThumbnailUrlPrefix}{Uri.EscapeDataString(user.Name)}?set=set6";
+            // robohash's default set: robots that differ in shape and color, the same set the game board draws for bots.
+            user.ThumbnailUrl = $"{GeneratedThumbnailUrlPrefix}{Uri.EscapeDataString(user.Name)}";
         }
 
         user.StrategyText = ResolveStrategyTextOrDefault(user.StrategyText);
