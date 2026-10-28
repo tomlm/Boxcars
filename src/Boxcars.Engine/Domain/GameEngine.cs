@@ -511,9 +511,9 @@ public sealed class GameEngine : ObservableBase
         {
             if (i >= route.Segments.Count) break;
             var segment = route.Segments[i];
-            var segKey = new SegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex);
+            var track = TrackOf(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex);
 
-            if (player.UsedSegments.Contains(segKey))
+            if (track.Any(player.UsedSegments.Contains))
             {
                 // Stop movement before the duplicate — the route planner should
                 // have avoided this, but treat it as the end of valid movement.
@@ -521,7 +521,7 @@ public sealed class GameEngine : ObservableBase
                 break;
             }
 
-            player.UsedSegments.Add(segKey);
+            player.UsedSegments.UnionWith(track);
             CurrentTurn.RailroadsRiddenThisTurn.Add(segment.RailroadIndex);
             TrackRailroadFeeRate(player, segment.RailroadIndex);
             UpdateGrandfatheredRailroadAccess(player, segment.RailroadIndex);
@@ -726,7 +726,7 @@ public sealed class GameEngine : ObservableBase
         {
             nodeIds.AddRange(leg.NodeIds.Skip(1));
             segments.AddRange(leg.Segments);
-            usedSegments.UnionWith(leg.Segments.Select(segment => new SegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)));
+            usedSegments.UnionWith(leg.Segments.SelectMany(segment => TrackOf(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)));
         }
 
         while (remaining.Count > 0)
@@ -799,7 +799,7 @@ public sealed class GameEngine : ObservableBase
 
             foreach (var edge in edges)
             {
-                if (!player.UsedSegments.Contains(new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex))
+                if (!edge.UsesAny(player.UsedSegments)
                     && visited.Add(edge.ToNodeId))
                 {
                     queue.Enqueue(edge.ToNodeId);
@@ -950,20 +950,19 @@ public sealed class GameEngine : ObservableBase
 
         var futureTurnMovementCapacity = GetAverageMovementPerTurn(player.LocomotiveType);
         var feeGroupsOwedThisTurn = GetFeeGroupsOwedThisTurn(player);
-        var segmentKeys = new Dictionary<string, SegmentKey>(StringComparer.OrdinalIgnoreCase);
-        var usedSegmentKeys = player.UsedSegments.Select(segment => segment.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Each step is known by the pip it rides; its track is what can't be ridden twice.
+        var trackBySegmentKey = new Dictionary<string, IReadOnlyList<SegmentKey>>(StringComparer.OrdinalIgnoreCase);
 
         ApproachStep ToStep(string fromNodeId, string toNodeId, int railroadIndex)
         {
-            var segmentKey = new SegmentKey(fromNodeId, toNodeId, railroadIndex);
-            var text = segmentKey.ToString();
-            segmentKeys[text] = segmentKey;
+            var text = new SegmentKey(fromNodeId, toNodeId, railroadIndex).ToString();
+            trackBySegmentKey.TryAdd(text, TrackOf(fromNodeId, toNodeId, railroadIndex));
             return new ApproachStep(toNodeId, railroadIndex, text);
         }
 
         IReadOnlyList<ApproachStep>? FindContinuation(string fromNodeId, IReadOnlyCollection<string> extraUsedSegmentKeys)
         {
-            var extraUsedSegments = extraUsedSegmentKeys.Select(key => segmentKeys[key]).ToHashSet();
+            var extraUsedSegments = extraUsedSegmentKeys.SelectMany(key => trackBySegmentKey[key]).ToHashSet();
             var continuation = FindCheapestRoute(fromNodeId, destNodeId, player, extraUsedSegments, startsNextTurn: true);
             return continuation?.Segments.Select(segment => ToStep(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)).ToList();
         }
@@ -986,7 +985,8 @@ public sealed class GameEngine : ObservableBase
             GetEdges = nodeId => _adjacency.TryGetValue(nodeId, out var edges)
                 ? edges.Select(edge => ToStep(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex))
                 : [],
-            IsSegmentUsed = usedSegmentKeys.Contains,
+            IsSegmentUsed = segmentKey => trackBySegmentKey[segmentKey].Any(player.UsedSegments.Contains),
+            SharesTrack = (left, right) => trackBySegmentKey[left].Any(trackBySegmentKey[right].Contains),
             IsOpponentRailroad = railroadIndex => IsUnfriendlyRailroadForPlayer(player, railroadIndex),
             // A fee to the front runner counts for more, as in the route search.
             ResolveFee = railroadIndex => RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
@@ -3204,37 +3204,61 @@ public sealed class GameEngine : ObservableBase
         return null;
     }
 
+    /// <summary>
+    /// The route graph: an edge for each pip of movement (see <see cref="MovementLinks"/>), so a junction is never a
+    /// stop. A player already standing on a junction can still ride away from it.
+    /// </summary>
     private static Dictionary<string, List<RouteGraphEdge>> BuildAdjacency(MapDefinition mapDefinition)
     {
         var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var segment in mapDefinition.RailroadRouteSegments)
+        void Add(MovementLink link)
         {
-            var fromNodeId = NodeKey(segment.StartRegionIndex, segment.StartDotIndex);
-            var toNodeId = NodeKey(segment.EndRegionIndex, segment.EndDotIndex);
-
-            if (string.Equals(fromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var forward = new RouteGraphEdge(fromNodeId, toNodeId, segment.RailroadIndex);
-            var reverse = new RouteGraphEdge(toNodeId, fromNodeId, segment.RailroadIndex);
-
-            if (!adjacency.TryGetValue(fromNodeId, out var fromList))
+            if (!adjacency.TryGetValue(link.FromNodeId, out var edges))
             {
-                fromList = new List<RouteGraphEdge>();
-                adjacency[fromNodeId] = fromList;
+                edges = [];
+                adjacency[link.FromNodeId] = edges;
             }
-            fromList.Add(forward);
 
-            if (!adjacency.TryGetValue(toNodeId, out var toList))
-            {
-                toList = new List<RouteGraphEdge>();
-                adjacency[toNodeId] = toList;
-            }
-            toList.Add(reverse);
+            edges.Add(new RouteGraphEdge(link));
+        }
+
+        var links = MovementLinks.Build(mapDefinition, out var junctionDepartures);
+        foreach (var link in links)
+        {
+            Add(link);
+            Add(link.Reversed());
+        }
+
+        foreach (var departure in junctionDepartures)
+        {
+            Add(departure);
         }
 
         return adjacency;
+    }
+
+    /// <summary>
+    /// Whether a move can go straight from one stop to the next on a railroad, which may pass through a junction
+    /// between them.
+    /// </summary>
+    public bool IsMovementStep(string fromNodeId, string toNodeId, int railroadIndex)
+    {
+        return _adjacency.TryGetValue(fromNodeId, out var edges)
+            && edges.Any(edge => edge.RailroadIndex == railroadIndex
+                && string.Equals(edge.ToNodeId, toNodeId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The track a route segment covers: the pieces of a railroad between its stops, which pass through any junction
+    /// between them. Track is what a player can't ride twice on a trip.
+    /// </summary>
+    private IReadOnlyList<SegmentKey> TrackOf(string fromNodeId, string toNodeId, int railroadIndex)
+    {
+        return _adjacency.TryGetValue(fromNodeId, out var edges)
+            && edges.FirstOrDefault(edge => edge.RailroadIndex == railroadIndex
+                && string.Equals(edge.ToNodeId, toNodeId, StringComparison.OrdinalIgnoreCase)) is { } edge
+                ? edge.Track
+                : [new SegmentKey(fromNodeId, toNodeId, railroadIndex)];
     }
 
     /// <summary>
@@ -3337,13 +3361,12 @@ public sealed class GameEngine : ObservableBase
                     break;
                 }
 
-                var segKey = new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex);
-                if (player.UsedSegments.Contains(segKey) || extraUsedSegments?.Contains(segKey) == true)
+                if (edge.UsesAny(player.UsedSegments) || (extraUsedSegments is not null && edge.UsesAny(extraUsedSegments)))
                 {
                     continue;
                 }
 
-                if (PathContainsSegment(previous, state, segKey, routePlanningStopwatch))
+                if (PathContainsTrack(previous, state, edge, routePlanningStopwatch))
                 {
                     continue;
                 }
@@ -3551,7 +3574,7 @@ public sealed class GameEngine : ObservableBase
             foreach (var edge in edges)
             {
                 // Track already ridden on this trip can't be ridden again.
-                if (player.UsedSegments.Contains(new SegmentKey(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex))
+                if (edge.UsesAny(player.UsedSegments)
                     || !visited.Add(edge.ToNodeId))
                 {
                     continue;
@@ -3654,10 +3677,11 @@ public sealed class GameEngine : ObservableBase
         return new Route(nodeIds, segments, bestDestination.Value.ArrivalCost.TotalCost);
     }
 
-    private static bool PathContainsSegment(
+    /// <summary>Whether the path to <paramref name="state"/> already rides any of <paramref name="edge"/>'s track.</summary>
+    private static bool PathContainsTrack(
         Dictionary<RoutePlanningState, RoutePlanningPrevious> previous,
         RoutePlanningState state,
-        SegmentKey segmentKey,
+        RouteGraphEdge edge,
         Stopwatch routePlanningStopwatch)
     {
         var currentState = state;
@@ -3665,10 +3689,7 @@ public sealed class GameEngine : ObservableBase
         while (!IsRoutePlanningTimedOut(routePlanningStopwatch)
             && previous.TryGetValue(currentState, out var previousEntry))
         {
-            if (segmentKey == new SegmentKey(
-                    previousEntry.Edge.FromNodeId,
-                    previousEntry.Edge.ToNodeId,
-                    previousEntry.Edge.RailroadIndex))
+            if (previousEntry.Edge.Track.Any(edge.Track.Contains))
             {
                 return true;
             }
@@ -4375,12 +4396,26 @@ internal sealed class RouteGraphEdge
     public string ToNodeId { get; }
     public int RailroadIndex { get; }
 
+    /// <summary>The pieces of track the edge covers: one, or two or more through a junction.</summary>
+    public IReadOnlyList<SegmentKey> Track { get; }
+
     public RouteGraphEdge(string fromNodeId, string toNodeId, int railroadIndex)
+        : this(new MovementLink(railroadIndex, [fromNodeId, toNodeId]))
     {
-        FromNodeId = fromNodeId;
-        ToNodeId = toNodeId;
-        RailroadIndex = railroadIndex;
     }
+
+    public RouteGraphEdge(MovementLink link)
+    {
+        FromNodeId = link.FromNodeId;
+        ToNodeId = link.ToNodeId;
+        RailroadIndex = link.RailroadIndex;
+        Track = link.TrackNodeIds
+            .Zip(link.TrackNodeIds.Skip(1), (from, to) => new SegmentKey(from, to, link.RailroadIndex))
+            .ToList();
+    }
+
+    /// <summary>Whether any of the edge's track is in <paramref name="usedTrack"/>.</summary>
+    public bool UsesAny(IReadOnlySet<SegmentKey> usedTrack) => Track.Any(usedTrack.Contains);
 }
 
 internal sealed class FeeBucket(Player? owner, int feeAmount)

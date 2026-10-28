@@ -35,6 +35,13 @@ public sealed class DestinationApproachRequest
 
     public required Func<string, IEnumerable<ApproachStep>> GetEdges { get; init; }
     public required Func<string, bool> IsSegmentUsed { get; init; }
+
+    /// <summary>
+    /// Whether two steps ride any of the same track, which a walk can't do twice. Steps through the same junction
+    /// share the track on one side of it; by default only the same step does.
+    /// </summary>
+    public Func<string, string, bool> SharesTrack { get; init; } =
+        static (left, right) => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     public required Func<int, bool> IsOpponentRailroad { get; init; }
     public required Func<int, int> ResolveFee { get; init; }
     public required Func<int, long> ResolveFeeGroupFlag { get; init; }
@@ -446,7 +453,7 @@ public static class DestinationApproachPlanner
                         || request.IsOpponentRailroad(edge.RailroadIndex)
                         || string.Equals(edge.ToNodeId, request.DestinationNodeId, StringComparison.OrdinalIgnoreCase)
                         || request.IsSegmentUsed(edge.SegmentKey)
-                        || walk.Any(ridden => string.Equals(ridden.SegmentKey, edge.SegmentKey, StringComparison.OrdinalIgnoreCase)))
+                        || walk.Any(ridden => request.SharesTrack(ridden.SegmentKey, edge.SegmentKey)))
                     {
                         continue;
                     }
