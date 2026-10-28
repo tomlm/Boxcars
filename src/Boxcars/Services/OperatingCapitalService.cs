@@ -35,8 +35,8 @@ public static class OperatingCapitalService
             return 0;
         }
 
-        var fullRateRailroads = state.Turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
-        var ownerBuckets = new Dictionary<int, bool>();
+        var rider = state.Players[playerIndex];
+        var ownerFees = new Dictionary<int, int>();
         var usesPublicFee = false;
         var usesPrivateFee = false;
 
@@ -54,14 +54,13 @@ public static class OperatingCapitalService
                 continue;
             }
 
-            var requiresFullOwnerRate = fullRateRailroads.Contains(railroadIndex);
-            ownerBuckets[ownerIndex.Value] = ownerBuckets.GetValueOrDefault(ownerIndex.Value) || requiresFullOwnerRate;
+            var fee = RailBaronGameEngine.GetOpponentRailroadFeeThisTurn(settings, state, rider, railroadIndex);
+            ownerFees[ownerIndex.Value] = Math.Max(fee, ownerFees.GetValueOrDefault(ownerIndex.Value));
         }
 
-        var opponentRate = RailBaronGameEngine.GetUnfriendlyFee(settings, state.AllRailroadsSold);
         return (usesPublicFee ? RailBaronGameEngine.GetPublicFee(settings) : 0)
             + (usesPrivateFee ? RailBaronGameEngine.GetPrivateFee(settings) : 0)
-            + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : RailBaronGameEngine.GetPrivateFee(settings));
+            + ownerFees.Values.Sum();
     }
 
     /// <summary>

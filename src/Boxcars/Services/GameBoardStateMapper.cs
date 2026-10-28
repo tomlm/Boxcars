@@ -421,15 +421,11 @@ public sealed class GameBoardStateMapper(
         }
 
         var activePlayer = state.Players[activePlayerIndex];
-        var fullRateRailroadIndices = SimulateFullRateRailroads(
-            activePlayerIndex,
-            activePlayer.GrandfatheredRailroadIndices,
-            state.Turn.RailroadsRequiringFullOwnerRateThisTurn,
-            state.RailroadOwnership,
-            segmentKeys);
+        var projectedTurn = SimulateTurnFeeRates(activePlayerIndex, activePlayer, state.Turn, state.RailroadOwnership, segmentKeys);
+        var projectedState = new RailBaronGameState { AllRailroadsSold = state.AllRailroadsSold, Turn = projectedTurn };
         var usesPublicFee = false;
         var usesPrivateFee = false;
-        var ownerBuckets = new Dictionary<int, bool>();
+        var ownerBuckets = new Dictionary<int, int>();
 
         foreach (var railroadIndex in railroadIndices)
         {
@@ -445,26 +441,13 @@ public sealed class GameBoardStateMapper(
                 continue;
             }
 
-            if (ownerIndex.Value != activePlayerIndex)
-            {
-                var requiresFullOwnerRate = fullRateRailroadIndices.Contains(railroadIndex);
-                if (!ownerBuckets.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
-                {
-                    ownerBuckets[ownerIndex.Value] = requiresFullOwnerRate;
-                }
-                else
-                {
-                    ownerBuckets[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
-                }
-            }
+            var fee = RailBaronGameEngine.GetOpponentRailroadFeeThisTurn(settings, projectedState, activePlayer, railroadIndex);
+            ownerBuckets[ownerIndex.Value] = Math.Max(fee, ownerBuckets.GetValueOrDefault(ownerIndex.Value));
         }
 
         var publicFee = usesPublicFee ? RailBaronGameEngine.GetPublicFee(settings) : 0;
         var privateFee = usesPrivateFee ? RailBaronGameEngine.GetPrivateFee(settings) : 0;
-        var opponentRate = RailBaronGameEngine.GetUnfriendlyFee(settings, state.AllRailroadsSold);
-        return new PreviewFeeSummary(
-            publicFee + privateFee + ownerBuckets.Values.Sum(requiresFullOwnerRate => requiresFullOwnerRate ? opponentRate : RailBaronGameEngine.GetPrivateFee(settings)),
-            ownerBuckets.Count > 0);
+        return new PreviewFeeSummary(publicFee + privateFee + ownerBuckets.Values.Sum(), ownerBuckets.Count > 0);
     }
 
     private static GameSettings ResolveGameSettings(GameEntity? gameEntity)
@@ -476,15 +459,21 @@ public sealed class GameBoardStateMapper(
 
     private readonly record struct PreviewFeeSummary(int FeeEstimate, bool HasUnfriendlyFee);
 
-    private static HashSet<int> SimulateFullRateRailroads(
+    /// <summary>
+    /// The turn's fee rates once the player rides <paramref name="segmentKeys"/>, as the engine tracks them: an
+    /// established railroad is ridden at its established rate until the player leaves it.
+    /// </summary>
+    private static TurnState SimulateTurnFeeRates(
         int activePlayerIndex,
-        IReadOnlyList<int> currentGrandfatheredRailroads,
-        IReadOnlyList<int> currentFullRateRailroads,
+        PlayerStateSnapshot activePlayer,
+        TurnState turn,
         Dictionary<int, int?> railroadOwnership,
         IReadOnlyList<string> segmentKeys)
     {
-        var grandfatheredRailroads = currentGrandfatheredRailroads.ToHashSet();
-        var fullRateRailroads = currentFullRateRailroads.ToHashSet();
+        var grandfatheredRailroads = activePlayer.GrandfatheredRailroadIndices.ToHashSet();
+        var grandfatheredFees = activePlayer.GrandfatheredRailroadFees.ToDictionary(entry => entry.RailroadIndex, entry => entry.FeeAmount);
+        var fullRateRailroads = turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
+        var reducedFees = turn.ReducedRailroadFeesThisTurn.ToDictionary(entry => entry.RailroadIndex, entry => entry.FeeAmount);
 
         foreach (var segmentKey in segmentKeys)
         {
@@ -495,10 +484,16 @@ public sealed class GameBoardStateMapper(
 
             if (railroadOwnership.TryGetValue(railroadIndex, out var ownerIndex)
                 && ownerIndex is not null
-                && ownerIndex.Value != activePlayerIndex
-                && !grandfatheredRailroads.Contains(railroadIndex))
+                && ownerIndex.Value != activePlayerIndex)
             {
-                fullRateRailroads.Add(railroadIndex);
+                if (grandfatheredRailroads.Contains(railroadIndex) && grandfatheredFees.TryGetValue(railroadIndex, out var grandfatheredFee))
+                {
+                    reducedFees[railroadIndex] = Math.Max(grandfatheredFee, reducedFees.GetValueOrDefault(railroadIndex));
+                }
+                else if (!grandfatheredRailroads.Contains(railroadIndex))
+                {
+                    fullRateRailroads.Add(railroadIndex);
+                }
             }
 
             if (grandfatheredRailroads.Count == 0)
@@ -516,7 +511,13 @@ public sealed class GameBoardStateMapper(
             }
         }
 
-        return fullRateRailroads;
+        return new TurnState
+        {
+            RailroadsRequiringFullOwnerRateThisTurn = [.. fullRateRailroads],
+            ReducedRailroadFeesThisTurn = reducedFees
+                .Select(entry => new GrandfatheredRailroadFeeState { RailroadIndex = entry.Key, FeeAmount = entry.Value })
+                .ToList()
+        };
     }
 
     private static bool TryParseRailroadIndex(string segmentKey, out int railroadIndex)

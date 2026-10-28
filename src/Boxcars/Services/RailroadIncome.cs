@@ -65,14 +65,10 @@ public sealed record RailroadIncome(IReadOnlyList<RailroadIncomeRow> Rows)
         var payer = state.ActivePlayerIndex >= 0 && state.ActivePlayerIndex < state.Players.Count
             ? state.Players[state.ActivePlayerIndex]
             : null;
-        var fullRateRailroads = state.Turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
         var ridden = state.Turn.RailroadsRiddenThisTurn
             .Distinct()
             .Where(railroadIndex => state.RailroadOwnership.GetValueOrDefault(railroadIndex) == ownerIndex)
-            .Select(railroadIndex => (RailroadIndex: railroadIndex, Rate: payer?.GrandfatheredRailroadFees.FirstOrDefault(entry => entry.RailroadIndex == railroadIndex)?.FeeAmount
-                ?? (fullRateRailroads.Contains(railroadIndex)
-                    ? RailBaronGameEngine.GetUnfriendlyFee(settings, state.AllRailroadsSold)
-                    : RailBaronGameEngine.GetPrivateFee(settings))))
+            .Select(railroadIndex => (RailroadIndex: railroadIndex, Rate: RailBaronGameEngine.GetOpponentRailroadFeeThisTurn(settings, state, payer, railroadIndex)))
             .ToList();
         if (ridden.Count == 0)
         {

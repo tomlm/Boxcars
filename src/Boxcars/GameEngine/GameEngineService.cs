@@ -1796,8 +1796,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         var rider = snapshotBeforeAction.Players[snapshotBeforeAction.ActivePlayerIndex];
-        var opponentRate = RailBaronGameEngine.GetUnfriendlyFee(settings, snapshotBeforeAction.AllRailroadsSold);
-        var feeBuckets = new Dictionary<int, FeeBucketStatistic>();
+        var feeBuckets = new Dictionary<int, int>();
         var usesPublicFee = false;
         var usesPrivateFee = false;
 
@@ -1816,25 +1815,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 continue;
             }
 
-            var ownerKey = ownerIndex.Value;
-
-            if (!feeBuckets.TryGetValue(ownerKey, out var bucket))
-            {
-                bucket = new FeeBucketStatistic(ownerIndex, requiresFullOwnerRate: false);
-                feeBuckets[ownerKey] = bucket;
-            }
-
-            if (snapshotBeforeAction.Turn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroadIndex))
-            {
-                bucket.RequiresFullOwnerRate = true;
-            }
+            var fee = RailBaronGameEngine.GetOpponentRailroadFeeThisTurn(settings, snapshotBeforeAction, rider, railroadIndex);
+            feeBuckets[ownerIndex.Value] = Math.Max(fee, feeBuckets.GetValueOrDefault(ownerIndex.Value));
         }
 
-        var transfers = feeBuckets.Values
-            .Select(bucket => new FeeTransferStatistic(
-                rider.Name,
-                bucket.OwnerPlayerIndex,
-                bucket.RequiresFullOwnerRate ? opponentRate : RailBaronGameEngine.GetPrivateFee(settings)))
+        var transfers = feeBuckets
+            .Select(bucket => new FeeTransferStatistic(rider.Name, bucket.Key, bucket.Value))
             .Where(transfer => transfer.Amount > 0)
             .ToList();
 
@@ -1851,18 +1837,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         return transfers;
     }
 
-    private sealed class FeeBucketStatistic
-    {
-        public FeeBucketStatistic(int? ownerPlayerIndex, bool requiresFullOwnerRate)
-        {
-            OwnerPlayerIndex = ownerPlayerIndex;
-            RequiresFullOwnerRate = requiresFullOwnerRate;
-        }
-
-        public int? OwnerPlayerIndex { get; }
-
-        public bool RequiresFullOwnerRate { get; set; }
-    }
 
     private readonly record struct FeeTransferStatistic(string PayerPlayerName, int? RecipientPlayerIndex, int Amount);
 

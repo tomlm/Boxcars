@@ -1001,9 +1001,8 @@ public class GameService
             return string.Empty;
         }
 
-        var fullRateRailroads = snapshot.Turn.RailroadsRequiringFullOwnerRateThisTurn.ToHashSet();
         var usedBaseRateRailroad = false;
-        var opposingOwnerRates = new Dictionary<int, bool>();
+        var opposingOwnerRates = new Dictionary<int, int>();
 
         foreach (var railroadIndex in railroadIndices)
         {
@@ -1019,15 +1018,8 @@ public class GameService
                 continue;
             }
 
-            var requiresFullOwnerRate = fullRateRailroads.Contains(railroadIndex);
-            if (!opposingOwnerRates.TryGetValue(ownerIndex.Value, out var existingRequiresFullOwnerRate))
-            {
-                opposingOwnerRates[ownerIndex.Value] = requiresFullOwnerRate;
-            }
-            else
-            {
-                opposingOwnerRates[ownerIndex.Value] = existingRequiresFullOwnerRate || requiresFullOwnerRate;
-            }
+            var fee = Boxcars.Engine.Domain.GameEngine.GetOpponentRailroadFeeThisTurn(GameSettings.Default, snapshot, activePlayerState, railroadIndex);
+            opposingOwnerRates[ownerIndex.Value] = Math.Max(fee, opposingOwnerRates.GetValueOrDefault(ownerIndex.Value));
         }
 
         var feeParts = new List<string>();
@@ -1037,11 +1029,9 @@ public class GameService
         }
 
         paidAnotherPlayer = opposingOwnerRates.Count > 0;
-        var opponentRate = snapshot.AllRailroadsSold ? 10000 : 5000;
         foreach (var ownerRate in opposingOwnerRates.OrderBy(entry => entry.Key))
         {
-            var amount = ownerRate.Value ? opponentRate : 1000;
-            feeParts.Add($"${amount:N0} to {ResolvePlayerName(snapshot, ownerRate.Key)}");
+            feeParts.Add($"${ownerRate.Value:N0} to {ResolvePlayerName(snapshot, ownerRate.Key)}");
         }
 
         return FormatReadableList(feeParts);

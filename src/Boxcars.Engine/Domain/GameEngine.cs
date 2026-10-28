@@ -1482,6 +1482,7 @@ public sealed class GameEngine : ObservableBase
         // Clear turn-specific tracking
         CurrentTurn.RailroadsRiddenThisTurn.Clear();
         CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Clear();
+        CurrentTurn.ReducedRailroadFeesThisTurn.Clear();
         CurrentTurn.DiceResult = null;
         CurrentTurn.MovementAllowance = 0;
         CurrentTurn.MovementRemaining = 0;
@@ -1541,6 +1542,14 @@ public sealed class GameEngine : ObservableBase
                 SelectedRailroadForSaleIndex = CurrentTurn.SelectedRailroadForSaleIndex,
                 RailroadsRiddenThisTurn = CurrentTurn.RailroadsRiddenThisTurn.ToList(),
                 RailroadsRequiringFullOwnerRateThisTurn = CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.ToList(),
+                ReducedRailroadFeesThisTurn = CurrentTurn.ReducedRailroadFeesThisTurn
+                    .OrderBy(entry => entry.Key)
+                    .Select(entry => new GrandfatheredRailroadFeeState
+                    {
+                        RailroadIndex = entry.Key,
+                        FeeAmount = entry.Value
+                    })
+                    .ToList(),
                 ArrivalResolution = CurrentTurn.ArrivalResolution is null
                     ? null
                     : new ArrivalResolutionState
@@ -1999,6 +2008,9 @@ public sealed class GameEngine : ObservableBase
         foreach (var rrIdx in snapshot.Turn.RailroadsRequiringFullOwnerRateThisTurn)
             engine._currentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(rrIdx);
 
+        foreach (var reducedFee in snapshot.Turn.ReducedRailroadFeesThisTurn)
+            engine._currentTurn.ReducedRailroadFeesThisTurn[reducedFee.RailroadIndex] = reducedFee.FeeAmount;
+
         engine._gameStatus = Enum.Parse<GameStatus>(snapshot.GameStatus);
         engine._allRailroadsSold = snapshot.AllRailroadsSold;
 
@@ -2073,6 +2085,25 @@ public sealed class GameEngine : ObservableBase
         ArgumentNullException.ThrowIfNull(settings);
 
         return allRailroadsSold ? settings.UnfriendlyFee2 : settings.UnfriendlyFee1;
+    }
+
+    /// <summary>
+    /// The fee <paramref name="rider"/> owes this turn for riding an opponent's railroad, as the engine charges it:
+    /// the owner's full rate, else the reduced rate it was ridden at, else the rider's established rate.
+    /// </summary>
+    public static int GetOpponentRailroadFeeThisTurn(GameSettings settings, GameState state, PlayerState? rider, int railroadIndex)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.Turn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroadIndex))
+        {
+            return GetUnfriendlyFee(settings, state.AllRailroadsSold);
+        }
+
+        return state.Turn.ReducedRailroadFeesThisTurn.FirstOrDefault(entry => entry.RailroadIndex == railroadIndex)?.FeeAmount
+            ?? rider?.GrandfatheredRailroadFees.FirstOrDefault(entry => entry.RailroadIndex == railroadIndex)?.FeeAmount
+            ?? GetPrivateFee(settings);
     }
 
     #endregion
@@ -2842,7 +2873,16 @@ public sealed class GameEngine : ObservableBase
         var allRailroadsSold = Railroads.Where(r => !r.IsPublic).All(r => r.Owner != null);
         if (!AllRailroadsSold && allRailroadsSold)
         {
-            GrandfatherPlayersOnOpponentRailroads(GetUnfriendlyFee(_settings, allRailroadsSold: false));
+            var preSaleFee = GetUnfriendlyFee(_settings, allRailroadsSold: false);
+            GrandfatherPlayersOnOpponentRailroads(preSaleFee);
+
+            // Railroads the active player already rode this turn were ridden before the sale, so they keep that rate.
+            foreach (var railroadIndex in CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn)
+            {
+                RecordReducedRailroadFee(railroadIndex, preSaleFee);
+            }
+
+            CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Clear();
         }
 
         AllRailroadsSold = allRailroadsSold;
@@ -2899,11 +2939,13 @@ public sealed class GameEngine : ObservableBase
                 continue;
             }
 
-            var feeAmount = rider.GrandfatheredRailroadFees.TryGetValue(railroad.Index, out var grandfatheredFee)
-                ? grandfatheredFee
-                : CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroad.Index)
-                    ? GetUnfriendlyFee(_settings, AllRailroadsSold)
-                    : GetPrivateFee(_settings);
+            var feeAmount = CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Contains(railroad.Index)
+                ? GetUnfriendlyFee(_settings, AllRailroadsSold)
+                : CurrentTurn.ReducedRailroadFeesThisTurn.TryGetValue(railroad.Index, out var reducedFee)
+                    ? reducedFee
+                    : rider.GrandfatheredRailroadFees.TryGetValue(railroad.Index, out var grandfatheredFee)
+                        ? grandfatheredFee
+                        : GetPrivateFee(_settings);
 
             AddRailroadToFeeBucket(opponentBuckets, railroad, feeAmount);
         }
@@ -2940,10 +2982,22 @@ public sealed class GameEngine : ObservableBase
             return;
         }
 
-        if (!rider.GrandfatheredRailroadIndices.Contains(railroadIndex))
+        if (rider.GrandfatheredRailroadFees.TryGetValue(railroadIndex, out var grandfatheredFee))
+        {
+            // Leaving the railroad later ends the established rate, not what this ride costs.
+            RecordReducedRailroadFee(railroadIndex, grandfatheredFee);
+        }
+        else if (!rider.GrandfatheredRailroadIndices.Contains(railroadIndex))
         {
             CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(railroadIndex);
         }
+    }
+
+    private void RecordReducedRailroadFee(int railroadIndex, int feeAmount)
+    {
+        CurrentTurn.ReducedRailroadFeesThisTurn[railroadIndex] = Math.Max(
+            feeAmount,
+            CurrentTurn.ReducedRailroadFeesThisTurn.GetValueOrDefault(railroadIndex));
     }
 
     private void UpdateGrandfatheringForOwnershipChange(int railroadIndex, Player? previousOwner, Player? newOwner)
