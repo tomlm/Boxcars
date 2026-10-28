@@ -3238,6 +3238,17 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
+    /// Whether a move can go straight from one stop to the next on a railroad, which may pass through a junction
+    /// between them.
+    /// </summary>
+    public bool IsMovementStep(string fromNodeId, string toNodeId, int railroadIndex)
+    {
+        return _adjacency.TryGetValue(fromNodeId, out var edges)
+            && edges.Any(edge => edge.RailroadIndex == railroadIndex
+                && string.Equals(edge.ToNodeId, toNodeId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// The track a route segment covers: the pieces of a railroad between its stops, which pass through any junction
     /// between them. Track is what a player can't ride twice on a trip.
     /// </summary>

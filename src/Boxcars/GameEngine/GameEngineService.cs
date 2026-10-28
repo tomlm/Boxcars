@@ -2653,11 +2653,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             var toNodeId = nodeIds[index + 1];
             var railroadIndex = TryParseSelectedSegmentKey(routeSegmentKeys, index, fromNodeId, toNodeId);
 
-            var matchingDefinition = state.MapDefinition.RailroadRouteSegments.FirstOrDefault(segment =>
-                segment.RailroadIndex == railroadIndex
-                && IsSameEdge(segment, fromNodeId, toNodeId));
-
-            if (matchingDefinition is null)
+            // A step may pass through a junction, which isn't a stop.
+            if (!state.IsMovementStep(fromNodeId, toNodeId, railroadIndex))
             {
                 throw new InvalidOperationException("Selected route contains an invalid railroad segment.");
             }
@@ -2692,17 +2689,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         throw new InvalidOperationException("Selected route is missing railroad metadata for one or more segments.");
-    }
-
-    private static bool IsSameEdge(RailroadRouteSegmentDefinition segment, string fromNodeId, string toNodeId)
-    {
-        var segmentFromNodeId = BuildNodeId(segment.StartRegionIndex, segment.StartDotIndex);
-        var segmentToNodeId = BuildNodeId(segment.EndRegionIndex, segment.EndDotIndex);
-
-        return string.Equals(segmentFromNodeId, fromNodeId, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(segmentToNodeId, toNodeId, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(segmentFromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(segmentToNodeId, fromNodeId, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildNodeId(int regionIndex, int dotIndex)

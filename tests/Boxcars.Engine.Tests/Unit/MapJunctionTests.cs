@@ -65,6 +65,18 @@ public class MapJunctionTests
     }
 
     [Fact]
+    public void IsMovementStep_ThroughAJunction_IsOneStepButNotAStopOnTheJunction()
+    {
+        var engine = CreateEngine();
+        var railroadIndex = engine.Railroads.First(railroad => railroad.ShortName == "B&M").Index;
+
+        Assert.True(engine.IsMovementStep(Boston, PortlandSide, railroadIndex));
+        Assert.True(engine.IsMovementStep(PortlandSide, Boston, railroadIndex));
+        Assert.False(engine.IsMovementStep(Boston, Junction, railroadIndex));
+        Assert.False(engine.IsMovementStep(Boston, PortlandSide, railroadIndex + 1));
+    }
+
+    [Fact]
     public void MoveAlongRoute_ThroughAJunction_UsesOnePipAndRecordsEachPieceOfTrack()
     {
         var engine = CreateEngine();
