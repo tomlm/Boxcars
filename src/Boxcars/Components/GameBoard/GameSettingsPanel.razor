@@ -12,6 +12,16 @@
                 <MudText Typo="Typo.caption">Nicknames for some cities, railroads and the Superchief, on your screen only.</MudText>
             </MudStack>
 
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.subtitle2">Sound</MudText>
+                <MudSwitch T="bool" Value="GameAudio" ValueChanged="GameAudioChanged" Color="Color.Primary"
+                           Label="Game sounds" />
+                <MudText Typo="Typo.caption">Boxcars, purchases, fees you collect, declarations, rovers and the winner.</MudText>
+                <MudSwitch T="bool" Value="TurnAudio" ValueChanged="TurnAudioChanged" Color="Color.Primary"
+                           Label="Your turn sound" />
+                <MudText Typo="Typo.caption">Plays when it's your turn. Pick the sound in Preferences.</MudText>
+            </MudStack>
+
             <MudDivider />
 
             <MudStack Spacing="0">
@@ -67,4 +77,18 @@
 
     [Parameter]
     public EventCallback<bool> SlangModeChanged { get; set; }
+
+    /// <summary>Whether this player hears the game's event sounds.</summary>
+    [Parameter]
+    public bool GameAudio { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> GameAudioChanged { get; set; }
+
+    /// <summary>Whether this player hears their "your turn" sound.</summary>
+    [Parameter]
+    public bool TurnAudio { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> TurnAudioChanged { get; set; }
 }

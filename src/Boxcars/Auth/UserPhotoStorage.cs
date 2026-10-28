@@ -9,7 +9,8 @@ namespace Boxcars.Auth;
 /// <summary>
 /// Stores externally-fetched user profile photos in a private blob container. The app serves them from
 /// <see cref="PhotoPathPrefix"/> (see <see cref="AuthEndpoints"/>), so <c>ApplicationUser.ThumbnailUrl</c> is an
-/// ordinary image URL even though the storage account doesn't allow public access.
+/// ordinary image URL even though the storage account doesn't allow public access. Players' uploaded "your turn" sounds
+/// are kept and served the same way.
 /// </summary>
 public sealed class UserPhotoStorage : IDisposable
 {
@@ -18,6 +19,14 @@ public sealed class UserPhotoStorage : IDisposable
     private const string ContainerName = "user-photos";
 
     private const string UploadedImagePrefix = "upload-";
+
+    private const string UploadedSoundPrefix = "sound-";
+
+    /// <summary>The largest "your turn" sound a player can upload.</summary>
+    public const long MaxSoundBytes = 1024 * 1024;
+
+    /// <summary>The kinds of sound file a player can upload, as the file picker's accept list.</summary>
+    public const string AcceptedSoundContentTypes = "audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/aac";
 
     private readonly BlobContainerClient _container;
     private readonly SemaphoreSlim _initLock = new(1, 1);
@@ -92,6 +101,38 @@ public sealed class UserPhotoStorage : IDisposable
         catch (RequestFailedException)
         {
         }
+    }
+
+    public static bool IsAcceptedSoundContentType(string? contentType)
+    {
+        return !string.IsNullOrWhiteSpace(contentType)
+            && AcceptedSoundContentTypes.Split(',').Contains(contentType, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Uploads a player's "your turn" sound and returns the app URL it's served from, or null if it couldn't be stored.
+    /// Each player has one sound file, which a new upload replaces; the URL carries a version so browsers don't keep
+    /// playing a cached earlier sound. Check the file with <see cref="IsAcceptedSoundContentType"/> and
+    /// <see cref="MaxSoundBytes"/> first.
+    /// </summary>
+    public async Task<string?> UploadUserSoundAsync(
+        string userId,
+        byte[] bytes,
+        string contentType,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(userId)
+            || bytes.Length == 0
+            || bytes.Length > MaxSoundBytes
+            || !IsAcceptedSoundContentType(contentType))
+        {
+            return null;
+        }
+
+        // Hashed so sound URLs don't expose the user's email address.
+        var blobName = $"{UploadedSoundPrefix}{HashUserId(userId)}";
+        var url = await TryUploadBlobAsync(blobName, bytes, contentType, cancellationToken);
+        return url is null ? null : $"{url}?v={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
     }
 
     /// <summary>Opens a stored photo for streaming, or returns null when there's no photo with that name.</summary>

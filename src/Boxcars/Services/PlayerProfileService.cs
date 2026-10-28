@@ -173,6 +173,56 @@ public class PlayerProfileService
         }
     }
 
+    /// <summary>Saves which sounds the player hears.</summary>
+    public async Task<bool> UpdateAudioAsync(string userId, bool gameAudio, bool turnAudio, CancellationToken cancellationToken)
+    {
+        var user = await _userDirectoryService.GetUserAsync(userId, cancellationToken);
+        if (user is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            user.GameAudioOff = !gameAudio;
+            user.TurnAudioOff = !turnAudio;
+            await _userDirectoryService.UpdateUserAsync(user, user.ETag, cancellationToken);
+            UpdateCachedProfile(user);
+            return true;
+        }
+        catch (RequestFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Saves the player's "your turn" sound and the sound they uploaded.</summary>
+    public async Task<bool> UpdateTurnSoundAsync(
+        string userId,
+        string turnSoundUrl,
+        string customTurnSoundUrl,
+        CancellationToken cancellationToken)
+    {
+        var user = await _userDirectoryService.GetUserAsync(userId, cancellationToken);
+        if (user is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            user.TurnSoundUrl = turnSoundUrl;
+            user.CustomTurnSoundUrl = customTurnSoundUrl;
+            await _userDirectoryService.UpdateUserAsync(user, user.ETag, cancellationToken);
+            UpdateCachedProfile(user);
+            return true;
+        }
+        catch (RequestFailedException)
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> UpdateStrategyTextAsync(string userId, string strategyText, CancellationToken cancellationToken)
     {
         var user = await _userDirectoryService.GetUserAsync(userId, cancellationToken);
@@ -258,6 +308,10 @@ public class PlayerProfileService
             PreferredColor = user.PreferredColor,
             StrategyText = user.StrategyText,
             SlangMode = user.SlangMode,
+            GameAudioOff = user.GameAudioOff,
+            TurnAudioOff = user.TurnAudioOff,
+            TurnSoundUrl = user.TurnSoundUrl,
+            CustomTurnSoundUrl = user.CustomTurnSoundUrl,
             IsBot = user.IsBot,
             CreatedByUserId = user.CreatedByUserId,
             CreatedUtc = user.CreatedUtc,

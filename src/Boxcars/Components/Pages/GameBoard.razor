@@ -303,7 +303,11 @@ else
                 {
                     <GameSettingsPanel Summary="_gameSettingsSummary"
                                        SlangMode="SlangMode"
-                                       SlangModeChanged="OnSlangModeChangedAsync" />
+                                       SlangModeChanged="OnSlangModeChangedAsync"
+                                       GameAudio="GameAudio"
+                                       GameAudioChanged="OnGameAudioChangedAsync"
+                                       TurnAudio="TurnAudio"
+                                       TurnAudioChanged="OnTurnAudioChangedAsync" />
                 }
                 else if (ShouldShowPurchaseAnalysisPanel)
                 {
@@ -1769,6 +1773,10 @@ else
         {
             // Before any await: updates start in the order they arrive, but a bot's events land milliseconds apart,
             // so after the refresh below a later update can finish first. Its play-by-play must not jump ahead.
+            var playersAlreadyAnnounced = _gameEngineEvents
+                .Where(item => item.EventKind == EventTimelineKind.CashAnnouncement && item.ActingPlayerIndex.HasValue)
+                .Select(item => item.ActingPlayerIndex!.Value)
+                .ToHashSet();
             if (!update.ReplaceTimeline)
             {
                 ApplyLiveTimelineItems(update.TimelineItems);
@@ -1779,6 +1787,7 @@ else
             var priorGameState = _gameState;
             var priorActivePlayerIndex = _gameState?.ActivePlayerIndex ?? -1;
             var wasAuthenticatedUserActivePlayer = IsAuthenticatedUserActivePlayer;
+            var wasCurrentUserActivePlayer = IsCurrentUserActivePlayer;
             _awaitingAuthoritativeUpdate = false;
 
             if (stateChangeVersion != Volatile.Read(ref _latestSharedStateChangeVersion))
@@ -1817,6 +1826,15 @@ else
             if (allRailroadsSoldNotice is not null)
             {
                 ShowNotification(allRailroadsSoldNotice, Severity.Warning, icon: Icons.Material.Filled.Train);
+            }
+
+            if (priorGameState is not null && !update.ReplaceTimeline)
+            {
+                var viewersTurnStarted = IsCurrentUserActivePlayer
+                    && (!wasCurrentUserActivePlayer
+                        || priorTurnNumber != state.TurnNumber
+                        || priorActivePlayerIndex != state.ActivePlayerIndex);
+                await PlayGameSoundsAsync(priorGameState, state, viewersTurnStarted, playersAlreadyAnnounced);
             }
 
             if (_autoZoomEnabled
@@ -3982,6 +4000,77 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         if (!await ProfileService.UpdateSlangModeAsync(_currentUserId, slangMode, CancellationToken.None))
         {
             ShowNotification("Slang mode couldn't be saved, so the change lasts only until you reload.", Severity.Warning);
+        }
+    }
+
+    /// <summary>Whether this player hears the game's event sounds (see <see cref="GameSounds"/>); saved to their profile.</summary>
+    private bool GameAudio => _currentUserProfile?.GameAudioOff != true;
+
+    /// <summary>Whether this player hears their "your turn" sound; saved to their profile.</summary>
+    private bool TurnAudio => _currentUserProfile?.TurnAudioOff != true;
+
+    private Task OnGameAudioChangedAsync(bool gameAudio) => SaveAudioAsync(gameAudio, TurnAudio);
+
+    private Task OnTurnAudioChangedAsync(bool turnAudio) => SaveAudioAsync(GameAudio, turnAudio);
+
+    private async Task SaveAudioAsync(bool gameAudio, bool turnAudio)
+    {
+        if (_currentUserProfile is null || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        _currentUserProfile.GameAudioOff = !gameAudio;
+        _currentUserProfile.TurnAudioOff = !turnAudio;
+        StateHasChanged();
+
+        if (!await ProfileService.UpdateAudioAsync(_currentUserId, gameAudio, turnAudio, CancellationToken.None))
+        {
+            ShowNotification("Sound settings couldn't be saved, so the change lasts only until you reload.", Severity.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Plays the sounds a game update sets off for this player: the game's events for everyone, and their own turn
+    /// and fees collected only for them.
+    /// </summary>
+    private async Task PlayGameSoundsAsync(
+        RailBaronGameState priorState,
+        RailBaronGameState state,
+        bool viewersTurnStarted,
+        IReadOnlySet<int> playersAlreadyAnnounced)
+    {
+        if (_game is null || (!GameAudio && !TurnAudio))
+        {
+            return;
+        }
+
+        var detected = GameSounds.Detect(
+            priorState,
+            state,
+            _currentUserPlayerIndex,
+            viewersTurnStarted,
+            GameSettingsResolver.Resolve(_game).Settings.AnnouncingCash,
+            playersAlreadyAnnounced);
+        LogBoardDebug($"Game sounds detected=[{string.Join(", ", detected)}] gameAudio={GameAudio} turnAudio={TurnAudio} turn={priorState.TurnNumber}->{state.TurnNumber} active={priorState.ActivePlayerIndex}->{state.ActivePlayerIndex}");
+        var sounds = detected
+            .Where(sound => sound == GameSound.PlayerTurn ? TurnAudio : GameAudio)
+            .Select(sound => GameSounds.GetUrl(sound, _currentUserProfile?.TurnSoundUrl))
+            .ToList();
+        if (sounds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await JavaScriptRuntime.InvokeVoidAsync("gameSounds.play", sounds);
+        }
+        catch (JSException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
         }
     }
 
