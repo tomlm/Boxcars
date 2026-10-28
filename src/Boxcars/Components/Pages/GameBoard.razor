@@ -2020,6 +2020,14 @@ else
         var keepCashSecret = resolvedSettings.KeepCashSecret
             && !string.Equals(state.GameStatus, Boxcars.Engine.Domain.GameStatus.Completed.ToString(), StringComparison.OrdinalIgnoreCase);
 
+        var paymentsReceived = PlayerPaymentModel.Build(
+            state,
+            state.Players.Select((player, index) => index < playerSelections.Count
+                && !string.IsNullOrWhiteSpace(playerSelections[index].DisplayName)
+                    ? playerSelections[index].DisplayName
+                    : player.Name).ToList(),
+            state.Players.Select((_, index) => ResolvePlayerColor(index < playerSelections.Count ? playerSelections[index] : null, index)).ToList());
+
         _players = state.Players
             .Select((player, index) =>
             {
@@ -2115,7 +2123,8 @@ else
                     OwnedRailroadCount = player.OwnedRailroadIndices.Count,
                     BonusPendingLabel = index == state.ActivePlayerIndex ? BuildBonusPendingLabel(state, player) : string.Empty,
                     FeesOwed = index == state.ActivePlayerIndex ? OperatingCapitalService.CalculateFeesOwed(state, index, resolvedSettings) : 0,
-                    CoverageMetrics = BuildPlayerCoverageMetricRows(player)
+                    CoverageMetrics = BuildPlayerCoverageMetricRows(player),
+                    PaymentsReceived = paymentsReceived[index]
                 };
             })
             .ToList();
@@ -4204,7 +4213,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                     OwnedRailroadCount = player.OwnedRailroadCount,
                     FeesOwed = player.FeesOwed,
                     BonusPendingLabel = player.BonusPendingLabel,
-                    CoverageMetrics = player.CoverageMetrics
+                    CoverageMetrics = player.CoverageMetrics,
+                    PaymentsReceived = player.PaymentsReceived
                 };
             })
             .ToList();
@@ -4902,24 +4912,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private static string GetPlayerHexColor(string color)
     {
-        return color switch
-        {
-            "darkblue" => "#0b3d91",
-            "blue" => "#2563eb",
-            "cyan" => "#06b6d4",
-            "red" => "#dc2626",
-            "darkred" => "#7f1d1d",
-            "orange" => "#ea580c",
-            "yellow" => "#facc15",
-            "purple" => "#9333ea",
-            "green" => "#16a34a",
-            "darkgreen" => "#166534",
-            "white" => "#f8fafc",
-            "lavender" => "#c4b5fd",
-            "black" => "#111827",
-            "hotpink" => "#ff1493",
-            _ => "#888"
-        };
+        return PlayerColorOptions.GetHex(color);
     }
 
     private static MudBlazor.Color ResolveNotificationHistoryIconColor(NotificationHistoryEntry item)

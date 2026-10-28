@@ -34,6 +34,29 @@ public static class PlayerColorOptions
         return match ?? normalizedFallback;
     }
 
+    /// <summary>The color's hex value, for drawing it.</summary>
+    public static string GetHex(string? color)
+    {
+        return NormalizeToken(color) switch
+        {
+            "darkblue" => "#0b3d91",
+            "blue" => "#2563eb",
+            "cyan" => "#06b6d4",
+            "red" => "#dc2626",
+            "darkred" => "#7f1d1d",
+            "orange" => "#ea580c",
+            "yellow" => "#facc15",
+            "purple" => "#9333ea",
+            "green" => "#16a34a",
+            "darkgreen" => "#166534",
+            "white" => "#f8fafc",
+            "lavender" => "#c4b5fd",
+            "black" => "#111827",
+            "hotpink" => "#ff1493",
+            _ => "#888"
+        };
+    }
+
     public static string ToLabel(string color)
     {
         return NormalizeToken(color) switch
