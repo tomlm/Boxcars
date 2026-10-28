@@ -6,6 +6,15 @@
     <MudPaper Outlined="true" Class="pa-3 mx-1 mb-1" Style="background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)">
         <MudStack Spacing="2">
             <MudStack Spacing="0">
+                <MudText Typo="Typo.subtitle2">Display</MudText>
+                <MudSwitch T="bool" Value="SlangMode" ValueChanged="SlangModeChanged" Color="Color.Primary"
+                           Label="Slang mode" />
+                <MudText Typo="Typo.caption">Nicknames for some cities, railroads and the Superchief, on your screen only.</MudText>
+            </MudStack>
+
+            <MudDivider />
+
+            <MudStack Spacing="0">
                 <MudText Typo="Typo.h6">@Summary.Title</MudText>
                 @if (!string.IsNullOrWhiteSpace(Summary.SourceDescription))
                 {
@@ -38,8 +47,8 @@
                     @foreach (var item in settingsSection.Items)
                     {
                         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Spacing="1">
-                            <MudText Typo="Typo.body2">@item.Label</MudText>
-                            <MudText Typo="Typo.body2" Align="Align.Right" Class="text-end">@item.Value</MudText>
+                            <MudText Typo="Typo.body2">@SlangNames.Apply(item.Label, SlangMode)</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Right" Class="text-end">@SlangNames.Apply(item.Value, SlangMode)</MudText>
                         </MudStack>
                     }
                 </MudStack>
@@ -51,4 +60,11 @@
 @code {
     [Parameter]
     public GameSettingsSummaryModel Summary { get; set; } = GameSettingsSummaryModel.Empty;
+
+    /// <summary>This player's slang mode, which they can turn on or off at any time.</summary>
+    [Parameter]
+    public bool SlangMode { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> SlangModeChanged { get; set; }
 }

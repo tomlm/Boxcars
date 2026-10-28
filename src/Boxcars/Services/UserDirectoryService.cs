@@ -345,6 +345,7 @@ public sealed class UserDirectoryService
             ThumbnailUrl = user.ThumbnailUrl,
             PreferredColor = user.PreferredColor,
             StrategyText = user.StrategyText,
+            SlangMode = user.SlangMode,
             IsBot = user.IsBot,
             CreatedByUserId = user.CreatedByUserId,
             CreatedUtc = user.CreatedUtc,

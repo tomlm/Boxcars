@@ -6,7 +6,7 @@
     {
         <div @key="card.EntryId"
              class="railroad-comparison-card flex-shrink-0 cursor-pointer"
-             title="Select @card.Overlay.RailroadName"
+             title="Select @SlangNames.Apply(card.Overlay.RailroadName, SlangMode)"
              @onclick="() => RailroadSelected.InvokeAsync(card.Overlay.RailroadIndex)">
             <RailroadPurchaseOverlay Overlay="card.Overlay" Compact="true" />
         </div>
@@ -14,6 +14,8 @@
 </div>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public IReadOnlyList<ComparedRailroadCard> Cards { get; set; } = [];
 

@@ -10,7 +10,7 @@
                 @foreach (var option in TaskbarState.Options)
                 {
                     <MudSelectItem T="string" Value="@option.OptionKey">
-                        <MudText Typo="Typo.body1" Inline="true" Style="white-space: nowrap">@option.DisplayName</MudText>
+                        <MudText Typo="Typo.body1" Inline="true" Style="white-space: nowrap">@SlangNames.Apply(option.DisplayName, SlangMode)</MudText>
                         <MudText Typo="Typo.body2" Inline="true" Color="@PurchaseAffordabilityStyles.TextColor(GetLevel(option))" Style="font-weight: 700; white-space: nowrap"> (@FormatCurrency(option.PurchasePrice))</MudText>
                     </MudSelectItem>
                 }
@@ -48,8 +48,8 @@
                             <MudMenuItem OnClick="@(() => OnSelectedOptionChangedAsync(recommendation.OptionKey))">
                                 <MudStack Spacing="0">
                                     <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">@recommendation.CategoryLabel</MudText>
-                                    <MudText Typo="Typo.body2" Style="white-space: nowrap">@recommendation.RailroadName (@FormatCurrency(recommendation.PurchasePrice))</MudText>
-                                    <MudText Typo="Typo.caption" Style="white-space: nowrap">@recommendation.Reason · @FormatCurrency(recommendation.SpareCash) over reserve</MudText>
+                                    <MudText Typo="Typo.body2" Style="white-space: nowrap">@SlangNames.Apply(recommendation.RailroadName, SlangMode) (@FormatCurrency(recommendation.PurchasePrice))</MudText>
+                                    <MudText Typo="Typo.caption" Style="white-space: nowrap">@SlangNames.Apply(recommendation.Reason, SlangMode) · @FormatCurrency(recommendation.SpareCash) over reserve</MudText>
                                 </MudStack>
                             </MudMenuItem>
                         }
@@ -72,6 +72,8 @@
 </MudPaper>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public PurchaseTaskbarState TaskbarState { get; set; } = new();
 

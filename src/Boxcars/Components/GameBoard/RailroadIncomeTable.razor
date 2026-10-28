@@ -24,7 +24,7 @@ else
                             <MudTh><MudTableSortLabel T="RailroadIncomeRow" SortBy="@(row => row.Multiplier)"><strong>Multiplier</strong></MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd Style="white-space: nowrap">@context.RailroadName</MudTd>
+                            <MudTd Style="white-space: nowrap">@SlangNames.Apply(context.RailroadName, SlangMode)</MudTd>
                             <MudTd>@FormatCurrency(context.PurchasePrice)</MudTd>
                             <MudTd>@FormatCurrency(context.FeesCollected)</MudTd>
                             <MudTd>@FormatMultiplier(context.Multiplier)</MudTd>
@@ -37,6 +37,8 @@ else
 }
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public RailroadIncome Income { get; set; } = RailroadIncome.Empty;
 

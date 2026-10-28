@@ -34,7 +34,7 @@
             <RowTemplate>
                 <MudTd>
                     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                        <MudText Typo="Typo.body2">@context.RailroadName</MudText>
+                        <MudText Typo="Typo.body2">@SlangNames.Apply(context.RailroadName, SlangMode)</MudText>
                         @if (IsSelected(context))
                         {
                             <MudChip T="string" Variant="Variant.Filled" Color="MudBlazor.Color.Info" Size="Size.Small">Selected</MudChip>
@@ -62,12 +62,14 @@
     @if (NetworkTab.SelectedRailroadImpact is not null)
     {
         <MudAlert Severity="Severity.Info" Dense="true">
-            Showing projected network impact for @NetworkTab.SelectedRailroadImpact.RailroadName.
+            Showing projected network impact for @SlangNames.Apply(NetworkTab.SelectedRailroadImpact.RailroadName, SlangMode).
         </MudAlert>
     }
 </MudStack>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public required NetworkTabModel NetworkTab { get; set; }
 

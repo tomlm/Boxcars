@@ -107,7 +107,7 @@
                                   y="@(city.Y - 1.2)"
                                   fill="#000000"
                                   stroke="#ffffff"
-                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 1.2)">@city.Name</svg:text>
+                                  transform="@GetTextUnstretchTransform(city.X + 2.2, city.Y - 1.2)">@SlangNames.Apply(city.Name, SlangMode)</svg:text>
                     }
                 </g>
 
@@ -397,7 +397,7 @@
                        Color="MudBlazor.Color.Primary"
                        Class="game-map-route-node-menu-item"
                        OnClick="OnDestinationMenuSelectedAsync">
-                Set as destination (@_destinationMenuCityName)
+                Set as destination (@SlangNames.Apply(_destinationMenuCityName, SlangMode))
             </MudButton>
         </MudStack>
     </MudPaper>
@@ -455,6 +455,10 @@
     /// </summary>
     [Parameter]
     public SharedRoutePreview? SharedRoute { get; set; }
+
+    /// <summary>Shows slang nicknames for city labels and railroad names (see <see cref="SlangNames"/>).</summary>
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
 
     /// <summary>Pulses every player's location marker, e.g. while the active player weighs declaring.</summary>
     [Parameter]
@@ -1719,7 +1723,7 @@
             ?? railroad?.MediumName
             ?? railroad?.Name
             ?? $"Railroad {railroadIndex}";
-        return $"{name} ({railroadIndex})";
+        return $"{SlangNames.Apply(name, SlangMode)} ({railroadIndex})";
     }
 
     private string GetRouteNodeRailMenuStyle()

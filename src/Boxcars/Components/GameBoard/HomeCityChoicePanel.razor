@@ -27,14 +27,14 @@
                          Color="MudBlazor.Color.Primary"
                          SelectedColor="MudBlazor.Color.Primary"
                          Style="min-width: 10rem; justify-content: center">
-                    @option.CityName
+                    @SlangNames.Apply(option.CityName, SlangMode)
                 </MudChip>
             }
         </MudChipSet>
 
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="4">
             <MudText Typo="Typo.caption">
-                Current home: @Phase.CurrentHomeCityName
+                Current home: @SlangNames.Apply(Phase.CurrentHomeCityName, SlangMode)
             </MudText>
             <MudButton Variant="Variant.Filled"
                        Color="MudBlazor.Color.Primary"
@@ -47,6 +47,8 @@
 </MudPaper>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter, EditorRequired]
     public HomeCityChoicePhaseModel Phase { get; set; } = new();
 

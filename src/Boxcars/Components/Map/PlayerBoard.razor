@@ -71,7 +71,7 @@
                                 {
                                     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" title="Home city">
                                         <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" />
-                                        <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@player.HomeCity</MudText>
+                                        <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
                                     </MudStack>
                                 }
                             </MudStack>
@@ -128,12 +128,12 @@
                                     @if (player.IsAtDestination)
                                     {
                                         <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">At Destination:</MudText>
-                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripDestinationLabel</MudText>
+                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@SlangNames.Apply(player.TripDestinationLabel, SlangMode)</MudText>
                                     }
                                     else
                                     {
                                         <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">Trip:</MudText>
-                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@player.TripStartLabel @("=>") @player.TripDestinationLabel</MudText>
+                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@SlangNames.Apply(player.TripStartLabel, SlangMode) @("=>") @SlangNames.Apply(player.TripDestinationLabel, SlangMode)</MudText>
                                     }
                                 </MudStack>
                                 @if (!player.IsAtDestination)
@@ -148,7 +148,7 @@
                             }
                             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
                                 <MudText Typo="Typo.subtitle2">Engine:</MudText>
-                                <MudText Typo="Typo.caption">@player.LocomotiveLabel</MudText>
+                                <MudText Typo="Typo.caption">@SlangNames.Apply(player.LocomotiveLabel, SlangMode)</MudText>
                             </MudStack>
                             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
                                 <MudText Typo="Typo.subtitle2">Cash:</MudText>
@@ -158,13 +158,13 @@
                             {
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
                                     <MudText Typo="Typo.subtitle2">Declared:</MudText>
-                                    <MudText Typo="Typo.caption">@player.HomeCity</MudText>
+                                    <MudText Typo="Typo.caption">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
                                 </MudStack>
                                 @if (!string.IsNullOrWhiteSpace(player.AlternateCity))
                                 {
                                     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
                                         <MudText Typo="Typo.subtitle2">Alternate City:</MudText>
-                                        <MudText Typo="Typo.caption">@player.AlternateCity</MudText>
+                                        <MudText Typo="Typo.caption">@SlangNames.Apply(player.AlternateCity, SlangMode)</MudText>
                                     </MudStack>
                                 }
                             }
@@ -189,6 +189,8 @@
     </MudStack>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = Array.Empty<PlayerBoardModel>();
 

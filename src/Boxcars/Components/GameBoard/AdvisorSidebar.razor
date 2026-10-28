@@ -5,7 +5,7 @@
     <MudPaper Outlined="true" Class="flex-grow-1 overflow-y-auto pa-3" Style="min-height: 0">
         @if (LatestAssistantMessage is not null)
         {
-            <MudMarkdown @rendermode="InteractiveServer" Value="@LatestAssistantMessage.Content" Props="@MarkdownProps" />
+            <MudMarkdown @rendermode="InteractiveServer" Value="@SlangNames.Apply(LatestAssistantMessage.Content, SlangMode)" Props="@MarkdownProps" />
             @if (LatestAssistantMessage.ContextTurnNumber.HasValue)
             {
                 <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
@@ -53,6 +53,8 @@
 </MudStack>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter, EditorRequired]
     public AdvisorEntryPointState EntryPoint { get; set; } = new();
 
