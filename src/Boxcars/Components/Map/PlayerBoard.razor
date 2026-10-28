@@ -179,6 +179,23 @@
                                     <MudText Typo="Typo.subtitle2" Color="Color.Error">$@player.FeesOwed.ToString("N0")</MudText>
                                 </MudStack>
                             }
+                            @if (player.PaymentsReceived.Count > 0)
+                            {
+                                @* Fees paid to this player, a bar per opponent in their color, scaled to the game's largest payment. *@
+                                <MudStack Spacing="1" Class="mt-1">
+                                    @foreach (var payment in player.PaymentsReceived)
+                                    {
+                                        <MudTooltip Text="@($"{payment.PayerName} paid ${payment.Amount:N0}")" Placement="Placement.Top" Arrow="true" Inline="false">
+                                            <MudProgressLinear Value="payment.Percent"
+                                                               Color="MudBlazor.Color.Primary"
+                                                               Size="Size.Small"
+                                                               Rounded="true"
+                                                               Style="@($"--mud-palette-primary: {PlayerColorOptions.GetHex(payment.PayerColor)}")"
+                                                               aria-label="@($"{payment.PayerName} paid ${payment.Amount:N0}")" />
+                                        </MudTooltip>
+                                    }
+                                </MudStack>
+                            }
 
                         </MudStack>
 
