@@ -111,10 +111,10 @@
                     }
                 </g>
 
-                @if (_routeSuggestionSegmentOverlays.Count > 0)
+                @if (VisibleSuggestionSegmentOverlays.Count > 0)
                 {
                     <g class="game-map-route-suggestion-segments">
-                        @foreach (var segOverlay in _routeSuggestionSegmentOverlays)
+                        @foreach (var segOverlay in VisibleSuggestionSegmentOverlays)
                         {
                             <line x1="@segOverlay.X1"
                                   y1="@segOverlay.Y1"
@@ -159,7 +159,8 @@
                     </g>
                 }
 
-                @if (SelectionMode == MapSelectionMode.Route && _selectedRouteSegments.Count > 0)
+                @if ((SelectionMode == MapSelectionMode.Route && _selectedRouteSegments.Count > 0)
+                     || (IsShowingSharedRoute && SharedRoute!.Selected.Count > 0))
                 {
                     <g class="game-map-route-suggestion-segments">
                         <style>
@@ -447,6 +448,13 @@
 
     [Parameter]
     public bool IsCurrentUserActivePlayer { get; set; }
+
+    /// <summary>
+    /// The route the player on turn is previewing, drawn read-only for everyone else. Ignored for the player on turn,
+    /// who sees their own selection.
+    /// </summary>
+    [Parameter]
+    public SharedRoutePreview? SharedRoute { get; set; }
 
     /// <summary>Pulses every player's location marker, e.g. while the active player weighs declaring.</summary>
     [Parameter]
@@ -2071,32 +2079,65 @@
     {
         if (_routeContext is null)
         {
-            yield break;
+            return [];
         }
 
-        foreach (var edge in _selectedRouteSegments)
+        var edges = IsShowingSharedRoute
+            ? ResolveSharedRouteEdges(SharedRoute!.Selected)
+            : _selectedRouteSegments;
+        return edges.Select(edge => BuildRouteSegmentOverlay(edge, isThisTurn: true));
+    }
+
+    /// <summary>Viewers who aren't on turn see the route the player on turn is previewing instead of their own.</summary>
+    private bool IsShowingSharedRoute => !IsCurrentUserActivePlayer && SharedRoute is not null;
+
+    private IReadOnlyList<RouteSuggestionSegmentOverlay> VisibleSuggestionSegmentOverlays => IsShowingSharedRoute
+        ? ResolveSharedRouteEdges(SharedRoute!.Suggested).Select(edge => BuildRouteSegmentOverlay(edge, isThisTurn: false)).ToList()
+        : _routeSuggestionSegmentOverlays;
+
+    private List<RouteGraphEdge> ResolveSharedRouteEdges(IReadOnlyList<SharedRouteSegment> segments)
+    {
+        var edges = new List<RouteGraphEdge>();
+        if (_routeContext is null)
         {
-            var rrColor = _railroadStrokeColors.TryGetValue(edge.RailroadIndex, out var rc) ? rc : "#000000";
-            var ownerColor = RailroadOwnerColors is not null
-                && RailroadOwnerColors.TryGetValue(edge.RailroadIndex, out var oc)
-                && !string.IsNullOrWhiteSpace(oc)
-                    ? oc
-                    : string.Empty;
-            var ownership = ResolveRailroadOwnershipCategory(edge.RailroadIndex);
-
-            yield return new RouteSuggestionSegmentOverlay
-            {
-                X1 = edge.X1,
-                Y1 = edge.Y1,
-                X2 = edge.X2,
-                Y2 = edge.Y2,
-                PlayerColor = PlayerColor,
-                RailroadColor = rrColor,
-                OwnerColor = ownerColor,
-                OwnershipCategory = ownership,
-                IsThisTurn = true
-            };
+            return edges;
         }
+
+        foreach (var segment in segments.Take(MapRouteService.RoutePlanningMaximumSuggestedSegments))
+        {
+            if (_routeContext.Adjacency.TryGetValue(segment.FromNodeId, out var adjacentEdges)
+                && adjacentEdges.FirstOrDefault(edge =>
+                    string.Equals(edge.ToNodeId, segment.ToNodeId, StringComparison.OrdinalIgnoreCase)
+                    && edge.RailroadIndex == segment.RailroadIndex) is { } resolvedEdge)
+            {
+                edges.Add(resolvedEdge);
+            }
+        }
+
+        return edges;
+    }
+
+    private RouteSuggestionSegmentOverlay BuildRouteSegmentOverlay(RouteGraphEdge edge, bool isThisTurn)
+    {
+        var rrColor = _railroadStrokeColors.TryGetValue(edge.RailroadIndex, out var rc) ? rc : "#000000";
+        var ownerColor = RailroadOwnerColors is not null
+            && RailroadOwnerColors.TryGetValue(edge.RailroadIndex, out var oc)
+            && !string.IsNullOrWhiteSpace(oc)
+                ? oc
+                : string.Empty;
+
+        return new RouteSuggestionSegmentOverlay
+        {
+            X1 = edge.X1,
+            Y1 = edge.Y1,
+            X2 = edge.X2,
+            Y2 = edge.Y2,
+            PlayerColor = PlayerColor,
+            RailroadColor = rrColor,
+            OwnerColor = ownerColor,
+            OwnershipCategory = ResolveRailroadOwnershipCategory(edge.RailroadIndex),
+            IsThisTurn = isThisTurn
+        };
     }
 
     private void BuildPlayerOverlays()
