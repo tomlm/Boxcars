@@ -25,6 +25,7 @@
 				  CurrentTurnMovementRemaining="@CurrentTurnMovementRemaining"
 				  CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
 				  IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+				  SharedRoute="@SharedRoute"
 				  PulsePlayerLocations="@PulsePlayerLocations"
 				  RouteSuggestionProvider="@RouteSuggestionProvider"
 				  MovementType="@MovementType"
@@ -127,6 +128,10 @@
 
 	[Parameter]
 	public bool IsCurrentUserActivePlayer { get; set; }
+
+	/// <summary>The route the player on turn is previewing, drawn read-only for everyone else.</summary>
+	[Parameter]
+	public SharedRoutePreview? SharedRoute { get; set; }
 
 	/// <summary>Pulses every player's location marker, e.g. while the active player weighs declaring.</summary>
 	[Parameter]

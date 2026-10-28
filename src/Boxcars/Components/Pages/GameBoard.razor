@@ -27,6 +27,7 @@
 @inject NavigationManager Navigation
 @inject GameService GameService
 @inject GamePresenceService GamePresenceService
+@inject SharedRoutePreviewService SharedRoutePreviewService
 @inject GameCircuitPresenceTracker GameCircuitPresenceTracker
 @inject GameBoardStateMapper GameBoardStateMapper
 @inject UserDirectoryService UserDirectoryService
@@ -175,6 +176,7 @@ else
                               CurrentTurnMovementAllowance="@CurrentTurnMovementAllowance"
                               MovementType="@CurrentMovementType"
                               IsCurrentUserActivePlayer="@IsCurrentUserActivePlayer"
+                              SharedRoute="@VisibleSharedRoute"
                               PulsePlayerLocations="@ShouldShowDeclarePanel"
                               RouteSuggestionProvider="@SuggestActivePlayerRouteAsync"
                               PlayerOwnedRailroadIndices="@ActivePlayerOwnedRailroadIndices"
@@ -482,6 +484,9 @@ else
     private string? _lastAutoSuggestKey;
     // Start and destination of the last failed route suggestion, so the warning shows once per position.
     private string? _lastRouteSuggestionFailureKey;
+    private SharedRoutePreview? _sharedRoute;
+    private IReadOnlyList<SharedRouteSegment> _selectedRouteToShare = [];
+    private IReadOnlyList<SharedRouteSegment> _suggestedRouteToShare = [];
     private string? _selectedPurchaseOptionKey;
     private int? _activeAuctionRailroadIndex;
     private int? _highlightedNetworkPlayerIndex;
@@ -590,6 +595,8 @@ else
     {
         Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync start", GameId);
         GamePresenceService.PresenceChanged += OnPresenceChanged;
+        SharedRoutePreviewService.PreviewChanged += OnSharedRoutePreviewChanged;
+        _sharedRoute = SharedRoutePreviewService.Get(GameId);
 
         if (AuthState is null)
         {
@@ -1553,12 +1560,22 @@ else
             _turnViewState.ArrivalResolution,
             _game);
 
+        _selectedRouteToShare = preview.SegmentKeys
+            .Select(ParseSharedRouteSegment)
+            .OfType<SharedRouteSegment>()
+            .ToList();
+        ShareRoutePreview();
+
         return InvokeAsync(StateHasChanged);
     }
 
     private async Task OnRouteSuggestionChangedAsync(RouteSuggestionResult suggestion)
     {
         ReportRouteSuggestionFailure(suggestion);
+        _suggestedRouteToShare = suggestion.Status == RouteSuggestionStatus.Success
+            ? suggestion.Segments.Select(segment => new SharedRouteSegment(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)).ToList()
+            : [];
+        ShareRoutePreview();
         _routeArrivalBonus = suggestion.ArrivalBonus;
         _routeRoverTargetPlayerName = suggestion.RoverTargetPlayerName;
 
@@ -4150,6 +4167,55 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return Task.CompletedTask;
     }
 
+    /// <summary>The route the player on turn is previewing, while it's still their turn.</summary>
+    private SharedRoutePreview? VisibleSharedRoute => _gameState is { } state
+        && _sharedRoute is { } sharedRoute
+        && sharedRoute.PlayerIndex == state.ActivePlayerIndex
+        && sharedRoute.TurnNumber == state.TurnNumber
+            ? sharedRoute
+            : null;
+
+    /// <summary>Shows everyone else in the game the route this player is previewing on their turn.</summary>
+    private void ShareRoutePreview()
+    {
+        if (_gameState is null || string.IsNullOrWhiteSpace(GameId) || !IsCurrentUserActivePlayer)
+        {
+            return;
+        }
+
+        SharedRoutePreviewService.Publish(GameId, new SharedRoutePreview(
+            _gameState.ActivePlayerIndex,
+            _gameState.TurnNumber,
+            _selectedRouteToShare,
+            _suggestedRouteToShare));
+    }
+
+    private void OnSharedRoutePreviewChanged(string gameId)
+    {
+        if (!string.Equals(gameId, GameId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            _sharedRoute = SharedRoutePreviewService.Get(GameId);
+            if (!IsCurrentUserActivePlayer)
+            {
+                StateHasChanged();
+            }
+        });
+    }
+
+    /// <summary>A selected segment key, "from|to|railroad", as a shared route segment.</summary>
+    private static SharedRouteSegment? ParseSharedRouteSegment(string segmentKey)
+    {
+        var parts = segmentKey.Split('|');
+        return parts.Length == 3 && int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var railroadIndex)
+            ? new SharedRouteSegment(parts[0], parts[1], railroadIndex)
+            : null;
+    }
+
     private void OnPresenceChanged(GamePresenceChange change)
     {
         if (!string.Equals(change.GameId, GameId, StringComparison.Ordinal))
@@ -5372,6 +5438,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     public async ValueTask DisposeAsync()
     {
         GamePresenceService.PresenceChanged -= OnPresenceChanged;
+        SharedRoutePreviewService.PreviewChanged -= OnSharedRoutePreviewChanged;
 
         try
         {

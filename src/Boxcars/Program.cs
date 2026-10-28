@@ -182,6 +182,7 @@ public class Program
         builder.Services.AddScoped<CircuitHandler, GamePresenceCircuitHandler>();
         builder.Services.AddSingleton<GamePresenceService>(serviceProvider =>
             new GamePresenceService(serviceProvider.GetRequiredService<TableServiceClient>()));
+        builder.Services.AddSingleton<SharedRoutePreviewService>();
         builder.Services.AddSingleton<UserDirectoryService>();
         builder.Services.AddSingleton<BotDecisionPromptBuilder>();
         builder.Services.AddSingleton<OpenAiBotClient>();

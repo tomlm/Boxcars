@@ -20,6 +20,31 @@ public enum RouteSuggestionStatus
     Error
 }
 
+/// <summary>One dot of a shared route: the track from one node to the next on a railroad.</summary>
+public sealed record SharedRouteSegment(string FromNodeId, string ToNodeId, int RailroadIndex);
+
+/// <summary>
+/// The route the player on turn is previewing, as others see it: <paramref name="Selected"/> is this turn's move
+/// (suggested or hand-picked), <paramref name="Suggested"/> the whole suggested route to the destination.
+/// </summary>
+public sealed record SharedRoutePreview(
+    int PlayerIndex,
+    int TurnNumber,
+    IReadOnlyList<SharedRouteSegment> Selected,
+    IReadOnlyList<SharedRouteSegment> Suggested)
+{
+    public bool Equals(SharedRoutePreview? other)
+    {
+        return other is not null
+            && PlayerIndex == other.PlayerIndex
+            && TurnNumber == other.TurnNumber
+            && Selected.SequenceEqual(other.Selected)
+            && Suggested.SequenceEqual(other.Suggested);
+    }
+
+    public override int GetHashCode() => HashCode.Combine(PlayerIndex, TurnNumber, Selected.Count, Suggested.Count);
+}
+
 public sealed class RouteSuggestionSegment
 {
     public required string FromNodeId { get; init; }
