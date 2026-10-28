@@ -28,6 +28,14 @@ public class ApplicationUser : ITableEntity
     public string StrategyText { get; set; } = string.Empty;
     /// <summary>Shows slang nicknames for some cities, railroads and the Superchief (see <see cref="SlangNames"/>).</summary>
     public bool SlangMode { get; set; }
+    /// <summary>Turns off the game's event sounds (see <see cref="GameSounds"/>). Stored as "off" so sound starts on.</summary>
+    public bool GameAudioOff { get; set; }
+    /// <summary>Turns off the sound that tells this player it's their turn.</summary>
+    public bool TurnAudioOff { get; set; }
+    /// <summary>The player's "your turn" sound: a stock sound or their <see cref="CustomTurnSoundUrl"/>; empty for the default.</summary>
+    public string TurnSoundUrl { get; set; } = string.Empty;
+    /// <summary>The sound the player uploaded, kept while they use a stock sound; empty when they haven't uploaded one.</summary>
+    public string CustomTurnSoundUrl { get; set; } = string.Empty;
     public bool IsBot { get; set; }
     public string CreatedByUserId { get; set; } = string.Empty;
     public DateTimeOffset CreatedUtc { get; set; }

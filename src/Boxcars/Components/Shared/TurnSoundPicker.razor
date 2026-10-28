@@ -1,0 +1,145 @@
+@using Boxcars.Auth
+@using Boxcars.Data
+@using Microsoft.AspNetCore.Components.Forms
+@using MudBlazor
+@inject IJSRuntime JavaScriptRuntime
+
+@* Picks the player's "your turn" sound: a stock sound, or Custom, the one they uploaded. Custom stays on the list once
+   they've uploaded, so picking a stock sound doesn't lose it. The page uploads PendingSound when it saves. *@
+<MudStack Spacing="1">
+    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+        <MudSelect T="string" Value="@SelectedValue" ValueChanged="OnSelectedAsync" Label="Your turn sound"
+                   Variant="Variant.Outlined" Disabled="@Disabled" Class="flex-grow-1">
+            @foreach (var sound in GameSounds.StockTurnSounds)
+            {
+                <MudSelectItem T="string" Value="@sound.Url">@sound.Name</MudSelectItem>
+            }
+            @if (HasCustomSound)
+            {
+                <MudSelectItem T="string" Value="@CustomValue">Custom</MudSelectItem>
+            }
+        </MudSelect>
+        <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="MudBlazor.Color.Primary" OnClick="PlayCurrentAsync"
+                       aria-label="Play" Disabled="@Disabled" />
+    </MudStack>
+    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+        <MudFileUpload T="IBrowserFile" Accept="@UserPhotoStorage.AcceptedSoundContentTypes" FilesChanged="OnFileSelectedAsync">
+            <ActivatorContent>
+                <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Upload" Disabled="@(Disabled || _reading)">
+                    Upload Sound
+                </MudButton>
+            </ActivatorContent>
+        </MudFileUpload>
+    </MudStack>
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Error">@_error</MudText>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Style="opacity: 0.75">
+            @(PendingSound is null ? "MP3, WAV, OGG, WebM or M4A, up to 1 MB. Keep it short." : "New sound will be saved when you save changes.")
+        </MudText>
+    }
+</MudStack>
+
+@code {
+    /// <summary>The <see cref="SoundUrl"/> that means the player's uploaded sound.</summary>
+    public const string CustomValue = "custom";
+
+    private string? _error;
+    private bool _reading;
+
+    /// <summary>The chosen sound: a stock sound's URL, <see cref="CustomValue"/>, or empty for the default.</summary>
+    [Parameter]
+    public string? SoundUrl { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> SoundUrlChanged { get; set; }
+
+    /// <summary>The sound the player uploaded before, or empty.</summary>
+    [Parameter]
+    public string? CustomSoundUrl { get; set; }
+
+    /// <summary>A sound picked but not yet uploaded; it replaces <see cref="CustomSoundUrl"/> when the page saves.</summary>
+    [Parameter]
+    public PendingSoundUpload? PendingSound { get; set; }
+
+    [Parameter]
+    public EventCallback<PendingSoundUpload?> PendingSoundChanged { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    private bool HasCustomSound => PendingSound is not null || !string.IsNullOrWhiteSpace(CustomSoundUrl);
+
+    private string SelectedValue => string.IsNullOrWhiteSpace(SoundUrl) ? GameSounds.DefaultTurnSoundUrl : SoundUrl;
+
+    /// <summary>What the custom sound plays: the one just picked, or the one uploaded before.</summary>
+    private string? CustomPlayUrl => PendingSound?.DataUrl ?? CustomSoundUrl;
+
+    private async Task OnSelectedAsync(string value)
+    {
+        _error = null;
+        await SoundUrlChanged.InvokeAsync(value);
+        await PlayAsync(value == CustomValue ? CustomPlayUrl : value);
+    }
+
+    private Task PlayCurrentAsync()
+    {
+        return PlayAsync(SelectedValue == CustomValue ? CustomPlayUrl : SelectedValue);
+    }
+
+    private async Task PlayAsync(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        // Cast so the array is one argument; a bare string[] would be taken as the whole argument list.
+        await JavaScriptRuntime.InvokeVoidAsync("gameSounds.play", (object)new[] { url });
+    }
+
+    private async Task OnFileSelectedAsync(IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+
+        _error = null;
+        if (!UserPhotoStorage.IsAcceptedSoundContentType(file.ContentType))
+        {
+            _error = "Choose an MP3, WAV, OGG, WebM or M4A sound.";
+            return;
+        }
+
+        if (file.Size > UserPhotoStorage.MaxSoundBytes)
+        {
+            _error = "Sound must be 1 MB or smaller.";
+            return;
+        }
+
+        _reading = true;
+        try
+        {
+            await using var stream = file.OpenReadStream(UserPhotoStorage.MaxSoundBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var sound = new PendingSoundUpload(buffer.ToArray(), file.ContentType);
+            await PendingSoundChanged.InvokeAsync(sound);
+            await SoundUrlChanged.InvokeAsync(CustomValue);
+            await PlayAsync(sound.DataUrl);
+        }
+        catch (IOException)
+        {
+            _error = "Unable to read that sound.";
+        }
+        finally
+        {
+            _reading = false;
+        }
+    }
+}

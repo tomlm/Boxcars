@@ -79,6 +79,11 @@ else
 
                     <Boxcars.Components.Shared.PlayerColorPicker @bind-Value="CurrentInput.PreferredColor" />
 
+                    <Boxcars.Components.Shared.TurnSoundPicker @bind-SoundUrl="CurrentInput.TurnSoundUrl"
+                                                               CustomSoundUrl="@_customTurnSoundUrl"
+                                                               @bind-PendingSound="_pendingSound"
+                                                               Disabled="@_saving" />
+
                     <MudStack Row="true" Spacing="4" Style="margin-top: 0.5rem">
                         <MudButton ButtonType="MudBlazor.ButtonType.Submit" Variant="Variant.Filled"
                                    Color="MudBlazor.Color.Primary" Disabled="@_saving">
@@ -109,7 +114,10 @@ else
     private string originalThumbnailUrl = string.Empty;
     private string originalPreferredColor = PlayerColorOptions.Colors[0];
     private string originalStrategyText = string.Empty;
+    private string originalTurnSoundUrl = string.Empty;
+    private string _customTurnSoundUrl = string.Empty;
     private byte[]? _pendingImage;
+    private PendingSoundUpload? _pendingSound;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -161,10 +169,18 @@ else
         CurrentInput.ThumbnailUrl = _profile.ThumbnailUrl;
         CurrentInput.PreferredColor = PlayerColorOptions.NormalizeOrDefault(_profile.PreferredColor);
         CurrentInput.StrategyText = PlayerProfileService.ResolveStrategyTextOrDefault(_profile.StrategyText);
+        // Sounds uploaded before Custom was kept separately are only in TurnSoundUrl.
+        _customTurnSoundUrl = !string.IsNullOrWhiteSpace(_profile.CustomTurnSoundUrl)
+            ? _profile.CustomTurnSoundUrl
+            : GameSounds.StockTurnSounds.Any(sound => sound.Url == _profile.TurnSoundUrl) ? string.Empty : _profile.TurnSoundUrl;
+        CurrentInput.TurnSoundUrl = !string.IsNullOrWhiteSpace(_customTurnSoundUrl) && _profile.TurnSoundUrl == _customTurnSoundUrl
+            ? Boxcars.Components.Shared.TurnSoundPicker.CustomValue
+            : _profile.TurnSoundUrl;
         originalNickname = CurrentInput.Nickname ?? string.Empty;
         originalThumbnailUrl = CurrentInput.ThumbnailUrl ?? string.Empty;
         originalPreferredColor = CurrentInput.PreferredColor ?? PlayerColorOptions.Colors[0];
         originalStrategyText = CurrentInput.StrategyText ?? string.Empty;
+        originalTurnSoundUrl = CurrentInput.TurnSoundUrl ?? string.Empty;
 
         if (RequiredStrategy && !PlayerProfileService.HasRequiredStrategyText(_profile.StrategyText))
         {
@@ -195,6 +211,9 @@ else
             || !string.Equals(thumbnailUrl, originalThumbnailUrl, StringComparison.Ordinal);
         var preferredColorChanged = !string.Equals(preferredColor, originalPreferredColor, StringComparison.Ordinal);
         var strategyChanged = !string.Equals(strategyText, originalStrategyText, StringComparison.Ordinal);
+        var turnSoundUrl = CurrentInput.TurnSoundUrl?.Trim() ?? string.Empty;
+        var turnSoundChanged = _pendingSound is not null
+            || !string.Equals(turnSoundUrl, originalTurnSoundUrl, StringComparison.Ordinal);
 
         try
         {
@@ -205,7 +224,7 @@ else
                 return;
             }
 
-            if (!nicknameChanged && !thumbnailChanged && !preferredColorChanged && !strategyChanged)
+            if (!nicknameChanged && !thumbnailChanged && !preferredColorChanged && !strategyChanged && !turnSoundChanged)
             {
                 message = "No changes to save.";
                 messageSeverity = Severity.Info;
@@ -300,6 +319,41 @@ CancellationToken.None);
                 _profile.StrategyText = strategyText;
             }
 
+            if (turnSoundChanged)
+            {
+                var customTurnSoundUrl = _customTurnSoundUrl;
+                if (_pendingSound is not null)
+                {
+                    // Replaces the player's earlier upload.
+                    var uploadedUrl = await PhotoStorage.UploadUserSoundAsync(currentUserId, _pendingSound.Bytes,
+                        _pendingSound.ContentType, CancellationToken.None);
+                    if (uploadedUrl is null)
+                    {
+                        message = "Error: Sound upload failed, please try again.";
+                        messageSeverity = Severity.Error;
+                        return;
+                    }
+
+                    customTurnSoundUrl = uploadedUrl;
+                }
+
+                var savedTurnSoundUrl = turnSoundUrl == Boxcars.Components.Shared.TurnSoundPicker.CustomValue
+                    ? customTurnSoundUrl
+                    : turnSoundUrl;
+                if (!await ProfileService.UpdateTurnSoundAsync(currentUserId, savedTurnSoundUrl, customTurnSoundUrl,
+                        CancellationToken.None))
+                {
+                    message = "Error: Save failed, please try again.";
+                    messageSeverity = Severity.Error;
+                    return;
+                }
+
+                _profile.TurnSoundUrl = savedTurnSoundUrl;
+                _profile.CustomTurnSoundUrl = customTurnSoundUrl;
+                _customTurnSoundUrl = customTurnSoundUrl;
+                _pendingSound = null;
+            }
+
             if (nicknameChanged || preferredColorChanged)
             {
                 // The player's games keep their own copy of the name and color; bring the unfinished ones up to date.
@@ -319,6 +373,7 @@ CancellationToken.None);
             originalThumbnailUrl = thumbnailUrl;
             originalPreferredColor = preferredColor;
             originalStrategyText = strategyText;
+            originalTurnSoundUrl = turnSoundUrl;
 
             if (RequiredStrategy)
             {
@@ -355,6 +410,9 @@ CancellationToken.None);
         [Required(ErrorMessage = "Strategy is required.")]
         [Display(Name = "Strategy")]
         public string? StrategyText { get; set; }
+
+        [Display(Name = "Your turn sound")]
+        public string? TurnSoundUrl { get; set; }
     }
 
     private void NavigateBack()
