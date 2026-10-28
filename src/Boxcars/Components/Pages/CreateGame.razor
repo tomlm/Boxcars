@@ -87,28 +87,26 @@
                         @{ var showColor = HasPreferredColorClash(slot); }
                         <MudGrid>
                             <MudItem xs="12" md="@(showColor ? 7 : 12)">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                    @PlayerAvatar(FindProfile(slot.UserId))
-                                    <MudSelect T="string"
-                                               Label="Player"
-                                               Value="@slot.UserId"
-                                               ValueChanged="@(value => OnPlayerChangedAsync(slot, value))"
-                                               ToStringFunc="@(userId => FindProfile(userId) is { } profile ? GetPlayerLabel(profile) : string.Empty)"
-                                               Variant="Variant.Outlined"
-                                               Disabled="@(slot.IsCreatorSeat || IsBusy)"
-                                               FullWidth="true"
-                                               Class="flex-grow-1">
-                                        @foreach (var profile in GetSelectablePlayers(slot))
-                                        {
-                                            <MudSelectItem Value="@profile.RowKey">
-                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                                    @PlayerAvatar(profile)
-                                                    <MudText Typo="Typo.body2">@GetPlayerLabel(profile)</MudText>
-                                                </MudStack>
-                                            </MudSelectItem>
-                                        }
-                                    </MudSelect>
-                                </MudStack>
+                                @* The selected player's item, picture and all, is drawn in the box; subtitle1's taller line fits the picture. *@
+                                <MudSelect T="string"
+                                           Label="Player"
+                                           Value="@slot.UserId"
+                                           ValueChanged="@(value => OnPlayerChangedAsync(slot, value))"
+                                           ToStringFunc="@(userId => FindProfile(userId) is { } profile ? GetPlayerLabel(profile) : string.Empty)"
+                                           Typo="Typo.subtitle1"
+                                           Variant="Variant.Outlined"
+                                           Disabled="@(slot.IsCreatorSeat || IsBusy)"
+                                           FullWidth="true">
+                                    @foreach (var profile in GetSelectablePlayers(slot))
+                                    {
+                                        <MudSelectItem Value="@profile.RowKey">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                                @PlayerAvatar(profile)
+                                                <MudText Typo="Typo.body2">@GetPlayerLabel(profile)</MudText>
+                                            </MudStack>
+                                        </MudSelectItem>
+                                    }
+                                </MudSelect>
                             </MudItem>
                             @if (showColor)
                             {
@@ -739,14 +737,14 @@
 
     /// <summary>The player's profile picture, or a person or robot icon when they have none.</summary>
     private static RenderFragment PlayerAvatar(ApplicationUser? profile) =>
-        @<MudAvatar Size="Size.Medium">
+        @<MudAvatar Size="Size.Small">
             @if (!string.IsNullOrWhiteSpace(profile?.ThumbnailUrl))
             {
                 <MudImage Src="@profile.ThumbnailUrl" Alt="@profile.Nickname" />
             }
             else
             {
-                <MudIcon Icon="@(profile?.IsBot == true ? Icons.Material.Filled.SmartToy : Icons.Material.Filled.Person)" />
+                <MudIcon Icon="@(profile?.IsBot == true ? Icons.Material.Filled.SmartToy : Icons.Material.Filled.Person)" Size="Size.Small" />
             }
         </MudAvatar>;
 
