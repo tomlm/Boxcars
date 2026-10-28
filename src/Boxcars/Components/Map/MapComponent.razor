@@ -196,7 +196,7 @@
                 }
 
                 <g class="game-map-train-dots">
-                    @foreach (var dot in _renderModel.TrainDots)
+                    @foreach (var dot in _renderModel.TrainDots.Where(dot => !dot.IsJunction))
                     {
                         <circle cx="@dot.X" cy="@dot.Y" r="0.9" />
                     }
@@ -323,7 +323,7 @@
                     var routeNodeHitboxHeight = GetRouteNodeHitboxHeight();
 
                     <g class="game-map-route-node-hitboxes">
-                        @foreach (var routeNode in _routeNodes)
+                        @foreach (var routeNode in _routeNodes.Where(routeNode => !IsJunctionNode(routeNode.NodeId)))
                         {
                             <rect x="@(routeNode.X - (routeNodeHitboxWidth / 2))"
                                   y="@(routeNode.Y - (routeNodeHitboxHeight / 2))"
@@ -1384,26 +1384,8 @@
             ? segments.Take(Math.Max(0, segments.Count - 1)).ToList()
             : segments.ToList();
 
-        return !usableSegments.Any(traveled => IsSameRailroadSegment(traveled, segment))
+        return !usableSegments.Any(traveled => traveled.SharesTrackWith(segment))
             && !IsSegmentAlreadyTraveledThisTrip(segment);
-    }
-
-    private static bool IsSameRailroadSegment(RouteGraphEdge left, RouteGraphEdge right)
-    {
-        if (left.RailroadIndex != right.RailroadIndex)
-        {
-            return false;
-        }
-
-        var sameDirection = string.Equals(left.FromNodeId, right.FromNodeId, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(left.ToNodeId, right.ToNodeId, StringComparison.OrdinalIgnoreCase);
-        if (sameDirection)
-        {
-            return true;
-        }
-
-        return string.Equals(left.FromNodeId, right.ToNodeId, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(left.ToNodeId, right.FromNodeId, StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsLegalRouteExtension(IReadOnlyList<RouteGraphEdge> extensionSegments)
@@ -2045,18 +2027,21 @@
                     ? oc
                     : string.Empty;
 
-            _routeSuggestionSegmentOverlays.Add(new RouteSuggestionSegmentOverlay
+            foreach (var piece in GetDrawnPieces(edge))
             {
-                X1 = edge.X1,
-                Y1 = edge.Y1,
-                X2 = edge.X2,
-                Y2 = edge.Y2,
-                PlayerColor = PlayerColor,
-                RailroadColor = rrColor,
-                OwnerColor = ownerColor,
-                OwnershipCategory = segment.OwnershipCategory,
-                IsThisTurn = false
-            });
+                _routeSuggestionSegmentOverlays.Add(new RouteSuggestionSegmentOverlay
+                {
+                    X1 = piece.X1,
+                    Y1 = piece.Y1,
+                    X2 = piece.X2,
+                    Y2 = piece.Y2,
+                    PlayerColor = PlayerColor,
+                    RailroadColor = rrColor,
+                    OwnerColor = ownerColor,
+                    OwnershipCategory = segment.OwnershipCategory,
+                    IsThisTurn = false
+                });
+            }
         }
     }
 
@@ -2089,14 +2074,14 @@
         var edges = IsShowingSharedRoute
             ? ResolveSharedRouteEdges(SharedRoute!.Selected)
             : _selectedRouteSegments;
-        return edges.Select(edge => BuildRouteSegmentOverlay(edge, isThisTurn: true));
+        return edges.SelectMany(edge => BuildRouteSegmentOverlays(edge, isThisTurn: true));
     }
 
     /// <summary>Viewers who aren't on turn see the route the player on turn is previewing instead of their own.</summary>
     private bool IsShowingSharedRoute => !IsCurrentUserActivePlayer && SharedRoute is not null;
 
     private IReadOnlyList<RouteSuggestionSegmentOverlay> VisibleSuggestionSegmentOverlays => IsShowingSharedRoute
-        ? ResolveSharedRouteEdges(SharedRoute!.Suggested).Select(edge => BuildRouteSegmentOverlay(edge, isThisTurn: false)).ToList()
+        ? ResolveSharedRouteEdges(SharedRoute!.Suggested).SelectMany(edge => BuildRouteSegmentOverlays(edge, isThisTurn: false)).ToList()
         : _routeSuggestionSegmentOverlays;
 
     private List<RouteGraphEdge> ResolveSharedRouteEdges(IReadOnlyList<SharedRouteSegment> segments)
@@ -2121,7 +2106,8 @@
         return edges;
     }
 
-    private RouteSuggestionSegmentOverlay BuildRouteSegmentOverlay(RouteGraphEdge edge, bool isThisTurn)
+    /// <summary>The overlay lines for an edge: one per piece of track, so it bends through a junction.</summary>
+    private IEnumerable<RouteSuggestionSegmentOverlay> BuildRouteSegmentOverlays(RouteGraphEdge edge, bool isThisTurn)
     {
         var rrColor = _railroadStrokeColors.TryGetValue(edge.RailroadIndex, out var rc) ? rc : "#000000";
         var ownerColor = RailroadOwnerColors is not null
@@ -2130,18 +2116,32 @@
                 ? oc
                 : string.Empty;
 
-        return new RouteSuggestionSegmentOverlay
+        return GetDrawnPieces(edge).Select(piece => new RouteSuggestionSegmentOverlay
         {
-            X1 = edge.X1,
-            Y1 = edge.Y1,
-            X2 = edge.X2,
-            Y2 = edge.Y2,
+            X1 = piece.X1,
+            Y1 = piece.Y1,
+            X2 = piece.X2,
+            Y2 = piece.Y2,
             PlayerColor = PlayerColor,
             RailroadColor = rrColor,
             OwnerColor = ownerColor,
             OwnershipCategory = ResolveRailroadOwnershipCategory(edge.RailroadIndex),
             IsThisTurn = isThisTurn
-        };
+        });
+    }
+
+    /// <summary>The lines an edge is drawn with: its pieces of track, or a straight line when it has none.</summary>
+    private static IReadOnlyList<RouteTrackPiece> GetDrawnPieces(RouteGraphEdge edge)
+    {
+        return edge.Pieces.Count > 0
+            ? edge.Pieces
+            : [new RouteTrackPiece { SegmentKey = edge.SegmentKey, X1 = edge.X1, Y1 = edge.Y1, X2 = edge.X2, Y2 = edge.Y2 }];
+    }
+
+    /// <summary>A junction: where a railroad branches between pips, which isn't a stop.</summary>
+    private bool IsJunctionNode(string nodeId)
+    {
+        return _routeContext?.DotLookup.TryGetValue(nodeId, out var dot) == true && dot.IsJunction;
     }
 
     private void BuildPlayerOverlays()
@@ -2251,6 +2251,13 @@
         if (string.IsNullOrWhiteSpace(segmentKey))
         {
             return false;
+        }
+
+        if (_routeContext!.TrackPieces.TryGetValue(segmentKey, out var piece))
+        {
+            midpointX = (piece.X1 + piece.X2) / 2.0;
+            midpointY = (piece.Y1 + piece.Y2) / 2.0;
+            return true;
         }
 
         // Format: "NodeA-NodeB:RR" or legacy "NodeA-NodeB"
@@ -2375,9 +2382,8 @@
 
     private bool IsSegmentAlreadyTraveledThisTrip(RouteGraphEdge segment)
     {
-        return GetActivePlayerTraveledSegmentKeys().Contains(
-            BuildNormalizedSegmentKey(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex),
-            StringComparer.OrdinalIgnoreCase);
+        var traveledSegmentKeys = GetActivePlayerTraveledSegmentKeys();
+        return segment.TrackKeys.Any(key => traveledSegmentKeys.Contains(key, StringComparer.OrdinalIgnoreCase));
     }
 
     private static string BuildNormalizedSegmentKey(string fromNodeId, string toNodeId, int railroadIndex)
@@ -2823,32 +2829,13 @@
 
     private bool IsRailroadSegmentInSelectedRoute(RailroadRenderSegment segment)
     {
-        var startNodeId = MapRouteService.NodeKey(segment.StartRegionIndex, segment.StartDotIndex);
-        var endNodeId = MapRouteService.NodeKey(segment.EndRegionIndex, segment.EndDotIndex);
-
-        foreach (var routeSegment in _selectedRouteSegments)
-        {
-            if (routeSegment.RailroadIndex != segment.RailroadIndex)
-            {
-                continue;
-            }
-
-            var forwardMatch = string.Equals(routeSegment.FromNodeId, startNodeId, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(routeSegment.ToNodeId, endNodeId, StringComparison.OrdinalIgnoreCase);
-            if (forwardMatch)
-            {
-                return true;
-            }
-
-            var reverseMatch = string.Equals(routeSegment.FromNodeId, endNodeId, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(routeSegment.ToNodeId, startNodeId, StringComparison.OrdinalIgnoreCase);
-            if (reverseMatch)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        // The selected route's track, which may run through a junction.
+        var segmentKey = BuildNormalizedSegmentKey(
+            MapRouteService.NodeKey(segment.StartRegionIndex, segment.StartDotIndex),
+            MapRouteService.NodeKey(segment.EndRegionIndex, segment.EndDotIndex),
+            segment.RailroadIndex);
+        return _selectedRouteSegments.Any(routeSegment => routeSegment.RailroadIndex == segment.RailroadIndex
+            && routeSegment.TrackKeys.Contains(segmentKey, StringComparer.OrdinalIgnoreCase));
     }
 
     public int GetSelectedRouteMoveCount()
@@ -2992,6 +2979,18 @@
         return RoutePreviewChanged.InvokeAsync(BuildSelectedRoutePreview());
     }
 
+    /// <summary>The edge a "from|to|railroad" segment key names, such as one through a junction.</summary>
+    private RouteGraphEdge? TryFindEdge(string segmentKey)
+    {
+        var parts = segmentKey.Split('|');
+        return parts.Length == 3
+            && int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var railroadIndex)
+            && _routeContext?.Adjacency.TryGetValue(parts[0], out var edges) == true
+                ? edges.FirstOrDefault(edge => edge.RailroadIndex == railroadIndex
+                    && string.Equals(edge.ToNodeId, parts[1], StringComparison.OrdinalIgnoreCase))
+                : null;
+    }
+
     public void ShowMoveAnimation(IReadOnlyList<string> segmentKeys, string playerColor)
     {
         _moveAnimationSegments.Clear();
@@ -3018,6 +3017,10 @@
             if (segmentLookup.TryGetValue(segmentKey, out var renderSeg))
             {
                 _moveAnimationSegments.Add(new MoveAnimationSegment(renderSeg.X1, renderSeg.Y1, renderSeg.X2, renderSeg.Y2));
+            }
+            else if (TryFindEdge(segmentKey) is { } edge)
+            {
+                _moveAnimationSegments.AddRange(GetDrawnPieces(edge).Select(piece => new MoveAnimationSegment(piece.X1, piece.Y1, piece.X2, piece.Y2)));
             }
         }
 

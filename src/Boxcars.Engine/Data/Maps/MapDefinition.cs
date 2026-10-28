@@ -791,6 +791,138 @@ public sealed class RailroadDefinition
     public int? Blue { get; init; }
 }
 
+/// <summary>
+/// One pip of movement: the track between two stops on a railroad. Usually a single segment; where the railroad
+/// branches at a junction, the track runs on through it (<see cref="TrainDot.IsJunction"/>), since a junction isn't a
+/// pip. <see cref="TrackNodeIds"/> lists every dot the track passes, from <see cref="FromNodeId"/> to
+/// <see cref="ToNodeId"/>.
+/// </summary>
+public sealed record MovementLink(int RailroadIndex, IReadOnlyList<string> TrackNodeIds)
+{
+    public string FromNodeId => TrackNodeIds[0];
+    public string ToNodeId => TrackNodeIds[^1];
+
+    /// <summary>The same track ridden the other way.</summary>
+    public MovementLink Reversed() => this with { TrackNodeIds = TrackNodeIds.Reverse().ToList() };
+}
+
+public static class MovementLinks
+{
+    /// <summary>The node id the route graph uses for a dot: "region:dot".</summary>
+    public static string NodeKey(int regionIndex, int dotIndex)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"{regionIndex}:{dotIndex}");
+    }
+
+    /// <summary>
+    /// The map's pips of movement, each listed once in one direction. A railroad's track through a junction joins
+    /// every pair of stops on its branches. <paramref name="junctionDepartures"/> are the one-way links from a junction
+    /// to the stops around it, only for a player already standing on one (as an older game may have left them).
+    /// </summary>
+    public static IReadOnlyList<MovementLink> Build(MapDefinition map, out IReadOnlyList<MovementLink> junctionDepartures)
+    {
+        var junctions = map.TrainDots
+            .Where(dot => dot.IsJunction)
+            .Select(dot => NodeKey(dot.RegionIndex, dot.DotIndex))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Each piece of track once, whichever way the map file lists it.
+        var track = new Dictionary<string, List<(string NodeId, int RailroadIndex)>>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var links = new List<MovementLink>();
+        foreach (var segment in map.RailroadRouteSegments)
+        {
+            var from = NodeKey(segment.StartRegionIndex, segment.StartDotIndex);
+            var to = NodeKey(segment.EndRegionIndex, segment.EndDotIndex);
+            var ordered = string.Compare(from, to, StringComparison.OrdinalIgnoreCase) <= 0 ? (from, to) : (to, from);
+            if (string.Equals(from, to, StringComparison.OrdinalIgnoreCase)
+                || !seen.Add(string.Create(CultureInfo.InvariantCulture, $"{ordered.Item1}|{ordered.Item2}|{segment.RailroadIndex}")))
+            {
+                continue;
+            }
+
+            AddTrack(track, from, to, segment.RailroadIndex);
+            AddTrack(track, to, from, segment.RailroadIndex);
+            if (!junctions.Contains(from) && !junctions.Contains(to))
+            {
+                links.Add(new MovementLink(segment.RailroadIndex, [from, to]));
+            }
+        }
+
+        // From each stop into a junction, follow the railroad through junctions to every other stop it reaches.
+        var throughJunctions = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (stop, pieces) in track.Where(entry => !junctions.Contains(entry.Key)))
+        {
+            foreach (var (junction, railroadIndex) in pieces.Where(piece => junctions.Contains(piece.NodeId)))
+            {
+                foreach (var path in FollowThroughJunctions(track, junctions, [stop, junction], railroadIndex))
+                {
+                    // Keep each link once: from the stop that sorts first.
+                    if (string.Compare(path[0], path[^1], StringComparison.OrdinalIgnoreCase) < 0
+                        && throughJunctions.Add(string.Join("|", path) + "|" + railroadIndex))
+                    {
+                        links.Add(new MovementLink(railroadIndex, path));
+                    }
+                }
+            }
+        }
+
+        var departures = new List<MovementLink>();
+        foreach (var junction in junctions)
+        {
+            foreach (var (next, railroadIndex) in track.GetValueOrDefault(junction) ?? [])
+            {
+                var paths = junctions.Contains(next)
+                    ? FollowThroughJunctions(track, junctions, [junction, next], railroadIndex)
+                    : [[junction, next]];
+                departures.AddRange(paths.Select(path => new MovementLink(railroadIndex, path)));
+            }
+        }
+
+        junctionDepartures = departures;
+        return links;
+    }
+
+    private static void AddTrack(Dictionary<string, List<(string NodeId, int RailroadIndex)>> track, string from, string to, int railroadIndex)
+    {
+        if (!track.TryGetValue(from, out var pieces))
+        {
+            pieces = [];
+            track[from] = pieces;
+        }
+
+        pieces.Add((to, railroadIndex));
+    }
+
+    /// <summary>The paths that carry on from <paramref name="path"/>'s last dot, a junction, to the stops past it.</summary>
+    private static IEnumerable<List<string>> FollowThroughJunctions(
+        Dictionary<string, List<(string NodeId, int RailroadIndex)>> track,
+        HashSet<string> junctions,
+        List<string> path,
+        int railroadIndex)
+    {
+        foreach (var (next, nextRailroadIndex) in track.GetValueOrDefault(path[^1]) ?? [])
+        {
+            if (nextRailroadIndex != railroadIndex || path.Contains(next, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            List<string> longer = [.. path, next];
+            if (!junctions.Contains(next))
+            {
+                yield return longer;
+                continue;
+            }
+
+            foreach (var onward in FollowThroughJunctions(track, junctions, longer, railroadIndex))
+            {
+                yield return onward;
+            }
+        }
+    }
+}
+
 public sealed class RailroadRouteSegmentDefinition
 {
     public required int RailroadIndex { get; init; }
@@ -815,6 +947,15 @@ public sealed class TrainDot
     public required double X { get; init; }
     public required double Y { get; init; }
     public int? ColorIndex { get; init; }
+
+    /// <summary>The map file's dot color for a junction (cities are 14, pips 15 or 15 plus a flag).</summary>
+    public const int JunctionColorIndex = 13;
+
+    /// <summary>
+    /// Where a railroad branches between pips rather than a pip itself: riding through it uses no movement, and a
+    /// move can't end on it.
+    /// </summary>
+    public bool IsJunction => ColorIndex == JunctionColorIndex;
 }
 
 public sealed class LineSegment

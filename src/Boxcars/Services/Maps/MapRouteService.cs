@@ -15,47 +15,34 @@ public sealed class MapRouteService
             StringComparer.OrdinalIgnoreCase);
 
         var adjacency = new Dictionary<string, List<RouteGraphEdge>>(StringComparer.OrdinalIgnoreCase);
+        var trackPieces = new Dictionary<string, RouteTrackPiece>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var segment in mapDefinition.RailroadRouteSegments)
+        // An edge for each pip of movement, as the engine's graph has: track through a junction is one edge, so a
+        // junction is never a stop. A player already standing on a junction can still ride away from it.
+        void Add(MovementLink link)
         {
-            var fromNodeId = NodeKey(segment.StartRegionIndex, segment.StartDotIndex);
-            var toNodeId = NodeKey(segment.EndRegionIndex, segment.EndDotIndex);
-
-            if (string.Equals(fromNodeId, toNodeId, StringComparison.OrdinalIgnoreCase)
-                || !dotLookup.TryGetValue(fromNodeId, out var fromDot)
-                || !dotLookup.TryGetValue(toNodeId, out var toDot))
+            if (BuildEdge(link, dotLookup) is not { } edge)
             {
-                continue;
+                return;
             }
 
-            var segmentKey = BuildSegmentKey(fromNodeId, toNodeId, segment.RailroadIndex);
-
-            var forward = new RouteGraphEdge
+            AddAdjacency(adjacency, edge);
+            foreach (var piece in edge.Pieces)
             {
-                FromNodeId = fromNodeId,
-                ToNodeId = toNodeId,
-                SegmentKey = segmentKey,
-                RailroadIndex = segment.RailroadIndex,
-                X1 = fromDot.X,
-                Y1 = fromDot.Y,
-                X2 = toDot.X,
-                Y2 = toDot.Y
-            };
+                trackPieces.TryAdd(piece.SegmentKey, piece);
+            }
+        }
 
-            var reverse = new RouteGraphEdge
-            {
-                FromNodeId = toNodeId,
-                ToNodeId = fromNodeId,
-                SegmentKey = segmentKey,
-                RailroadIndex = segment.RailroadIndex,
-                X1 = toDot.X,
-                Y1 = toDot.Y,
-                X2 = fromDot.X,
-                Y2 = fromDot.Y
-            };
+        var links = MovementLinks.Build(mapDefinition, out var junctionDepartures);
+        foreach (var link in links)
+        {
+            Add(link);
+            Add(link.Reversed());
+        }
 
-            AddAdjacency(adjacency, forward);
-            AddAdjacency(adjacency, reverse);
+        foreach (var departure in junctionDepartures)
+        {
+            Add(departure);
         }
 
         foreach (var node in adjacency.Values)
@@ -75,7 +62,42 @@ public sealed class MapRouteService
         return new MapRouteContext
         {
             Adjacency = adjacency,
-            DotLookup = dotLookup
+            DotLookup = dotLookup,
+            TrackPieces = trackPieces
+        };
+    }
+
+    private static RouteGraphEdge? BuildEdge(MovementLink link, IReadOnlyDictionary<string, TrainDot> dotLookup)
+    {
+        var dots = link.TrackNodeIds.Select(nodeId => dotLookup.GetValueOrDefault(nodeId)).ToList();
+        if (dots.Any(dot => dot is null))
+        {
+            return null;
+        }
+
+        var pieces = link.TrackNodeIds
+            .Zip(link.TrackNodeIds.Skip(1), (from, to) => (From: from, To: to))
+            .Select((piece, index) => new RouteTrackPiece
+            {
+                SegmentKey = BuildSegmentKey(piece.From, piece.To, link.RailroadIndex),
+                X1 = dots[index]!.X,
+                Y1 = dots[index]!.Y,
+                X2 = dots[index + 1]!.X,
+                Y2 = dots[index + 1]!.Y
+            })
+            .ToList();
+
+        return new RouteGraphEdge
+        {
+            FromNodeId = link.FromNodeId,
+            ToNodeId = link.ToNodeId,
+            SegmentKey = BuildSegmentKey(link.FromNodeId, link.ToNodeId, link.RailroadIndex),
+            RailroadIndex = link.RailroadIndex,
+            X1 = dots[0]!.X,
+            Y1 = dots[0]!.Y,
+            X2 = dots[^1]!.X,
+            Y2 = dots[^1]!.Y,
+            Pieces = pieces
         };
     }
 
@@ -467,6 +489,19 @@ public sealed class MapRouteContext
 {
     public required IReadOnlyDictionary<string, List<RouteGraphEdge>> Adjacency { get; init; }
     public required IReadOnlyDictionary<string, TrainDot> DotLookup { get; init; }
+
+    /// <summary>Each piece of track by its segment key ("A-B:railroad"), as ridden track is recorded.</summary>
+    public IReadOnlyDictionary<string, RouteTrackPiece> TrackPieces { get; init; } = new Dictionary<string, RouteTrackPiece>();
+}
+
+/// <summary>One piece of a railroad's track, between two dots.</summary>
+public sealed class RouteTrackPiece
+{
+    public required string SegmentKey { get; init; }
+    public required double X1 { get; init; }
+    public required double Y1 { get; init; }
+    public required double X2 { get; init; }
+    public required double Y2 { get; init; }
 }
 
 public sealed class RouteGraphEdge
@@ -479,6 +514,21 @@ public sealed class RouteGraphEdge
     public required double Y1 { get; init; }
     public required double X2 { get; init; }
     public required double Y2 { get; init; }
+
+    /// <summary>
+    /// The track the edge covers, in riding order: one piece, or two or more where it runs through a junction.
+    /// It's drawn piece by piece, and a piece ridden once on a trip can't be ridden again.
+    /// </summary>
+    public IReadOnlyList<RouteTrackPiece> Pieces { get; init; } = [];
+
+    /// <summary>Whether this edge and <paramref name="other"/> ride any of the same track.</summary>
+    public bool SharesTrackWith(RouteGraphEdge other)
+    {
+        return TrackKeys.Any(key => other.TrackKeys.Contains(key, StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The segment keys of the edge's track.</summary>
+    public IEnumerable<string> TrackKeys => Pieces.Count > 0 ? Pieces.Select(piece => piece.SegmentKey) : [SegmentKey];
 }
 
 
