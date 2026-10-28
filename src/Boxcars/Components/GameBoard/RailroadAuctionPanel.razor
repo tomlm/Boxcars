@@ -4,7 +4,7 @@
 <MudPaper Class="pa-3" Outlined="true" Style="min-width: 22rem">
     <MudStack Spacing="2">
         <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-            <MudText Typo="Typo.h3">@AuctionState.RailroadName auction</MudText>
+            <MudText Typo="Typo.h3">@SlangNames.Apply(AuctionState.RailroadName, SlangMode) auction</MudText>
             <MudChip T="string" Color="@ResolveStatusColor()" Variant="Variant.Filled" Size="Size.Small">@AuctionState.Status</MudChip>
         </MudStack>
 
@@ -52,6 +52,8 @@
 </MudPaper>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public required ForcedSaleAuctionStateModel AuctionState { get; set; }
 

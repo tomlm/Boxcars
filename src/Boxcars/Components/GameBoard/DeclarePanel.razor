@@ -1,3 +1,4 @@
+@using Boxcars.Data
 @using System.Globalization
 @using MudBlazor
 
@@ -6,7 +7,7 @@
         <MudStack Spacing="0">
             <MudText Typo="Typo.subtitle1"><strong>Declare?</strong></MudText>
             <MudText Typo="Typo.body2">
-                @PlayerName has @FormatCurrency(Cash) and is @DistanceText from @HomeCityName.
+                @PlayerName has @FormatCurrency(Cash) and is @DistanceText from @SlangNames.Apply(HomeCityName, SlangMode).
             </MudText>
         </MudStack>
         <MudButton Variant="Variant.Outlined"
@@ -25,6 +26,8 @@
 </MudStack>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter, EditorRequired]
     public string PlayerName { get; set; } = string.Empty;
 

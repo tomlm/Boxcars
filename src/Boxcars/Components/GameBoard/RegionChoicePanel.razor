@@ -6,7 +6,7 @@
         <MudStack Spacing="0">
             <MudText Typo="Typo.h6">Choose Destination Region</MudText>
             <MudText Typo="Typo.body2">
-                @Phase.PlayerName is in @Phase.CurrentCityName, @Phase.CurrentRegionName. Choose any eligible destination region. If the redraw lands on the current city, the turn is lost.
+                @Phase.PlayerName is in @SlangNames.Apply(Phase.CurrentCityName, SlangMode), @Phase.CurrentRegionName. Choose any eligible destination region. If the redraw lands on the current city, the turn is lost.
             </MudText>
         </MudStack>
 
@@ -55,6 +55,8 @@
 </MudPaper>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter, EditorRequired]
     public RegionChoicePhaseModel Phase { get; set; } = new();
 

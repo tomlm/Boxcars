@@ -34,7 +34,7 @@
             }
             @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
             {
-                <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
+                <MudText Typo="Typo.body2">At destination: @SlangNames.Apply(State.ActivePlayerDestinationCity, SlangMode)</MudText>
             }
             @if (!IsPurchasePhase && string.IsNullOrWhiteSpace(PhaseStatusMessage))
             {
@@ -79,7 +79,7 @@ else
         }
         @if (State.IsActivePlayerAtDestination && !string.IsNullOrWhiteSpace(State.ActivePlayerDestinationCity))
         {
-            <MudText Typo="Typo.body2">At destination: @State.ActivePlayerDestinationCity</MudText>
+            <MudText Typo="Typo.body2">At destination: @SlangNames.Apply(State.ActivePlayerDestinationCity, SlangMode)</MudText>
         }
         @if (!IsPurchasePhase && string.IsNullOrWhiteSpace(PhaseStatusMessage))
         {
@@ -93,6 +93,8 @@ else
 }
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public BoardTurnViewState State { get; set; } = new();
 
