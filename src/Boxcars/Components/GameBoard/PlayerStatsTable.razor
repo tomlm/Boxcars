@@ -45,7 +45,7 @@ else
 
                 <TemplateColumn Title="Stat" Sortable="false" Filterable="false" Groupable="false">
                     <CellTemplate>
-                        <span style="@BuildLabelStyle(context.Item)">@context.Item.Label</span>
+                        <span style="@BuildLabelStyle(context.Item)">@SlangNames.Apply(context.Item.Label, SlangMode)</span>
                     </CellTemplate>
                 </TemplateColumn>
 
@@ -69,6 +69,8 @@ else
 }
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public IReadOnlyList<PlayerBoardModel> Players { get; set; } = [];
 

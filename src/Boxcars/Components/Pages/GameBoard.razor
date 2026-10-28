@@ -48,6 +48,7 @@
 
 <PageTitle>Game - BoxCars</PageTitle>
 
+<CascadingValue Name="@SlangNames.CascadingValueName" Value="SlangMode">
 @if (_game is null || (!IsLobbyGame && _gameState is null))
 {
     <MudStack Class="py-16" Justify="Justify.Center" AlignItems="AlignItems.Center">
@@ -267,7 +268,7 @@ else
                                                      Size="Size.Medium"
                                                      Class="mt-0 flex-shrink-0" />
                                             <MudStack Spacing="0" Class="overflow-hidden flex-grow-1">
-                                                <MudText Typo="Typo.body2">@item.Message</MudText>
+                                                <MudText Typo="Typo.body2">@Slang(item.Message)</MudText>
                                             </MudStack>
                                             @if (item.CanUndo)
                                             {
@@ -300,7 +301,9 @@ else
                 }
                 else if (IsSettingsPurchaseTabActive)
                 {
-                    <GameSettingsPanel Summary="_gameSettingsSummary" />
+                    <GameSettingsPanel Summary="_gameSettingsSummary"
+                                       SlangMode="SlangMode"
+                                       SlangModeChanged="OnSlangModeChangedAsync" />
                 }
                 else if (ShouldShowPurchaseAnalysisPanel)
                 {
@@ -444,6 +447,7 @@ else
     </MudStack>
 </MudStack>
 }
+</CascadingValue>
 
 @code {
     private const int PresenceHeartbeatIntervalMilliseconds = 5000;
@@ -1309,7 +1313,7 @@ else
 
         var confirmed = await ConfirmForcedSaleActionAsync(
             "Confirm Sale To Bank",
-            $"Are you sure you want to sell {SelectedForcedSaleCandidate.RailroadName} to the bank?");
+            $"Are you sure you want to sell {Slang(SelectedForcedSaleCandidate.RailroadName)} to the bank?");
         if (!confirmed)
         {
             return;
@@ -1336,7 +1340,7 @@ else
 
         var confirmed = await ConfirmForcedSaleActionAsync(
             "Confirm Auction",
-            $"Are you sure you want to auction {SelectedForcedSaleCandidate.RailroadName}?");
+            $"Are you sure you want to auction {Slang(SelectedForcedSaleCandidate.RailroadName)}?");
         if (!confirmed)
         {
             return;
@@ -3959,6 +3963,28 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return true;
     }
 
+    /// <summary>Whether this player sees slang nicknames (see <see cref="SlangNames"/>); saved to their profile.</summary>
+    private bool SlangMode => _currentUserProfile?.SlangMode == true;
+
+    /// <summary>The text as this player shows it: with slang nicknames when they have slang mode on.</summary>
+    private string Slang(string? text) => SlangNames.Apply(text, SlangMode);
+
+    private async Task OnSlangModeChangedAsync(bool slangMode)
+    {
+        if (_currentUserProfile is null || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        _currentUserProfile.SlangMode = slangMode;
+        StateHasChanged();
+
+        if (!await ProfileService.UpdateSlangModeAsync(_currentUserId, slangMode, CancellationToken.None))
+        {
+            ShowNotification("Slang mode couldn't be saved, so the change lasts only until you reload.", Severity.Warning);
+        }
+    }
+
     private async Task OnAutoZoomEnabledChangedAsync(bool enabled)
     {
         _autoZoomEnabled = enabled;
@@ -4633,7 +4659,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             occurredUtc ?? DateTimeOffset.UtcNow,
             eventBaseId);
 
-        Snackbar.Add(message, severity, options =>
+        Snackbar.Add(Slang(message), severity, options =>
         {
             if (!string.IsNullOrWhiteSpace(icon))
             {

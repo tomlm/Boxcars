@@ -14,7 +14,7 @@
                        Disabled="@IsBusy">
                 @foreach (var candidate in OrderedCandidates)
                 {
-                    <MudSelectItem T="int?" Value="@candidate.RailroadIndex">@candidate.RailroadName (@FormatCurrency(candidate.BankSalePrice) bank value)</MudSelectItem>
+                    <MudSelectItem T="int?" Value="@candidate.RailroadIndex">@SlangNames.Apply(candidate.RailroadName, SlangMode) (@FormatCurrency(candidate.BankSalePrice) bank value)</MudSelectItem>
                 }
             </MudSelect>
             <MudButtonGroup OverrideStyles="false">
@@ -35,6 +35,8 @@
 </MudPaper>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public required ForcedSalePhaseModel Phase { get; set; }
 

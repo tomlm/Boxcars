@@ -32,7 +32,7 @@
                             </HeaderContent>
                             <RowTemplate>
                                 <MudTd>
-                                    <span>@context.FullName</span>
+                                    <span>@SlangNames.Apply(context.FullName, SlangMode)</span>
                                 </MudTd>
                                 <MudTd>
                                     <span style="@GetRailroadPriceStyle(context)">@FormatCurrency(context.PurchasePrice)</span>
@@ -78,7 +78,7 @@
                                         <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.WithinRegionPercentage)"><strong>Region %</strong></MudTableSortLabel></MudTh>
                                     </HeaderContent>
                                     <RowTemplate>
-                                        <MudTd>@context.CityName</MudTd>
+                                        <MudTd>@SlangNames.Apply(context.CityName, SlangMode)</MudTd>
                                         <MudTd>@FormatCityPercent(context.GlobalAccessPercentage)</MudTd>
                                         <MudTd>@FormatCityPercent(context.WithinRegionPercentage)</MudTd>
                                     </RowTemplate>
@@ -100,7 +100,7 @@
                             <MudTh><MudTableSortLabel T="CityAccessRow" SortBy="@(row => row.WithinRegionPercentage)"><strong>Region %</strong></MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd>@context.CityName</MudTd>
+                            <MudTd>@SlangNames.Apply(context.CityName, SlangMode)</MudTd>
                             <MudTd>@context.RegionName</MudTd>
                             <MudTd>@FormatCityPercent(context.GlobalAccessPercentage)</MudTd>
                             <MudTd>@FormatCityPercent(context.WithinRegionPercentage)</MudTd>
@@ -118,6 +118,8 @@
     }
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     [Parameter]
     public MapAnalysisReport? Report { get; set; }
 

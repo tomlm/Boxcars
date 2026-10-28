@@ -10,13 +10,15 @@
         <div @key="entry.Id" class="@(entry.Leaving ? "play-by-play-item play-by-play-leave" : "play-by-play-item play-by-play-enter")">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Style="@BuildAccentStyle(entry.Message.AccentColorHex)">
                 <MudIcon Icon="@entry.Message.Icon" Color="@entry.Message.IconColor" Size="Size.Small" />
-                <MudText Typo="Typo.body2">@entry.Message.Text</MudText>
+                <MudText Typo="Typo.body2">@SlangNames.Apply(entry.Message.Text, SlangMode)</MudText>
             </MudStack>
         </div>
     }
 </div>
 
 @code {
+    [CascadingParameter(Name = SlangNames.CascadingValueName)]
+    public bool SlangMode { get; set; }
     private const int StepMs = 600;
 
     private readonly List<BandEntry> _visible = new();

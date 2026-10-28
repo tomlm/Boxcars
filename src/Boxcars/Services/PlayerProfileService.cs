@@ -152,6 +152,27 @@ public class PlayerProfileService
         }
     }
 
+    public async Task<bool> UpdateSlangModeAsync(string userId, bool slangMode, CancellationToken cancellationToken)
+    {
+        var user = await _userDirectoryService.GetUserAsync(userId, cancellationToken);
+        if (user is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            user.SlangMode = slangMode;
+            await _userDirectoryService.UpdateUserAsync(user, user.ETag, cancellationToken);
+            UpdateCachedProfile(user);
+            return true;
+        }
+        catch (RequestFailedException)
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> UpdateStrategyTextAsync(string userId, string strategyText, CancellationToken cancellationToken)
     {
         var user = await _userDirectoryService.GetUserAsync(userId, cancellationToken);
@@ -236,6 +257,7 @@ public class PlayerProfileService
             ThumbnailUrl = user.ThumbnailUrl,
             PreferredColor = user.PreferredColor,
             StrategyText = user.StrategyText,
+            SlangMode = user.SlangMode,
             IsBot = user.IsBot,
             CreatedByUserId = user.CreatedByUserId,
             CreatedUtc = user.CreatedUtc,

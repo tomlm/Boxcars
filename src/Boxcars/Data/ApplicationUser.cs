@@ -26,6 +26,8 @@ public class ApplicationUser : ITableEntity
     public string ThumbnailUrl { get; set; } = string.Empty;
     public string PreferredColor { get; set; } = string.Empty;
     public string StrategyText { get; set; } = string.Empty;
+    /// <summary>Shows slang nicknames for some cities, railroads and the Superchief (see <see cref="SlangNames"/>).</summary>
+    public bool SlangMode { get; set; }
     public bool IsBot { get; set; }
     public string CreatedByUserId { get; set; } = string.Empty;
     public DateTimeOffset CreatedUtc { get; set; }
