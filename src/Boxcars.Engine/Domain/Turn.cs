@@ -130,6 +130,12 @@ public sealed class Turn : ObservableBase
     /// <summary>Railroad indices that must be charged at the full owner rate this turn.</summary>
     internal HashSet<int> RailroadsRequiringFullOwnerRateThisTurn { get; } = new();
 
+    /// <summary>
+    /// Opponent railroads ridden this turn for less than the owner's full rate, with that rate: an established
+    /// (grandfathered) rate, or the full rate in effect before the last railroad sold this turn.
+    /// </summary>
+    internal Dictionary<int, int> ReducedRailroadFeesThisTurn { get; } = new();
+
     public Turn()
     {
         _turnNumber = 1;

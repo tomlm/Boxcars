@@ -312,6 +312,94 @@ public class UseFeesTests
     }
 
     [Fact]
+    public void BuyRailroad_SellingTheLastRailroad_ChargesTheRailroadsAlreadyRiddenAtThePreSaleRate()
+    {
+        // Issue #149: the rider rode an opponent's line into town, then bought the last railroad. The ride came
+        // before the sale, so it costs $5,000, not the $10,000 all-sold rate.
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var lineOutOfTown = engine.Railroads.First(rr => rr.Index == 0);
+        var lastRailroad = engine.Railroads.First(rr => rr.Index == 1);
+        var riddenRailroad = new Railroad(new RailroadDefinition { Index = 99, Name = "Reserve Line" }, 4000, isPublic: false);
+        engine.Railroads.Add(riddenRailroad);
+        foreach (var ownedRailroad in new[] { lineOutOfTown, riddenRailroad })
+        {
+            ownedRailroad.Owner = owner;
+            owner.OwnedRailroads.Add(ownedRailroad);
+        }
+
+        rider.Cash = 100_000;
+        owner.Cash = 0;
+        rider.CurrentNodeId = "0:1";
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Purchase;
+        engine.CurrentTurn.BonusRollAvailable = false;
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(riddenRailroad.Index);
+        engine.CurrentTurn.RailroadsRequiringFullOwnerRateThisTurn.Add(riddenRailroad.Index);
+
+        engine.BuyRailroad(lastRailroad);
+
+        Assert.True(engine.AllRailroadsSold);
+        Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
+        Assert.Equal(5_000, owner.Cash);
+        Assert.Equal(100_000 - lastRailroad.PurchasePrice - 5_000, rider.Cash);
+    }
+
+    [Fact]
+    public void MoveAlongRoute_LeavingEstablishedRailroad_ChargesItsEstablishedRate()
+    {
+        // Issue #148: the rider is established on an opponent's line at $5,000 and rides it onto their own line.
+        // Leaving ends the established rate for later rides; the ride already taken still costs $5,000.
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var rider = engine.Players[0];
+        var owner = engine.Players[1];
+        var establishedRailroad = engine.Railroads.First(rr => rr.Index == 0);
+        var ownRailroad = engine.Railroads.First(rr => rr.Index == 1);
+
+        establishedRailroad.Owner = owner;
+        owner.OwnedRailroads.Add(establishedRailroad);
+        ownRailroad.Owner = rider;
+        rider.OwnedRailroads.Add(ownRailroad);
+        rider.GrandfatheredRailroadIndices.Add(establishedRailroad.Index);
+        rider.GrandfatheredRailroadFees[establishedRailroad.Index] = 5_000;
+        rider.Cash = 100_000;
+        owner.Cash = 0;
+        rider.CurrentNodeId = "0:0";
+        rider.ActiveRoute = new Route(
+            ["0:0", "0:1", "0:2"],
+            [
+                new RouteSegment { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = establishedRailroad.Index },
+                new RouteSegment { FromNodeId = "0:1", ToNodeId = "0:2", RailroadIndex = ownRailroad.Index }
+            ],
+            0);
+        rider.RouteProgressIndex = 0;
+
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementAllowance = 2;
+        engine.CurrentTurn.MovementRemaining = 2;
+
+        engine.MoveAlongRoute(2);
+
+        Assert.Empty(rider.GrandfatheredRailroadIndices);
+        Assert.Equal(100_000 - 5_000 - 1_000, rider.Cash);
+        Assert.Equal(5_000, owner.Cash);
+    }
+
+    [Fact]
+    public void ToSnapshot_KeepsTheReducedRatesRiddenThisTurn()
+    {
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(0);
+        engine.CurrentTurn.ReducedRailroadFeesThisTurn[0] = 5_000;
+
+        var restored = GE.FromSnapshot(engine.ToSnapshot(), engine.MapDefinition, new FixedRandomProvider());
+
+        Assert.Equal(5_000, restored.CurrentTurn.ReducedRailroadFeesThisTurn[0]);
+    }
+
+    [Fact]
     public void MoveAlongRoute_LeavingGrandfatheredRailroad_StillChargesBaseRateForThatRailroad()
     {
         var (engine, _) = GameEngineFixture.CreateTestEngine();
