@@ -267,6 +267,14 @@ public class PlayerProfileService
         return user;
     }
 
+    /// <summary>Drops the remembered profile, for when the account was saved some other way; the next read loads it.</summary>
+    public void ForgetProfile(string userId)
+    {
+        var normalizedUserId = NormalizeUserId(userId);
+        _profileCache.TryRemove(normalizedUserId, out _);
+        _profileLoads.TryRemove(normalizedUserId, out _);
+    }
+
     private void UpdateCachedProfile(ApplicationUser user)
     {
         var normalizedUserId = NormalizeUserId(user.RowKey);

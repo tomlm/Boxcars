@@ -210,7 +210,7 @@ public sealed class UserAccountService(UserDirectoryService userDirectory, GameS
             }
         }
 
-        return UserAccountResult.Succeeded;
+        return UserAccountResult.SucceededFor(user.RowKey);
     }
 
     /// <summary>Blank, a web address, or a path on this site (uploaded photos live under one).</summary>
@@ -280,9 +280,12 @@ public enum AccountType
     Bot
 }
 
-public sealed record UserAccountResult(bool Success, string? Error)
+/// <summary>Whether an account change worked: the error if not, and the account's id once it's added or saved.</summary>
+public sealed record UserAccountResult(bool Success, string? Error, string? UserId = null)
 {
     public static UserAccountResult Succeeded { get; } = new(true, null);
+
+    public static UserAccountResult SucceededFor(string userId) => new(true, null, userId);
 
     public static UserAccountResult Failed(string error) => new(false, error);
 }

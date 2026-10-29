@@ -48,6 +48,28 @@
     /// <summary>The <see cref="SoundUrl"/> that means the player's uploaded sound.</summary>
     public const string CustomValue = "custom";
 
+    /// <summary>
+    /// The player's uploaded sound and what to show picked, from their saved <paramref name="turnSoundUrl"/> and
+    /// <paramref name="customTurnSoundUrl"/>.
+    /// </summary>
+    public static (string SoundUrl, string CustomSoundUrl) FromSaved(string? turnSoundUrl, string? customTurnSoundUrl)
+    {
+        // Sounds uploaded before Custom was kept separately are only in TurnSoundUrl.
+        var customSoundUrl = !string.IsNullOrWhiteSpace(customTurnSoundUrl)
+            ? customTurnSoundUrl
+            : string.IsNullOrWhiteSpace(turnSoundUrl) || GameSounds.StockTurnSounds.Any(sound => sound.Url == turnSoundUrl)
+                ? string.Empty
+                : turnSoundUrl;
+        var soundUrl = customSoundUrl.Length > 0 && turnSoundUrl == customSoundUrl ? CustomValue : turnSoundUrl ?? string.Empty;
+        return (soundUrl, customSoundUrl);
+    }
+
+    /// <summary>The URL to save as the player's turn sound: the picked stock sound, or their upload for Custom.</summary>
+    public static string ToSaved(string? soundUrl, string customSoundUrl)
+    {
+        return soundUrl == CustomValue ? customSoundUrl : soundUrl?.Trim() ?? string.Empty;
+    }
+
     private string? _error;
     private bool _reading;
 

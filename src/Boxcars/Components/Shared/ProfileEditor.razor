@@ -1,0 +1,211 @@
+@using Boxcars.Auth
+@using Boxcars.Data
+@using Boxcars.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
+@inject UserAccountService UserAccounts
+@inject PlayerProfileService ProfileService
+@inject UserPhotoStorage PhotoStorage
+
+@* Edits an account's name, color, picture, strategy and turn sound, for a player's own preferences and for the admin's
+   Users page alike, and saves them together. With no Account it adds one, of NewAccountType with NewEmail. *@
+<MudStack Spacing="3">
+    <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Required="true" Disabled="@_saving" />
+    <PlayerColorPicker @bind-Value="_color" />
+    <ProfileImagePicker @bind-ImageUrl="_thumbnailUrl"
+                        @bind-PendingImage="_pendingImage"
+                        ShowUrlField="@ShowPictureUrl"
+                        Disabled="@_saving" />
+    <MudTextField @bind-Value="_strategyText"
+                  Label="Strategy"
+                  Variant="Variant.Outlined"
+                  Lines="4"
+                  AutoGrow="true"
+                  Required="@StrategyRequired"
+                  Placeholder="@PlayerProfileService.DefaultStrategyText"
+                  Disabled="@_saving" />
+    <TurnSoundPicker @bind-SoundUrl="_turnSoundUrl"
+                     CustomSoundUrl="@_customTurnSoundUrl"
+                     @bind-PendingSound="_pendingSound"
+                     Disabled="@_saving" />
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+    }
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="SaveAsync" Disabled="@_saving">
+            @SaveText
+        </MudButton>
+        @ChildContent
+    </MudStack>
+</MudStack>
+
+@code {
+    private bool _loaded;
+    private ApplicationUser? _loadedAccount;
+    private string _name = string.Empty;
+    private string? _color;
+    private string? _thumbnailUrl = string.Empty;
+    private byte[]? _pendingImage;
+    private string _strategyText = string.Empty;
+    private string? _turnSoundUrl = string.Empty;
+    private string _customTurnSoundUrl = string.Empty;
+    private PendingSoundUpload? _pendingSound;
+    private string? _error;
+    private bool _saving;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>The account to edit, or null to add one.</summary>
+    [Parameter]
+    public ApplicationUser? Account { get; set; }
+
+    /// <summary>The kind of account to add, when there's no <see cref="Account"/>.</summary>
+    [Parameter]
+    public AccountType NewAccountType { get; set; } = AccountType.Auth;
+
+    /// <summary>The email of the person to add, when there's no <see cref="Account"/>; bots have none.</summary>
+    [Parameter]
+    public string? NewEmail { get; set; }
+
+    [Parameter]
+    public bool StrategyRequired { get; set; }
+
+    /// <summary>Shows the picture as an editable web address too.</summary>
+    [Parameter]
+    public bool ShowPictureUrl { get; set; }
+
+    [Parameter]
+    public string SaveText { get; set; } = "Save Changes";
+
+    /// <summary>More buttons, beside Save.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Raised with the account's id once everything is saved.</summary>
+    [Parameter]
+    public EventCallback<string> OnSaved { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        // Starts over only for a different account; to clear the form for another new one, give it a new @key.
+        if (_loaded && ReferenceEquals(Account, _loadedAccount))
+        {
+            return;
+        }
+
+        _loaded = true;
+        _loadedAccount = Account;
+        _name = Account is null ? string.Empty : UserAccountService.DisplayName(Account);
+        _color = PlayerColorOptions.IsSupported(Account?.PreferredColor) ? PlayerColorOptions.NormalizeOrDefault(Account!.PreferredColor) : null;
+        _thumbnailUrl = Account?.ThumbnailUrl ?? string.Empty;
+        _pendingImage = null;
+        _strategyText = StrategyRequired
+            ? PlayerProfileService.ResolveStrategyTextOrDefault(Account?.StrategyText)
+            : Account?.StrategyText ?? string.Empty;
+        (_turnSoundUrl, _customTurnSoundUrl) = TurnSoundPicker.FromSaved(Account?.TurnSoundUrl, Account?.CustomTurnSoundUrl);
+        _pendingSound = null;
+        _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (StrategyRequired && !PlayerProfileService.HasRequiredStrategyText(_strategyText))
+        {
+            _error = "Strategy is required.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var actingUserId = AuthState is null
+                ? string.Empty
+                : (await AuthState).User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+            var previousThumbnailUrl = Account?.ThumbnailUrl;
+            var thumbnailUrl = _thumbnailUrl?.Trim() ?? string.Empty;
+            if (_pendingImage is not null)
+            {
+                var uploadedUrl = await PhotoStorage.UploadUserImageAsync(_pendingImage, CancellationToken.None);
+                if (uploadedUrl is null)
+                {
+                    _error = "Image upload failed, please try again.";
+                    return;
+                }
+
+                thumbnailUrl = uploadedUrl;
+            }
+
+            var result = Account is null
+                ? await UserAccounts.CreateAsync(actingUserId, NewAccountType, NewEmail, _name, _color, thumbnailUrl, _strategyText, CancellationToken.None)
+                : await UserAccounts.SaveAsync(actingUserId, Account.RowKey, Account.ETag, _name, _color, thumbnailUrl, _strategyText, CancellationToken.None);
+            if (!result.Success || string.IsNullOrWhiteSpace(result.UserId))
+            {
+                if (_pendingImage is not null)
+                {
+                    await PhotoStorage.DeleteUserImageAsync(thumbnailUrl, CancellationToken.None);
+                }
+
+                _error = result.Error ?? "Save failed, please try again.";
+                return;
+            }
+
+            if (!string.Equals(previousThumbnailUrl, thumbnailUrl, StringComparison.Ordinal))
+            {
+                await PhotoStorage.DeleteUserImageAsync(previousThumbnailUrl, CancellationToken.None);
+            }
+
+            _pendingImage = null;
+            if (!await SaveTurnSoundAsync(result.UserId))
+            {
+                return;
+            }
+
+            // The account was saved around the profile service, so it mustn't keep serving the old one.
+            ProfileService.ForgetProfile(result.UserId);
+            await OnSaved.InvokeAsync(result.UserId);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    /// <summary>Saves the turn sound, uploading a new one first; false, with the error shown, if it couldn't.</summary>
+    private async Task<bool> SaveTurnSoundAsync(string userId)
+    {
+        var customTurnSoundUrl = _customTurnSoundUrl;
+        if (_pendingSound is not null)
+        {
+            // Replaces the account's earlier upload.
+            var uploadedUrl = await PhotoStorage.UploadUserSoundAsync(userId, _pendingSound.Bytes, _pendingSound.ContentType,
+                CancellationToken.None);
+            if (uploadedUrl is null)
+            {
+                _error = "Sound upload failed, please try again.";
+                return false;
+            }
+
+            customTurnSoundUrl = uploadedUrl;
+        }
+
+        var turnSoundUrl = TurnSoundPicker.ToSaved(_turnSoundUrl, customTurnSoundUrl);
+        if (turnSoundUrl == (Account?.TurnSoundUrl ?? string.Empty)
+            && customTurnSoundUrl == (Account?.CustomTurnSoundUrl ?? string.Empty))
+        {
+            return true;
+        }
+
+        if (!await ProfileService.UpdateTurnSoundAsync(userId, turnSoundUrl, customTurnSoundUrl, CancellationToken.None))
+        {
+            _error = "Unable to save the turn sound, please try again.";
+            return false;
+        }
+
+        _customTurnSoundUrl = customTurnSoundUrl;
+        _pendingSound = null;
+        return true;
+    }
+}
