@@ -1,5 +1,6 @@
 using Boxcars.Data;
 using Boxcars.Engine.Data.Maps;
+using Boxcars.Services.Maps;
 
 namespace Boxcars.Services;
 
@@ -48,13 +49,14 @@ public sealed class NetworkCoverageService
             return NetworkCoverageSnapshot.Empty;
         }
 
+        var monopolyNodes = FindMonopolyNodes(mapDefinition, cityCoverage, ownedIndices);
         var accessibleCityCount = cityCoverage.Count(entry => entry.ServingRailroads.Overlaps(accessibleRailroadIndices));
-        var monopolyCityCount = cityCoverage.Count(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains));
+        var monopolyCityCount = cityCoverage.Count(entry => monopolyNodes.Contains(entry.NodeId));
         var accessibleDestinationPercent = Math.Round(cityCoverage
             .Where(entry => entry.ServingRailroads.Overlaps(accessibleRailroadIndices))
             .Sum(entry => entry.GlobalAccessPercentage), 1, MidpointRounding.AwayFromZero);
         var monopolyDestinationPercent = Math.Round(cityCoverage
-            .Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains))
+            .Where(entry => monopolyNodes.Contains(entry.NodeId))
             .Sum(entry => entry.GlobalAccessPercentage), 1, MidpointRounding.AwayFromZero);
         var regionAccess = cityCoverage
             .GroupBy(entry => entry.RegionCode, StringComparer.OrdinalIgnoreCase)
@@ -65,7 +67,7 @@ public sealed class NetworkCoverageService
                     .Where(entry => entry.ServingRailroads.Overlaps(accessibleRailroadIndices))
                     .Sum(entry => entry.WithinRegionPercentage), 1, MidpointRounding.AwayFromZero),
                 MonopolyDestinationPercent = Math.Round(group
-                    .Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(ownedIndices.Contains))
+                    .Where(entry => monopolyNodes.Contains(entry.NodeId))
                     .Sum(entry => entry.WithinRegionPercentage), 1, MidpointRounding.AwayFromZero)
             })
             .OrderBy(region => region.RegionCode, StringComparer.OrdinalIgnoreCase)
@@ -82,6 +84,102 @@ public sealed class NetworkCoverageService
             MonopolyDestinationPercent = monopolyDestinationPercent,
             RegionAccess = regionAccess
         };
+    }
+
+    /// <summary>The map nodes of the cities an owner holds a monopoly on (see <see cref="FindMonopolyNodes"/>).</summary>
+    public static IReadOnlySet<string> FindMonopolyCityNodes(MapDefinition mapDefinition, IEnumerable<int> ownedRailroadIndices)
+    {
+        ArgumentNullException.ThrowIfNull(mapDefinition);
+        ArgumentNullException.ThrowIfNull(ownedRailroadIndices);
+
+        return FindMonopolyNodes(mapDefinition, BuildCityCoverage(mapDefinition), ownedRailroadIndices.ToHashSet());
+    }
+
+    /// <summary>
+    /// The cities an owner holds a monopoly on: they're on the main part of the map (the connected part holding the
+    /// most destinations), but with the owner's railroads taken off it they're cut away from what's left of it, so a
+    /// trip there from anywhere else has to pay the owner. That's a city only the owner's railroads touch, and also a
+    /// pocket behind them, like the cities of a railroad that joins the rest of the map only through the owner's lines.
+    /// Trips that start inside the pocket don't have to pay, so it overstates a little. Switching railroads at a
+    /// junction is treated as allowed, which can only leave out a monopoly, never add one.
+    /// </summary>
+    private static HashSet<string> FindMonopolyNodes(
+        MapDefinition mapDefinition,
+        IReadOnlyList<CityCoverageEntry> cityCoverage,
+        IReadOnlySet<int> ownedIndices)
+    {
+        var servedCities = cityCoverage.Where(entry => entry.ServingRailroads.Count > 0).ToList();
+        if (ownedIndices.Count == 0 || servedCities.Count == 0)
+        {
+            return [];
+        }
+
+        var (wholeMapParts, wholeMapMain) = SplitIntoParts(mapDefinition.RailroadRouteSegments, servedCities);
+        var (remainingParts, remainingMain) = SplitIntoParts(
+            mapDefinition.RailroadRouteSegments.Where(segment => !ownedIndices.Contains(segment.RailroadIndex)),
+            servedCities);
+        return servedCities
+            .Where(city => (wholeMapParts[city.NodeId] == wholeMapMain && remainingParts[city.NodeId] != remainingMain)
+                // Owning every railroad into a city is a monopoly even when it's in the biggest part left.
+                || city.ServingRailroads.All(ownedIndices.Contains))
+            .Select(city => city.NodeId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Splits the track into the parts that connect, giving each city's node its part, and picks the main part: the
+    /// one whose cities are the most likely destinations.
+    /// </summary>
+    private static (Dictionary<string, int> PartByNode, int MainPart) SplitIntoParts(
+        IEnumerable<RailroadRouteSegmentDefinition> segments,
+        IReadOnlyList<CityCoverageEntry> cities)
+    {
+        var neighbours = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        void Link(string from, string to)
+        {
+            if (!neighbours.TryGetValue(from, out var list))
+            {
+                list = [];
+                neighbours[from] = list;
+            }
+
+            list.Add(to);
+        }
+
+        foreach (var segment in segments)
+        {
+            var start = MapRouteService.NodeKey(segment.StartRegionIndex, segment.StartDotIndex);
+            var end = MapRouteService.NodeKey(segment.EndRegionIndex, segment.EndDotIndex);
+            Link(start, end);
+            Link(end, start);
+        }
+
+        var partByNode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var partWeights = new List<decimal>();
+        foreach (var city in cities)
+        {
+            if (!partByNode.TryGetValue(city.NodeId, out var cityPart))
+            {
+                var part = cityPart = partWeights.Count;
+                partWeights.Add(0m);
+                partByNode[city.NodeId] = part;
+                var pending = new Stack<string>([city.NodeId]);
+                while (pending.TryPop(out var node))
+                {
+                    foreach (var next in neighbours.GetValueOrDefault(node) ?? [])
+                    {
+                        if (partByNode.TryAdd(next, part))
+                        {
+                            pending.Push(next);
+                        }
+                    }
+                }
+            }
+
+            partWeights[cityPart] += city.GlobalAccessPercentage;
+        }
+
+        return (partByNode, partWeights.IndexOf(partWeights.Max()));
     }
 
     public NetworkCoverageSnapshot BuildProjectedSnapshot(MapDefinition mapDefinition, IEnumerable<int> ownedRailroadIndices, int railroadIndex)
@@ -194,6 +292,7 @@ public sealed class NetworkCoverageService
             coverage.Add(new CityCoverageEntry(
                 city.RegionCode,
                 cityKey,
+                MapRouteService.NodeKey(regionIndex, city.MapDotIndex.Value),
                 servingRailroads,
                 withinRegionAccessByCity.TryGetValue(cityKey, out var withinRegionPercent) ? withinRegionPercent : 0m,
                 globalAccessByCity.TryGetValue(cityKey, out var globalPercent) ? globalPercent : 0m));
@@ -295,6 +394,7 @@ public sealed class NetworkCoverageService
     private sealed record CityCoverageEntry(
         string RegionCode,
         string CityKey,
+        string NodeId,
         HashSet<int> ServingRailroads,
         decimal WithinRegionPercentage,
         decimal GlobalAccessPercentage);
