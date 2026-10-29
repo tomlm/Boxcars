@@ -42,8 +42,10 @@
                     </feMerge>
                 </filter>
             </defs>
-            <g class="game-map-camera" transform="@GetCameraTransform()">
-                <g class="game-map-aspect-correction" transform="@GetAspectCorrectionTransform()">
+            @* The vertical stretch goes outside the camera: the camera's center and the zoom math (here, in
+               BoardViewportService and in mapBoard.js) are in board coordinates, before the stretch. *@
+            <g class="game-map-aspect-correction" transform="@GetAspectCorrectionTransform()">
+                <g class="game-map-camera" transform="@GetCameraTransform()">
                 <g class="game-map-regions">
                     @foreach (var regionFill in _renderModel.RegionFills)
                     {
