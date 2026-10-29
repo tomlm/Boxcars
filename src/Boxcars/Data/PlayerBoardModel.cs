@@ -145,6 +145,9 @@ public sealed class PlayerBoardModel
     /// <summary>Pending bonus movement label for the active player, when applicable.</summary>
     public string BonusPendingLabel { get; init; } = string.Empty;
 
+    /// <summary>The fees each opponent has paid this player, in seat order; opponents who paid nothing are left out.</summary>
+    public IReadOnlyList<PlayerPaymentModel> PaymentsReceived { get; init; } = [];
+
     /// <summary>
     /// Returns a money display string.
     /// For the current user, returns the exact formatted amount.
@@ -169,3 +172,43 @@ public sealed class PlayerBoardModel
 }
 
 public sealed record PlayerControlOptionModel(string Value, string Label);
+
+/// <summary>
+/// Fees one player has paid another, drawn as a bar on the card of the player paid. <see cref="Percent"/> is the
+/// amount against the largest such payment in the game, so bars compare across cards.
+/// </summary>
+public sealed record PlayerPaymentModel(int PayerIndex, string PayerName, string PayerColor, int Amount, double Percent)
+{
+    /// <summary>
+    /// The fees each player has received from each opponent, by the index of the player paid. Names and colors are
+    /// the players', by index.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<PlayerPaymentModel>> Build(
+        GameState state,
+        IReadOnlyList<string> names,
+        IReadOnlyList<string> colors)
+    {
+        var amounts = state.Players
+            .Select((_, payeeIndex) => state.Players
+                .Select((payer, payerIndex) => (
+                    PayerIndex: payerIndex,
+                    Amount: payerIndex == payeeIndex
+                        ? 0
+                        : payer.FeesPaidToPlayers.Where(entry => entry.PlayerIndex == payeeIndex).Sum(entry => entry.Amount)))
+                .Where(payment => payment.Amount > 0)
+                .ToList())
+            .ToList();
+        var largest = amounts.SelectMany(payments => payments).Select(payment => payment.Amount).DefaultIfEmpty(0).Max();
+
+        return amounts
+            .Select(payments => (IReadOnlyList<PlayerPaymentModel>)payments
+                .Select(payment => new PlayerPaymentModel(
+                    payment.PayerIndex,
+                    payment.PayerIndex < names.Count ? names[payment.PayerIndex] : state.Players[payment.PayerIndex].Name,
+                    payment.PayerIndex < colors.Count ? colors[payment.PayerIndex] : string.Empty,
+                    payment.Amount,
+                    100.0 * payment.Amount / largest))
+                .ToList())
+            .ToList();
+    }
+}
