@@ -75,7 +75,8 @@ public sealed class PurchaseRecommendationService
         var nodesByRailroad = BuildNodesByRailroad(mapDefinition);
         var ownedNetworks = BuildOwnedNetworks(buyerOwnedRailroadIndices, nodesByRailroad);
         var leader = FindStrongestOpponent(mapDefinition, opponents);
-        var destinationRailroads = BuildOpponentDestinationRailroads(mapDefinition, opponents, nodesByRailroad);
+        var destinationNodes = BuildOpponentDestinationNodes(mapDefinition, opponents, nodesByRailroad);
+        var monopolyNodes = NetworkCoverageService.FindMonopolyCityNodes(mapDefinition, buyerOwnedRailroadIndices);
 
         var scored = candidates
             .Select(candidate =>
@@ -91,10 +92,10 @@ public sealed class PurchaseRecommendationService
                     ? 0m
                     : NetworkCoverage.BuildProjectedSnapshot(mapDefinition, leader.Value.Opponent.OwnedRailroadIndices, candidate.RailroadIndex).AccessibleDestinationPercent
                         - leader.Value.Coverage.AccessibleDestinationPercent;
-                // Opponents whose destination this purchase closes off: every railroad into it would be the buyer's.
-                var tollPayers = destinationRailroads
-                    .Where(entry => entry.Railroads.Contains(candidate.RailroadIndex)
-                        && entry.Railroads.All(railroadIndex => railroadIndex == candidate.RailroadIndex || buyerOwnedRailroadIndices.Contains(railroadIndex)))
+                // Opponents whose destination this purchase closes off: they'd have to cross the buyer's railroads to get there.
+                var monopolyNodesAfterPurchase = NetworkCoverageService.FindMonopolyCityNodes(mapDefinition, ownedAfterPurchase);
+                var tollPayers = destinationNodes
+                    .Where(entry => monopolyNodesAfterPurchase.Contains(entry.NodeId) && !monopolyNodes.Contains(entry.NodeId))
                     .Select(entry => (entry.Opponent.Name, City: entry.Opponent.DestinationCityName!))
                     .ToList();
                 return new ScoredCandidate(
@@ -207,13 +208,13 @@ public sealed class PurchaseRecommendationService
             : $"{string.Join(" and ", tollPayers.Select(payer => payer.Name))} must pay you to reach their destinations";
     }
 
-    /// <summary>For each opponent with a destination, the railroads that serve it.</summary>
-    private static List<(RecommendationOpponent Opponent, HashSet<int> Railroads)> BuildOpponentDestinationRailroads(
+    /// <summary>For each opponent headed to a city on a railroad, that city's map node.</summary>
+    private static List<(RecommendationOpponent Opponent, string NodeId)> BuildOpponentDestinationNodes(
         MapDefinition mapDefinition,
         IReadOnlyList<RecommendationOpponent> opponents,
         Dictionary<int, HashSet<string>> nodesByRailroad)
     {
-        var result = new List<(RecommendationOpponent, HashSet<int>)>();
+        var result = new List<(RecommendationOpponent, string)>();
         foreach (var opponent in opponents.Where(opponent => !string.IsNullOrWhiteSpace(opponent.DestinationCityName)))
         {
             var city = mapDefinition.Cities.FirstOrDefault(candidate => string.Equals(candidate.Name, opponent.DestinationCityName, StringComparison.OrdinalIgnoreCase));
@@ -226,10 +227,9 @@ public sealed class PurchaseRecommendationService
             }
 
             var nodeId = MapRouteService.NodeKey(region.Index, dotIndex);
-            var railroads = nodesByRailroad.Where(pair => pair.Value.Contains(nodeId)).Select(pair => pair.Key).ToHashSet();
-            if (railroads.Count > 0)
+            if (nodesByRailroad.Values.Any(nodes => nodes.Contains(nodeId)))
             {
-                result.Add((opponent, railroads));
+                result.Add((opponent, nodeId));
             }
         }
 

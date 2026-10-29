@@ -81,6 +81,89 @@ public class NetworkCoverageServiceTests
         Assert.Equal(0m, coverage.MonopolyDestinationPercent);
     }
 
+    [Fact]
+    public void FindMonopolyCityNodes_PocketBehindTheOwnersRailroad_IsAMonopoly()
+    {
+        // Main line A-B-X; the gateway runs X-P1, and the branch P1-P2 joins the map only through it.
+        var mapDefinition = CreatePocketMap();
+
+        Assert.Equal(["0:3", "0:4"], NetworkCoverageService.FindMonopolyCityNodes(mapDefinition, [Gateway]).Order());
+        // The branch alone leaves P1 reachable on the gateway; only P2, which nothing else serves, is its monopoly.
+        Assert.Equal(["0:4"], NetworkCoverageService.FindMonopolyCityNodes(mapDefinition, [Branch]));
+        Assert.Equal(40m, new NetworkCoverageService().BuildSnapshot(mapDefinition, [Gateway]).MonopolyCityPercent);
+    }
+
+    [Fact]
+    public void FindMonopolyCityNodes_OwningEveryRailroad_IsAMonopolyOnEveryCity()
+    {
+        var mapDefinition = CreatePocketMap();
+
+        Assert.Equal(5, NetworkCoverageService.FindMonopolyCityNodes(mapDefinition, [MainLine, Gateway, Branch]).Count);
+    }
+
+    [Fact]
+    public async Task FindMonopolyCityNodes_NewYorkCentralAndNewHaven_TollNewEngland()
+    {
+        var mapPath = FindStandardMapPath();
+        if (mapPath is null)
+        {
+            return;
+        }
+
+        await using var stream = File.OpenRead(mapPath);
+        var mapDefinition = (await MapDefinition.LoadAsync(Path.GetFileName(mapPath), stream)).Definition!;
+        int RailroadIndex(string shortName) => mapDefinition.Railroads.Single(railroad => railroad.ShortName == shortName).Index;
+        string CityNode(string name)
+        {
+            var city = mapDefinition.Cities.Single(candidate => candidate.Name == name);
+            var region = mapDefinition.Regions.Single(candidate => candidate.Code == city.RegionCode);
+            return $"{region.Index}:{city.MapDotIndex}";
+        }
+
+        var monopolies = NetworkCoverageService.FindMonopolyCityNodes(mapDefinition, [RailroadIndex("NYC"), RailroadIndex("NYNH&H")]);
+
+        // The Boston and Maine still serves these, but it reaches the rest of the map only on those two.
+        Assert.Contains(CityNode("Portland ME"), monopolies);
+        Assert.Contains(CityNode("Boston"), monopolies);
+        Assert.Contains(CityNode("Albany"), monopolies);
+        Assert.DoesNotContain(CityNode("Chicago"), monopolies);
+    }
+
+    private const int MainLine = 0;
+    private const int Gateway = 1;
+    private const int Branch = 2;
+
+    private static MapDefinition CreatePocketMap()
+    {
+        var map = new MapDefinition { Name = "Pocket", Version = "1.0" };
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Only", Code = "ON", Probability = 1 });
+        string[] names = ["A", "B", "X", "P1", "P2"];
+        for (var dot = 0; dot < names.Length; dot++)
+        {
+            map.Cities.Add(new CityDefinition { Name = names[dot], RegionCode = "ON", Probability = 20, MapDotIndex = dot });
+            map.TrainDots.Add(new TrainDot { Id = $"0:{dot}", RegionIndex = 0, DotIndex = dot, X = dot * 10, Y = 0 });
+        }
+
+        foreach (var (railroad, name) in new[] { (MainLine, "Main Line"), (Gateway, "Gateway"), (Branch, "Branch") })
+        {
+            map.Railroads.Add(new RailroadDefinition { Index = railroad, Name = name, ShortName = name });
+        }
+
+        foreach (var (railroad, from, to) in new[] { (MainLine, 0, 1), (MainLine, 1, 2), (Gateway, 2, 3), (Branch, 3, 4) })
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroad,
+                StartRegionIndex = 0,
+                StartDotIndex = from,
+                EndRegionIndex = 0,
+                EndDotIndex = to
+            });
+        }
+
+        return map;
+    }
+
     private static string? FindStandardMapPath()
     {
         var dir = AppContext.BaseDirectory;
