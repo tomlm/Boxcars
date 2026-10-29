@@ -115,7 +115,8 @@ else
     @* The player list: a side panel on medium screens and up, an overlay opened from the button on small ones. *@
     <MudDrawer @bind-Open="_isPlayerDrawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md"
                Anchor="Anchor.Start" Elevation="1">
-        @* The players scroll; the logo stays in the rail's lower-left corner and links back to the dashboard. *@
+        @* The players scroll, with the logo (a link back to the dashboard) after them. The spacer keeps the logo in
+           the rail's lower-left corner when the players fit, and gives the players its room when they don't. *@
         <MudStack Spacing="2" Class="pa-2 flex-grow-1 overflow-y-auto">
             <PlayerBoard Players="_players"
                      OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
@@ -124,10 +125,11 @@ else
                      OnToggleNetworkHighlight="OnToggleNetworkHighlight"
                      OnLocatePlayer="OnLocatePlayerAsync"
                      />
+            <MudSpacer />
+            <MudLink Href="/dashboard" Underline="Underline.None" Class="d-flex flex-shrink-0">
+                <MudImage Src="icons/icon-512.png" Alt="BoxCars" Fluid="true" Class="rounded" />
+            </MudLink>
         </MudStack>
-        <MudLink Href="/dashboard" Underline="Underline.None" Class="d-flex flex-shrink-0 pa-2">
-            <MudImage Src="icons/icon-512.png" Alt="BoxCars" Fluid="true" Class="rounded" />
-        </MudLink>
     </MudDrawer>
     <MudHidden Breakpoint="Breakpoint.SmAndDown" Invert="true">
         <MudIconButton Icon="@Icons.Material.Filled.People" aria-label="Show players" Class="align-self-start ma-1"
