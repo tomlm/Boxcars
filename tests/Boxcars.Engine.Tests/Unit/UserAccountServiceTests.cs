@@ -106,6 +106,7 @@ public class UserAccountServiceTests
         Assert.True(result.Success, result.Error);
         var user = users.Users.Single();
         Assert.Equal("pat@example.com", user.RowKey);
+        Assert.Equal(user.RowKey, result.UserId);
         Assert.Equal("Pat", user.Nickname);
         Assert.Equal("green", user.PreferredColor);
         Assert.False(user.IsBot);
@@ -138,6 +139,7 @@ public class UserAccountServiceTests
         var bot = users.Users.Single();
         Assert.True(bot.IsBot);
         Assert.EndsWith("@boxcars.bot", bot.RowKey, StringComparison.Ordinal);
+        Assert.Equal(bot.RowKey, result.UserId);
         Assert.Equal("orange", bot.PreferredColor);
         Assert.Equal("https://example.com/b.png", bot.ThumbnailUrl);
     }
