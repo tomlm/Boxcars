@@ -1038,6 +1038,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         var snapshot = gameEngine.ToSnapshot();
         ApplySeatAndControlMetadata(snapshot, gameEntity, playerStates);
         var timelineSettings = _gameSettingsResolver.Resolve(gameEntity).Settings;
+        var startingTurnNumber = gameEngine.CurrentTurn.TurnNumber;
 
         for (var step = 0; step < AutomaticTurnFlowStepLimit; step++)
         {
@@ -1138,6 +1139,15 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         }
 
         await PersistSeatStateControlChangesAsync(originalPlayerStates, playerStates, cancellationToken);
+
+        // With only bots left nothing ever waits on a human, so the flow always reaches the step limit. When turns
+        // are still advancing, hand the game back and let the resume play the next batch, so other actions get the
+        // lock in between. Only a flow that is stuck on the same turn is a failure.
+        if (gameEngine.CurrentTurn.TurnNumber != startingTurnNumber)
+        {
+            ScheduleAutomaticTurnFlowResume(gameId);
+            return snapshot;
+        }
 
         throw new InvalidOperationException($"Automatic turn flow did not stabilize within {AutomaticTurnFlowStepLimit} steps.");
     }
@@ -1294,6 +1304,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
         if (!processingAcquired)
         {
+            // Try again once the current holder lets go, rather than dropping the request.
+            _automaticFlowResumeRequested[gameId] = true;
             return;
         }
 
