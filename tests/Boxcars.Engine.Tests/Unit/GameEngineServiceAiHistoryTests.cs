@@ -199,6 +199,57 @@ public class GameEngineServiceAiHistoryTests
     }
 
     [Fact]
+    public async Task AdvanceAutomaticTurnFlowAsync_OnlyBotsLeft_PausesAtStepLimitInsteadOfFailing()
+    {
+        // The only human went bankrupt and is watching, so nothing ever waits on a person.
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", "alice-user", isConnected: true);
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1",
+            // Not Playing, so the resume the pause schedules stops straight away instead of playing on in the background.
+            State = PersistedGameStates.Lobby,
+            Seats =
+            [
+                new GameSeatDefinition { SeatIndex = 0, PlayerUserId = "alice-user", DisplayName = "Alice" },
+                new GameSeatDefinition { SeatIndex = 1, PlayerUserId = "bob-bot", DisplayName = "Bob" },
+                new GameSeatDefinition { SeatIndex = 2, PlayerUserId = "charlie-bot", DisplayName = "Charlie" }
+            ]
+        };
+        var service = new GameEngineService(
+            new TestWebHostEnvironment(),
+            new ResumeAutomaticTurnFlowGamesTableClient(gameEntity),
+            presenceService,
+            BotTurnServiceTestHarness.CreateServiceWithUsers(
+                presenceService,
+                [
+                    BotTurnServiceTestHarness.CreateUser("bob-bot", "Bob", isBot: true),
+                    BotTurnServiceTestHarness.CreateUser("charlie-bot", "Charlie", isBot: true)
+                ]),
+            new GameSettingsResolver(),
+            Options.Create(new BotOptions { AutomaticActionDelayMilliseconds = 0 }),
+            NullLogger<GameEngineService>.Instance);
+
+        var (engine, _) = GameEngineFixture.CreateTestEngine(GameEngineFixture.ThreePlayerNames);
+        engine.Players[0].IsBankrupt = true;
+        engine.Players[0].IsActive = false;
+        engine.CurrentTurn.ActivePlayer = engine.Players[1];
+        engine.CurrentTurn.Phase = TurnPhase.DrawDestination;
+        SetMapReady(service);
+        SetMapDefinition(service, engine.MapDefinition);
+        SetCachedGameEngine(service, "game-1", engine);
+        var startingTurnNumber = engine.CurrentTurn.TurnNumber;
+
+        await InvokeAdvanceAutomaticTurnFlowAsync(service, gameEntity, "game-1", engine);
+
+        Assert.True(engine.CurrentTurn.TurnNumber > startingTurnNumber);
+        Assert.Equal(Boxcars.Engine.Domain.GameStatus.InProgress, engine.GameStatus);
+    }
+
+    [Fact]
     public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationWithinRangeAndBuffer_Declares()
     {
         var presenceService = new GamePresenceService();
@@ -435,6 +486,21 @@ public class GameEngineServiceAiHistoryTests
         await task;
     }
 
+    private static async Task InvokeAdvanceAutomaticTurnFlowAsync(
+        GameEngineService service,
+        GameEntity gameEntity,
+        string gameId,
+        Boxcars.Engine.Domain.GameEngine engine)
+    {
+        var method = typeof(GameEngineService).GetMethod("AdvanceAutomaticTurnFlowAsync", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("AdvanceAutomaticTurnFlowAsync was not found.");
+
+        var task = (Task)(method.Invoke(service, [gameEntity, gameId, engine, CancellationToken.None])
+            ?? throw new InvalidOperationException("AdvanceAutomaticTurnFlowAsync returned null."));
+
+        await task;
+    }
+
     private static IReadOnlyCollection<object> GetCachedGameEngines(GameEngineService service)
     {
         var field = typeof(GameEngineService).GetField("_gameEngines", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -498,6 +564,11 @@ public class GameEngineServiceAiHistoryTests
             }
 
             throw new RequestFailedException((int)HttpStatusCode.NotFound, "Not found");
+        }
+
+        public override Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Response>(new FakeResponse((int)HttpStatusCode.NoContent));
         }
 
         public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
