@@ -9,6 +9,7 @@ using Boxcars.Identity;
 using Boxcars.Services;
 using Boxcars.Services.Maps;
 using Boxcars.Services.Reports;
+using Holler.Server;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth.Claims;
@@ -17,6 +18,7 @@ using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server;
 using Microsoft.AspNetCore.Components.Server.Circuits;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using MudBlazor;
 using MudBlazor.Services;
@@ -167,6 +169,19 @@ public class Program
         // SignalR
         builder.Services.AddSignalR();
 
+        // Holler: peer-to-peer webcam/mic between the seated players of a game. The game page is Interactive
+        // Server, so signaling stays in-process and no extra hub is mapped. Options (e.g. a TURN server) bind
+        // from the "Holler" configuration section.
+        builder.Services.AddSingleton<IHollerAuthorizer, GameVideoAuthorizer>();
+        builder.Services.AddHoller();
+        builder.Services.Configure<HollerOptions>(builder.Configuration.GetSection("Holler"));
+        // TURN relays for players behind strict NATs and firewalls: Cloudflare Realtime TURN, once a key is configured
+        // (Holler:CloudflareTurn:KeyId and ApiToken in user secrets locally, app settings or Key Vault in Azure).
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["Holler:CloudflareTurn:KeyId"]))
+        {
+            builder.Services.AddHollerCloudflareTurn();
+        }
+
         // Shared authoritative game engine
         builder.Services.AddSingleton<GameEngineService>();
         builder.Services.AddSingleton<IGameEngine>(serviceProvider => serviceProvider.GetRequiredService<GameEngineService>());
@@ -280,7 +295,19 @@ public class Program
         }
 
         // Configure the HTTP request pipeline.
-        if (!app.Environment.IsDevelopment())
+        if (app.Environment.IsDevelopment())
+        {
+            // Visual Studio dev tunnels forward to localhost and pass the public host and scheme in X-Forwarded-*.
+            // Honor them so redirects (sign-in, HTTPS) stay on the tunnel URL instead of jumping to localhost.
+            var forwardedHeaders = new ForwardedHeadersOptions
+            {
+                ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto,
+            };
+            forwardedHeaders.KnownIPNetworks.Clear();
+            forwardedHeaders.KnownProxies.Clear();
+            app.UseForwardedHeaders(forwardedHeaders);
+        }
+        else
         {
             app.UseExceptionHandler("/Error");
             app.UseHsts();

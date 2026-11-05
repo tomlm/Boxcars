@@ -13,6 +13,9 @@ public sealed class PlayerBoardModel
     /// <summary>Display name.</summary>
     public string Name { get; init; } = string.Empty;
 
+    /// <summary>User id of the person seated here (the auth NameIdentifier); empty for bots.</summary>
+    public string UserId { get; init; } = string.Empty;
+
     /// <summary>URL to the player's thumbnail image (may be empty).</summary>
     public string ThumbnailUrl { get; init; } = string.Empty;
 
