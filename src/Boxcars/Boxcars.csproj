@@ -14,7 +14,9 @@
     <PackageReference Include="Azure.Storage.Queues" Version="12.23.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="8.0.32" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.MicrosoftAccount" Version="8.0.32" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.32" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />
+    <PackageReference Include="Holler.Server" Version="0.9.0" />
+    <PackageReference Include="Holler.Cloudflare" Version="0.9.0" />
     <PackageReference Include="Microsoft.Extensions.Azure" Version="1.13.0" />
     <PackageReference Include="MudBlazor.Markdown" Version="8.11.0" />
     <PackageReference Include="MudBlazor" Version="8.*" />

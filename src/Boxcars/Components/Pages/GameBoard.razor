@@ -169,6 +169,7 @@ else
         {
             <MudSpacer />
         }
+            <GameVideoControls GameId="@GameId" IsSeated="@(_currentUserPlayerIndex >= 0)" />
             <UserMenu />
         </MudStack>
 
@@ -2071,6 +2072,7 @@ else
                 {
                     Index = index,
                     Name = selection?.DisplayName ?? player.Name,
+                    UserId = isBotUser ? string.Empty : resolvedUserId,
                     // A bot uses its own picture when it has one; a person's seat on AI shows a robot.
                     ThumbnailUrl = isBotUser && ResolveThumbnailUrl(resolvedUserId) is var botThumbnailUrl
                         && !PlayerProfileService.IsGeneratedThumbnailUrl(botThumbnailUrl)
@@ -4179,6 +4181,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 {
                     Index = player.Index,
                     Name = player.Name,
+                    UserId = player.UserId,
                     ThumbnailUrl = player.ThumbnailUrl,
                     Color = player.Color,
                     IsAtDestination = player.IsAtDestination,

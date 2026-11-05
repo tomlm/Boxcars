@@ -1,0 +1,188 @@
+@inherits HollerComponentBase
+@using Boxcars.Services
+@using Holler.Server
+@using MudBlazor
+@inject ISnackbar Snackbar
+
+@*
+    Joins the game's video room while the current user is seated, and shows the mic and camera toggles.
+    Each player's audio plays through hidden elements here, so it keeps playing when their video is hidden
+    or the player drawer is closed.
+*@
+@if (IsSeated)
+{
+    @if (MediaProblem is not null)
+    {
+        @* Browsers won't ask again after a Block; the user has to allow it, then this retries (Holler also
+           retries by itself when the browser reports the change). *@
+        <MudTooltip Text="@MediaProblem">
+            <MudIconButton Icon="@Icons.Material.Filled.VideocamOff"
+                           Color="MudBlazor.Color.Warning"
+                           aria-label="@MediaProblem"
+                           OnClick="RetryMediaAsync" />
+        </MudTooltip>
+    }
+    @if (Holler.LocalMedia is { Ok: true })
+    {
+        <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+            <MudTooltip Text="@(Holler.IsMicrophoneOn ? "Mute microphone" : "Unmute microphone")">
+                <MudIconButton Icon="@(Holler.IsMicrophoneOn ? Icons.Material.Filled.Mic : Icons.Material.Filled.MicOff)"
+                               Color="@(Holler.IsMicrophoneOn ? MudBlazor.Color.Inherit : MudBlazor.Color.Error)"
+                               Disabled="@(Holler.LocalMedia is not { Audio: true })"
+                               aria-label="@(Holler.IsMicrophoneOn ? "Mute microphone" : "Unmute microphone")"
+                               OnClick="() => Run(Holler.ToggleMicrophoneAsync)" />
+            </MudTooltip>
+            @DeviceMenu(_microphones, "Choose microphone", Holler.MicrophoneDeviceId)
+        </MudStack>
+        <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+            <MudTooltip Text="@(Holler.IsCameraOn ? "Hide video" : "Show video")">
+                <MudIconButton Icon="@(Holler.IsCameraOn ? Icons.Material.Filled.Videocam : Icons.Material.Filled.VideocamOff)"
+                               Color="@(Holler.IsCameraOn ? MudBlazor.Color.Inherit : MudBlazor.Color.Error)"
+                               Disabled="@(Holler.LocalMedia is not { Video: true })"
+                               aria-label="@(Holler.IsCameraOn ? "Hide video" : "Show video")"
+                               OnClick="() => Run(Holler.ToggleCameraAsync)" />
+            </MudTooltip>
+            @DeviceMenu(_cameras, "Choose camera", Holler.CameraDeviceId)
+        </MudStack>
+    }
+
+    @foreach (var peer in Peers)
+    {
+        <HollerAudio @key="peer.Key" Peer="peer" />
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public string GameId { get; set; } = string.Empty;
+
+    /// <summary>True when the signed-in user has a seat in this game. Spectators get no video.</summary>
+    [Parameter] public bool IsSeated { get; set; }
+
+    // Ceilings only: each player is sent just the resolution their screen draws our avatar at (a few
+    // dozen pixels), and no video at all while they aren't showing it.
+    private static readonly HollerVideoSettings VideoCeiling = new(MaxWidth: 640, MaxHeight: 480, MaxFrameRate: 24, MaxBitrateKbps: 800);
+
+    private string? _joinedRoom;
+    private IReadOnlyList<HollerMediaDevice> _cameras = [];
+    private IReadOnlyList<HollerMediaDevice> _microphones = [];
+
+    private RenderFragment DeviceMenu(IReadOnlyList<HollerMediaDevice> devices, string label, string? currentDeviceId) => __builder =>
+    {
+        <MudMenu Icon="@Icons.Material.Filled.ArrowDropDown"
+                 Size="Size.Small"
+                 Dense="true"
+                 Disabled="@(Holler.LocalMedia is not { Ok: true })"
+                 AnchorOrigin="Origin.BottomCenter"
+                 TransformOrigin="Origin.TopCenter"
+                 OpenChanged="OnDeviceMenuOpenChanged"
+                 aria-label="@label">
+            @if (devices.Count == 0)
+            {
+                <MudMenuItem Disabled="true">No devices found</MudMenuItem>
+            }
+            @foreach (var device in devices)
+            {
+                <MudMenuItem Icon="@(device.DeviceId == currentDeviceId ? Icons.Material.Filled.Check : Icons.Material.Outlined.Circle)"
+                             IconColor="@(device.DeviceId == currentDeviceId ? MudBlazor.Color.Primary : MudBlazor.Color.Transparent)"
+                             OnClick="() => SelectDeviceAsync(device)">
+                    @device.Label
+                </MudMenuItem>
+            }
+        </MudMenu>
+    };
+
+    private string? MediaProblem => Holler.LocalMedia switch
+    {
+        { PermissionDenied: true } => "Camera or microphone blocked. Click the camera icon in the address bar, choose Allow, then click here.",
+        { Ok: false } media => $"Camera and microphone unavailable ({media.Error}). Click to try again.",
+        _ => Error,
+    };
+
+    private IReadOnlyList<HollerPeer> Peers => _joinedRoom is null ? [] : Holler.GetRoom(_joinedRoom)?.Peers ?? [];
+
+    protected override Task OnHollerStartedAsync() => SyncRoomAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Seating is known only once game state loads, which may be after the client started.
+        if (Holler.IsStarted)
+        {
+            await Run(SyncRoomAsync);
+        }
+    }
+
+    private async Task SyncRoomAsync()
+    {
+        var wanted = IsSeated && !string.IsNullOrEmpty(GameId) ? GameVideoAuthorizer.RoomName(GameId) : null;
+        if (wanted == _joinedRoom)
+        {
+            return;
+        }
+
+        await LeaveAsync();
+        if (wanted is null)
+        {
+            return;
+        }
+
+        _joinedRoom = wanted;
+        await Holler.StartMediaAsync(videoSettings: VideoCeiling);
+        await Holler.JoinRoomAsync(wanted);
+    }
+
+    private async Task LeaveAsync()
+    {
+        if (_joinedRoom is { } room)
+        {
+            _joinedRoom = null;
+            await Holler.LeaveRoomAsync(room);
+            await Holler.StopMediaAsync();
+        }
+    }
+
+    // Re-read on every open so newly plugged-in devices show up.
+    private async Task OnDeviceMenuOpenChanged(bool open)
+    {
+        if (open)
+        {
+            await Run(async () =>
+            {
+                _cameras = await Holler.GetCamerasAsync();
+                _microphones = await Holler.GetMicrophonesAsync();
+            });
+        }
+    }
+
+    private async Task SelectDeviceAsync(HollerMediaDevice device)
+    {
+        var result = device.Kind == "video"
+            ? await Holler.SelectCameraAsync(device.DeviceId)
+            : await Holler.SelectMicrophoneAsync(device.DeviceId);
+        if (!result.Ok)
+        {
+            Snackbar.Add($"Couldn't switch to {device.Label}: {result.Error}", Severity.Warning);
+        }
+    }
+
+    private async Task RetryMediaAsync()
+    {
+        var result = await Holler.RetryMediaAsync();
+        if (result.PermissionDenied)
+        {
+            Snackbar.Add("Still blocked. Click the camera icon in the address bar and choose Allow.", Severity.Warning);
+        }
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        try
+        {
+            await LeaveAsync();
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException or HollerException)
+        {
+            // The circuit is going away; the server drops the session either way.
+        }
+    }
+}

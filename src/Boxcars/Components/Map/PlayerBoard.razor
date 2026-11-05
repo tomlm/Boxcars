@@ -47,7 +47,10 @@
                                               Origin="Origin.BottomRight"
                                               Class="d-inline-flex"
                                               Style="overflow: visible">
-                                        <MudAvatar Style="color: var(--player-color-fg, #fff); font-weight: 700; overflow: hidden; flex-shrink: 0; background-color: rgb(255 255 255 / 0.32)" Size="Size.Large">
+                                        <PlayerVideoAvatar UserId="@player.UserId"
+                                                           IsCurrentUser="@player.IsCurrentUser"
+                                                           Size="Size.Large"
+                                                           Style="color: var(--player-color-fg, #fff); font-weight: 700; overflow: hidden; flex-shrink: 0; background-color: rgb(255 255 255 / 0.32)">
                                             @if (HasThumbnail(player))
                                             {
                                                 <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Style="width: 100%; height: 100%; object-fit: cover" />
@@ -56,7 +59,7 @@
                                             {
                                                 @GetInitial(player.Name)
                                             }
-                                        </MudAvatar>
+                                        </PlayerVideoAvatar>
                                     </MudBadge>
                                 </MudButton>
                                 <MudOverlay Visible="@player.IsEliminated" Absolute="true">

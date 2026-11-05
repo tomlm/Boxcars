@@ -1,0 +1,55 @@
+@inherits HollerComponentBase
+
+@using MudBlazor
+
+@*
+    The avatar on a player card: the player's live video when they are connected to the game's video
+    room with their camera on, otherwise the normal profile picture (ChildContent). Video here is always
+    muted; audio plays through GameVideoControls. The avatar is square while showing video, round otherwise.
+*@
+<MudAvatar Size="@Size" Style="@Style" Square="@(RemotePeer is not null || ShowLocalVideo)">
+    @if (RemotePeer is { } peer)
+    {
+        <HollerVideo Peer="peer" Muted="true" Style="@VideoStyle" />
+    }
+    else if (ShowLocalVideo)
+    {
+        <HollerVideo Local="true" Style="@LocalVideoStyle" />
+    }
+    else
+    {
+        @ChildContent
+    }
+</MudAvatar>
+
+@code {
+    private const string VideoStyle = "width: 100%; height: 100%; object-fit: cover";
+
+    // Mirrored, like a mirror or any video-call self view.
+    private const string LocalVideoStyle = VideoStyle + "; transform: scaleX(-1)";
+
+    /// <summary>The seated user's id; empty for bots.</summary>
+    [Parameter, EditorRequired] public string UserId { get; set; } = string.Empty;
+
+    [Parameter] public bool IsCurrentUser { get; set; }
+
+    [Parameter] public Size Size { get; set; } = Size.Large;
+
+    [Parameter] public string? Style { get; set; }
+
+    /// <summary>Shown whenever there is no live video.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private HollerPeer? RemotePeer => IsCurrentUser || string.IsNullOrEmpty(UserId)
+        ? null
+        : Holler.Rooms
+            .SelectMany(room => room.Peers)
+            .FirstOrDefault(peer => peer.IsVideoVisible
+                && peer.ConnectionState is not ("failed" or "closed")
+                && string.Equals(peer.UserId, UserId, StringComparison.OrdinalIgnoreCase));
+
+    private bool ShowLocalVideo => IsCurrentUser
+        && Holler.Rooms.Count > 0
+        && Holler.LocalMedia is { Video: true }
+        && Holler.CameraEnabled;
+}
