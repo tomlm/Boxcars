@@ -13,8 +13,8 @@
 {
     @if (MediaProblem is not null)
     {
-        @* Browsers won't ask again after a Block; the user has to allow it, then this retries (Holler also
-           retries by itself when the browser reports the change). *@
+        @* Shown whenever requested media isn't running (blocked, in use, missing). Clicking retries; Holler
+           also retries by itself when the browser reports a permission change. *@
         <MudTooltip Text="@MediaProblem">
             <MudIconButton Icon="@Icons.Material.Filled.VideocamOff"
                            Color="MudBlazor.Color.Warning"
@@ -91,12 +91,8 @@
         </MudMenu>
     };
 
-    private string? MediaProblem => Holler.LocalMedia switch
-    {
-        { PermissionDenied: true } => "Camera or microphone blocked. Click the camera icon in the address bar, choose Allow, then click here.",
-        { Ok: false } media => $"Camera and microphone unavailable ({media.Error}). Click to try again.",
-        _ => Error,
-    };
+    // Blocked, in use by another app, or missing: Holler says which. Clicking retries.
+    private string? MediaProblem => Holler.MediaIssue is { } issue ? $"{issue} Click here to try again." : Error;
 
     private IReadOnlyList<HollerPeer> Peers => _joinedRoom is null ? [] : Holler.GetRoom(_joinedRoom)?.Peers ?? [];
 
