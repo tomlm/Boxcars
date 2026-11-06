@@ -326,9 +326,25 @@ else
         <PlayByPlayBand @ref="_playByPlayBand" OnClick="OnPlayByPlayBandClickedAsync" />
 
         @* ── Status strip: turn state center, zoom right ── *@
-        <MudStack Row="true" Class="flex-shrink-1 align-start overflow-y-auto" Style="@StatusBarAnchorStyle">
+        @* Clicking the bar's background toggles it; clicks inside the panels stay put. MudBlazor buttons
+           stop click propagation, so the two toggle buttons call ToggleStatusBar themselves. *@
+        <MudStack Row="true" Class="@StatusBarClass" Style="@StatusBarAnchorStyle" @onclick="ToggleStatusBar">
+            @if (IsStatusBarCollapsed)
+            {
+                <MudButton Variant="Variant.Text"
+                           FullWidth="true"
+                           StartIcon="@Icons.Material.Filled.ExpandLess"
+                           aria-label="Show actions"
+                           Style="@StatusBarToggleStyle"
+                           OnClick="ToggleStatusBar">
+                    Show actions
+                </MudButton>
+            }
+            else
+            {
             <MudStack Row="true" Class="flex-grow-1 align-center justify-center px-4 py-2">
-                <MudStack Row="true" Spacing="4" Justify="@StatusContentJustify" AlignItems="AlignItems.Center" Class="@StatusContentClass">
+                <div class="@StatusContentClass" @onclick:stopPropagation="true">
+                <MudStack Row="true" Spacing="4" Justify="@StatusContentJustify" AlignItems="AlignItems.Center" Class="mud-width-full">
                         @if (ShouldShowStatusControls)
                         {
                             @if (!ShouldShowDeclarePanel && !ShouldShowHomeCityChoicePanel && !ShouldShowHomeSwapPanel && !ShouldShowRegionChoicePanel && !ShouldShowPurchaseTaskbar && !ShouldShowAuctionPanel && !ShouldShowForcedSalePanel && !ShouldShowCommitMoveAction)
@@ -449,7 +465,17 @@ else
                             </MudStack>
                         }
                 </MudStack>
+                </div>
             </MudStack>
+            @if (ShouldShowStatusControls)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.ExpandMore"
+                               aria-label="Hide actions"
+                               title="Hide actions to see the map"
+                               Style="@StatusBarToggleStyle"
+                               OnClick="ToggleStatusBar" />
+            }
+            }
         </MudStack>
     </MudStack>
 </MudStack>
@@ -2926,6 +2952,32 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             : "flex-1 overflow-auto pa-3";
 
     private string StatusBarAnchorStyle => $"border-top: 1px solid var(--mud-palette-divider); transition: background-color 120ms ease; {GetStatusBarColorStyle(_currentPlayerColor)}";
+
+    // The player can tuck the action bar away to see the map. It stays tucked away only for the
+    // step it was collapsed in, so the next decision always comes back into view.
+    private string? _statusBarCollapsedStep;
+
+    private string StatusBarStep => $"{_turnViewState.ActivePlayerName}|{_turnViewState.TurnPhase}";
+
+    private bool IsStatusBarCollapsed => ShouldShowStatusControls && _statusBarCollapsedStep == StatusBarStep;
+
+    private string StatusBarClass => ShouldShowStatusControls
+        ? "flex-shrink-1 align-start overflow-y-auto cursor-pointer"
+        : "flex-shrink-1 align-start overflow-y-auto";
+
+    // Same shadow as player names on the player cards, so the toggle reads on every player color.
+    // A drop-shadow filter (rather than text-shadow) also shades the arrow icon.
+    private const string StatusBarToggleStyle = "filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.75)) drop-shadow(0 0 8px rgb(0 0 0 / 0.28))";
+
+    private void ToggleStatusBar()
+    {
+        if (!ShouldShowStatusControls)
+        {
+            return;
+        }
+
+        _statusBarCollapsedStep = IsStatusBarCollapsed ? null : StatusBarStep;
+    }
 
     private bool ShouldShowPurchaseAnalysisPanel => (IsRegionsPurchaseTabActive || IsCitiesPurchaseTabActive || IsRailroadsPurchaseTabActive)
         && CurrentMapAnalysisReport is not null;
