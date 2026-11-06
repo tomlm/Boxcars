@@ -211,6 +211,40 @@ public class DestinationApproachPlannerTests
     }
 
     [Fact]
+    public void BrokePlayer_GoesIn_WhenThePayoutCoversTheFeesButLayingUpMeansSellingARailroad()
+    {
+        // Laying up saves a fee, but its $1,000 of public track can't be paid with no cash; going in arrives this turn
+        // and the $8,000 payout covers Bob's $5,000.
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, cash: 0, arrivalPayout: 8000);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.False(decision.LayUp);
+        Assert.Equal("Laying up would mean selling a railroad to pay its fees", decision.Reason);
+    }
+
+    [Fact]
+    public void PlayerWhoCanPayForTheLayUp_StillLaysUp()
+    {
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, cash: 1000, arrivalPayout: 8000);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.True(decision.LayUp);
+    }
+
+    [Fact]
+    public void BrokePlayer_StillLaysUp_WhenGoingInLeavesMoreUnpaid()
+    {
+        // A $2,000 payout leaves $3,000 of Bob's fee unpaid going in, more than the lay-up's $1,000.
+        var request = CreateArrivalRequest(LocomotiveType.Superchief, movementUsed: 3, whiteDiceTotal: 4, redDie: 1, cash: 0, arrivalPayout: 2000);
+
+        var decision = DestinationApproachPlanner.Evaluate(request);
+
+        Assert.True(decision.LayUp);
+    }
+
+    [Fact]
     public void BonusRollStillToCome_IsNotEvaluated()
     {
         var request = CreateArrivalRequest(LocomotiveType.Express, movementUsed: 0, whiteDiceTotal: 2, redDie: null, bonusRollPending: true);
@@ -231,7 +265,9 @@ public class DestinationApproachPlannerTests
         int? redDie,
         int publicFee = 1000,
         int? bonusOutDots = 2,
-        bool bonusRollPending = false)
+        bool bonusRollPending = false,
+        int? cash = null,
+        int arrivalPayout = 0)
     {
         var graph = CreateGraph([("0", "n1", Bob), ("n1", "D", Bob), ("0", "p1", Public), ("p1", "p2", Public), ("p2", "D", Bob)]);
         return CreateRequest(
@@ -244,7 +280,9 @@ public class DestinationApproachPlannerTests
             movementUsed: movementUsed,
             publicFee: publicFee,
             bonusOutDots: bonusOutDots,
-            bonusRollPending: bonusRollPending);
+            bonusRollPending: bonusRollPending,
+            cash: cash,
+            arrivalPayout: arrivalPayout);
     }
 
     private static DestinationApproachRequest CreateRequest(
@@ -259,7 +297,9 @@ public class DestinationApproachPlannerTests
         int exitCost = 5000,
         int? bonusOutDots = 2,
         bool bonusRollPending = false,
-        int averageMovementPerTurn = 7)
+        int averageMovementPerTurn = 7,
+        int? cash = null,
+        int arrivalPayout = 0)
     {
         return new DestinationApproachRequest
         {
@@ -271,6 +311,8 @@ public class DestinationApproachPlannerTests
             WhiteDiceTotal = whiteDiceTotal,
             RedDie = redDie,
             BonusRollPending = bonusRollPending,
+            Cash = cash,
+            ArrivalPayout = arrivalPayout,
             GoRoute = Walk(graph, "0", goRoute),
             GetEdges = nodeId => graph.GetValueOrDefault(nodeId) ?? [],
             IsSegmentUsed = _ => false,
