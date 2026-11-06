@@ -196,6 +196,28 @@ public class PlayerProfileService
         }
     }
 
+    /// <summary>Saves whether the player's plotted moves are committed automatically.</summary>
+    public async Task<bool> UpdateAutoMoveAsync(string userId, bool autoMove, CancellationToken cancellationToken)
+    {
+        var user = await _userDirectoryService.GetUserAsync(userId, cancellationToken);
+        if (user is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            user.AutoMoveOff = !autoMove;
+            await _userDirectoryService.UpdateUserAsync(user, user.ETag, cancellationToken);
+            UpdateCachedProfile(user);
+            return true;
+        }
+        catch (RequestFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Saves the player's "your turn" sound and the sound they uploaded.</summary>
     public async Task<bool> UpdateTurnSoundAsync(
         string userId,
@@ -318,6 +340,7 @@ public class PlayerProfileService
             SlangMode = user.SlangMode,
             GameAudioOff = user.GameAudioOff,
             TurnAudioOff = user.TurnAudioOff,
+            AutoMoveOff = user.AutoMoveOff,
             TurnSoundUrl = user.TurnSoundUrl,
             CustomTurnSoundUrl = user.CustomTurnSoundUrl,
             IsBot = user.IsBot,

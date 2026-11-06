@@ -124,6 +124,8 @@ else
                      HighlightedPlayerIndex="@_highlightedNetworkPlayerIndex"
                      OnToggleNetworkHighlight="OnToggleNetworkHighlight"
                      OnLocatePlayer="OnLocatePlayerAsync"
+                     AutoMove="@AutoMove"
+                     AutoMoveChanged="OnAutoMoveChangedAsync"
                      />
             <MudSpacer />
             <MudLink Href="/dashboard" Underline="Underline.None" Class="d-flex flex-shrink-0">
@@ -430,13 +432,16 @@ else
                                 <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mx-auto">
                                     <MudPaper Outlined="true" Elevation="4" Class="d-flex align-center gap-4 pa-2 rounded-lg">
                                         <MovementStatusPanel State="@_turnViewState" UsePaper="false" ArrivalBonus="@CurrentRouteArrivalBonus" RoverTargetPlayerName="@CurrentRouteRoverTargetPlayerName" />
-                                        <MudButton Variant="Variant.Filled"
-                                                   Color="MudBlazor.Color.Primary"
-                                                   Disabled="@(!CanCommitMoveAction)"
-                                                   OnClick="OnCommitMoveActionAsync"
-                                                   Class="flex-shrink-0 flex-grow-0">
-                                            @CommitMoveActionLabel
-                                        </MudButton>
+                                        @if (ShouldShowMoveButton)
+                                        {
+                                            <MudButton Variant="Variant.Filled"
+                                                       Color="MudBlazor.Color.Primary"
+                                                       Disabled="@(!CanCommitMoveAction)"
+                                                       OnClick="OnCommitMoveActionAsync"
+                                                       Class="flex-shrink-0 flex-grow-0">
+                                                @CommitMoveActionLabel
+                                            </MudButton>
+                                        }
                                     </MudPaper>
                                 </MudStack>
                             }
@@ -508,6 +513,16 @@ else
     private GameSettingsSummaryModel _gameSettingsSummary = GameSettingsSummaryModel.Empty;
     private Boxcars.Engine.Domain.ArrivalBonus _routeArrivalBonus;
     private string? _routeRoverTargetPlayerName;
+    // Whether the last route suggestion lays up instead of heading in (see DestinationApproachDecision).
+    private bool _routeLaysUp;
+    // The segment keys of the latest successful route suggestion, to tell whether the plotted move is still that route.
+    private IReadOnlyList<string>? _routeSuggestionKeys;
+    // For each segment of that suggestion, whether it rides an opponent's railroad.
+    private IReadOnlyList<bool> _routeSuggestionUnfriendly = [];
+    // A route suggestion arrived that automove hasn't considered yet.
+    private bool _autoMovePending;
+    // The player's turn started and its sound hasn't played yet; it plays once the board waits on them.
+    private bool _turnSoundPending;
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
     private Dictionary<string, string> _botDisplayNamesByDefinitionId = new(StringComparer.OrdinalIgnoreCase);
     private List<EventTimelineItem> _gameEngineEvents = new();
@@ -715,8 +730,11 @@ else
         await ResolveDrawDestinationPhaseAsync();
         LogBoardDebug($"OnAfterRenderAsync #{renderSequence} AutoSuggestRouteIfNeededAsync");
         await AutoSuggestRouteIfNeededAsync();
+        LogBoardDebug($"OnAfterRenderAsync #{renderSequence} AutoMoveIfNeededAsync");
+        await AutoMoveIfNeededAsync();
         LogBoardDebug($"OnAfterRenderAsync #{renderSequence} ResolvePurchasePhaseAsync");
         await ResolvePurchasePhaseAsync();
+        await PlayTurnSoundIfWaitingAsync();
 
         if (IsHistoryPurchaseTabActive)
         {
@@ -925,6 +943,11 @@ else
             _startingLobbyGame = false;
         }
     }
+
+    // With automove on, MOVE shows once a move is plotted that automove won't make itself (see AutoMoveTakesMove).
+    private bool ShouldShowMoveButton => !AutoMove
+        || !IsAuthenticatedUserActivePlayer
+        || (CurrentRouteMoveCount > 0 && !AutoMoveTakesMove);
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
@@ -1615,6 +1638,16 @@ else
         ShareRoutePreview();
         _routeArrivalBonus = suggestion.ArrivalBonus;
         _routeRoverTargetPlayerName = suggestion.RoverTargetPlayerName;
+        _routeLaysUp = suggestion.Approach?.LayUp == true;
+        _routeSuggestionKeys = suggestion.Status == RouteSuggestionStatus.Success
+            ? suggestion.Segments
+                .Select(segment => string.Join('|', segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex.ToString(CultureInfo.InvariantCulture)))
+                .ToList()
+            : null;
+        _routeSuggestionUnfriendly = suggestion.Status == RouteSuggestionStatus.Success
+            ? suggestion.Segments.Select(segment => segment.OwnershipCategory == RailroadOwnershipCategory.Unfriendly).ToList()
+            : [];
+        _autoMovePending = _routeSuggestionKeys is not null;
 
         if (ShouldApplyAutoZoom() && _gameMap is not null && suggestion.Status == RouteSuggestionStatus.Success)
         {
@@ -4068,6 +4101,132 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
     }
 
+    /// <summary>Whether this player's plotted moves are committed without a MOVE click; saved to their profile, on by default.</summary>
+    private bool AutoMove => _currentUserProfile is not null && !_currentUserProfile.AutoMoveOff;
+
+    private async Task OnAutoMoveChangedAsync(bool autoMove)
+    {
+        if (_currentUserProfile is null || string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            return;
+        }
+
+        _currentUserProfile.AutoMoveOff = !autoMove;
+        StateHasChanged();
+
+        if (!await ProfileService.UpdateAutoMoveAsync(_currentUserId, autoMove, CancellationToken.None))
+        {
+            ShowNotification("Automove couldn't be saved, so the change lasts only until you reload.", Severity.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Whether automove makes the plotted move itself: it's the player's own turn, the move is ready to commit, it's the
+    /// suggested route as plotted (a route the player edits by hand never goes on its own), and it doesn't pay another
+    /// player, lay up, rover someone, or run the player out of cash. Any fee to another player waits, even a small one,
+    /// because the player may choose to leave that railroad to starve its owner of income. Otherwise the player clicks
+    /// MOVE. Worked out from what's on the board, so the MOVE button can't go missing whatever order updates arrive in.
+    /// </summary>
+    private bool AutoMoveTakesMove => AutoMove
+        && IsAuthenticatedUserActivePlayer
+        && ShouldShowCommitMoveAction
+        && CurrentRouteMoveCount > 0
+        && CanCommitMoveSelection()
+        && SelectionFollowsSuggestion()
+        && !_turnViewState.PreviewHasUnfriendlyFee
+        && !_routeLaysUp
+        && CurrentRouteRoverTargetPlayerName is null
+        && _turnViewState.PreviewRoverCash <= 0
+        && !MoveRunsOutOfCash()
+        && !MoveLeavesRiskyBonus();
+
+    // The most a bonus die can move.
+    private const int MaximumBonusDots = 6;
+
+    /// <summary>
+    /// Whether a bonus still to come after the plotted move might ride an opponent's railroad, so the player may want to
+    /// choose where this move ends. A bonus roll still to come carries on along the route, so it's risky when an
+    /// opponent's railroad lies within a bonus die's reach past this move. Reaching the destination with a bonus left (a
+    /// bonus roll, or a Superchief's red die after arriving within the white dice) heads for a destination not drawn
+    /// yet, so that's always worth a look.
+    /// </summary>
+    private bool MoveLeavesRiskyBonus()
+    {
+        if (_gameState is null)
+        {
+            return false;
+        }
+
+        var turn = _gameState.Turn;
+        if (!SelectionReachesDestination())
+        {
+            var moveCount = CurrentRouteMoveCount;
+            return turn.BonusRollAvailable
+                && _routeSuggestionUnfriendly.Skip(moveCount).Take(MaximumBonusDots).Any(unfriendly => unfriendly);
+        }
+
+        if (turn.BonusRollAvailable)
+        {
+            return true;
+        }
+
+        var player = _gameState.Players[_gameState.ActivePlayerIndex];
+        var whiteDiceTotal = turn.DiceResult?.WhiteDice.Sum() ?? 0;
+        var movementUsed = Math.Max(0, turn.MovementAllowance - turn.MovementRemaining);
+        return string.Equals(player.LocomotiveType, nameof(LocomotiveType.Superchief), StringComparison.OrdinalIgnoreCase)
+            && turn.DiceResult?.RedDie is not null
+            && whiteDiceTotal > 0
+            && movementUsed + CurrentRouteMoveCount <= whiteDiceTotal;
+    }
+
+    /// <summary>Whether the plotted move is the start of the latest route suggestion.</summary>
+    private bool SelectionFollowsSuggestion()
+    {
+        if (_gameMap is null || _routeSuggestionKeys is not { } suggestionKeys)
+        {
+            return false;
+        }
+
+        var selectedKeys = _gameMap.GetSelectedRouteSegmentKeys();
+        return selectedKeys.Count > 0
+            && selectedKeys.Count <= suggestionKeys.Count
+            && selectedKeys.SequenceEqual(suggestionKeys.Take(selectedKeys.Count), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// With automove on, commits the player's own move as soon as a route suggestion is plotted and automove takes it
+    /// (see <see cref="AutoMoveTakesMove"/>). Each suggestion is considered once, after any update in flight lands.
+    /// </summary>
+    private async Task AutoMoveIfNeededAsync()
+    {
+        if (!_autoMovePending || _awaitingAuthoritativeUpdate)
+        {
+            return;
+        }
+
+        _autoMovePending = false;
+        if (AutoMoveTakesMove && CanCommitMoveAction)
+        {
+            await CommitMovePhaseAsync();
+        }
+    }
+
+    /// <summary>
+    /// Whether the plotted move's fees are more than the player can pay, so they'd have to sell a railroad. Arriving
+    /// collects the payout before fees are paid, except for a declared player, whose trip home may pay nothing.
+    /// </summary>
+    private bool MoveRunsOutOfCash()
+    {
+        if (_gameState is null)
+        {
+            return false;
+        }
+
+        var player = _gameState.Players[_gameState.ActivePlayerIndex];
+        var payout = SelectionReachesDestination() && !player.HasDeclared ? CalculateTripPayoff(player) : 0;
+        return _turnViewState.PreviewFee > player.Cash + payout;
+    }
+
     /// <summary>Whether this player hears the game's event sounds (see <see cref="GameSounds"/>); saved to their profile.</summary>
     private bool GameAudio => _currentUserProfile?.GameAudioOff != true;
 
@@ -4118,8 +4277,15 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             GameSettingsResolver.Resolve(_game).Settings.AnnouncingCash,
             playersAlreadyAnnounced);
         LogBoardDebug($"Game sounds detected=[{string.Join(", ", detected)}] gameAudio={GameAudio} turnAudio={TurnAudio} turn={priorState.TurnNumber}->{state.TurnNumber} active={priorState.ActivePlayerIndex}->{state.ActivePlayerIndex}");
+        // The "your turn" sound waits until the board stops for the player's input (see PlayTurnSoundIfWaitingAsync),
+        // so a turn that automove plays through doesn't call them over.
+        if (detected.Contains(GameSound.PlayerTurn))
+        {
+            _turnSoundPending = TurnAudio;
+        }
+
         var sounds = detected
-            .Where(sound => sound == GameSound.PlayerTurn ? TurnAudio : GameAudio)
+            .Where(sound => sound != GameSound.PlayerTurn && GameAudio)
             .Select(sound => GameSounds.GetUrl(sound, _currentUserProfile?.TurnSoundUrl))
             .ToList();
         if (sounds.Count == 0)
@@ -4130,6 +4296,51 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         try
         {
             await JavaScriptRuntime.InvokeVoidAsync("gameSounds.play", sounds);
+        }
+        catch (JSException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Plays the held-back "your turn" sound once the board is waiting on the player: a decision panel is up, or the
+    /// move is plotted and waiting for MOVE because automove didn't take it. It plays at most once per turn.
+    /// </summary>
+    private async Task PlayTurnSoundIfWaitingAsync()
+    {
+        if (!_turnSoundPending)
+        {
+            return;
+        }
+
+        if (!IsCurrentUserActivePlayer || IsGameCompleted)
+        {
+            _turnSoundPending = false;
+            return;
+        }
+
+        var waitingOnPlayer = ShouldShowStatusControls
+            && !_awaitingAuthoritativeUpdate
+            && (ShouldShowDeclarePanel
+                || ShouldShowHomeCityChoicePanel
+                || ShouldShowHomeSwapPanel
+                || ShouldShowRegionChoicePanel
+                || ShouldShowPurchaseTaskbar
+                || (ShouldShowAuctionPanel && CanCurrentUserActInAuction)
+                || ShouldShowForcedSalePanel
+                || (ShouldShowCommitMoveAction && CurrentRouteMoveCount > 0 && !_autoMovePending && ShouldShowMoveButton));
+        if (!waitingOnPlayer)
+        {
+            return;
+        }
+
+        _turnSoundPending = false;
+        try
+        {
+            await JavaScriptRuntime.InvokeVoidAsync("gameSounds.play", new[] { GameSounds.GetUrl(GameSound.PlayerTurn, _currentUserProfile?.TurnSoundUrl) });
         }
         catch (JSException)
         {

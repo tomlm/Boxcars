@@ -77,46 +77,62 @@
                                         <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
                                     </MudStack>
                                 }
-                            </MudStack>
-                            <MudStack Class="flex-shrink-0" AlignItems="AlignItems.Center" Justify="Justify.Center" Spacing="0">
-                                @if (player.ShowDisconnectedControlToggle)
-                                {
-                                    <MudMenu Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                                        <ActivatorContent>
-                                            <MudIconButton Icon="@GetControlModeIcon(player)"
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0">
+                                    @if (player.ShowDisconnectedControlToggle)
+                                    {
+                                        <MudMenu Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                            <ActivatorContent>
+                                                <MudIconButton Icon="@GetControlModeIcon(player)"
+                                                               Size="Size.Small"
+                                                               Color="Color.Inherit"
+                                                               Style="padding: 2px; min-width: 0; min-height: 0"
+                                                               aria-label="@($"Change control mode for {player.Name}")"
+                                                               title="@($"Controlled by: {player.DisconnectedControlMode}")" />
+                                            </ActivatorContent>
+                                            <ChildContent>
+                                                @foreach (var option in player.ControlModeOptions)
+                                                {
+                                                    <MudMenuItem OnClick="@(async () => await OnDisconnectedSeatControlChangedAsync(player, option.Value))">
+                                                        @option.Label
+                                                    </MudMenuItem>
+                                                }
+                                            </ChildContent>
+                                        </MudMenu>
+                                    }
+                                    @if (player.OwnedRailroadCount > 0)
+                                    {
+                                        <MudTooltip Text="@(HighlightedPlayerIndex == player.Index ? "Hide network" : "Show network")">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Train"
                                                            Size="Size.Small"
-                                                           Color="Color.Inherit"
+                                                           Color="MudBlazor.Color.Inherit"
+                                                           Variant="@(HighlightedPlayerIndex == player.Index ? Variant.Outlined : Variant.Text)"
                                                            Style="padding: 2px; min-width: 0; min-height: 0"
-                                                           aria-label="@($"Change control mode for {player.Name}")"
-                                                           title="@($"Controlled by: {player.DisconnectedControlMode}")" />
-                                        </ActivatorContent>
-                                        <ChildContent>
-                                            @foreach (var option in player.ControlModeOptions)
-                                            {
-                                                <MudMenuItem OnClick="@(async () => await OnDisconnectedSeatControlChangedAsync(player, option.Value))">
-                                                    @option.Label
-                                                </MudMenuItem>
-                                            }
-                                        </ChildContent>
-                                    </MudMenu>
-                                }
-                                @if (player.OwnedRailroadCount > 0)
-                                {
-                                    <MudTooltip Text="@(HighlightedPlayerIndex == player.Index ? "Hide network" : "Show network")">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Train"
+                                                           OnClick="@(() => OnToggleNetworkHighlight.InvokeAsync(HighlightedPlayerIndex == player.Index ? null : player.Index))" />
+                                        </MudTooltip>
+                                    }
+                                    @if (player.IsCurrentUser && AutoMoveChanged.HasDelegate)
+                                    {
+                                        <MudTooltip Text="Auto move">
+                                            <MudToggleIconButton Toggled="@AutoMove"
+                                                                 ToggledChanged="AutoMoveChanged"
+                                                                 Icon="@Icons.Material.Outlined.FastForward"
+                                                                 ToggledIcon="@Icons.Material.Filled.FastForward"
+                                                                 Size="Size.Small"
+                                                                 ToggledSize="Size.Small"
+                                                                 Color="MudBlazor.Color.Inherit"
+                                                                 ToggledVariant="Variant.Outlined"
+                                                                 Style="padding: 2px; min-width: 0; min-height: 0"
+                                                                 aria-label="Automove" />
+                                        </MudTooltip>
+                                    }
+                                    <MudTooltip Text="Locate on map">
+                                        <MudIconButton Icon="@Icons.Material.Filled.LocationOn"
                                                        Size="Size.Small"
-                                                       Color="@(HighlightedPlayerIndex == player.Index ? MudBlazor.Color.Warning : MudBlazor.Color.Inherit)"
+                                                       Color="MudBlazor.Color.Inherit"
                                                        Style="padding: 2px; min-width: 0; min-height: 0"
-                                                       OnClick="@(() => OnToggleNetworkHighlight.InvokeAsync(HighlightedPlayerIndex == player.Index ? null : player.Index))" />
+                                                       OnClick="@(() => OnLocatePlayer.InvokeAsync(player.Index))" />
                                     </MudTooltip>
-                                }
-                                <MudTooltip Text="Locate on map">
-                                    <MudIconButton Icon="@Icons.Material.Filled.LocationOn"
-                                                   Size="Size.Small"
-                                                   Color="MudBlazor.Color.Inherit"
-                                                   Style="padding: 2px; min-width: 0; min-height: 0"
-                                                   OnClick="@(() => OnLocatePlayer.InvokeAsync(player.Index))" />
-                                </MudTooltip>
+                                </MudStack>
                             </MudStack>
                         </MudStack>
 
@@ -228,6 +244,13 @@
 
     [Parameter]
     public EventCallback<int> OnLocatePlayer { get; set; }
+
+    /// <summary>The current user's automove setting, toggled from their own card.</summary>
+    [Parameter]
+    public bool AutoMove { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> AutoMoveChanged { get; set; }
 
     private static string GetInitial(string name)
     {

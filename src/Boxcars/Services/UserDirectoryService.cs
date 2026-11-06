@@ -348,6 +348,7 @@ public sealed class UserDirectoryService
             SlangMode = user.SlangMode,
             GameAudioOff = user.GameAudioOff,
             TurnAudioOff = user.TurnAudioOff,
+            AutoMoveOff = user.AutoMoveOff,
             TurnSoundUrl = user.TurnSoundUrl,
             CustomTurnSoundUrl = user.CustomTurnSoundUrl,
             IsBot = user.IsBot,

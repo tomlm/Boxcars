@@ -32,6 +32,12 @@ public class ApplicationUser : ITableEntity
     public bool GameAudioOff { get; set; }
     /// <summary>Turns off the sound that tells this player it's their turn.</summary>
     public bool TurnAudioOff { get; set; }
+    /// <summary>
+    /// Turns off automove, which commits the player's plotted move without a MOVE click when it pays no other player
+    /// and isn't a lay-up, a rover, more than they can pay, or an arrival with a bonus left. Stored as "off" so automove
+    /// starts on.
+    /// </summary>
+    public bool AutoMoveOff { get; set; }
     /// <summary>The player's "your turn" sound: a stock sound or their <see cref="CustomTurnSoundUrl"/>; empty for the default.</summary>
     public string TurnSoundUrl { get; set; } = string.Empty;
     /// <summary>The sound the player uploaded, kept while they use a stock sound; empty when they haven't uploaded one.</summary>
