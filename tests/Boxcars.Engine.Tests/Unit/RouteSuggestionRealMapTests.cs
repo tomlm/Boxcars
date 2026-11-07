@@ -393,6 +393,57 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         Assert.Equal("Going in wins the game", engine.LastApproachDecision?.Reason);
     }
 
+    [Fact]
+    public void BrokePlayerWhoCanReachDallasThisTurn_GoesInOverAnOpponent_InsteadOfSellingARailroad()
+    {
+        // Game 8be6797e: Test 1 (Freight, $0) on the way from Los Angeles to Dallas, rolled 2+5. The cheapest way is 9
+        // dots of public track, but its $1,000 this turn can't be paid, so Test 1 would sell a railroad. Six dots over
+        // Test 2's T&P reach Dallas this turn, and the payout, collected before fees, covers the $6,000.
+        var map = MapDefinition.Parse(File.ReadAllText(FindStandardMapPath())).Definition
+            ?? throw new InvalidOperationException("The standard map could not be parsed.");
+        var engine = new Boxcars.Engine.Domain.GameEngine(
+            map,
+            ["Test 1", "Test 2", "Pooper", "Balenco"],
+            new FixedRandomProvider(),
+            GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false });
+        foreach (var (ownerIndex, railroadIndices) in Game8be6Owners)
+        {
+            foreach (var railroad in engine.Railroads.Where(railroad => railroadIndices.Contains(railroad.Index)))
+            {
+                railroad.Owner = engine.Players[ownerIndex];
+                engine.Players[ownerIndex].OwnedRailroads.Add(railroad);
+            }
+        }
+
+        var player = engine.Players[0];
+        player.LocomotiveType = LocomotiveType.Freight;
+        player.Cash = 0;
+        player.CurrentNodeId = "4:73";
+        player.TripOriginCity = map.Cities.First(city => city.Name == "Los Angeles");
+        player.Destination = map.Cities.First(city => city.Name == "Dallas");
+        engine.CurrentTurn.ActivePlayer = player;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.DiceResult = new DiceResult([2, 5], null);
+        engine.CurrentTurn.MovementAllowance = 7;
+        engine.CurrentTurn.MovementRemaining = 7;
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal(FindCityNode(engine, "Dallas"), route.NodeIds[^1]);
+        Assert.True(route.Segments.Count <= 7);
+        Assert.Contains(route.Segments, segment => segment.RailroadIndex == 17);
+    }
+
+    // Railroad indices each player owned in game 8be6797e; the rest were still the bank's.
+    private static readonly Dictionary<int, int[]> Game8be6Owners = new()
+    {
+        [0] = [4, 5, 6, 15, 22],
+        [1] = [2, 17, 27],
+        [2] = [3, 8, 10, 20, 25],
+        [3] = [7, 9, 16, 19]
+    };
+
     // Railroad owners by index (player index) in game 4184179d, from issues #95 and #96 (all railroads sold).
     [Fact]
     public void DeclaredOpponentBehindUsedTrack_IsNotChased_AndTheTripCarriesOn()

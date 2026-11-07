@@ -23,6 +23,8 @@ public sealed class GameEngine : ObservableBase
     // Added to what route planning thinks a fee to the front runner costs (see FindFrontRunner), not to what's paid,
     // so routes and lay-ups pay someone else whenever that costs about the same.
     internal const int RoutePlanningFrontRunnerFeeSurcharge = 1000;
+    // What a turn costs when looking for the quickest route, so fewer turns win over any fee difference.
+    private const int RoutePlanningAffordableTurnWeight = 100_000;
     private static TimeSpan RoutePlanningTimeLimit { get; set; } = TimeSpan.FromSeconds(10);
 
     private GameStatus _gameStatus;
@@ -657,7 +659,45 @@ public sealed class GameEngine : ObservableBase
             return winningRoute;
         }
 
+        route = FindAffordableRoute(player, startNodeId, destNodeId, route) ?? route;
         return ApplyDestinationApproach(player, startNodeId, destNodeId, route);
+    }
+
+    /// <summary>
+    /// With this turn's roll known, when the cheapest route's fees this turn are more than the player can pay (so they'd
+    /// sell a railroad): the quickest route instead, when it leaves less unpaid. A quickest route that arrives this turn
+    /// collects the payout before the fees are paid, so it often pays for itself. Null when the cheapest route is fine.
+    /// </summary>
+    private Route? FindAffordableRoute(Player player, string startNodeId, string destNodeId, Route cheapest)
+    {
+        if (!IsThisTurnsMovementKnown(player))
+        {
+            return null;
+        }
+
+        // A declared player's trip home may pay nothing.
+        var payout = player.HasDeclared && string.Equals(player.Destination?.Name, player.HomeCity.Name, StringComparison.OrdinalIgnoreCase)
+            ? 0
+            : GetTripPayout(player);
+
+        int Shortfall(Route route)
+        {
+            var thisTurn = route.Segments.Take(CurrentTurn.MovementRemaining).ToList();
+            var fees = CalculateFeeAmount(player, CurrentTurn.RailroadsRiddenThisTurn.Concat(thisTurn.Select(segment => segment.RailroadIndex)));
+            var arrives = route.Segments.Count > 0
+                && route.Segments.Count <= CurrentTurn.MovementRemaining
+                && string.Equals(route.NodeIds[^1], destNodeId, StringComparison.OrdinalIgnoreCase);
+            return Math.Max(0, fees - player.Cash - (arrives ? payout : 0));
+        }
+
+        var cheapestShortfall = Shortfall(cheapest);
+        if (cheapestShortfall == 0)
+        {
+            return null;
+        }
+
+        var quickest = FindCheapestRoute(startNodeId, destNodeId, player, extraTurnWeight: RoutePlanningAffordableTurnWeight);
+        return quickest is not null && Shortfall(quickest) < cheapestShortfall ? quickest : null;
     }
 
     /// <summary>
@@ -981,6 +1021,8 @@ public sealed class GameEngine : ObservableBase
             RedDie = CurrentTurn.DiceResult?.RedDie,
             BonusRollPending = CurrentTurn.BonusRollAvailable,
             FeeGroupsPaidThisTurn = feeGroupsOwedThisTurn,
+            Cash = player.Cash - CalculatePendingFeeAmount(player),
+            ArrivalPayout = GetTripPayout(player),
             GoRoute = route.Segments.Select(segment => ToStep(segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex)).ToList(),
             GetEdges = nodeId => _adjacency.TryGetValue(nodeId, out var edges)
                 ? edges.Select(edge => ToStep(edge.FromNodeId, edge.ToNodeId, edge.RailroadIndex))
@@ -1043,6 +1085,17 @@ public sealed class GameEngine : ObservableBase
             nodeIds,
             segments,
             PriceRoute(segments, player, feeGroupsOwedThisTurn, CurrentTurn.MovementRemaining, futureTurnMovementCapacity));
+    }
+
+    /// <summary>What the player collects on reaching their destination from where this trip started; 0 when the chart has no payout.</summary>
+    private int GetTripPayout(Player player)
+    {
+        var tripOriginCity = player.TripOriginCity ?? player.CurrentCity;
+        return player.Destination is { PayoutIndex: int destinationPayoutIndex }
+            && tripOriginCity.PayoutIndex is int originPayoutIndex
+            && MapDefinition.TryGetPayout(originPayoutIndex, destinationPayoutIndex, out var payout)
+                ? payout
+                : 0;
     }
 
     /// <summary>Fee groups the active player already owes this turn, such as the railroad they arrived on before a bonus move.</summary>
@@ -2890,7 +2943,13 @@ public sealed class GameEngine : ObservableBase
 
     private int CalculatePendingFeeAmount(Player player)
     {
-        var feeCalculation = BuildFeeCalculation(player, CurrentTurn.RailroadsRiddenThisTurn);
+        return CalculateFeeAmount(player, CurrentTurn.RailroadsRiddenThisTurn);
+    }
+
+    /// <summary>This turn's fees for riding the given railroads.</summary>
+    private int CalculateFeeAmount(Player player, IEnumerable<int> railroadIndices)
+    {
+        var feeCalculation = BuildFeeCalculation(player, railroadIndices);
         if (!feeCalculation.HasCharges)
         {
             return 0;

@@ -30,6 +30,15 @@ public sealed class DestinationApproachRequest
     /// <summary>Fee groups (<see cref="ResolveFeeGroupFlag"/>) already owed this turn.</summary>
     public long FeeGroupsPaidThisTurn { get; init; }
 
+    /// <summary>
+    /// Cash left to pay this turn's fees, after any already owed; null when it doesn't matter. Fees beyond it mean
+    /// selling a railroad.
+    /// </summary>
+    public int? Cash { get; init; }
+
+    /// <summary>The payout collected on reaching the destination, before this turn's fees are paid.</summary>
+    public int ArrivalPayout { get; init; }
+
     /// <summary>The cheapest route to the destination: the "go in" option.</summary>
     public required IReadOnlyList<ApproachStep> GoRoute { get; init; }
 
@@ -110,7 +119,9 @@ public sealed class DestinationApproachDecision
 /// get out, or falling short on their railroad and paying them again. It then decides the way experienced players do
 /// (issue #130): lay up whenever that saves a fee, unless going in bonuses out this turn. A lay-up whose worst roll next
 /// turn costs no more than going in is always taken; otherwise it mustn't be likely to fall short, and if missing the
-/// bonus out costs more than going in, the bonus out mustn't be unlikely.
+/// bonus out costs more than going in, the bonus out mustn't be unlikely. A lay-up whose fees this turn leave more
+/// unpaid than going in does (which collects the payout first when it arrives) is never taken: selling a railroad to
+/// pay costs far more than any fee.
 /// </summary>
 public static class DestinationApproachPlanner
 {
@@ -157,12 +168,25 @@ public static class DestinationApproachPlanner
         var distances = DistancesFrom(request, request.DestinationNodeId);
         var go = EvaluateGo(request);
 
+        // Fees the player can't pay this turn mean selling a railroad, which costs far more than any fee. Going in that
+        // arrives collects the payout first, so a lay-up that leaves more unpaid than going in is never worth it.
+        var goArrivesThisTurn = goRoute.Count <= movement;
+        var goShortfall = Shortfall(request, FeesThisTurn(request, goRoute, 0, Math.Min(movement, goRoute.Count)), goArrivesThisTurn ? request.ArrivalPayout : 0);
+        var layUpUnaffordable = false;
+
         LayUpOption? best = null;
         foreach (var walk in FindLayUpWalks(request, distances))
         {
             if (stopwatch.Elapsed >= request.TimeBudget)
             {
                 break;
+            }
+
+            var walkFees = FeesThisTurn(request, walk, 0, walk.Count);
+            if (Shortfall(request, walkFees, payout: 0) > goShortfall)
+            {
+                layUpUnaffordable = true;
+                continue;
             }
 
             var walkSegmentKeys = walk.Select(step => step.SegmentKey).ToList();
@@ -174,7 +198,6 @@ public static class DestinationApproachPlanner
             }
 
             var nextTurn = EvaluateNextTurn(request, continuation);
-            var walkFees = FeesThisTurn(request, walk, 0, walk.Count);
             var layUp = new LayUpOption(
                 walk,
                 continuation,
@@ -190,7 +213,9 @@ public static class DestinationApproachPlanner
             }
         }
 
-        var (laysUp, reason) = Decide(go, best);
+        var (laysUp, reason) = best is null && layUpUnaffordable
+            ? (false, "Laying up would mean selling a railroad to pay its fees")
+            : Decide(go, best);
         return new DestinationApproachDecision
         {
             Evaluated = true,
@@ -398,6 +423,12 @@ public static class DestinationApproachPlanner
     {
         var turnLength = Math.Max(1, request.AverageMovementPerTurn);
         return (dotsLeft + turnLength - 1) / turnLength;
+    }
+
+    /// <summary>How much of this turn's fees the player can't pay, even with <paramref name="payout"/>.</summary>
+    private static int Shortfall(DestinationApproachRequest request, int fees, int payout)
+    {
+        return request.Cash is int cash ? Math.Max(0, fees - cash - payout) : 0;
     }
 
     private static int FeesThisTurn(DestinationApproachRequest request, IReadOnlyList<ApproachStep> steps, int from, int to)
