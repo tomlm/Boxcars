@@ -59,8 +59,10 @@ else
 {
 <MudStack Row="true" Class="flex-grow-1 mud-width-full overflow-hidden">
     @* The player list: a side panel on medium screens and up, an overlay opened from the button on small ones. *@
+    @* A little wider than MudBlazor's 240px default, so a card's icon row (audio, video, network, locate, automove)
+       fits on one line beside a video. *@
     <MudDrawer @bind-Open="_isPlayerDrawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md"
-               Anchor="Anchor.Start" Elevation="1">
+               Anchor="Anchor.Start" Elevation="1" Width="260px">
         @* The players scroll, with the logo (a link back to the dashboard) after them. The spacer keeps the logo in
            the rail's lower-left corner when the players fit, and gives the players its room when they don't. *@
         <MudStack Spacing="2" Class="pa-2 flex-grow-1 overflow-y-auto">
