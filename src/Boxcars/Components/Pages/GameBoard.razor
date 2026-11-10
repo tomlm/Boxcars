@@ -59,8 +59,10 @@ else
 {
 <MudStack Row="true" Class="flex-grow-1 mud-width-full overflow-hidden">
     @* The player list: a side panel on medium screens and up, an overlay opened from the button on small ones. *@
+    @* A little wider than MudBlazor's 240px default, so a card's icon row (audio, video, network, locate, automove)
+       fits on one line beside a video. *@
     <MudDrawer @bind-Open="_isPlayerDrawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md"
-               Anchor="Anchor.Start" Elevation="1">
+               Anchor="Anchor.Start" Elevation="1" Width="250px">
         @* The players scroll, with the logo (a link back to the dashboard) after them. The spacer keeps the logo in
            the rail's lower-left corner when the players fit, and gives the players its room when they don't. *@
         <MudStack Spacing="2" Class="pa-2 flex-grow-1 overflow-y-auto">
@@ -391,13 +393,23 @@ else
                                         <MovementStatusPanel State="@_turnViewState" UsePaper="false" ArrivalBonus="@CurrentRouteArrivalBonus" RoverTargetPlayerName="@CurrentRouteRoverTargetPlayerName" />
                                         @if (ShouldShowMoveButton)
                                         {
-                                            <MudButton Variant="Variant.Filled"
-                                                       Color="MudBlazor.Color.Primary"
-                                                       Disabled="@(!CanCommitMoveAction)"
-                                                       OnClick="OnCommitMoveActionAsync"
-                                                       Class="flex-shrink-0 flex-grow-0">
-                                                @CommitMoveActionLabel
-                                            </MudButton>
+                                            <MudStack Row="true" Spacing="2" Class="flex-shrink-0 flex-grow-0">
+                                                <MudButton Variant="Variant.Filled"
+                                                           Color="MudBlazor.Color.Primary"
+                                                           Disabled="@(!CanCommitMoveAction)"
+                                                           OnClick="OnCommitMoveActionAsync">
+                                                    @CommitMoveActionLabel
+                                                </MudButton>
+                                                @if (ShouldShowAutoMoveButton)
+                                                {
+                                                    <MudButton Variant="Variant.Outlined"
+                                                               Color="MudBlazor.Color.Primary"
+                                                               Disabled="@(!CanCommitMoveAction)"
+                                                               OnClick="OnAutoMoveActionAsync">
+                                                        AUTOMOVE
+                                                    </MudButton>
+                                                }
+                                            </MudStack>
                                         }
                                     </MudPaper>
                                 </MudStack>
@@ -864,6 +876,20 @@ else
         || (CurrentRouteMoveCount > 0 && !AutoMoveTakesMove);
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
+
+    // AUTOMOVE beside MOVE turns automove on for the rest of the trip.
+    private bool ShouldShowAutoMoveButton => !AutoMove && IsAuthenticatedUserActivePlayer;
+
+    // On a move that arrives it's just MOVE: arriving ends the trip, so automove stays off.
+    private async Task OnAutoMoveActionAsync()
+    {
+        var arrives = SelectionReachesDestination();
+        await OnCommitMoveActionAsync();
+        if (!arrives)
+        {
+            await OnAutoMoveChangedAsync(true);
+        }
+    }
 
     private bool CanCommitMoveAction => !string.IsNullOrWhiteSpace(GameId)
         && _gameState is not null
@@ -1409,6 +1435,9 @@ else
             return;
         }
 
+        // Automove lasts one trip: arriving turns it off, and the player picks MOVE or AUTOMOVE on the way to the next.
+        var arrivalEndsAutoMove = AutoMove && IsAuthenticatedUserActivePlayer && SelectionReachesDestination();
+
         MarkAuthoritativeUpdatePending();
         await EnqueueBoardActionAsync(
             new MoveAction
@@ -1419,6 +1448,11 @@ else
                 PointsTaken = selectedNodeIds,
                 SelectedSegmentKeys = selectedSegmentKeys
             });
+
+        if (arrivalEndsAutoMove)
+        {
+            await OnAutoMoveChangedAsync(false);
+        }
     }
 
     private bool CanCommitMoveSelection()
@@ -4021,7 +4055,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
     }
 
-    /// <summary>Whether this player's plotted moves are committed without a MOVE click; saved to their profile, on by default.</summary>
+    /// <summary>
+    /// Whether this player's plotted moves are committed without a MOVE click; saved to their profile. It lasts one trip:
+    /// AUTOMOVE beside MOVE turns it on, and arriving at the destination turns it off.
+    /// </summary>
     private bool AutoMove => _currentUserProfile is not null && !_currentUserProfile.AutoMoveOff;
 
     private async Task OnAutoMoveChangedAsync(bool autoMove)

@@ -98,9 +98,10 @@
                                 </MudStack>
                                 @if (!player.IsEliminated)
                                 {
-                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" title="Home city">
-                                        <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" />
-                                        <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
+                                    @* One line: a long home city is cut short, with the whole name on hover. *@
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" title="@($"Home city: {SlangNames.Apply(player.HomeCity, SlangMode)}")">
+                                        <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" Class="flex-shrink-0" />
+                                        <MudText Typo="Typo.caption" Class="mud-typography-nowrap" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
                                     </MudStack>
                                 }
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0">
