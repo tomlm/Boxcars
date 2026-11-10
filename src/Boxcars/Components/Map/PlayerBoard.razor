@@ -5,254 +5,268 @@
 <MudStack Class="w-100 pa-0" Style="box-sizing: border-box" Spacing="2">
         @foreach (var player in Players)
         {
-            <MudTooltip Placement="Placement.Right" Arrow="true" Disabled="@(player.CoverageMetrics.Count == 0)">
-                <TooltipContent>
-                    <MudPaper Style="min-width: 16rem" Class="pa-3" Outlined="true" Elevation="2">
-                        <MudText Typo="Typo.subtitle2">@player.Name Coverage</MudText>
-                        <MudTable T="RailroadOverlayMetricRow" Items="player.CoverageMetrics" Dense="true" Hover="true">
-                            <HeaderContent>
-                                <MudTh>Area</MudTh>
-                                <MudTh>Access</MudTh>
-                                <MudTh>Monopoly</MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd>@context.Label</MudTd>
-                                <MudTd>@FormatPercent(context.AccessPercent)</MudTd>
-                                <MudTd>@FormatPercent(context.MonopolyPercent)</MudTd>
-                            </RowTemplate>
-                        </MudTable>
-                    </MudPaper>
-                </TooltipContent>
-                <ChildContent>
-                    <MudPaper Style="@GetCardStyle(player)">
-                        <MudStack Row="true" Style="@GetPortraitStyle(player)">
-                            <MudStack Class="d-inline-flex flex-shrink-0" Style="position: relative" Spacing="0">
-                                @if (player.IsWinner)
-                                {
-                                    <MudChip T="string"
-                                             Size="Size.Small"
-                                             Style="position: absolute; top: -0.2rem; left: -0.2rem; z-index: 2; background: linear-gradient(135deg, #facc15, #f59e0b); color: #1f2937; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.08em; padding: 0.15rem 0.45rem; border-radius: 0.35rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.35)">
-                                        WINNER
-                                    </MudChip>
-                                }
-                                @* While showing video the avatar fills the panel's height, so the button stretches to it. *@
-                                <MudButton Variant="Variant.Text"
-                                           Color="MudBlazor.Color.Inherit"
-                                           Class="@(IsShowingVideo(player) ? "flex-grow-1 align-stretch" : null)"
-                                           Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0; overflow: visible"
-                                           OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
-                                           aria-label="@($"Focus map on {player.Name}")">
-                                    <MudBadge Visible="@(!player.IsBotPlayer)"
-                                              Color="@(player.IsConnected ? MudBlazor.Color.Success : MudBlazor.Color.Error)"
-                                              Dot="true"
-                                              Overlap="true"
-                                              Bordered="true"
-                                              Origin="Origin.BottomRight"
-                                              Class="d-inline-flex"
-                                              Style="overflow: visible">
-                                        <PlayerVideoAvatar UserId="@player.UserId"
-                                                           IsCurrentUser="@player.IsCurrentUser"
-                                                           HideVideo="@HiddenVideoUserIds.Contains(player.UserId)"
-                                                           Size="Size.Large"
-                                                           Style="color: var(--player-color-fg, #fff); font-weight: 700; overflow: hidden; flex-shrink: 0; background-color: rgb(255 255 255 / 0.32)">
-                                            @if (HasThumbnail(player))
-                                            {
-                                                <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Style="width: 100%; height: 100%; object-fit: cover" />
-                                            }
-                                            else
-                                            {
-                                                @GetInitial(player.Name)
-                                            }
-                                        </PlayerVideoAvatar>
-                                    </MudBadge>
-                                </MudButton>
-                                <MudOverlay Visible="@player.IsEliminated" Absolute="true">
-                                    <MudIcon Icon="@Icons.Material.Filled.Close" Color="MudBlazor.Color.Error" Size="Size.Large" />
-                                </MudOverlay>
-                            </MudStack>
-                            <MudStack Class="flex-grow-1" Style="min-width: 0" Spacing="0">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="w-100" Style="min-width: 0">
-                                    <MudText Typo="Typo.subtitle1" Style="min-width: 0; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 8px rgb(0 0 0 / 0.28)">@player.Name</MudText>
-                                    @if (player.ShowDisconnectedControlToggle)
+            <MudPaper Style="@GetCardStyle(player)">
+                <MudStack Row="true" Style="@GetPortraitStyle(player)">
+                    <MudStack Class="d-inline-flex flex-shrink-0" Style="position: relative" Spacing="0">
+                        @if (player.IsWinner)
+                        {
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Style="position: absolute; top: -0.2rem; left: -0.2rem; z-index: 2; background: linear-gradient(135deg, #facc15, #f59e0b); color: #1f2937; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.08em; padding: 0.15rem 0.45rem; border-radius: 0.35rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.35)">
+                                WINNER
+                            </MudChip>
+                        }
+                        @* While showing video the avatar fills the panel's height, so the button stretches to it. *@
+                        <MudButton Variant="Variant.Text"
+                                   Color="MudBlazor.Color.Inherit"
+                                   Class="@(IsShowingVideo(player) ? "flex-grow-1 align-stretch" : null)"
+                                   Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0; overflow: visible"
+                                   OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
+                                   aria-label="@($"Focus map on {player.Name}")">
+                            <MudBadge Visible="@(!player.IsBotPlayer)"
+                                      Color="@(player.IsConnected ? MudBlazor.Color.Success : MudBlazor.Color.Error)"
+                                      Dot="true"
+                                      Overlap="true"
+                                      Bordered="true"
+                                      Origin="Origin.BottomRight"
+                                      Class="d-inline-flex"
+                                      Style="overflow: visible">
+                                <PlayerVideoAvatar UserId="@player.UserId"
+                                                   IsCurrentUser="@player.IsCurrentUser"
+                                                   HideVideo="@HiddenVideoUserIds.Contains(player.UserId)"
+                                                   Size="Size.Large"
+                                                   Style="color: var(--player-color-fg, #fff); font-weight: 700; overflow: hidden; flex-shrink: 0; background-color: rgb(255 255 255 / 0.32)">
+                                    @if (HasThumbnail(player))
                                     {
-                                        <MudSpacer />
-                                        <MudMenu Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                                            <ActivatorContent>
-                                                <MudIconButton Icon="@GetControlModeIcon(player)"
-                                                               Size="Size.Small"
-                                                               Color="Color.Inherit"
-                                                               Style="padding: 2px; min-width: 0; min-height: 0"
-                                                               aria-label="@($"Change control mode for {player.Name}")"
-                                                               title="@($"Controlled by: {GetControlModeLabel(player)}")" />
-                                            </ActivatorContent>
-                                            <ChildContent>
-                                                @foreach (var option in player.ControlModeOptions)
-                                                {
-                                                    <MudMenuItem OnClick="@(async () => await OnDisconnectedSeatControlChangedAsync(player, option.Value))">
-                                                        @option.Label
-                                                    </MudMenuItem>
-                                                }
-                                            </ChildContent>
-                                        </MudMenu>
-                                    }
-                                </MudStack>
-                                @if (!player.IsEliminated)
-                                {
-                                    @* One line: a long home city is cut short, with the whole name on hover. *@
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" title="@($"Home city: {SlangNames.Apply(player.HomeCity, SlangMode)}")">
-                                        <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" Class="flex-shrink-0" />
-                                        <MudText Typo="Typo.caption" Class="mud-typography-nowrap" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
-                                    </MudStack>
-                                }
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0">
-                                    @if (player.IsCurrentUser)
-                                    {
-                                        <MediaToggles Size="Size.Small" Style="padding: 2px; min-width: 0; min-height: 0" />
-                                    }
-                                    else if (FindRoomPeer(player.UserId) is not null)
-                                    {
-                                        @* What this player hears and sees of the other: hidden video also isn't sent, saving bandwidth. *@
-                                        var muted = MutedUserIds.Contains(player.UserId);
-                                        var videoHidden = HiddenVideoUserIds.Contains(player.UserId);
-                                        <MudTooltip Text="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")">
-                                            <MudIconButton Icon="@(muted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)"
-                                                           Size="Size.Small"
-                                                           Color="@(muted ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
-                                                           Style="padding: 2px; min-width: 0; min-height: 0"
-                                                           aria-label="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")"
-                                                           OnClick="@(() => OnToggleMuted.InvokeAsync(player.UserId))" />
-                                        </MudTooltip>
-                                        <MudTooltip Text="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")">
-                                            <MudIconButton Icon="@(videoHidden ? Icons.Material.Filled.VideocamOff : Icons.Material.Filled.Videocam)"
-                                                           Size="Size.Small"
-                                                           Color="@(videoHidden ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
-                                                           Style="padding: 2px; min-width: 0; min-height: 0"
-                                                           aria-label="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")"
-                                                           OnClick="@(() => OnToggleVideoHidden.InvokeAsync(player.UserId))" />
-                                        </MudTooltip>
-                                    }
-                                    @if (player.OwnedRailroadCount > 0)
-                                    {
-                                        <MudTooltip Text="@(HighlightedPlayerIndex == player.Index ? "Hide network" : "Show network")">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Train"
-                                                           Size="Size.Small"
-                                                           Color="MudBlazor.Color.Inherit"
-                                                           Variant="@(HighlightedPlayerIndex == player.Index ? Variant.Outlined : Variant.Text)"
-                                                           Style="padding: 2px; min-width: 0; min-height: 0"
-                                                           OnClick="@(() => OnToggleNetworkHighlight.InvokeAsync(HighlightedPlayerIndex == player.Index ? null : player.Index))" />
-                                        </MudTooltip>
-                                    }
-                                    <MudTooltip Text="Locate on map">
-                                        <MudIconButton Icon="@Icons.Material.Filled.LocationOn"
-                                                       Size="Size.Small"
-                                                       Color="MudBlazor.Color.Inherit"
-                                                       Style="padding: 2px; min-width: 0; min-height: 0"
-                                                       OnClick="@(() => OnLocatePlayer.InvokeAsync(player.Index))" />
-                                    </MudTooltip>
-                                    @if (player.IsCurrentUser && AutoMoveChanged.HasDelegate)
-                                    {
-                                        <MudTooltip Text="Auto move">
-                                            <MudToggleIconButton Toggled="@AutoMove"
-                                                                 ToggledChanged="AutoMoveChanged"
-                                                                 Icon="@Icons.Material.Outlined.FastForward"
-                                                                 ToggledIcon="@Icons.Material.Filled.FastForward"
-                                                                 Size="Size.Small"
-                                                                 ToggledSize="Size.Small"
-                                                                 Color="MudBlazor.Color.Inherit"
-                                                                 ToggledVariant="Variant.Outlined"
-                                                                 Style="padding: 2px; min-width: 0; min-height: 0"
-                                                                 aria-label="Automove" />
-                                        </MudTooltip>
-                                    }
-                                </MudStack>
-                            </MudStack>
-                        </MudStack>
-
-                        <MudStack Class="flex-grow-1" Style="padding: 0.4rem 0.5rem 0.45rem" Spacing="1">
-                            @if (player.IsEliminated)
-                            {
-                                <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true" NoIcon="true" ContentAlignment="HorizontalAlignment.Center">BANKRUPT</MudAlert>
-                            }
-                            else
-                            {
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                    @if (player.IsAtDestination)
-                                    {
-                                        <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">At Destination:</MudText>
-                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@SlangNames.Apply(player.TripDestinationLabel, SlangMode)</MudText>
+                                        <MudImage Src="@player.ThumbnailUrl" Alt="@player.Name" Style="width: 100%; height: 100%; object-fit: cover" />
                                     }
                                     else
                                     {
-                                        <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">Trip:</MudText>
-                                        <MudText Typo="Typo.caption" Style="@TripLineStyle">@SlangNames.Apply(player.TripStartLabel, SlangMode) @("=>") @SlangNames.Apply(player.TripDestinationLabel, SlangMode)</MudText>
+                                        @GetInitial(player.Name)
                                     }
-                                </MudStack>
-                                @if (!player.IsAtDestination)
-                                {
-                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                        <MudText Typo="Typo.subtitle2">Distance:</MudText>
-                                        <MudText Typo="Typo.caption">@player.DistanceToDestination</MudText>
-                                        <MudText Typo="Typo.subtitle2">Payout:</MudText>
-                                        <MudText Typo="Typo.caption">$@player.Payoff.ToString("N0")</MudText>
-                                    </MudStack>
-                                }
-                            }
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                <MudText Typo="Typo.subtitle2">Engine:</MudText>
-                                <MudText Typo="Typo.caption">@SlangNames.Apply(player.LocomotiveLabel, SlangMode)</MudText>
-                            </MudStack>
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                <MudText Typo="Typo.subtitle2">Cash:</MudText>
-                                <MudText Typo="Typo.caption" Style="@GetCashValueStyle(player)">@player.GetMoneyDisplay()</MudText>
-                            </MudStack>
-                            @if (player.HasDeclared)
+                                </PlayerVideoAvatar>
+                            </MudBadge>
+                        </MudButton>
+                        <MudOverlay Visible="@player.IsEliminated" Absolute="true">
+                            <MudIcon Icon="@Icons.Material.Filled.Close" Color="MudBlazor.Color.Error" Size="Size.Large" />
+                        </MudOverlay>
+                    </MudStack>
+                    <MudStack Class="flex-grow-1" Style="min-width: 0" Spacing="0">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="w-100" Style="min-width: 0">
+                            @if (player.CoverageMetrics.Count > 0)
                             {
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                    <MudText Typo="Typo.subtitle2">Declared:</MudText>
-                                    <MudText Typo="Typo.caption">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
-                                </MudStack>
-                                @if (!string.IsNullOrWhiteSpace(player.AlternateCity))
-                                {
-                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                        <MudText Typo="Typo.subtitle2">Alternate City:</MudText>
-                                        <MudText Typo="Typo.caption">@SlangNames.Apply(player.AlternateCity, SlangMode)</MudText>
-                                    </MudStack>
-                                }
+                                @* Tap or click the name for the player's regional coverage; it closes on a tap anywhere else. *@
+                                <MudMenu AnchorOrigin="Origin.TopRight" TransformOrigin="Origin.TopLeft" Dense="true">
+                                    <ActivatorContent>
+                                        <MudText Typo="Typo.subtitle1" Class="cursor-pointer" Style="min-width: 0; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 8px rgb(0 0 0 / 0.28)">@player.Name</MudText>
+                                    </ActivatorContent>
+                                    <ChildContent>
+                                        <MudStack Class="pa-3" Spacing="1" Style="min-width: 16rem">
+                                            <MudText Typo="Typo.subtitle2">@player.Name Coverage</MudText>
+                                            <MudTable T="RailroadOverlayMetricRow" Items="player.CoverageMetrics" Dense="true" Hover="true">
+                                                <HeaderContent>
+                                                    <MudTh>Area</MudTh>
+                                                    <MudTh>Access</MudTh>
+                                                    <MudTh>Monopoly</MudTh>
+                                                </HeaderContent>
+                                                <RowTemplate>
+                                                    <MudTd>@context.Label</MudTd>
+                                                    <MudTd>@FormatPercent(context.AccessPercent)</MudTd>
+                                                    <MudTd>@FormatPercent(context.MonopolyPercent)</MudTd>
+                                                </RowTemplate>
+                                            </MudTable>
+                                        </MudStack>
+                                    </ChildContent>
+                                </MudMenu>
                             }
-                            @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
+                            else
                             {
-                                <MudText Typo="Typo.subtitle2" Color="Color.Primary">@player.BonusPendingLabel</MudText>
+                                <MudText Typo="Typo.subtitle1" Style="min-width: 0; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 8px rgb(0 0 0 / 0.28)">@player.Name</MudText>
                             }
-                            @if (player.FeesOwed > 0)
+                            @if (player.ShowDisconnectedControlToggle)
                             {
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
-                                    <MudText Typo="Typo.subtitle2">Fees Due:</MudText>
-                                    <MudText Typo="Typo.subtitle2" Color="Color.Error">$@player.FeesOwed.ToString("N0")</MudText>
-                                </MudStack>
+                                <MudSpacer />
+                                <MudMenu Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                    <ActivatorContent>
+                                        <MudIconButton Icon="@GetControlModeIcon(player)"
+                                                       Size="Size.Small"
+                                                       Color="Color.Inherit"
+                                                       Style="padding: 2px; min-width: 0; min-height: 0"
+                                                       aria-label="@($"Change control mode for {player.Name}")"
+                                                       title="@($"Controlled by: {GetControlModeLabel(player)}")" />
+                                    </ActivatorContent>
+                                    <ChildContent>
+                                        @foreach (var option in player.ControlModeOptions)
+                                        {
+                                            <MudMenuItem OnClick="@(async () => await OnDisconnectedSeatControlChangedAsync(player, option.Value))">
+                                                @option.Label
+                                            </MudMenuItem>
+                                        }
+                                    </ChildContent>
+                                </MudMenu>
                             }
-                            @if (player.PaymentsReceived.Count > 0)
-                            {
-                                @* Fees paid to this player, a bar per opponent in their color, scaled to the game's largest payment. *@
-                                <MudStack Spacing="1" Class="mt-1">
-                                    @foreach (var payment in player.PaymentsReceived)
-                                    {
-                                        <MudTooltip Text="@($"{payment.PayerName} paid ${payment.Amount:N0}")" Placement="Placement.Top" Arrow="true" Inline="false">
-                                            <MudProgressLinear Value="payment.Percent"
-                                                               Color="MudBlazor.Color.Primary"
-                                                               Size="Size.Small"
-                                                               Rounded="true"
-                                                               Style="@($"--mud-palette-primary: {PlayerColorOptions.GetHex(payment.PayerColor)}")"
-                                                               aria-label="@($"{payment.PayerName} paid ${payment.Amount:N0}")" />
-                                        </MudTooltip>
-                                    }
-                                </MudStack>
-                            }
-
                         </MudStack>
+                        @if (!player.IsEliminated)
+                        {
+                            @* One line: a long home city is cut short, with the whole name on hover. *@
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" title="@($"Home city: {SlangNames.Apply(player.HomeCity, SlangMode)}")">
+                                <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" Class="flex-shrink-0" />
+                                <MudText Typo="Typo.caption" Class="mud-typography-nowrap" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
+                            </MudStack>
+                        }
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0">
+                            @if (player.IsCurrentUser)
+                            {
+                                <MediaToggles Size="Size.Small" Style="padding: 2px; min-width: 0; min-height: 0" />
+                            }
+                            else if (FindRoomPeer(player.UserId) is not null)
+                            {
+                                @* What this player hears and sees of the other: hidden video also isn't sent, saving bandwidth. *@
+                                var muted = MutedUserIds.Contains(player.UserId);
+                                var videoHidden = HiddenVideoUserIds.Contains(player.UserId);
+                                <MudTooltip Text="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")">
+                                    <MudIconButton Icon="@(muted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)"
+                                                   Size="Size.Small"
+                                                   Color="@(muted ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
+                                                   Style="padding: 2px; min-width: 0; min-height: 0"
+                                                   aria-label="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")"
+                                                   OnClick="@(() => OnToggleMuted.InvokeAsync(player.UserId))" />
+                                </MudTooltip>
+                                <MudTooltip Text="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")">
+                                    <MudIconButton Icon="@(videoHidden ? Icons.Material.Filled.VideocamOff : Icons.Material.Filled.Videocam)"
+                                                   Size="Size.Small"
+                                                   Color="@(videoHidden ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
+                                                   Style="padding: 2px; min-width: 0; min-height: 0"
+                                                   aria-label="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")"
+                                                   OnClick="@(() => OnToggleVideoHidden.InvokeAsync(player.UserId))" />
+                                </MudTooltip>
+                            }
+                            @if (player.OwnedRailroadCount > 0)
+                            {
+                                <MudTooltip Text="@(HighlightedPlayerIndex == player.Index ? "Hide network" : "Show network")">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Train"
+                                                   Size="Size.Small"
+                                                   Color="MudBlazor.Color.Inherit"
+                                                   Variant="@(HighlightedPlayerIndex == player.Index ? Variant.Outlined : Variant.Text)"
+                                                   Style="padding: 2px; min-width: 0; min-height: 0"
+                                                   OnClick="@(() => OnToggleNetworkHighlight.InvokeAsync(HighlightedPlayerIndex == player.Index ? null : player.Index))" />
+                                </MudTooltip>
+                            }
+                            <MudTooltip Text="Locate on map">
+                                <MudIconButton Icon="@Icons.Material.Filled.LocationOn"
+                                               Size="Size.Small"
+                                               Color="MudBlazor.Color.Inherit"
+                                               Style="padding: 2px; min-width: 0; min-height: 0"
+                                               OnClick="@(() => OnLocatePlayer.InvokeAsync(player.Index))" />
+                            </MudTooltip>
+                            @if (player.IsCurrentUser && AutoMoveChanged.HasDelegate)
+                            {
+                                <MudTooltip Text="Auto move">
+                                    <MudToggleIconButton Toggled="@AutoMove"
+                                                         ToggledChanged="AutoMoveChanged"
+                                                         Icon="@Icons.Material.Outlined.FastForward"
+                                                         ToggledIcon="@Icons.Material.Filled.FastForward"
+                                                         Size="Size.Small"
+                                                         ToggledSize="Size.Small"
+                                                         Color="MudBlazor.Color.Inherit"
+                                                         ToggledVariant="Variant.Outlined"
+                                                         Style="padding: 2px; min-width: 0; min-height: 0"
+                                                         aria-label="Automove" />
+                                </MudTooltip>
+                            }
+                        </MudStack>
+                    </MudStack>
+                </MudStack>
 
-                    </MudPaper>
-                </ChildContent>
-            </MudTooltip>
+                <MudStack Class="flex-grow-1" Style="padding: 0.4rem 0.5rem 0.45rem" Spacing="1">
+                    @if (player.IsEliminated)
+                    {
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true" NoIcon="true" ContentAlignment="HorizontalAlignment.Center">BANKRUPT</MudAlert>
+                    }
+                    else
+                    {
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                            @if (player.IsAtDestination)
+                            {
+                                <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">At Destination:</MudText>
+                                <MudText Typo="Typo.caption" Style="@TripLineStyle">@SlangNames.Apply(player.TripDestinationLabel, SlangMode)</MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.subtitle2" Style="@TripLineStyle">Trip:</MudText>
+                                <MudText Typo="Typo.caption" Style="@TripLineStyle">@SlangNames.Apply(player.TripStartLabel, SlangMode) @("=>") @SlangNames.Apply(player.TripDestinationLabel, SlangMode)</MudText>
+                            }
+                        </MudStack>
+                        @if (!player.IsAtDestination)
+                        {
+                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                <MudText Typo="Typo.subtitle2">Distance:</MudText>
+                                <MudText Typo="Typo.caption">@player.DistanceToDestination</MudText>
+                                <MudText Typo="Typo.subtitle2">Payout:</MudText>
+                                <MudText Typo="Typo.caption">$@player.Payoff.ToString("N0")</MudText>
+                            </MudStack>
+                        }
+                    }
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                        <MudText Typo="Typo.subtitle2">Engine:</MudText>
+                        <MudText Typo="Typo.caption">@SlangNames.Apply(player.LocomotiveLabel, SlangMode)</MudText>
+                        @if (GetTotalCoverage(player) is { } coverage)
+                        {
+                            @* The network's access / monopoly of all destinations; the name opens the regional breakdown. *@
+                            <MudSpacer />
+                            <MudText Typo="Typo.caption" title="Access / monopoly of all destinations">@($"{FormatPercent(coverage.AccessPercent)}/{FormatPercent(coverage.MonopolyPercent)}")</MudText>
+                        }
+                    </MudStack>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                        <MudText Typo="Typo.subtitle2">Cash:</MudText>
+                        <MudText Typo="Typo.caption" Style="@GetCashValueStyle(player)">@player.GetMoneyDisplay()</MudText>
+                    </MudStack>
+                    @if (player.HasDeclared)
+                    {
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                            <MudText Typo="Typo.subtitle2">Declared:</MudText>
+                            <MudText Typo="Typo.caption">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
+                        </MudStack>
+                        @if (!string.IsNullOrWhiteSpace(player.AlternateCity))
+                        {
+                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                                <MudText Typo="Typo.subtitle2">Alternate City:</MudText>
+                                <MudText Typo="Typo.caption">@SlangNames.Apply(player.AlternateCity, SlangMode)</MudText>
+                            </MudStack>
+                        }
+                    }
+                    @if (!string.IsNullOrWhiteSpace(player.BonusPendingLabel))
+                    {
+                        <MudText Typo="Typo.subtitle2" Color="Color.Primary">@player.BonusPendingLabel</MudText>
+                    }
+                    @if (player.FeesOwed > 0)
+                    {
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Style="margin: 0; line-height: 1.1">
+                            <MudText Typo="Typo.subtitle2">Fees Due:</MudText>
+                            <MudText Typo="Typo.subtitle2" Color="Color.Error">$@player.FeesOwed.ToString("N0")</MudText>
+                        </MudStack>
+                    }
+                    @if (player.PaymentsReceived.Count > 0)
+                    {
+                        @* Fees paid to this player, a bar per opponent in their color, scaled to the game's largest payment. *@
+                        <MudStack Spacing="1" Class="mt-1">
+                            @foreach (var payment in player.PaymentsReceived)
+                            {
+                                <MudTooltip Text="@($"{payment.PayerName} paid ${payment.Amount:N0}")" Placement="Placement.Top" Arrow="true" Inline="false">
+                                    <MudProgressLinear Value="payment.Percent"
+                                                       Color="MudBlazor.Color.Primary"
+                                                       Size="Size.Small"
+                                                       Rounded="true"
+                                                       Style="@($"--mud-palette-primary: {PlayerColorOptions.GetHex(payment.PayerColor)}")"
+                                                       aria-label="@($"{payment.PayerName} paid ${payment.Amount:N0}")" />
+                                </MudTooltip>
+                            }
+                        </MudStack>
+                    }
+
+                </MudStack>
+
+            </MudPaper>
         }
     </MudStack>
 
@@ -409,6 +423,9 @@
             ControlMode = string.IsNullOrWhiteSpace(controlMode) ? DisconnectedSeatControlModes.Self : controlMode
         });
     }
+
+    private static RailroadOverlayMetricRow? GetTotalCoverage(PlayerBoardModel player) => player.CoverageMetrics
+        .FirstOrDefault(row => string.Equals(row.Label, "Total", StringComparison.Ordinal));
 
     private static string FormatPercent(decimal value)
     {
