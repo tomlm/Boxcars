@@ -49,65 +49,11 @@
 <PageTitle>Game - BoxCars</PageTitle>
 
 <CascadingValue Name="@SlangNames.CascadingValueName" Value="SlangMode">
-@if (_game is null || (!IsLobbyGame && _gameState is null))
+@if (_game is null || _gameState is null)
 {
     <MudStack Class="py-16" Justify="Justify.Center" AlignItems="AlignItems.Center">
         <MudProgressCircular Indeterminate="true" Color="MudBlazor.Color.Primary" />
     </MudStack>
-}
-else if (IsLobbyGame)
-{
-    <MudContainer MaxWidth="MaxWidth.Medium" Class="pt-8 pb-12">
-    <MudStack Spacing="4">
-        <MudStack Spacing="1">
-            <MudText Typo="Typo.h4">@LobbyGameName</MudText>
-            <MudText Typo="Typo.body1" Class="mud-text-secondary">
-                @(LobbyGameDateText) • Lobby
-            </MudText>
-        </MudStack>
-
-        <MudPaper Class="pa-6" Outlined="true">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Players</MudText>
-                @foreach (var seat in LobbySeats)
-                {
-                    <MudPaper Class="pa-3" Outlined="true">
-                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body1">@seat.DisplayName</MudText>
-                                <MudText Typo="Typo.caption" Class="mud-text-secondary">@seat.RoleLabel</MudText>
-                            </MudStack>
-                            <MudChip T="string"
-                                     Color="@seat.StatusColor"
-                                     Variant="Variant.Filled"
-                                     Value="@seat.StatusText">
-                                @seat.StatusText
-                            </MudChip>
-                        </MudStack>
-                    </MudPaper>
-                }
-            </MudStack>
-        </MudPaper>
-
-        <MudStack Row="true" Spacing="2">
-            @if (CanCurrentUserStartGame)
-            {
-                <MudButton Variant="Variant.Filled"
-                           Color="MudBlazor.Color.Primary"
-                           Disabled="@_startingLobbyGame"
-                           OnClick="StartLobbyGameAsync">
-                    @(_startingLobbyGame ? "Starting..." : "Start Game")
-                </MudButton>
-            }
-
-            <MudButton Variant="Variant.Outlined"
-                       Color="MudBlazor.Color.Primary"
-                       OnClick='@(() => Navigation.NavigateTo("/dashboard"))'>
-                Back To Games
-            </MudButton>
-        </MudStack>
-    </MudStack>
-    </MudContainer>
 }
 else
 {
@@ -508,7 +454,6 @@ else
     private MapSelectionMode _selectionMode = MapSelectionMode.Route;
     private string _currentPlayerColor = PlayerColorOptions.Colors[0];
     private List<PlayerBoardModel> _players = new();
-    private bool _startingLobbyGame;
     private bool _startingReplayGame;
     private GameSettingsSummaryModel _gameSettingsSummary = GameSettingsSummaryModel.Empty;
     private Boxcars.Engine.Domain.ArrivalBonus _routeArrivalBonus;
@@ -683,16 +628,8 @@ else
         await LoadPlayerProfilesAsync(CancellationToken.None);
         Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync EnsurePlayerBoardMapDefinitionAsync", GameId);
         await EnsurePlayerBoardMapDefinitionAsync(CancellationToken.None);
-        if (IsLobbyGame)
-        {
-            Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync lobby game — skipping state load", GameId);
-            ReevaluatePlayerPresenceState();
-        }
-        else
-        {
-            Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync LoadGameStateAsync", GameId);
-            await LoadGameStateAsync(refreshGameEntity: false);
-        }
+        Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync LoadGameStateAsync", GameId);
+        await LoadGameStateAsync(refreshGameEntity: false);
         Logger.LogDebug("[GameBoard:{GameId}] OnInitializedAsync complete", GameId);
     }
 
@@ -887,61 +824,23 @@ else
 
     private bool IsLobbyGame => string.Equals(_game?.State, PersistedGameStates.Lobby, StringComparison.OrdinalIgnoreCase);
 
-    private bool CanCurrentUserStartGame => IsLobbyGame
-        && !_startingLobbyGame
-        && !string.IsNullOrWhiteSpace(_currentUserId)
-        && string.Equals(_game?.CreatorId, _currentUserId, StringComparison.OrdinalIgnoreCase);
-
-    private string LobbyGameName => string.IsNullOrWhiteSpace(_game?.Name)
-        ? "Game Lobby"
-        : _game.Name;
-
-    private string LobbyGameDateText => (_game?.GameDate ?? _game?.CreatedAt ?? DateTimeOffset.UtcNow)
-        .ToLocalTime()
-        .ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
-
-    private IReadOnlyList<LobbySeatViewModel> LobbySeats => (_game?.Seats ?? [])
-        .OrderBy(seat => seat.SeatIndex)
-        .Select(seat =>
-        {
-            var isBot = IsBotUser(seat.PlayerUserId);
-            var isConnected = isBot || GamePresenceService.IsUserConnected(GameId, seat.PlayerUserId);
-            var roleLabel = string.Equals(seat.PlayerUserId, _game?.CreatorId, StringComparison.OrdinalIgnoreCase)
-                ? "Host"
-                : isBot ? "Bot player" : "Player";
-            return new LobbySeatViewModel(
-                seat.DisplayName,
-                roleLabel,
-                isBot ? "Bot" : isConnected ? "Connected" : "Waiting",
-                isBot ? Color.Info : isConnected ? Color.Success : Color.Warning);
-        })
-        .ToList();
-
-    private async Task StartLobbyGameAsync()
+    private async Task<bool> StartLobbyGameAsync()
     {
-        if (!CanCurrentUserStartGame || string.IsNullOrWhiteSpace(_currentUserId))
+        if (string.IsNullOrWhiteSpace(_currentUserId))
         {
-            return;
+            return false;
         }
 
-        _startingLobbyGame = true;
-
-        try
+        Logger.LogDebug("[GameBoard:{GameId}] Starting lobby game", GameId);
+        var result = await GameService.StartGameAsync(_currentUserId, GameId, CancellationToken.None);
+        if (!result.Success)
         {
-            var result = await GameService.StartGameAsync(_currentUserId, GameId, CancellationToken.None);
-            if (!result.Success)
-            {
-                ShowNotification(result.Reason ?? "Unable to start game.", Severity.Error);
-                return;
-            }
+            ShowNotification(result.Reason ?? "Unable to start game.", Severity.Error);
+            return false;
+        }
 
-            await RefreshGameEntityAsync();
-            await LoadGameStateAsync(refreshGameEntity: false);
-        }
-        finally
-        {
-            _startingLobbyGame = false;
-        }
+        await RefreshGameEntityAsync();
+        return true;
     }
 
     // With automove on, MOVE shows once a move is plotted that automove won't make itself (see AutoMoveTakesMove).
@@ -1711,11 +1610,9 @@ else
             await RefreshGameEntityAsync();
         }
 
-        if (IsLobbyGame)
+        // New games start when they're created; this starts a game created before then that's still in the lobby.
+        if (IsLobbyGame && !await StartLobbyGameAsync())
         {
-            Logger.LogDebug("[GameBoard:{GameId}] LoadGameStateAsync exit: lobby game", GameId);
-            _gameState = null;
-            ReevaluatePlayerPresenceState();
             return;
         }
 
@@ -5866,11 +5763,4 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         public DateTimeOffset OccurredUtc { get; init; }
         public string? EventBaseId { get; init; }
         public bool CanUndo => !string.IsNullOrWhiteSpace(EventBaseId);
-    }
-
-    private sealed record LobbySeatViewModel(
-        string DisplayName,
-        string RoleLabel,
-        string StatusText,
-        Color StatusColor);
-}
+    }}
