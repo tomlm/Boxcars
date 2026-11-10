@@ -875,15 +875,18 @@ else
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
-    // AUTOMOVE beside MOVE turns automove on for the rest of the trip. Not for the move that arrives, which turns it off.
-    private bool ShouldShowAutoMoveButton => !AutoMove
-        && IsAuthenticatedUserActivePlayer
-        && !SelectionReachesDestination();
+    // AUTOMOVE beside MOVE turns automove on for the rest of the trip.
+    private bool ShouldShowAutoMoveButton => !AutoMove && IsAuthenticatedUserActivePlayer;
 
+    // On a move that arrives it's just MOVE: arriving ends the trip, so automove stays off.
     private async Task OnAutoMoveActionAsync()
     {
+        var arrives = SelectionReachesDestination();
         await OnCommitMoveActionAsync();
-        await OnAutoMoveChangedAsync(true);
+        if (!arrives)
+        {
+            await OnAutoMoveChangedAsync(true);
+        }
     }
 
     private bool CanCommitMoveAction => !string.IsNullOrWhiteSpace(GameId)
