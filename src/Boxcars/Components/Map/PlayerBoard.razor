@@ -38,7 +38,7 @@
                                 @* While showing video the avatar fills the panel's height, so the button stretches to it. *@
                                 <MudButton Variant="Variant.Text"
                                            Color="MudBlazor.Color.Inherit"
-                                           Class="@(PlayerVideoAvatar.IsShowingVideo(Holler, player.UserId, player.IsCurrentUser) ? "flex-grow-1 align-stretch" : null)"
+                                           Class="@(IsShowingVideo(player) ? "flex-grow-1 align-stretch" : null)"
                                            Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0; overflow: visible"
                                            OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
                                            aria-label="@($"Focus map on {player.Name}")">
@@ -52,6 +52,7 @@
                                               Style="overflow: visible">
                                         <PlayerVideoAvatar UserId="@player.UserId"
                                                            IsCurrentUser="@player.IsCurrentUser"
+                                                           HideVideo="@HiddenVideoUserIds.Contains(player.UserId)"
                                                            Size="Size.Large"
                                                            Style="color: var(--player-color-fg, #fff); font-weight: 700; overflow: hidden; flex-shrink: 0; background-color: rgb(255 255 255 / 0.32)">
                                             @if (HasThumbnail(player))
@@ -72,17 +73,9 @@
                             <MudStack Class="flex-grow-1" Style="min-width: 0" Spacing="0">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="w-100" Style="min-width: 0">
                                     <MudText Typo="Typo.subtitle1" Style="min-width: 0; text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 8px rgb(0 0 0 / 0.28)">@player.Name</MudText>
-                                </MudStack>
-                                @if (!player.IsEliminated)
-                                {
-                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" title="Home city">
-                                        <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" />
-                                        <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
-                                    </MudStack>
-                                }
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0">
                                     @if (player.ShowDisconnectedControlToggle)
                                     {
+                                        <MudSpacer />
                                         <MudMenu Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
                                             <ActivatorContent>
                                                 <MudIconButton Icon="@GetControlModeIcon(player)"
@@ -90,7 +83,7 @@
                                                                Color="Color.Inherit"
                                                                Style="padding: 2px; min-width: 0; min-height: 0"
                                                                aria-label="@($"Change control mode for {player.Name}")"
-                                                               title="@($"Controlled by: {player.DisconnectedControlMode}")" />
+                                                               title="@($"Controlled by: {GetControlModeLabel(player)}")" />
                                             </ActivatorContent>
                                             <ChildContent>
                                                 @foreach (var option in player.ControlModeOptions)
@@ -101,6 +94,41 @@
                                                 }
                                             </ChildContent>
                                         </MudMenu>
+                                    }
+                                </MudStack>
+                                @if (!player.IsEliminated)
+                                {
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" title="Home city">
+                                        <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" />
+                                        <MudText Typo="Typo.caption" Style="text-shadow: 0 1px 2px rgb(0 0 0 / 0.7); opacity: 0.92">@SlangNames.Apply(player.HomeCity, SlangMode)</MudText>
+                                    </MudStack>
+                                }
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0">
+                                    @if (player.IsCurrentUser)
+                                    {
+                                        <MediaToggles Size="Size.Small" Style="padding: 2px; min-width: 0; min-height: 0" />
+                                    }
+                                    else if (FindRoomPeer(player.UserId) is not null)
+                                    {
+                                        @* What this player hears and sees of the other: hidden video also isn't sent, saving bandwidth. *@
+                                        var muted = MutedUserIds.Contains(player.UserId);
+                                        var videoHidden = HiddenVideoUserIds.Contains(player.UserId);
+                                        <MudTooltip Text="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")">
+                                            <MudIconButton Icon="@(muted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)"
+                                                           Size="Size.Small"
+                                                           Color="@(muted ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
+                                                           Style="padding: 2px; min-width: 0; min-height: 0"
+                                                           aria-label="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")"
+                                                           OnClick="@(() => OnToggleMuted.InvokeAsync(player.UserId))" />
+                                        </MudTooltip>
+                                        <MudTooltip Text="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")">
+                                            <MudIconButton Icon="@(videoHidden ? Icons.Material.Filled.VideocamOff : Icons.Material.Filled.Videocam)"
+                                                           Size="Size.Small"
+                                                           Color="@(videoHidden ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
+                                                           Style="padding: 2px; min-width: 0; min-height: 0"
+                                                           aria-label="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")"
+                                                           OnClick="@(() => OnToggleVideoHidden.InvokeAsync(player.UserId))" />
+                                        </MudTooltip>
                                     }
                                     @if (player.OwnedRailroadCount > 0)
                                     {
@@ -113,6 +141,13 @@
                                                            OnClick="@(() => OnToggleNetworkHighlight.InvokeAsync(HighlightedPlayerIndex == player.Index ? null : player.Index))" />
                                         </MudTooltip>
                                     }
+                                    <MudTooltip Text="Locate on map">
+                                        <MudIconButton Icon="@Icons.Material.Filled.LocationOn"
+                                                       Size="Size.Small"
+                                                       Color="MudBlazor.Color.Inherit"
+                                                       Style="padding: 2px; min-width: 0; min-height: 0"
+                                                       OnClick="@(() => OnLocatePlayer.InvokeAsync(player.Index))" />
+                                    </MudTooltip>
                                     @if (player.IsCurrentUser && AutoMoveChanged.HasDelegate)
                                     {
                                         <MudTooltip Text="Auto move">
@@ -128,13 +163,6 @@
                                                                  aria-label="Automove" />
                                         </MudTooltip>
                                     }
-                                    <MudTooltip Text="Locate on map">
-                                        <MudIconButton Icon="@Icons.Material.Filled.LocationOn"
-                                                       Size="Size.Small"
-                                                       Color="MudBlazor.Color.Inherit"
-                                                       Style="padding: 2px; min-width: 0; min-height: 0"
-                                                       OnClick="@(() => OnLocatePlayer.InvokeAsync(player.Index))" />
-                                    </MudTooltip>
                                 </MudStack>
                             </MudStack>
                         </MudStack>
@@ -254,6 +282,36 @@
 
     [Parameter]
     public EventCallback<bool> AutoMoveChanged { get; set; }
+
+    /// <summary>Players the current user has muted, by user id.</summary>
+    [Parameter]
+    public IReadOnlySet<string> MutedUserIds { get; set; } = new HashSet<string>();
+
+    /// <summary>Players whose video the current user has hidden, by user id.</summary>
+    [Parameter]
+    public IReadOnlySet<string> HiddenVideoUserIds { get; set; } = new HashSet<string>();
+
+    [Parameter]
+    public EventCallback<string> OnToggleMuted { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnToggleVideoHidden { get; set; }
+
+    // The menu's name for the seat's control mode (the stored value for Puppet is "Admin").
+    private static string GetControlModeLabel(PlayerBoardModel player) => player.ControlModeOptions
+        .FirstOrDefault(option => string.Equals(option.Value, player.DisconnectedControlMode, StringComparison.OrdinalIgnoreCase))?.Label
+        ?? player.DisconnectedControlMode;
+
+    private bool IsShowingVideo(PlayerBoardModel player) => !HiddenVideoUserIds.Contains(player.UserId)
+        && PlayerVideoAvatar.IsShowingVideo(Holler, player.UserId, player.IsCurrentUser);
+
+    // The player's connection in the game's video room, if they're in it.
+    private HollerPeer? FindRoomPeer(string userId) => string.IsNullOrEmpty(userId)
+        ? null
+        : Holler.Rooms
+            .SelectMany(room => room.Peers)
+            .FirstOrDefault(peer => peer.ConnectionState is not ("failed" or "closed")
+                && string.Equals(peer.UserId, userId, StringComparison.OrdinalIgnoreCase));
 
     private static string GetInitial(string name)
     {
