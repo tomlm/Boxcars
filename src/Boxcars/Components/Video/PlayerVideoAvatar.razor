@@ -5,9 +5,10 @@
 @*
     The avatar on a player card: the player's live video when they are connected to the game's video
     room with their camera on, otherwise the normal profile picture (ChildContent). Video here is always
-    muted; audio plays through GameVideoControls. The avatar is square while showing video, round otherwise.
+    muted; audio plays through GameVideoControls. The avatar is round otherwise; while showing video it is square
+    and fills the height of its container (about square), so the parent must give it a height (see IsShowingVideo).
 *@
-<MudAvatar Size="@Size" Style="@Style" Square="@(RemotePeer is not null || ShowLocalVideo)">
+<MudAvatar Size="@Size" Style="@AvatarStyle" Square="@(RemotePeer is not null || ShowLocalVideo)">
     @if (RemotePeer is { } peer)
     {
         <HollerVideo Peer="peer" Muted="true" Style="@VideoStyle" />
@@ -28,6 +29,10 @@
     // Mirrored, like a mirror or any video-call self view.
     private const string LocalVideoStyle = VideoStyle + "; transform: scaleX(-1)";
 
+    // MudAvatar's size class fixes the height, and no MudBlazor utility outranks it. The width is fixed at about the
+    // panel's height: an aspect-ratio width is sized from the video's own frame, which made the avatar huge.
+    private const string FillHeightStyle = "width: 4.5rem; height: 100%; min-height: 3.75rem";
+
     /// <summary>The seated user's id; empty for bots.</summary>
     [Parameter, EditorRequired] public string UserId { get; set; } = string.Empty;
 
@@ -40,16 +45,26 @@
     /// <summary>Shown whenever there is no live video.</summary>
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
-    private HollerPeer? RemotePeer => IsCurrentUser || string.IsNullOrEmpty(UserId)
+    private string? AvatarStyle => RemotePeer is not null || ShowLocalVideo ? $"{Style}; {FillHeightStyle}" : Style;
+
+    private HollerPeer? RemotePeer => IsCurrentUser ? null : FindRemotePeer(Holler, UserId);
+
+    private bool ShowLocalVideo => IsCurrentUser && IsLocalVideoOn(Holler);
+
+    /// <summary>Whether the avatar for this user shows live video rather than the profile picture.</summary>
+    public static bool IsShowingVideo(HollerClient holler, string userId, bool isCurrentUser) => isCurrentUser
+        ? IsLocalVideoOn(holler)
+        : FindRemotePeer(holler, userId) is not null;
+
+    private static HollerPeer? FindRemotePeer(HollerClient holler, string userId) => string.IsNullOrEmpty(userId)
         ? null
-        : Holler.Rooms
+        : holler.Rooms
             .SelectMany(room => room.Peers)
             .FirstOrDefault(peer => peer.IsVideoVisible
                 && peer.ConnectionState is not ("failed" or "closed")
-                && string.Equals(peer.UserId, UserId, StringComparison.OrdinalIgnoreCase));
+                && string.Equals(peer.UserId, userId, StringComparison.OrdinalIgnoreCase));
 
-    private bool ShowLocalVideo => IsCurrentUser
-        && Holler.Rooms.Count > 0
-        && Holler.LocalMedia is { Video: true }
-        && Holler.CameraEnabled;
+    private static bool IsLocalVideoOn(HollerClient holler) => holler.Rooms.Count > 0
+        && holler.LocalMedia is { Video: true }
+        && holler.CameraEnabled;
 }
