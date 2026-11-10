@@ -1,0 +1,34 @@
+@inherits HollerComponentBase
+@using MudBlazor
+
+@*
+    The current user's microphone and camera toggles: green while on, red while off. Shows nothing until the
+    camera and microphone are running, i.e. once GameVideoControls has joined the game's video room.
+*@
+@if (Holler.LocalMedia is { Ok: true })
+{
+    <MudTooltip Text="@(Holler.IsMicrophoneOn ? "Mute microphone" : "Unmute microphone")">
+        <MudIconButton Icon="@(Holler.IsMicrophoneOn ? Icons.Material.Filled.Mic : Icons.Material.Filled.MicOff)"
+                       Color="@(Holler.IsMicrophoneOn ? MudBlazor.Color.Success : MudBlazor.Color.Error)"
+                       Size="@Size"
+                       Style="@Style"
+                       Disabled="@(Holler.LocalMedia is not { Audio: true })"
+                       aria-label="@(Holler.IsMicrophoneOn ? "Mute microphone" : "Unmute microphone")"
+                       OnClick="() => Run(Holler.ToggleMicrophoneAsync)" />
+    </MudTooltip>
+    <MudTooltip Text="@(Holler.IsCameraOn ? "Hide video" : "Show video")">
+        <MudIconButton Icon="@(Holler.IsCameraOn ? Icons.Material.Filled.Videocam : Icons.Material.Filled.VideocamOff)"
+                       Color="@(Holler.IsCameraOn ? MudBlazor.Color.Success : MudBlazor.Color.Error)"
+                       Size="@Size"
+                       Style="@Style"
+                       Disabled="@(Holler.LocalMedia is not { Video: true })"
+                       aria-label="@(Holler.IsCameraOn ? "Hide video" : "Show video")"
+                       OnClick="() => Run(Holler.ToggleCameraAsync)" />
+    </MudTooltip>
+}
+
+@code {
+    [Parameter] public Size Size { get; set; } = Size.Medium;
+
+    [Parameter] public string? Style { get; set; }
+}

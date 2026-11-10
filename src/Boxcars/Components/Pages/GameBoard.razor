@@ -72,6 +72,10 @@ else
                      OnLocatePlayer="OnLocatePlayerAsync"
                      AutoMove="@AutoMove"
                      AutoMoveChanged="OnAutoMoveChangedAsync"
+                     MutedUserIds="_mutedUserIds"
+                     HiddenVideoUserIds="_hiddenVideoUserIds"
+                     OnToggleMuted="@(userId => ToggleUserId(_mutedUserIds, userId))"
+                     OnToggleVideoHidden="@(userId => ToggleUserId(_hiddenVideoUserIds, userId))"
                      />
             <MudSpacer />
             <MudLink Href="/dashboard" Underline="Underline.None" Class="d-flex flex-shrink-0">
@@ -99,9 +103,11 @@ else
         <MudStack Row="true" AlignItems="AlignItems.Center" Class="flex-shrink-0 pa-3 pb-0">
         @if (ShouldShowPurchaseExperienceTabs)
         {
+            @* When the tabs don't fit they scroll sideways: swipe on touch, or the scrollbar or Shift+wheel with a mouse. *@
+            <MudStack Row="true" Class="flex-grow-1 overflow-x-auto">
             <MudToggleGroup T="PurchaseExperienceTab" Value="_selectedPurchaseTab" ValueChanged="OnPurchaseTabSelected"
                            Color="MudBlazor.Color.Primary" Size="Size.Small"
-                           Class="flex-grow-1">
+                           Class="flex-grow-1 flex-shrink-0">
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Map" Text="Map" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Regions" Text="Regions" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Cities" Text="Cities" />
@@ -112,13 +118,18 @@ else
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Advice" Text="Advice" />
                 <MudToggleItem T="PurchaseExperienceTab" Value="PurchaseExperienceTab.Settings" Text="Settings" />
             </MudToggleGroup>
+            </MudStack>
         }
         else
         {
             <MudSpacer />
         }
-            <GameVideoControls GameId="@GameId" IsSeated="@(_currentUserPlayerIndex >= 0)" />
-            <UserMenu />
+            <GameVideoControls GameId="@GameId" IsSeated="@(_currentUserPlayerIndex >= 0)" MutedUserIds="_mutedUserIds" />
+            <UserMenu>
+                <ExtraItems>
+                    <MediaDeviceMenuItems />
+                </ExtraItems>
+            </UserMenu>
         </MudStack>
 
         <div class="@MapAreaClass" @ref="_mapAreaElement">
@@ -487,6 +498,10 @@ else
     private string? _selectedPurchaseOptionKey;
     private int? _activeAuctionRailroadIndex;
     private int? _highlightedNetworkPlayerIndex;
+
+    // Players this user has muted or hidden the video of, from their cards. Only this page's own playback changes.
+    private readonly HashSet<string> _mutedUserIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _hiddenVideoUserIds = new(StringComparer.OrdinalIgnoreCase);
     private string? _dismissedRailroadOverlayOptionKey;
     private string? _lastPurchaseResolutionKey;
     private const int MaxComparedRailroads = 8;
@@ -3100,6 +3115,14 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         _highlightedNetworkPlayerIndex = playerIndex;
     }
 
+    private static void ToggleUserId(HashSet<string> userIds, string userId)
+    {
+        if (!userIds.Remove(userId))
+        {
+            userIds.Add(userId);
+        }
+    }
+
     private IReadOnlyCollection<int> OtherOwnedRailroadIndices => _gameState is null
         ? Array.Empty<int>()
         : _gameState.RailroadOwnership
@@ -5279,7 +5302,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         {
             return
             [
-                new PlayerControlOptionModel(DisconnectedSeatControlModes.Manual, "Admin"),
+                new PlayerControlOptionModel(DisconnectedSeatControlModes.Manual, "Puppet"),
                 new PlayerControlOptionModel(DisconnectedSeatControlModes.AI, "AI")
             ];
         }
@@ -5287,7 +5310,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         return
         [
             new PlayerControlOptionModel(DisconnectedSeatControlModes.Self, "Player"),
-            new PlayerControlOptionModel(DisconnectedSeatControlModes.Manual, "Admin"),
+            new PlayerControlOptionModel(DisconnectedSeatControlModes.Manual, "Puppet"),
             new PlayerControlOptionModel(DisconnectedSeatControlModes.AI, "AI")
         ];
     }

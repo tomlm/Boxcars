@@ -45,6 +45,7 @@
                 <MudMenuItem Href="@RailroadReportUrl" Target="_blank">Export PDF</MudMenuItem>
                 <MudMenuItem OnClick="@(() => NavigateToAccountSettings())">Account settings</MudMenuItem>
                 <MudMenuItem OnClick="@(() => SignOut())">Sign out</MudMenuItem>
+                @ExtraItems
             </ChildContent>
         </MudMenu>
     </Authorized>
@@ -69,6 +70,10 @@
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>Items a page adds to the end of the menu, e.g. the game page's camera and microphone choices.</summary>
+    [Parameter]
+    public RenderFragment? ExtraItems { get; set; }
 
     protected override async Task OnInitializedAsync()
     {

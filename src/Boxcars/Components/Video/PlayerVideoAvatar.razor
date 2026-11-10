@@ -38,6 +38,9 @@
 
     [Parameter] public bool IsCurrentUser { get; set; }
 
+    /// <summary>The current user hid this player's video, so show the profile picture instead.</summary>
+    [Parameter] public bool HideVideo { get; set; }
+
     [Parameter] public Size Size { get; set; } = Size.Large;
 
     [Parameter] public string? Style { get; set; }
@@ -47,7 +50,7 @@
 
     private string? AvatarStyle => RemotePeer is not null || ShowLocalVideo ? $"{Style}; {FillHeightStyle}" : Style;
 
-    private HollerPeer? RemotePeer => IsCurrentUser ? null : FindRemotePeer(Holler, UserId);
+    private HollerPeer? RemotePeer => IsCurrentUser || HideVideo ? null : FindRemotePeer(Holler, UserId);
 
     private bool ShowLocalVideo => IsCurrentUser && IsLocalVideoOn(Holler);
 

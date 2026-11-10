@@ -1,0 +1,61 @@
+@inherits HollerComponentBase
+@using MudBlazor
+@inject ISnackbar Snackbar
+
+@*
+    Microphone and camera choices for the user menu. Shows nothing until the camera and microphone are running,
+    i.e. once GameVideoControls has joined the game's video room.
+*@
+@if (Holler.LocalMedia is { Ok: true })
+{
+    <MudDivider />
+    @DeviceMenu(_microphones, "Microphone", Icons.Material.Filled.Mic, Holler.MicrophoneDeviceId)
+    @DeviceMenu(_cameras, "Camera", Icons.Material.Filled.Videocam, Holler.CameraDeviceId)
+}
+
+@code {
+    private IReadOnlyList<HollerMediaDevice> _cameras = [];
+    private IReadOnlyList<HollerMediaDevice> _microphones = [];
+
+    private RenderFragment DeviceMenu(IReadOnlyList<HollerMediaDevice> devices, string label, string icon, string? currentDeviceId) => __builder =>
+    {
+        <MudMenu Label="@label" StartIcon="@icon" Dense="true" OpenChanged="OnDeviceMenuOpenChanged">
+            @if (devices.Count == 0)
+            {
+                <MudMenuItem Disabled="true">No devices found</MudMenuItem>
+            }
+            @foreach (var device in devices)
+            {
+                <MudMenuItem Icon="@(device.DeviceId == currentDeviceId ? Icons.Material.Filled.Check : Icons.Material.Outlined.Circle)"
+                             IconColor="@(device.DeviceId == currentDeviceId ? MudBlazor.Color.Primary : MudBlazor.Color.Transparent)"
+                             OnClick="() => SelectDeviceAsync(device)">
+                    @device.Label
+                </MudMenuItem>
+            }
+        </MudMenu>
+    };
+
+    // Re-read on every open so newly plugged-in devices show up.
+    private async Task OnDeviceMenuOpenChanged(bool open)
+    {
+        if (open)
+        {
+            await Run(async () =>
+            {
+                _cameras = await Holler.GetCamerasAsync();
+                _microphones = await Holler.GetMicrophonesAsync();
+            });
+        }
+    }
+
+    private async Task SelectDeviceAsync(HollerMediaDevice device)
+    {
+        var result = device.Kind == "video"
+            ? await Holler.SelectCameraAsync(device.DeviceId)
+            : await Holler.SelectMicrophoneAsync(device.DeviceId);
+        if (!result.Ok)
+        {
+            Snackbar.Add($"Couldn't switch to {device.Label}: {result.Error}", Severity.Warning);
+        }
+    }
+}
