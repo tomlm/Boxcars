@@ -62,6 +62,7 @@ public class GameServiceCreateGameValidationTests
         Assert.Equal(LocomotiveType.Express, engine.CapturedRequest.Settings.StartEngine);
         Assert.Equal(6_000, engine.CapturedRequest.Settings.ExpressPrice);
         Assert.Equal(45_000, engine.CapturedRequest.Settings.SuperchiefPrice);
+        Assert.Equal(result.GameId, engine.StartedGameId);
     }
 
     private static CreateGameRequest CreateRequest(GameSettings settings)
@@ -82,6 +83,7 @@ public class GameServiceCreateGameValidationTests
     private sealed class CapturingGameEngine : IGameEngine
     {
         public CreateGameRequest? CapturedRequest { get; private set; }
+        public string? StartedGameId { get; private set; }
 
         public event Action<string, GameStateUpdate>? OnStateChanged { add { } remove { } }
         public event Action<string, GameActionFailure>? OnActionFailed { add { } remove { } }
@@ -92,7 +94,11 @@ public class GameServiceCreateGameValidationTests
             return Task.FromResult(options?.PreferredGameId ?? "game-1");
         }
 
-        public Task StartGameAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task StartGameAsync(string gameId, CancellationToken cancellationToken = default)
+        {
+            StartedGameId = gameId;
+            return Task.CompletedTask;
+        }
         public Task<Boxcars.Engine.Persistence.GameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SynchronizeStateAsync(string gameId, Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<Boxcars.Data.Maps.RouteSuggestionResult> SuggestRouteAsync(string gameId, int playerIndex, string? destinationNodeId, IReadOnlyCollection<int> playersNotToRover, CancellationToken cancellationToken = default)

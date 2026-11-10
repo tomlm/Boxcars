@@ -1,3 +1,4 @@
+@inherits HollerComponentBase
 @using Boxcars.Data
 @using MudBlazor
 
@@ -34,8 +35,10 @@
                                         WINNER
                                     </MudChip>
                                 }
+                                @* While showing video the avatar fills the panel's height, so the button stretches to it. *@
                                 <MudButton Variant="Variant.Text"
                                            Color="MudBlazor.Color.Inherit"
+                                           Class="@(PlayerVideoAvatar.IsShowingVideo(Holler, player.UserId, player.IsCurrentUser) ? "flex-grow-1 align-stretch" : null)"
                                            Style="min-width: 0; padding: 0; border-radius: 999px; line-height: 0; overflow: visible"
                                            OnClick="() => OnFocusPlayer.InvokeAsync(player.Index)"
                                            aria-label="@($"Focus map on {player.Name}")">

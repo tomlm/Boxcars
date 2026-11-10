@@ -335,23 +335,15 @@
         _playerSlots.Add(new PlayerSlot
         {
             UserId = currentUser.RowKey,
-            AssignedColor = ResolveDefaultColor(currentUser, new HashSet<string>(StringComparer.OrdinalIgnoreCase)),
             IsCreatorSeat = true
         });
 
         while (_playerSlots.Count < _playerCount)
         {
-            var usedColors = _playerSlots
-                .Select(slot => slot.AssignedColor)
-                .Where(color => !string.IsNullOrWhiteSpace(color))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            _playerSlots.Add(new PlayerSlot
-            {
-                UserId = string.Empty,
-                AssignedColor = ResolveFallbackColor(usedColors)
-            });
+            _playerSlots.Add(new PlayerSlot());
         }
+
+        AssignColors();
     }
 
     private Task OnPlayerCountChanged(int value)
@@ -365,18 +357,10 @@
 
         while (_playerSlots.Count < _playerCount)
         {
-            var usedColors = _playerSlots
-                .Select(slot => slot.AssignedColor)
-                .Where(color => !string.IsNullOrWhiteSpace(color))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            _playerSlots.Add(new PlayerSlot
-            {
-                UserId = string.Empty,
-                AssignedColor = ResolveFallbackColor(usedColors)
-            });
+            _playerSlots.Add(new PlayerSlot());
         }
 
+        AssignColors();
         return Task.CompletedTask;
     }
 
@@ -396,14 +380,8 @@
     private async Task OnPlayerChangedAsync(PlayerSlot slot, string? value)
     {
         slot.UserId = value ?? string.Empty;
-        var selectedProfile = _availablePlayers.FirstOrDefault(profile => string.Equals(profile.RowKey, slot.UserId, StringComparison.Ordinal));
-        var usedColors = _playerSlots
-            .Where(candidate => !ReferenceEquals(candidate, slot))
-            .Select(candidate => candidate.AssignedColor)
-            .Where(color => !string.IsNullOrWhiteSpace(color))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        slot.AssignedColor = ResolveDefaultColor(selectedProfile, usedColors);
+        slot.IsColorChosen = false;
+        AssignColors();
         _validationMessage = null;
         await InvokeAsync(StateHasChanged);
     }
@@ -411,6 +389,7 @@
     private Task OnColorChanged(PlayerSlot slot, string value)
     {
         slot.AssignedColor = PlayerColorOptions.NormalizeOrDefault(value);
+        slot.IsColorChosen = true;
         _validationMessage = null;
         return Task.CompletedTask;
     }
@@ -684,6 +663,7 @@
             {
                 UserId = player.UserId,
                 AssignedColor = PlayerColorOptions.NormalizeOrDefault(player.Color),
+                IsColorChosen = true,
                 IsCreatorSeat = index == currentUserIndex
             });
         }
@@ -711,23 +691,40 @@
         return PlayerColorOptions.IsSupported(preferredColor) ? preferredColor : string.Empty;
     }
 
-    private string ResolveDefaultColor(ApplicationUser? profile, HashSet<string> usedColors)
+    /// <summary>
+    /// Gives each seated player a color: the one the admin chose for them, else their preferred color (the earlier
+    /// seat wins when two prefer the same one), else the first free color no seated player prefers. Empty seats get
+    /// none, so they never take a color away from a player picked later.
+    /// </summary>
+    private void AssignColors()
     {
-        var preferredColor = profile is null ? null : PlayerColorOptions.NormalizeOrDefault(profile.PreferredColor, string.Empty);
-        if (!string.IsNullOrWhiteSpace(preferredColor)
-            && PlayerColorOptions.IsSupported(preferredColor)
-            && !usedColors.Contains(preferredColor))
+        var seatedSlots = _playerSlots.Where(slot => !string.IsNullOrWhiteSpace(slot.UserId)).ToList();
+        foreach (var emptySlot in _playerSlots.Except(seatedSlots))
         {
-            return preferredColor;
+            emptySlot.AssignedColor = string.Empty;
         }
 
-        return ResolveFallbackColor(usedColors);
-    }
+        var usedColors = seatedSlots
+            .Where(slot => slot.IsColorChosen)
+            .Select(slot => slot.AssignedColor)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unchosenSlots = seatedSlots.Where(slot => !slot.IsColorChosen).ToList();
+        foreach (var slot in unchosenSlots)
+        {
+            var preferredColor = GetPreferredColor(slot);
+            slot.AssignedColor = preferredColor.Length > 0 && usedColors.Add(preferredColor) ? preferredColor : string.Empty;
+        }
 
-    private static string ResolveFallbackColor(HashSet<string> usedColors)
-    {
-        return PlayerColorOptions.Colors.FirstOrDefault(color => !usedColors.Contains(color))
-            ?? PlayerColorOptions.Colors[0];
+        var preferredColors = seatedSlots
+            .Select(GetPreferredColor)
+            .Where(color => color.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var slot in unchosenSlots.Where(slot => slot.AssignedColor.Length == 0))
+        {
+            slot.AssignedColor = PlayerColorOptions.Colors.FirstOrDefault(color => !usedColors.Contains(color) && !preferredColors.Contains(color))
+                ?? PlayerColorOptions.Colors.First(color => !usedColors.Contains(color));
+            usedColors.Add(slot.AssignedColor);
+        }
     }
 
     private ApplicationUser? FindProfile(string? userId)
@@ -809,7 +806,11 @@
     {
         public Guid SlotId { get; } = Guid.NewGuid();
         public string UserId { get; set; } = string.Empty;
-        public string AssignedColor { get; set; } = PlayerColorOptions.Colors[0];
+        // Empty until a player is picked, so an empty seat never takes a color a player prefers.
+        public string AssignedColor { get; set; } = string.Empty;
+
+        /// <summary>Whether the admin picked this color (or a replay preset set it), so it isn't reassigned.</summary>
+        public bool IsColorChosen { get; set; }
         public bool IsCreatorSeat { get; set; }
     }
 

@@ -145,6 +145,7 @@ public class GameService
                 },
                 new GameCreationOptions { PreferredGameId = gameId },
                 cancellationToken);
+            await _gameEngine.StartGameAsync(createdGameId, cancellationToken);
 
             await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
 
@@ -167,9 +168,9 @@ public class GameService
             return new GameActionResult { Success = false, Reason = "Game was not found." };
         }
 
-        if (!string.Equals(game.CreatorId, playerId, StringComparison.OrdinalIgnoreCase))
+        if (!game.Seats.Any(seat => string.Equals(seat.PlayerUserId, playerId, StringComparison.OrdinalIgnoreCase)))
         {
-            return new GameActionResult { Success = false, Reason = "Only the game creator can start the game." };
+            return new GameActionResult { Success = false, Reason = "You are not a participant in this game." };
         }
 
         if (!string.Equals(NormalizePersistedGameState(game.State), PersistedGameStates.Lobby, StringComparison.Ordinal))
