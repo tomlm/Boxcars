@@ -3,6 +3,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Hosting
 @using Microsoft.AspNetCore.Components.Authorization
+@using Boxcars.Auth
 @using Microsoft.AspNetCore.Components
 @using Boxcars.Data
 @using Boxcars.Engine.Data.Maps
@@ -71,6 +72,12 @@
 
                     <MudPaper @key="slot.SlotId" Outlined="true" Class="pa-4">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                            @if (FindProfile(slot.UserId) is { IsBot: false })
+                            {
+                                <MudTooltip Text="Can play other players' turns (Puppet) or hand their seats to the AI, e.g. when someone steps away">
+                                    <MudCheckBox T="bool" @bind-Value="slot.IsAdmin" Label="Admin" Color="Color.Primary" Dense="true" Disabled="@IsBusy" />
+                                </MudTooltip>
+                            }
                             <MudSpacer />
                             <MudIconButton Icon="@MudBlazor.Icons.Material.Filled.KeyboardArrowUp"
                                            Color="MudBlazor.Color.Primary"
@@ -335,6 +342,7 @@
         _playerSlots.Add(new PlayerSlot
         {
             UserId = currentUser.RowKey,
+            IsAdmin = IsAdminByDefault(currentUser),
             IsCreatorSeat = true
         });
 
@@ -380,6 +388,7 @@
     private async Task OnPlayerChangedAsync(PlayerSlot slot, string? value)
     {
         slot.UserId = value ?? string.Empty;
+        slot.IsAdmin = IsAdminByDefault(FindProfile(slot.UserId));
         slot.IsColorChosen = false;
         AssignColors();
         _validationMessage = null;
@@ -444,7 +453,8 @@
                 {
                     UserId = slot.UserId,
                     DisplayName = GetSelectedPlayerDisplayName(slot.UserId),
-                    Color = PlayerColorOptions.NormalizeOrDefault(slot.AssignedColor)
+                    Color = PlayerColorOptions.NormalizeOrDefault(slot.AssignedColor),
+                    IsAdmin = slot.IsAdmin && FindProfile(slot.UserId) is { IsBot: false }
                 }).ToList()
             };
 
@@ -664,6 +674,7 @@
                 UserId = player.UserId,
                 AssignedColor = PlayerColorOptions.NormalizeOrDefault(player.Color),
                 IsColorChosen = true,
+                IsAdmin = IsAdminByDefault(FindProfile(player.UserId)),
                 IsCreatorSeat = index == currentUserIndex
             });
         }
@@ -802,6 +813,9 @@
             .ToList();
     }
 
+    // Google and Microsoft accounts are admins unless unchecked; email accounts, which anyone can sign in as, and bots aren't.
+    private static bool IsAdminByDefault(ApplicationUser? profile) => profile is { IsBot: false } && !EmailLoginService.IsEmailOnly(profile);
+
     private sealed class PlayerSlot
     {
         public Guid SlotId { get; } = Guid.NewGuid();
@@ -811,6 +825,8 @@
 
         /// <summary>Whether the admin picked this color (or a replay preset set it), so it isn't reassigned.</summary>
         public bool IsColorChosen { get; set; }
+
+        public bool IsAdmin { get; set; }
         public bool IsCreatorSeat { get; set; }
     }
 

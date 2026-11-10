@@ -79,6 +79,37 @@ public class GameEngineServiceCreateGameSettingsTests
     }
 
     [Fact]
+    public async Task CreateGameAsync_PersistsWhichSeatsAreAdmins()
+    {
+        var presenceService = new GamePresenceService();
+        var gamesTable = new RecordingGamesTableClient();
+        var service = new GameEngineService(
+            new TestWebHostEnvironment(),
+            gamesTable,
+            presenceService,
+            BotTurnServiceTestHarness.CreateService(presenceService),
+            new GameSettingsResolver(),
+            Options.Create(new BotOptions()),
+            NullLogger<GameEngineService>.Instance);
+
+        SetMapReady(service);
+        SetMapDefinition(service, Boxcars.Engine.Tests.Fixtures.GameEngineFixture.CreateTestMap());
+
+        await service.CreateGameAsync(new CreateGameRequest
+        {
+            CreatorUserId = "creator@example.com",
+            Players =
+            [
+                new GamePlayerSelection { UserId = "creator@example.com", DisplayName = "Alice", Color = "red", IsAdmin = false },
+                new GamePlayerSelection { UserId = "bob@example.com", DisplayName = "Bob", Color = "blue", IsAdmin = true }
+            ]
+        }, new GameCreationOptions { PreferredGameId = "game-1" }, CancellationToken.None);
+
+        var seats = Assert.Single(gamesTable.GameEntities).Seats;
+        Assert.Equal([false, true], seats.OrderBy(seat => seat.SeatIndex).Select(seat => seat.IsAdmin));
+    }
+
+    [Fact]
     public async Task CreateGameAsync_PersistsCityProbabilityOverrides()
     {
         var presenceService = new GamePresenceService();

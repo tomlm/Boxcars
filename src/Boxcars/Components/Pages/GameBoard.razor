@@ -5159,7 +5159,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
         playerControl.ControllerMode = request.ControlMode;
         playerControl.ControllerUserId = string.Equals(request.ControlMode, DisconnectedSeatControlModes.Manual, StringComparison.OrdinalIgnoreCase)
-            ? ResolveAdminControllerUserId()
+            ? _currentUserId ?? string.Empty
             : string.Empty;
 
         var changed = true;
@@ -5317,19 +5317,14 @@ _turnViewState.SelectedRoutePreview.MoveCount;
 
     private bool IsCurrentUserGameAdmin()
     {
-        return !string.IsNullOrWhiteSpace(_currentUserId)
-            && string.Equals(_game?.CreatorId, _currentUserId, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string ResolveAdminControllerUserId()
-    {
-        var creatorId = _game?.CreatorId;
-        if (!string.IsNullOrWhiteSpace(creatorId))
+        if (string.IsNullOrWhiteSpace(_currentUserId) || _game is null)
         {
-            return creatorId;
+            return false;
         }
 
-        return _currentUserId ?? string.Empty;
+        var seat = _game.Seats.FirstOrDefault(seat => string.Equals(seat.PlayerUserId, _currentUserId, StringComparison.OrdinalIgnoreCase));
+        return seat?.IsAdmin
+            ?? string.Equals(_game.CreatorId, _currentUserId, StringComparison.OrdinalIgnoreCase);
     }
 
     private string? ResolveControllerUserId(string? slotUserId)
