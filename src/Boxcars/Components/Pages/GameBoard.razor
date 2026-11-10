@@ -391,13 +391,23 @@ else
                                         <MovementStatusPanel State="@_turnViewState" UsePaper="false" ArrivalBonus="@CurrentRouteArrivalBonus" RoverTargetPlayerName="@CurrentRouteRoverTargetPlayerName" />
                                         @if (ShouldShowMoveButton)
                                         {
-                                            <MudButton Variant="Variant.Filled"
-                                                       Color="MudBlazor.Color.Primary"
-                                                       Disabled="@(!CanCommitMoveAction)"
-                                                       OnClick="OnCommitMoveActionAsync"
-                                                       Class="flex-shrink-0 flex-grow-0">
-                                                @CommitMoveActionLabel
-                                            </MudButton>
+                                            <MudStack Row="true" Spacing="2" Class="flex-shrink-0 flex-grow-0">
+                                                <MudButton Variant="Variant.Filled"
+                                                           Color="MudBlazor.Color.Primary"
+                                                           Disabled="@(!CanCommitMoveAction)"
+                                                           OnClick="OnCommitMoveActionAsync">
+                                                    @CommitMoveActionLabel
+                                                </MudButton>
+                                                @if (ShouldShowAutoMoveButton)
+                                                {
+                                                    <MudButton Variant="Variant.Outlined"
+                                                               Color="MudBlazor.Color.Primary"
+                                                               Disabled="@(!CanCommitMoveAction)"
+                                                               OnClick="OnAutoMoveActionAsync">
+                                                        AUTOMOVE
+                                                    </MudButton>
+                                                }
+                                            </MudStack>
                                         }
                                     </MudPaper>
                                 </MudStack>
@@ -864,6 +874,17 @@ else
         || (CurrentRouteMoveCount > 0 && !AutoMoveTakesMove);
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
+
+    // AUTOMOVE beside MOVE turns automove on for the rest of the trip. Not for the move that arrives, which turns it off.
+    private bool ShouldShowAutoMoveButton => !AutoMove
+        && IsAuthenticatedUserActivePlayer
+        && !SelectionReachesDestination();
+
+    private async Task OnAutoMoveActionAsync()
+    {
+        await OnCommitMoveActionAsync();
+        await OnAutoMoveChangedAsync(true);
+    }
 
     private bool CanCommitMoveAction => !string.IsNullOrWhiteSpace(GameId)
         && _gameState is not null
@@ -1409,6 +1430,9 @@ else
             return;
         }
 
+        // Automove lasts one trip: arriving turns it off, and the player picks MOVE or AUTOMOVE on the way to the next.
+        var arrivalEndsAutoMove = AutoMove && IsAuthenticatedUserActivePlayer && SelectionReachesDestination();
+
         MarkAuthoritativeUpdatePending();
         await EnqueueBoardActionAsync(
             new MoveAction
@@ -1419,6 +1443,11 @@ else
                 PointsTaken = selectedNodeIds,
                 SelectedSegmentKeys = selectedSegmentKeys
             });
+
+        if (arrivalEndsAutoMove)
+        {
+            await OnAutoMoveChangedAsync(false);
+        }
     }
 
     private bool CanCommitMoveSelection()
@@ -4021,7 +4050,10 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         }
     }
 
-    /// <summary>Whether this player's plotted moves are committed without a MOVE click; saved to their profile, on by default.</summary>
+    /// <summary>
+    /// Whether this player's plotted moves are committed without a MOVE click; saved to their profile. It lasts one trip:
+    /// AUTOMOVE beside MOVE turns it on, and arriving at the destination turns it off.
+    /// </summary>
     private bool AutoMove => _currentUserProfile is not null && !_currentUserProfile.AutoMoveOff;
 
     private async Task OnAutoMoveChangedAsync(bool autoMove)
