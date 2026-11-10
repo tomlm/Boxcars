@@ -209,7 +209,8 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                     SeatIndex = seatIndex,
                     PlayerUserId = player.UserId,
                     DisplayName = player.DisplayName,
-                    Color = player.Color
+                    Color = player.Color,
+                    IsAdmin = player.IsAdmin
                 })
                 .ToList()
         };

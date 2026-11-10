@@ -10,6 +10,9 @@ public sealed record GamePlayerSelection
     public string UserId { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;
     public string Color { get; init; } = string.Empty;
+
+    /// <summary>See <see cref="GameSeatDefinition.IsAdmin"/>.</summary>
+    public bool IsAdmin { get; init; }
 }
 
 public sealed record GameSeatDefinition
@@ -18,6 +21,12 @@ public sealed record GameSeatDefinition
     public string PlayerUserId { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;
     public string Color { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The seat's player can play other seats' turns (Puppet) or hand them to the AI, e.g. when someone steps away.
+    /// Null for seats saved before this was chosen per seat; in those games only the creator is an admin.
+    /// </summary>
+    public bool? IsAdmin { get; init; }
 }
 
 public sealed record CreateGameRequest
