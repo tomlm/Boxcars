@@ -22,9 +22,8 @@ public sealed class PurchaseRecommendationService
     // Before that, only a railroad this good pays back faster than a Superchief: a toll booth, any monopoly gain, or
     // at least this much access.
     private const decimal StrongRailroadAccessGain = 10m;
-    // Express gains little and its price doesn't count toward a Superchief, so it's only worth it early, while most
-    // railroads are unsold, and when a Superchief is a long way off.
-    private const decimal ExpressMinimumUnsoldShare = 0.5m;
+    // Express gains little and its price doesn't count toward a Superchief, so it's only worth it when nothing better
+    // is on offer and a Superchief is a long way off.
     private const int ExpressMaximumSpareCash = 25_000;
 
     private static readonly NetworkCoverageService NetworkCoverage = new();
@@ -178,8 +177,8 @@ public sealed class PurchaseRecommendationService
     /// <list type="bullet">
     /// <item>Superchief: once two thirds of the railroads are sold, or before that unless a railroad on offer is a toll
     /// booth, adds a monopoly, or adds 10% access or more.</item>
-    /// <item>Express, from Freight: only while half the railroads are unsold, with no railroad recommended, and less
-    /// than $25,000 to spare, so a Superchief is a long way off.</item>
+    /// <item>Express, from Freight: only with no railroad recommended and less than $25,000 to spare, so a Superchief
+    /// is a long way off.</item>
     /// </list>
     /// </summary>
     public static LocomotiveType? RecommendEngineUpgrade(
@@ -207,7 +206,6 @@ public sealed class PurchaseRecommendationService
         }
 
         if (engine.CurrentEngine == LocomotiveType.Freight
-            && engine.UnsoldShare >= ExpressMinimumUnsoldShare
             && !anyRailroadRecommended
             && spareCash < ExpressMaximumSpareCash
             && Affordable(engine.ExpressPrice))

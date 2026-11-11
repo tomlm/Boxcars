@@ -61,16 +61,16 @@ public class PurchaseRecommendationServiceTests
     }
 
     [Theory]
-    // Early, little to spare, nothing else recommended: Express.
+    // Little to spare and nothing else recommended: Express, early or late.
     [InlineData(20_000, 0.75, false, LocomotiveType.Freight, LocomotiveType.Express)]
-    // Not with a railroad recommended, past half sold, with Superchief money close, or already Express.
+    [InlineData(21_500, 0.25, false, LocomotiveType.Freight, LocomotiveType.Express)]
+    // Not with a railroad recommended, with Superchief money close, or already Express.
     [InlineData(20_000, 0.75, true, LocomotiveType.Freight, null)]
-    [InlineData(20_000, 0.25, false, LocomotiveType.Freight, null)]
     [InlineData(40_000, 0.75, false, LocomotiveType.Freight, null)]
     [InlineData(20_000, 0.75, false, LocomotiveType.Express, null)]
     // Can't keep the reserve after paying for it.
     [InlineData(13_000, 0.75, false, LocomotiveType.Freight, null)]
-    public void RecommendEngineUpgrade_Express_OnlyEarlyWhenASuperchiefIsFarOff(int cash, double unsoldShare, bool railroadRecommended, LocomotiveType current, LocomotiveType? expected)
+    public void RecommendEngineUpgrade_Express_WhenNothingElseIsRecommendedAndASuperchiefIsFarOff(int cash, double unsoldShare, bool railroadRecommended, LocomotiveType current, LocomotiveType? expected)
     {
         Assert.Equal(expected, RecommendEngine(cash, (decimal)unsoldShare, strongRailroad: true, railroadRecommended, current));
     }
