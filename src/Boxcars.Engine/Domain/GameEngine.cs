@@ -3728,7 +3728,13 @@ public sealed class GameEngine : ObservableBase
                     ? establishedRailroads.Contains(edge.RailroadIndex)
                     : state.StaysEstablished && edge.RailroadIndex == state.LastRailroadIndex;
                 var leavesEstablished = establishedRailroads.Count > 0 && !staysEstablished && (isFirstEdge || state.StaysEstablished);
-                var nextState = NextPlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, fee) with { StaysEstablished = staysEstablished };
+                var nextState = NextPlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, fee) with
+                {
+                    StaysEstablished = staysEstablished,
+                    PointsLeftAfterOpponent = isUnfriendlySegment ? nextPointsLeft
+                        : exhaustedTurnCapacity ? null
+                        : state.PointsLeftAfterOpponent
+                };
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + frontRunnerSurcharge
@@ -3782,8 +3788,10 @@ public sealed class GameEngine : ObservableBase
     /// opponent's railroad may end a turn anywhere along it, and that owner is paid again the next turn. Pricing that
     /// stretch as if each turn moved exactly the average hides the risk: 11 dots of one opponent look like a single
     /// fee. Instead, each dot that carries on along the same opponent's track in those turns adds the chance a turn
-    /// ends just before it times their fee. This turn's roll is known, so its dots, and the fee where it ends, stay as
-    /// priced.
+    /// ends just before it times their fee. Getting back onto an opponent's railroad already paid for that turn, after
+    /// riding other railroads (e.g. SOU, GM&amp;O, SOU), is priced the same way, with the chance the turn ends anywhere
+    /// since the player got off it: otherwise weaving on and off one opponent looks like a single fee, though a short
+    /// roll pays them again. This turn's roll is known, so its dots, and the fee where it ends, stay as priced.
     /// </summary>
     private int CalculateRiskWeightedFee(
         Player player,
@@ -3801,18 +3809,35 @@ public sealed class GameEngine : ObservableBase
         var continuesOpponentStretch = isUnfriendlySegment
             && RailroadsByIndex.TryGetValue(state.LastRailroadIndex, out var previousRailroad)
             && RouteFeeGroups.ToFlag(GetFeeGroup(player, previousRailroad)) == feeGroupFlag;
+        var rejoinsPaidOpponent = isUnfriendlySegment
+            && !continuesOpponentStretch
+            && !startsNewTurn
+            && additionalCost == 0
+            && state.PointsLeftAfterOpponent is not null;
         var turnEndIsKnown = thisTurnIsKnown && (turnNumber == 1 || (turnNumber == 2 && startsNewTurn));
-        if (!continuesOpponentStretch || turnEndIsKnown)
+        if ((!continuesOpponentStretch && !rejoinsPaidOpponent) || turnEndIsKnown)
         {
             return additionalCost;
         }
 
+        // Dots ridden since the player was last on an opponent's railroad: none when carrying on along it.
+        var dotsOffOpponent = rejoinsPaidOpponent ? state.PointsLeftAfterOpponent!.Value - state.PointsLeftInCurrentTurn : 0;
+
         // The first turn with an unknown roll starts at a known dot, so it ends here only on a roll of exactly the dots
         // moved so far. Later turns could start anywhere: about 1 in an average turn's dots.
         var firstUnknownTurn = thisTurnIsKnown ? 2 : 1;
-        var chanceTurnEndsHere = turnNumber == firstUnknownTurn && !startsNewTurn
-            ? DestinationApproachPlanner.ChanceOfRolling(player.LocomotiveType, pointsUsedThisTurn)
-            : 1d / Math.Max(1, futureTurnMovementCapacity);
+        var chanceTurnEndsHere = 0d;
+        if (turnNumber == firstUnknownTurn && !startsNewTurn)
+        {
+            for (var dots = pointsUsedThisTurn - dotsOffOpponent; dots <= pointsUsedThisTurn; dots++)
+            {
+                chanceTurnEndsHere += DestinationApproachPlanner.ChanceOfRolling(player.LocomotiveType, dots);
+            }
+        }
+        else
+        {
+            chanceTurnEndsHere = Math.Min(1d, (dotsOffOpponent + 1d) / Math.Max(1, futureTurnMovementCapacity));
+        }
 
         return (int)Math.Round(feePerTurn * chanceTurnEndsHere);
     }
@@ -4760,6 +4785,10 @@ internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Di
 /// Everything ridden so far was <paramref name="LastRailroadIndex"/>, an established railroad that runs to the
 /// destination (see <c>GameEngine.FindEstablishedRailroadsToDestination</c>).
 /// </param>
+/// <param name="PointsLeftAfterOpponent">
+/// <paramref name="PointsLeftInCurrentTurn"/> after the last dot ridden on an opponent's railroad this turn, or null when
+/// there's none, to price getting back on one already paid for.
+/// </param>
 internal readonly record struct RoutePlanningState(
     string NodeId,
     int LastRailroadIndex,
@@ -4768,7 +4797,8 @@ internal readonly record struct RoutePlanningState(
     int ReducedFeeGroup = 0,
     int ReducedFee = 0,
     bool KeepsGrandfather = false,
-    bool StaysEstablished = false);
+    bool StaysEstablished = false,
+    int? PointsLeftAfterOpponent = null);
 
 /// <summary>What riding one dot adds to the turn's fees, and the turn's fee state after it.</summary>
 internal readonly record struct RoutePlanningFeeStep(

@@ -348,6 +348,36 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void LosAngelesToCharlotte_StaysOnOwnRailroadsUntilTheLastStretch()
+    {
+        // Issue #176: B'John (Superchief, all railroads sold) at Los Angeles, -> Charlotte, rolled 4+5+(6). Only B'Jerr's
+        // SOU and SAL reach Charlotte. The route used to board the SOU at New Orleans and weave SOU, GM&O, SOU, ACL, SOU,
+        // priced as one SOU fee in the second turn because every SOU dot fell in it on an average roll; a roll under
+        // 13 pays B'Jerr again in the third. It should take its own SP and MP east and get onto B'Jerr's track once.
+        int[] owners = [0, 2, 1, 2, 2, 3, 0, 0, 1, 1, 0, 2, 2, 0, 2, 3, 3, 3, 1, 1, 0, 0, 1, 1, 1, 0, 3, 2, 0];
+        var (engine, player) = PlaceGame4184Player("7:36", "Butte", "Charlotte", whiteDice: [4, 5], redDie: 6,
+            usedSegments:
+            [
+                "6:45-6:51:28", "6:44-6:45:28", "6:31-6:44:28", "6:31-6:32:28", "6:32-6:33:28", "6:33-6:34:28",
+                "6:34-6:35:28", "6:35-6:36:28", "6:36-6:37:28", "6:37-6:70:28", "6:70-6:72:28", "6:72-6:73:28",
+                "6:73-6:74:28", "6:74-6:75:28", "6:75-6:76:28", "6:76-7:60:25", "7:60-7:70:25", "7:61-7:70:25",
+                "7:57-7:61:25", "7:51-7:57:25", "7:51-7:65:25", "7:65-7:66:21", "7:66-7:67:21", "7:48-7:67:21",
+                "7:47-7:48:21", "7:46-7:47:21", "7:46-7:68:21", "7:43-7:68:21", "7:35-7:43:21", "7:35-7:40:21",
+                "7:39-7:40:21", "7:38-7:39:21", "7:37-7:38:21", "7:36-7:37:21"
+            ],
+            owners);
+
+        var route = engine.SuggestRoute();
+        WriteRoute(engine, player, route);
+
+        Assert.Equal(FindCityNode(engine, "Charlotte"), route.NodeIds[^1]);
+        Assert.DoesNotContain(route.Segments, segment => segment.FromNodeId == FindCityNode(engine, "New Orleans"));
+        // Once on B'Jerr's track it stays there into Charlotte.
+        var firstOpponentDot = route.Segments.ToList().FindIndex(segment => engine.Railroads.First(railroad => railroad.Index == segment.RailroadIndex).Owner != player);
+        Assert.Equal(route.Segments.Count - firstOpponentDot, CountOpponentDots(engine, player, route));
+    }
+
+    [Fact]
     public void BonusMoveFromChattanooga_RidesThePaidLineIntoMemphis()
     {
         // thermous (Superchief) just reached Chattanooga on Pooper's SOU and has a red 4 to bonus on toward Memphis.
