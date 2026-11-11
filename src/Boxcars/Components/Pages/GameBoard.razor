@@ -2001,7 +2001,6 @@ else
 
         var playerSelections = GameBoardStateMapper.GetSeatSelections(currentPlayerStates);
         var botAssignmentsByUserId = GameBoardStateMapper.BuildLatestBotControlStates(currentPlayerStates);
-        var suggestedRouteDistances = BuildSuggestedRouteDistances(state);
 
         var playerUserIdsByDisplayName = playerSelections
             .Where(selection => !string.IsNullOrWhiteSpace(selection.DisplayName) && !string.IsNullOrWhiteSpace(selection.UserId))
@@ -2094,9 +2093,7 @@ else
                     TripDestinationLabel = string.IsNullOrWhiteSpace(player.DestinationCityName)
                         ? player.CurrentCityName
                         : player.DestinationCityName,
-                    DistanceToDestination = suggestedRouteDistances.TryGetValue(index, out var suggestedDistance)
-                        ? suggestedDistance
-                        : CalculateDistanceToDestination(player),
+                    DistanceToDestination = player.DistanceToDestination ?? CalculateDistanceToDestination(player),
                     Payoff = CalculateTripPayoff(player),
                     Cash = player.Cash,
                     IsCurrentUser = isCurrentUser,
@@ -2201,38 +2198,6 @@ else
         if (_gameMap is not null)
         {
             await _gameMap.ResetZoom();
-        }
-    }
-
-    private IReadOnlyDictionary<int, int> BuildSuggestedRouteDistances(RailBaronGameState state)
-    {
-        if (_playerBoardMapDefinition is null)
-        {
-            return new Dictionary<int, int>();
-        }
-
-        try
-        {
-            var engine = RailBaronGameEngine.FromSnapshot(state, _playerBoardMapDefinition, new DefaultRandomProvider(0));
-            var distances = new Dictionary<int, int>(state.Players.Count);
-
-            for (var index = 0; index < state.Players.Count; index++)
-            {
-                var player = state.Players[index];
-                if (string.IsNullOrWhiteSpace(player.DestinationCityName))
-                {
-                    distances[index] = 0;
-                    continue;
-                }
-
-                distances[index] = engine.SuggestRouteForPlayer(index).Segments.Count;
-            }
-
-            return distances;
-        }
-        catch
-        {
-            return new Dictionary<int, int>();
         }
     }
 

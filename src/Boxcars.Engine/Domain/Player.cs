@@ -122,6 +122,15 @@ public sealed class Player : ObservableBase
         internal set => SetField(ref _pendingImmediateArrival, value);
     }
 
+    /// <summary>
+    /// Dots left in the player's planned route to their destination, as of the last time it was planned; it isn't
+    /// planned again just to keep it current (see <see cref="GameEngine.MoveAlongRoute(int, int?)"/>).
+    /// </summary>
+    public int? DistanceToDestination { get; internal set; }
+
+    /// <summary>The destination <see cref="DistanceToDestination"/> was planned to.</summary>
+    internal string? DistancePlannedTo { get; set; }
+
     public int TurnsTaken { get; set; }
     public int FreightTurnCount { get; set; }
     public int FreightRollTotal { get; set; }

@@ -67,6 +67,8 @@ public sealed class PlayerState
     public List<GrandfatheredRailroadFeeState> GrandfatheredRailroadFees { get; set; } = new();
     public string? CurrentNodeId { get; set; }
     public int RouteProgressIndex { get; set; }
+    /// <summary>Dots in the player's planned route to their destination; null in games saved before it was kept.</summary>
+    public int? DistanceToDestination { get; set; }
 }
 
 public sealed class FeePaidToPlayerState
@@ -127,6 +129,12 @@ public sealed class TurnState
     public PendingRegionChoiceTurnState? PendingRegionChoice { get; set; }
     public PendingHomeCityChoiceTurnState? PendingHomeCityChoice { get; set; }
     public PendingHomeSwapTurnState? PendingHomeSwap { get; set; }
+    /// <summary>The active player's route for this move, planned once and used by everyone after (see PlannedMoveKey).</summary>
+    public RouteState? PlannedRoute { get; set; }
+    /// <summary>What <see cref="PlannedRoute"/> was planned from; it's planned again once that changes.</summary>
+    public string? PlannedRouteKey { get; set; }
+    /// <summary>The go-in-or-lay-up decision <see cref="PlannedRoute"/> was planned with.</summary>
+    public Boxcars.Engine.Domain.DestinationApproachDecision? PlannedRouteApproach { get; set; }
 }
 
 public sealed class PendingRegionChoiceTurnState

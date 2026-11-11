@@ -102,6 +102,12 @@ public sealed class GameEngine : ObservableBase
     /// </summary>
     public DestinationApproachDecision? LastApproachDecision { get; private set; }
 
+    // The active player's route for this move: planned once, right after the roll when the game is saved (see
+    // ToSnapshot), and saved with it, so the board, automove and bots all use it instead of planning again.
+    private PlannedMove? _plannedMove;
+
+    private sealed record PlannedMove(string Key, Route Route, DestinationApproachDecision? Approach);
+
     public GameSettings Settings => _settings;
 
     private IReadOnlyDictionary<int, Railroad> RailroadsByIndex => _railroadsByIndex ??= Railroads.ToDictionary(railroad => railroad.Index);
@@ -560,6 +566,9 @@ public sealed class GameEngine : ObservableBase
 
         if (arrivedAtDestination)
         {
+            // The next trip plans its own distance, even to the same city.
+            player.DistanceToDestination = 0;
+            player.DistancePlannedTo = null;
             if (!string.Equals(player.CurrentCity.Name, player.Destination!.Name, StringComparison.OrdinalIgnoreCase))
             {
                 player.CurrentCity = player.Destination;
@@ -602,6 +611,38 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
+    /// The player's distance to their destination for saving: planned once when they get a new destination, then kept
+    /// as their moves report it (see <see cref="MoveAlongRoute(int, int?)"/>). 0 with no destination.
+    /// </summary>
+    private int? GetDistanceToDestination(Player player)
+    {
+        if (player.Destination is null || string.IsNullOrWhiteSpace(player.CurrentNodeId))
+        {
+            return 0;
+        }
+
+        if (string.Equals(player.DistancePlannedTo, player.Destination.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return player.DistanceToDestination;
+        }
+
+        // Saving the game shouldn't change the approach decision the last suggestion made.
+        var approachDecision = LastApproachDecision;
+        try
+        {
+            player.DistanceToDestination = SuggestRouteForPlayer(player.Index).Segments.Count;
+        }
+        catch (InvalidOperationException)
+        {
+            player.DistanceToDestination = null;
+        }
+
+        LastApproachDecision = approachDecision;
+        player.DistancePlannedTo = player.Destination.Name;
+        return player.DistanceToDestination;
+    }
+
+    /// <summary>
     /// Computes the cheapest route for the specified player from their current position: to an opponent who has
     /// declared, to rover them, otherwise to the player's destination (or <see cref="RouteSuggestionOptions.DestinationNodeId"/>).
     /// The one route planner, for bots and for the routes suggested to people. Does NOT mutate state.
@@ -613,6 +654,37 @@ public sealed class GameEngine : ObservableBase
             throw new ArgumentOutOfRangeException(nameof(playerIndex));
 
         var player = Players[playerIndex];
+        var isThisMove = options.DestinationNodeId is null && options.PlayersNotToRover.Count == 0 && IsThisTurnsMovementKnown(player);
+        if (!isThisMove)
+        {
+            return PlanRouteForPlayer(player, options);
+        }
+
+        var key = PlannedMoveKey(player);
+        if (_plannedMove is { } planned && planned.Key == key)
+        {
+            LastApproachDecision = planned.Approach;
+            return planned.Route;
+        }
+
+        var route = PlanRouteForPlayer(player, options);
+        _plannedMove = new PlannedMove(key, route, LastApproachDecision);
+        player.DistanceToDestination = route.Segments.Count;
+        player.DistancePlannedTo = player.Destination?.Name;
+        return route;
+    }
+
+    /// <summary>
+    /// What the active player's move is planned from: the turn, where they are, the movement left, and the trip.
+    /// Nothing else the planner reads changes while they move.
+    /// </summary>
+    private string PlannedMoveKey(Player player)
+    {
+        return $"{CurrentTurn.TurnNumber}|{player.Index}|{player.CurrentNodeId}|{CurrentTurn.MovementRemaining}|{player.Destination?.Name}|{player.UsedSegments.Count}";
+    }
+
+    private Route PlanRouteForPlayer(Player player, RouteSuggestionOptions options)
+    {
         string? startNodeId = player.CurrentNodeId;
         if (startNodeId == null)
             throw new InvalidOperationException("Player has no current node position.");
@@ -1697,6 +1769,37 @@ public sealed class GameEngine : ObservableBase
             }
         };
 
+        // With the roll known, the active player's move is planned now, once, on the live game, and saved with it.
+        if (IsThisTurnsMovementKnown(CurrentTurn.ActivePlayer) && CurrentTurn.ActivePlayer.Destination is not null)
+        {
+            var approachDecision = LastApproachDecision;
+            try
+            {
+                SuggestRouteForPlayer(CurrentTurn.ActivePlayer.Index);
+            }
+            catch (InvalidOperationException)
+            {
+                LastApproachDecision = approachDecision;
+            }
+        }
+
+        if (_plannedMove is { } plannedMove && plannedMove.Key == PlannedMoveKey(CurrentTurn.ActivePlayer))
+        {
+            snapshot.Turn.PlannedRouteKey = plannedMove.Key;
+            snapshot.Turn.PlannedRouteApproach = plannedMove.Approach;
+            snapshot.Turn.PlannedRoute = new RouteState
+            {
+                NodeIds = plannedMove.Route.NodeIds.ToList(),
+                TotalCost = plannedMove.Route.TotalCost,
+                Segments = plannedMove.Route.Segments.Select(segment => new RouteSegmentState
+                {
+                    FromNodeId = segment.FromNodeId,
+                    ToNodeId = segment.ToNodeId,
+                    RailroadIndex = segment.RailroadIndex
+                }).ToList()
+            };
+        }
+
         foreach (var player in Players)
         {
             var ps = new PlayerState
@@ -1757,7 +1860,8 @@ public sealed class GameEngine : ObservableBase
                     .ToList(),
                 CurrentNodeId = player.CurrentNodeId,
                 RouteProgressIndex = player.RouteProgressIndex,
-                UsedSegments = player.UsedSegments.Select(s => s.ToString()).ToList()
+                UsedSegments = player.UsedSegments.Select(s => s.ToString()).ToList(),
+                DistanceToDestination = GetDistanceToDestination(player)
             };
 
             if (player.ActiveRoute != null)
@@ -1853,7 +1957,10 @@ public sealed class GameEngine : ObservableBase
                 HasResolvedHomeSwap = ps.HasResolvedHomeSwap,
                 PendingImmediateArrival = ps.PendingImmediateArrival,
                 CurrentNodeId = ps.CurrentNodeId,
-                RouteProgressIndex = ps.RouteProgressIndex
+                RouteProgressIndex = ps.RouteProgressIndex,
+                DistanceToDestination = ps.DistanceToDestination,
+                // A saved distance was planned to the saved destination; games saved without one plan it again.
+                DistancePlannedTo = ps.DistanceToDestination is null ? null : ps.DestinationCityName
             };
 
             // Resolve cities by name
@@ -2069,6 +2176,17 @@ public sealed class GameEngine : ObservableBase
 
         if (snapshot.WinnerIndex.HasValue && snapshot.WinnerIndex.Value < engine.Players.Count)
             engine._winner = engine.Players[snapshot.WinnerIndex.Value];
+
+        if (snapshot.Turn.PlannedRoute is { } plannedRoute && snapshot.Turn.PlannedRouteKey is { } plannedRouteKey)
+        {
+            var segments = plannedRoute.Segments.Select(segment => new RouteSegment
+            {
+                FromNodeId = segment.FromNodeId,
+                ToNodeId = segment.ToNodeId,
+                RailroadIndex = segment.RailroadIndex
+            }).ToList();
+            engine._plannedMove = new PlannedMove(plannedRouteKey, new Route(plannedRoute.NodeIds, segments, plannedRoute.TotalCost), snapshot.Turn.PlannedRouteApproach);
+        }
 
         return engine;
     }
