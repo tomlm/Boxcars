@@ -2,14 +2,15 @@
 @using MudBlazor
 
 @*
-    The current user's microphone and camera toggles: green while on, red while off. Shows nothing until the
-    camera and microphone are running, i.e. once GameVideoControls has joined the game's video room.
+    The current user's microphone and camera toggles: green while on, red while off, or the surrounding text color
+    when StateColors is off. Shows nothing until the camera and microphone are running, i.e. once GameVideoControls
+    has joined the game's video room.
 *@
 @if (Holler.LocalMedia is { Ok: true })
 {
     <MudTooltip Text="@(Holler.IsMicrophoneOn ? "Mute microphone" : "Unmute microphone")">
         <MudIconButton Icon="@(Holler.IsMicrophoneOn ? Icons.Material.Filled.Mic : Icons.Material.Filled.MicOff)"
-                       Color="@(Holler.IsMicrophoneOn ? MudBlazor.Color.Success : MudBlazor.Color.Error)"
+                       Color="@StateColor(Holler.IsMicrophoneOn)"
                        Size="@Size"
                        Style="@Style"
                        Disabled="@(Holler.LocalMedia is not { Audio: true })"
@@ -18,7 +19,7 @@
     </MudTooltip>
     <MudTooltip Text="@(Holler.IsCameraOn ? "Hide video" : "Show video")">
         <MudIconButton Icon="@(Holler.IsCameraOn ? Icons.Material.Filled.Videocam : Icons.Material.Filled.VideocamOff)"
-                       Color="@(Holler.IsCameraOn ? MudBlazor.Color.Success : MudBlazor.Color.Error)"
+                       Color="@StateColor(Holler.IsCameraOn)"
                        Size="@Size"
                        Style="@Style"
                        Disabled="@(Holler.LocalMedia is not { Video: true })"
@@ -31,4 +32,10 @@
     [Parameter] public Size Size { get; set; } = Size.Medium;
 
     [Parameter] public string? Style { get; set; }
+
+    /// <summary>Green while on and red while off; false inherits the surrounding color, e.g. on a player-colored card.</summary>
+    [Parameter] public bool StateColors { get; set; } = true;
+
+    private MudBlazor.Color StateColor(bool on) =>
+        !StateColors ? MudBlazor.Color.Inherit : on ? MudBlazor.Color.Success : MudBlazor.Color.Error;
 }
