@@ -770,8 +770,9 @@ public sealed class GameBoardStateMapper(
             OperatingCapitalService.CalculateFeesOwed(state, buyerPlayerIndex, settings),
             OperatingCapitalService.CalculateOperatingReserve(mapDefinition, state, buyerPlayerIndex, settings).Amount,
             ownedRailroadIndices => OperatingCapitalService.EstimateIncomingFees(mapDefinition, state, buyerPlayerIndex, ownedRailroadIndices, settings));
+        // Every railroad for sale: the service only recommends buying ones the buyer can afford, and may recommend
+        // saving for one they can't yet.
         var candidates = railroadOptions
-            .Where(option => option.IsAffordable)
             .Select(option => new PurchaseCandidate(option.RailroadIndex, option.RailroadName, option.PurchasePrice))
             .ToList();
         var opponents = state.Players
@@ -780,7 +781,15 @@ public sealed class GameBoardStateMapper(
             .Select(entry => new RecommendationOpponent(entry.Player.Name, entry.Player.Cash, entry.Player.OwnedRailroadIndices, entry.Player.DestinationCityName))
             .ToList();
 
-        var result = PurchaseRecommendationService.BuildRecommendations(mapDefinition, buyer.OwnedRailroadIndices, candidates, opponents, finances);
+        var unsoldRailroadCount = mapDefinition.Railroads.Count(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null);
+        var engine = new EngineUpgradeInputs(
+            ParseLocomotiveType(buyer.LocomotiveType),
+            settings.ExpressPrice,
+            settings.SuperchiefPrice,
+            settings.WinningCash,
+            mapDefinition.Railroads.Count == 0 ? 0m : (decimal)unsoldRailroadCount / mapDefinition.Railroads.Count);
+
+        var result = PurchaseRecommendationService.BuildRecommendations(mapDefinition, buyer.OwnedRailroadIndices, candidates, opponents, finances, engine);
         return new PurchaseRecommendationsModel(
             result.Recommendations
                 .Select(recommendation => new PurchaseRecommendationModel(
@@ -789,12 +798,20 @@ public sealed class GameBoardStateMapper(
                     recommendation.RailroadName,
                     recommendation.PurchasePrice,
                     recommendation.Reason,
-                    recommendation.SpareCash))
+                    recommendation.SpareCash,
+                    recommendation.CanBuyNow))
                 .ToList(),
             result.Cash,
             result.FeesOwed,
             result.IncomingFees,
-            result.OperatingReserve);
+            result.OperatingReserve,
+            result.EngineUpgrade,
+            result.EngineUpgrade switch
+            {
+                EngineUpgradeRecommendation.Express => BuildEngineOptionKey(LocomotiveType.Express),
+                EngineUpgradeRecommendation.Superchief => BuildEngineOptionKey(LocomotiveType.Superchief),
+                _ => null
+            });
     }
 
     private static string GetRecommendationLabel(PurchaseRecommendationCategory category)
