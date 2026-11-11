@@ -419,20 +419,6 @@ public class GameService
             .ToList();
     }
 
-    /// <summary>Every saved game state for the game, newest first.</summary>
-    public async Task<IReadOnlyList<GameState>> GetGameStateHistoryAsync(string gameId, CancellationToken cancellationToken)
-    {
-        var events = await _gamesTable.ReadNewestFirst(
-                gameId,
-                select: [nameof(GameEventEntity.RowKey), nameof(GameEventEntity.SerializedGameState)],
-                cancellationToken: cancellationToken)
-            .ToListAsync(cancellationToken);
-        return events
-            .Where(gameEvent => !string.IsNullOrWhiteSpace(gameEvent.SerializedGameState))
-            .Select(gameEvent => GameEventSerialization.DeserializeSnapshot(gameEvent.SerializedGameState))
-            .ToList();
-    }
-
     private static string GetTimelineEventRowKey(EventTimelineItem item)
     {
         var separatorIndex = item.EventId.LastIndexOf(':');

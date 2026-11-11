@@ -8,39 +8,13 @@ public sealed record DestinationVisits(IReadOnlyList<DestinationVisitRow> Rows, 
 {
     public static DestinationVisits Empty { get; } = new([], 0);
 
-    /// <summary>
-    /// Counts destination draws in saved game states, in the order they happened: each time a player gets a new
-    /// destination or a new alternate destination. A declared player heading home isn't a draw.
-    /// </summary>
-    public static DestinationVisits Build(IEnumerable<GameState> statesInOrder, MapDefinition mapDefinition)
+    /// <summary>The draws the engine has counted in the game's statistics (see GameStatistics.DestinationDraws).</summary>
+    public static DestinationVisits Build(GameState state, MapDefinition mapDefinition)
     {
-        ArgumentNullException.ThrowIfNull(statesInOrder);
+        ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(mapDefinition);
 
-        var draws = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var previousDestinations = new Dictionary<int, string?>();
-        var previousAlternates = new Dictionary<int, string?>();
-        void CountIfNew(Dictionary<int, string?> previous, int playerIndex, string? cityName)
-        {
-            if (!string.IsNullOrWhiteSpace(cityName)
-                && !string.Equals(previous.GetValueOrDefault(playerIndex), cityName, StringComparison.OrdinalIgnoreCase))
-            {
-                draws[cityName] = draws.GetValueOrDefault(cityName) + 1;
-            }
-
-            previous[playerIndex] = cityName;
-        }
-
-        foreach (var state in statesInOrder)
-        {
-            for (var playerIndex = 0; playerIndex < state.Players.Count; playerIndex++)
-            {
-                var player = state.Players[playerIndex];
-                CountIfNew(previousDestinations, playerIndex, player.HasDeclared ? null : player.DestinationCityName);
-                CountIfNew(previousAlternates, playerIndex, player.AlternateDestinationCityName);
-            }
-        }
-
+        var draws = state.Statistics?.DestinationDraws ?? [];
         var totalDraws = draws.Values.Sum();
         var regionProbabilities = mapDefinition.Regions.ToDictionary(region => region.Code, region => region.Probability ?? 0d, StringComparer.OrdinalIgnoreCase);
         var rows = mapDefinition.Cities

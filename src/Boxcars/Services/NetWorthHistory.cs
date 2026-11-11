@@ -12,65 +12,25 @@ public sealed record NetWorthHistory(IReadOnlyList<int> RoundNumbers, IReadOnlyL
 {
     public static NetWorthHistory Empty { get; } = new([], []);
 
-    /// <summary>
-    /// Builds the history from saved game states in the order they happened. A round is one turn for each player, and
-    /// its point is the last state saved in it.
-    /// </summary>
-    public static NetWorthHistory Build(IEnumerable<GameState> statesInOrder, MapDefinition mapDefinition, GameSettings settings)
+    /// <summary>The history the engine has kept in the game's statistics (see GameStatistics.NetWorthByRound).</summary>
+    public static NetWorthHistory Build(GameState state)
     {
-        ArgumentNullException.ThrowIfNull(statesInOrder);
-        ArgumentNullException.ThrowIfNull(mapDefinition);
-        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(state);
 
-        var lastStateByRound = new SortedDictionary<int, GameState>();
-        foreach (var state in statesInOrder)
-        {
-            if (state.Players.Count == 0)
-            {
-                continue;
-            }
-
-            var round = (Math.Max(1, state.TurnNumber) - 1) / state.Players.Count + 1;
-            lastStateByRound[round] = state;
-        }
-
-        if (lastStateByRound.Count == 0)
+        var rounds = state.Statistics?.NetWorth.OrderBy(round => round.Round).ToList() ?? [];
+        if (rounds.Count == 0)
         {
             return Empty;
         }
 
-        var railroadPrices = mapDefinition.Railroads.ToDictionary(railroad => railroad.Index, railroad => railroad.PurchasePrice ?? 0);
-        var latest = lastStateByRound.Values.Last();
-        var series = latest.Players
+        var series = state.Players
             .Select((player, index) => new NetWorthSeries(
                 index,
                 player.Name,
-                lastStateByRound.Values
-                    .Select(state => index < state.Players.Count ? CalculateNetWorth(state.Players[index], railroadPrices, settings) : 0)
-                    .ToList()))
+                rounds.Select(round => index < round.Values.Count ? round.Values[index] : 0).ToList()))
             .ToList();
 
-        return new NetWorthHistory(lastStateByRound.Keys.ToList(), series);
-    }
-
-    private static int CalculateNetWorth(PlayerState player, Dictionary<int, int> railroadPrices, GameSettings settings)
-    {
-        return player.Cash
-            + player.OwnedRailroadIndices.Sum(railroadIndex => railroadPrices.GetValueOrDefault(railroadIndex))
-            + GetEngineValue(player.LocomotiveType, settings);
-    }
-
-    // The Freight every player starts with is free; the others are worth what they cost in this game.
-    private static int GetEngineValue(string locomotiveType, GameSettings settings)
-    {
-        return Enum.TryParse<LocomotiveType>(locomotiveType, ignoreCase: true, out var engine)
-            ? engine switch
-            {
-                LocomotiveType.Express => settings.ExpressPrice,
-                LocomotiveType.Superchief => settings.SuperchiefPrice,
-                _ => 0
-            }
-            : 0;
+        return new NetWorthHistory(rounds.Select(round => round.Round).ToList(), series);
     }
 }
 

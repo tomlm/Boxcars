@@ -106,6 +106,9 @@ public sealed class GameEngine : ObservableBase
     /// </summary>
     public DestinationApproachDecision? LastApproachDecision { get; private set; }
 
+    /// <summary>The Stats tab's running totals.</summary>
+    public GameStatistics Statistics { get; private set; } = new();
+
     // The active player's route for this move: planned once, right after the roll when the game is saved (see
     // ToSnapshot), and saved with it, so the board, automove and bots all use it instead of planning again.
     private PlannedMove? _plannedMove;
@@ -1653,6 +1656,55 @@ public sealed class GameEngine : ObservableBase
 
     #endregion
 
+    #region Statistics
+
+    private void CountDestinationDraw(CityDefinition city)
+    {
+        Statistics.DestinationDraws[city.Name] = Statistics.DestinationDraws.GetValueOrDefault(city.Name) + 1;
+    }
+
+    /// <summary>Credits an owner's fee to the railroads ridden at the rate that set it, in whole dollars; the first takes any remainder.</summary>
+    private void CreditRailroadFees(FeeBucket feeBucket)
+    {
+        var credited = feeBucket.RailroadRates
+            .Where(entry => entry.Value == feeBucket.FeeAmount)
+            .Select(entry => entry.Key)
+            .Order()
+            .ToList();
+        for (var index = 0; index < credited.Count; index++)
+        {
+            var share = feeBucket.FeeAmount / credited.Count + (index == 0 ? feeBucket.FeeAmount % credited.Count : 0);
+            Statistics.RailroadFeesCollected[credited[index]] = Statistics.RailroadFeesCollected.GetValueOrDefault(credited[index]) + share;
+        }
+    }
+
+    /// <summary>
+    /// Sets the current round's net worth point from the game as it stands: a round is one turn for each player, and
+    /// its point ends up being its last state. Net worth is cash, plus railroads at list price, plus the engine (the
+    /// Freight everyone starts with is free).
+    /// </summary>
+    private void RecordNetWorth()
+    {
+        if (Players.Count == 0)
+        {
+            return;
+        }
+
+        var round = (Math.Max(1, CurrentTurn.TurnNumber) - 1) / Players.Count + 1;
+        Statistics.NetWorthByRound[round] = Players
+            .Select(player => player.Cash
+                + player.OwnedRailroads.Sum(railroad => railroad.PurchasePrice)
+                + player.LocomotiveType switch
+                {
+                    LocomotiveType.Express => _settings.ExpressPrice,
+                    LocomotiveType.Superchief => _settings.SuperchiefPrice,
+                    _ => 0
+                })
+            .ToList();
+    }
+
+    #endregion
+
     #region Snapshot/Persistence
 
     /// <summary>
@@ -1908,6 +1960,16 @@ public sealed class GameEngine : ObservableBase
         {
             snapshot.RailroadOwnership[rr.Index] = rr.Owner?.Index;
         }
+
+        RecordNetWorth();
+        snapshot.Statistics = new GameStatisticsState
+        {
+            DestinationDraws = new Dictionary<string, int>(Statistics.DestinationDraws, StringComparer.OrdinalIgnoreCase),
+            RailroadFeesCollected = new Dictionary<int, int>(Statistics.RailroadFeesCollected),
+            NetWorth = Statistics.NetWorthByRound
+                .Select(entry => new NetWorthRoundState { Round = entry.Key, Values = entry.Value.ToList() })
+                .ToList()
+        };
 
         return snapshot;
     }
@@ -2187,6 +2249,17 @@ public sealed class GameEngine : ObservableBase
         if (snapshot.WinnerIndex.HasValue && snapshot.WinnerIndex.Value < engine.Players.Count)
             engine._winner = engine.Players[snapshot.WinnerIndex.Value];
 
+        // Games saved before statistics were kept start with none.
+        if (snapshot.Statistics is { } statistics)
+        {
+            foreach (var (cityName, draws) in statistics.DestinationDraws)
+                engine.Statistics.DestinationDraws[cityName] = draws;
+            foreach (var (railroadIndex, fees) in statistics.RailroadFeesCollected)
+                engine.Statistics.RailroadFeesCollected[railroadIndex] = fees;
+            foreach (var round in statistics.NetWorth)
+                engine.Statistics.NetWorthByRound[round.Round] = round.Values.ToList();
+        }
+
         if (snapshot.Turn.PlannedRoute is { } plannedRoute && snapshot.Turn.PlannedRouteKey is { } plannedRouteKey)
         {
             var segments = plannedRoute.Segments.Select(segment => new RouteSegment
@@ -2405,6 +2478,7 @@ public sealed class GameEngine : ObservableBase
         player.ActiveRoute = null;
         player.RouteProgressIndex = 0;
         player.UsedSegments.Clear();
+        CountDestinationDraw(city);
         DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
 
         if (_settings.HomeSwapping && !player.HasResolvedHomeSwap)
@@ -2593,6 +2667,7 @@ public sealed class GameEngine : ObservableBase
                 feeBucket.Owner.Cash += fee;
                 feeBucket.Owner.TotalFeesCollected += fee;
                 player.FeesPaidToPlayers[feeBucket.Owner.Index] = player.FeesPaidToPlayers.GetValueOrDefault(feeBucket.Owner.Index) + fee;
+                CreditRailroadFees(feeBucket);
             }
 
             UsageFeeCharged?.Invoke(this, new UsageFeeChargedEventArgs(player, feeBucket.Owner, fee, feeBucket.Railroads));
@@ -2716,6 +2791,7 @@ public sealed class GameEngine : ObservableBase
         player.Destination = player.HomeCity;
         player.ActiveRoute = null;
         player.RouteProgressIndex = 0;
+        CountDestinationDraw(city);
 
         DestinationAssigned?.Invoke(this, new DestinationAssignedEventArgs(player, city));
 
@@ -3257,6 +3333,7 @@ public sealed class GameEngine : ObservableBase
         }
 
         bucket.Railroads.Add(railroad.Index);
+        bucket.RailroadRates[railroad.Index] = feeAmount;
         if (feeAmount > bucket.FeeAmount)
         {
             bucket.FeeAmount = feeAmount;
@@ -4660,6 +4737,8 @@ internal sealed class FeeBucket(Player? owner, int feeAmount)
 {
     public Player? Owner { get; } = owner;
     public List<int> Railroads { get; } = new();
+    /// <summary>The rate each railroad in <see cref="Railroads"/> was ridden at; the bucket's fee is the highest.</summary>
+    public Dictionary<int, int> RailroadRates { get; } = new();
     public int FeeAmount { get; set; } = feeAmount;
 }
 

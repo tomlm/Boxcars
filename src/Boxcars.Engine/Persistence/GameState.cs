@@ -16,6 +16,22 @@ public sealed class GameState
     public List<PlayerState> Players { get; set; } = new();
     public Dictionary<int, int?> RailroadOwnership { get; set; } = new();
     public TurnState Turn { get; set; } = new();
+    /// <summary>The Stats tab's running totals; null in games saved before they were kept.</summary>
+    public GameStatisticsState? Statistics { get; set; }
+}
+
+public sealed class GameStatisticsState
+{
+    public Dictionary<string, int> DestinationDraws { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<int, int> RailroadFeesCollected { get; set; } = new();
+    public List<NetWorthRoundState> NetWorth { get; set; } = new();
+}
+
+public sealed class NetWorthRoundState
+{
+    public int Round { get; set; }
+    /// <summary>Net worth by player index.</summary>
+    public List<int> Values { get; set; } = new();
 }
 
 public sealed class PlayerState
