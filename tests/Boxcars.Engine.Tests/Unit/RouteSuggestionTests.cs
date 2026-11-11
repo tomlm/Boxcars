@@ -714,6 +714,24 @@ public class RouteSuggestionTests
         Assert.Equal(["0:0", "0:1", "0:5"], route.NodeIds);
     }
 
+    [Theory]
+    // One friendly fee for riding your own and public railroads in a turn, or both with the setting on.
+    [InlineData(false, 1000)]
+    [InlineData(true, 2000)]
+    public void SuggestRouteForPlayer_OwnThenPublicRailroadInOneTurn_PricesTheFriendlyFeesBySetting(bool chargeSeparately, int expectedCost)
+    {
+        // 0 --[RR1 own]--> 1 --[RR2 public]--> 3, with 2 to move this turn.
+        var engine = CreateLineEngine([(1, 0, 1), (2, 1, 3), (2, 3, 9)], chargeSeparately);
+        var player = PlaceOnLine(engine);
+        AssignOwnership(engine, 1, player);
+        StartMove(engine, player, [1, 1]);
+
+        var route = engine.SuggestRouteForPlayer(player.Index);
+
+        Assert.Equal([1, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+        Assert.Equal(expectedCost, route.TotalCost);
+    }
+
     [Fact]
     public void GetRouteSegmentCosts_MarksEachTurnsFirstDotAndTheFeesItAdds()
     {
@@ -837,7 +855,9 @@ public class RouteSuggestionTests
         Assert.Equal([2, 2, 1], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
     }
 
-    private static Boxcars.Engine.Domain.GameEngine CreateLineEngine(IReadOnlyList<(int Railroad, int Start, int End)> segments)
+    private static Boxcars.Engine.Domain.GameEngine CreateLineEngine(
+        IReadOnlyList<(int Railroad, int Start, int End)> segments,
+        bool chargePublicAndOwnFeesSeparately = false)
     {
         // Start is dot 0 and Finish dot 3; dot 9 is a public exit from Finish.
         var map = new MapDefinition { Name = "LineMap", Version = "1.0" };
@@ -871,7 +891,7 @@ public class RouteSuggestionTests
             map,
             GameEngineFixture.ThreePlayerNames,
             new FixedRandomProvider(),
-            GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false, PublicFee = 1000 });
+            GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false, PublicFee = 1000, ChargePublicAndOwnFeesSeparately = chargePublicAndOwnFeesSeparately });
     }
 
     private static Player PlaceOnLine(Boxcars.Engine.Domain.GameEngine engine)

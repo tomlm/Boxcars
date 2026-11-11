@@ -330,6 +330,7 @@ public class GameService
             && left.RoverCash == right.RoverCash
             && left.PublicFee == right.PublicFee
             && left.PrivateFee == right.PrivateFee
+            && left.ChargePublicAndOwnFeesSeparately == right.ChargePublicAndOwnFeesSeparately
             && left.UnfriendlyFee1 == right.UnfriendlyFee1
             && left.UnfriendlyFee2 == right.UnfriendlyFee2
             && left.HomeSwapping == right.HomeSwapping

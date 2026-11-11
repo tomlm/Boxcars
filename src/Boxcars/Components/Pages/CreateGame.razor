@@ -228,6 +228,9 @@
                                                  HelperText="Lowest price for railroads priced from random city probabilities" />
                             </MudItem>
                             <MudItem xs="12" md="4">
+                                <MudSwitch T="bool" Label="Public + Yourself cost twice" Value="@_settings.ChargePublicAndOwnFeesSeparately" ValueChanged="@(value => UpdateSettings(_settings with { ChargePublicAndOwnFeesSeparately = value }))" Disabled="@IsBusy" Color="Color.Primary" />
+                            </MudItem>
+                            <MudItem xs="12" md="4">
                                 <MudSwitch T="bool" Label="Keep Cash Secret" Value="@_settings.KeepCashSecret" ValueChanged="@(value => UpdateSettings(_settings with { KeepCashSecret = value }))" Disabled="@IsBusy" Color="Color.Primary" />
                             </MudItem>
                             <MudItem xs="12" md="4">
