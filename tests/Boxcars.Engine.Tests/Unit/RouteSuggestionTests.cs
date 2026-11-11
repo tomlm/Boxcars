@@ -280,7 +280,7 @@ public class RouteSuggestionTests
     }
 
     [Fact]
-    public void SuggestRouteForPlayer_PrefersDirectRouteAcrossPublicRailroadsOverLongerSingleRailroad()
+    public void SuggestRouteForPlayer_StaysOnPublicRailroadToDestinationOverShorterSwitch()
     {
         var engine = CreatePublicSwitchPlanningEngine();
         var player = engine.Players[0];
@@ -293,9 +293,9 @@ public class RouteSuggestionTests
 
         var route = engine.SuggestRouteForPlayer(player.Index);
 
-        // Both routes fit in one turn and every railroad is public, so the turn pays one public fee either way.
-        Assert.Equal([1, 2], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
-        Assert.Equal(["0:0", "0:1", "0:4"], route.NodeIds);
+        // Both routes fit in one turn and pay one public fee, but only RR3 runs the whole way: someone buying it on
+        // the way grandfathers the player, where buying RR2 before they get on it would charge the full rate.
+        Assert.Equal([3, 3, 3], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
         Assert.Equal(1000, route.TotalCost);
     }
 

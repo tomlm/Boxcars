@@ -20,6 +20,10 @@ public sealed class GameEngine : ObservableBase
     // instead of riding an opponent longer just because that turn's fee is already paid.
     private const int RoutePlanningUnfriendlyPenaltyPerSegment = 500;
     private const int RoutePlanningHostileExitPenalty = 1500;
+    // A route that doesn't stay on a public or grandfathered railroad the player is on and that runs to the destination
+    // (see FindEstablishedRailroadsToDestination). Someone buying it while the player rides it only grandfathers them at
+    // the rate they pay now; off it, a railroad bought before they get on charges its new owner's full rate.
+    private const int RoutePlanningLeaveEstablishedPenalty = 2000;
     // Added to what route planning thinks a fee to the front runner costs (see FindFrontRunner), not to what's paid,
     // so routes and lay-ups pay someone else whenever that costs about the same.
     internal const int RoutePlanningFrontRunnerFeeSurcharge = 1000;
@@ -3175,6 +3179,51 @@ public sealed class GameEngine : ObservableBase
             && (state.LastRailroadIndex < 0 || (state.KeepsGrandfather && state.LastRailroadIndex == railroadIndex));
     }
 
+    /// <summary>
+    /// The railroads at the player's position they're established on, public (a sale while they ride it grandfathers
+    /// them at the public rate) or already grandfathered, that run from there to <paramref name="destNodeId"/> on
+    /// track not yet ridden this trip. Empty for a route that doesn't start where the player is.
+    /// </summary>
+    private HashSet<int> FindEstablishedRailroadsToDestination(Player player, string startNodeId, string destNodeId)
+    {
+        var established = new HashSet<int>();
+        if (!string.Equals(startNodeId, player.CurrentNodeId, StringComparison.OrdinalIgnoreCase)
+            || !_adjacency.TryGetValue(startNodeId, out var startEdges))
+        {
+            return established;
+        }
+
+        foreach (var railroadIndex in startEdges.Select(edge => edge.RailroadIndex).Distinct())
+        {
+            if (!RailroadsByIndex.TryGetValue(railroadIndex, out var railroad)
+                || !(railroad.Owner is null || (railroad.Owner != player && player.GrandfatheredRailroadFees.ContainsKey(railroadIndex))))
+            {
+                continue;
+            }
+
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { startNodeId };
+            var queue = new Queue<string>([startNodeId]);
+            while (queue.TryDequeue(out var nodeId))
+            {
+                if (string.Equals(nodeId, destNodeId, StringComparison.OrdinalIgnoreCase))
+                {
+                    established.Add(railroadIndex);
+                    break;
+                }
+
+                foreach (var edge in _adjacency.GetValueOrDefault(nodeId) ?? [])
+                {
+                    if (edge.RailroadIndex == railroadIndex && !edge.UsesAny(player.UsedSegments) && visited.Add(edge.ToNodeId))
+                    {
+                        queue.Enqueue(edge.ToNodeId);
+                    }
+                }
+            }
+        }
+
+        return established;
+    }
+
     /// <summary>An opponent's railroad the player pays the full rate for, riding it on from <paramref name="state"/>.</summary>
     private bool IsUnfriendlyRailroadFrom(Player player, RoutePlanningState state, int railroadIndex)
     {
@@ -3355,6 +3404,7 @@ public sealed class GameEngine : ObservableBase
         // already paid for this turn can carry the player all the way in.
         var dotsToDestination = thisTurnIsKnown ? CountDotsTo(destNodeId) : null;
         var frontRunnerPlayerIndex = FindFrontRunner(player, cityCoverage, networkMetricsByPlayerIndex);
+        var establishedRailroads = FindEstablishedRailroadsToDestination(player, startNodeId, destNodeId);
         var startState = new RoutePlanningState(startNodeId, LastRailroadIndex: -1, PointsLeftInCurrentTurn: firstTurnMovementCapacity, PaidFeeGroups: feeGroupsOwedThisTurn);
         var priorityQueue = new PriorityQueue<RoutePlanningState, (int WeightedCost, int TotalCost, int TotalTurns, int TotalSegments)>(estimatedStateCapacity);
         var bestCosts = new Dictionary<RoutePlanningState, RoutePlanningCostKey>(estimatedStateCapacity)
@@ -3473,10 +3523,15 @@ public sealed class GameEngine : ObservableBase
                     thisTurnIsKnown,
                     pointsUsedThisTurn: startsNewTurn ? 0 : (stateCost.TotalTurns <= 1 ? firstTurnMovementCapacity : futureTurnMovementCapacity) - state.PointsLeftInCurrentTurn,
                     futureTurnMovementCapacity);
-                var nextState = NextPlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, fee);
+                var staysEstablished = isFirstEdge
+                    ? establishedRailroads.Contains(edge.RailroadIndex)
+                    : state.StaysEstablished && edge.RailroadIndex == state.LastRailroadIndex;
+                var leavesEstablished = establishedRailroads.Count > 0 && !staysEstablished && (isFirstEdge || state.StaysEstablished);
+                var nextState = NextPlanningState(edge.ToNodeId, edge.RailroadIndex, nextPointsLeft, fee) with { StaysEstablished = staysEstablished };
                 var candidateCost = new RoutePlanningCostKey(
                     TotalCost: stateCost.TotalCost + additionalCost,
                     WeightedCost: stateCost.WeightedCost + weightedFee + RoutePlanningDirectnessPenaltyPerSegment + hostileExitPenalty + frontRunnerSurcharge
+                        + (leavesEstablished ? RoutePlanningLeaveEstablishedPenalty : 0)
                         + (isUnfriendlySegment && !paidWayInThisTurn ? RoutePlanningUnfriendlyPenaltyPerSegment : 0)
                         + (exhaustedTurnCapacity ? extraTurnWeight : 0),
                     TotalTurns: stateCost.TotalTurns + turnsAdded,
@@ -4498,6 +4553,10 @@ internal sealed class FeeCalculation(bool usesPublicFee, bool usesPrivateFee, Di
 /// <param name="KeepsGrandfather">
 /// The player is still grandfathered on <paramref name="LastRailroadIndex"/>: everything ridden so far was that railroad.
 /// </param>
+/// <param name="StaysEstablished">
+/// Everything ridden so far was <paramref name="LastRailroadIndex"/>, an established railroad that runs to the
+/// destination (see <c>GameEngine.FindEstablishedRailroadsToDestination</c>).
+/// </param>
 internal readonly record struct RoutePlanningState(
     string NodeId,
     int LastRailroadIndex,
@@ -4505,7 +4564,8 @@ internal readonly record struct RoutePlanningState(
     int PaidFeeGroups = 0,
     int ReducedFeeGroup = 0,
     int ReducedFee = 0,
-    bool KeepsGrandfather = false);
+    bool KeepsGrandfather = false,
+    bool StaysEstablished = false);
 
 /// <summary>What riding one dot adds to the turn's fees, and the turn's fee state after it.</summary>
 internal readonly record struct RoutePlanningFeeStep(
