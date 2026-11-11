@@ -307,25 +307,6 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             cancellationToken);
     }
 
-    public async Task SynchronizeStateAsync(string gameId, RailBaronGameState state, CancellationToken cancellationToken = default)
-    {
-        ValidateGameId(gameId);
-        ArgumentNullException.ThrowIfNull(state);
-
-        await _mapReady.Task.WaitAsync(cancellationToken);
-        var gameEntity = await GetGameEntityAsync(gameId, cancellationToken)
-            ?? throw new KeyNotFoundException($"Game '{gameId}' was not found and is considered deleted.");
-        var resolvedSettings = _gameSettingsResolver.Resolve(gameEntity);
-
-        if (_gameEngines.TryGetValue(gameId, out var existingGameEngine)
-            && existingGameEngine.Settings != resolvedSettings.Settings)
-        {
-            throw new InvalidOperationException("Game settings are immutable and no longer match the persisted game record.");
-        }
-
-        _gameEngines[gameId] = RestoreGameEngine(gameEntity, state, resolvedSettings.Settings);
-    }
-
     public bool IsGameBusy(string gameId)
     {
         return !string.IsNullOrWhiteSpace(gameId) && _busyGames.ContainsKey(gameId);
