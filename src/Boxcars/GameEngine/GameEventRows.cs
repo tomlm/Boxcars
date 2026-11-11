@@ -46,6 +46,13 @@ public static class GameEventRows
             $"PartitionKey eq {gameId} and RowKey ge {LegacyRowKeyExclusiveUpperBound} and RowKey le {rowKey}");
     }
 
+    /// <summary>Events older than <paramref name="rowKey"/>.</summary>
+    public static string CreateFilterOlderThan(string gameId, string rowKey)
+    {
+        return TableClient.CreateQueryFilter(
+            $"PartitionKey eq {gameId} and RowKey gt {rowKey} and RowKey lt {RowKeyExclusiveUpperBound}");
+    }
+
     /// <summary>
     /// The game's events, newest first, read a page at a time: stop enumerating and the rest is never fetched. With
     /// <paramref name="sinceRowKey"/>, only that event and the ones after it.
@@ -62,6 +69,20 @@ public static class GameEventRows
             filter: sinceRowKey is null ? CreateFilter(gameId) : CreateFilterSince(gameId, sinceRowKey),
             maxPerPage: pageSize,
             select: select,
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>The game's events older than <paramref name="rowKey"/>, newest first, read a page at a time.</summary>
+    public static IAsyncEnumerable<GameEventEntity> ReadOlderThan(
+        this TableClient gamesTable,
+        string gameId,
+        string rowKey,
+        int? pageSize = null,
+        CancellationToken cancellationToken = default)
+    {
+        return gamesTable.QueryAsync<GameEventEntity>(
+            filter: CreateFilterOlderThan(gameId, rowKey),
+            maxPerPage: pageSize,
             cancellationToken: cancellationToken);
     }
 

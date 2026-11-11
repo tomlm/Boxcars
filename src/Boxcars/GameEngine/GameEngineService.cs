@@ -476,13 +476,22 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
                 actingPlayerIndex: actingPlayerIndex);
 
             var finalSnapshot = await AdvanceAutomaticTurnFlowAsync(gameEntity, gameId, _gameEngines[gameId], cancellationToken);
-            var timelineEvents = await _gamesTable.ReadNewestFirst(gameId, cancellationToken: cancellationToken)
+            // Boards load older history a page at a time when it's asked for; only the recent part is sent.
+            var timelineEvents = await _gamesTable.ReadNewestFirst(gameId, pageSize: GameService.RecentTimelineEventCount + 1, cancellationToken: cancellationToken)
+                .Take(GameService.RecentTimelineEventCount + 1)
                 .ToListAsync(cancellationToken);
+            var timelineItems = GameService.BuildTimelineItemsFromNewestFirst(timelineEvents, resolvedSettings.Settings);
+            if (timelineEvents.Count > GameService.RecentTimelineEventCount)
+            {
+                // The oldest one read only describes the one after it.
+                var oldestRowKey = timelineEvents[^1].RowKey;
+                timelineItems.RemoveAll(item => item.EventId.StartsWith(oldestRowKey, StringComparison.Ordinal));
+            }
 
             PublishStateChanged(
                 gameId,
                 finalSnapshot,
-                GameService.BuildTimelineItemsFromNewestFirst(timelineEvents, resolvedSettings.Settings),
+                timelineItems,
                 replaceTimeline: true);
             return true;
         }
