@@ -3,7 +3,7 @@
 
 @if (Summary.HasContent)
 {
-    <MudPaper Outlined="true" Class="pa-3 mx-1 mb-1" Style="background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)">
+    <MudPaper Outlined="true" Class="d-inline-block align-self-start pa-3 mx-1 mb-1" Style="background: color-mix(in srgb, var(--mud-palette-surface) 92%, black 8%)">
         <MudStack Spacing="2">
             <MudStack Spacing="0">
                 <MudText Typo="Typo.subtitle2">Display</MudText>
@@ -56,7 +56,7 @@
 
                     @foreach (var item in settingsSection.Items)
                     {
-                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Spacing="1">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Spacing="8">
                             <MudText Typo="Typo.body2">@SlangNames.Apply(item.Label, SlangMode)</MudText>
                             <MudText Typo="Typo.body2" Align="Align.Right" Class="text-end">@SlangNames.Apply(item.Value, SlangMode)</MudText>
                         </MudStack>
