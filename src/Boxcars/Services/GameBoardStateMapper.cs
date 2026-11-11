@@ -71,6 +71,11 @@ public sealed class GameBoardStateMapper(
                     [
                         new GameSettingsSummaryItemModel { Label = "Public Railroad Fee", Value = FormatMoney(settings.PublicFee) },
                         new GameSettingsSummaryItemModel { Label = "Private Railroad Fee", Value = FormatMoney(settings.PrivateFee) },
+                        new GameSettingsSummaryItemModel
+                        {
+                            Label = "Public + Yourself",
+                            Value = settings.ChargePublicAndOwnFeesSeparately ? "Both fees charged" : "One fee charged"
+                        },
                         new GameSettingsSummaryItemModel { Label = "Unfriendly Fee (1 railroad)", Value = FormatMoney(settings.UnfriendlyFee1) },
                         new GameSettingsSummaryItemModel { Label = "Unfriendly Fee (2+ railroads)", Value = FormatMoney(settings.UnfriendlyFee2) }
                     ]
@@ -445,6 +450,7 @@ public sealed class GameBoardStateMapper(
             ownerBuckets[ownerIndex.Value] = Math.Max(fee, ownerBuckets.GetValueOrDefault(ownerIndex.Value));
         }
 
+        (usesPublicFee, usesPrivateFee) = RailBaronGameEngine.ResolveFriendlyFees(settings, usesPublicFee, usesPrivateFee);
         var publicFee = usesPublicFee ? RailBaronGameEngine.GetPublicFee(settings) : 0;
         var privateFee = usesPrivateFee ? RailBaronGameEngine.GetPrivateFee(settings) : 0;
         return new PreviewFeeSummary(publicFee + privateFee + ownerBuckets.Values.Sum(), ownerBuckets.Count > 0);

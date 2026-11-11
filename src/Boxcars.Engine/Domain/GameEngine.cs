@@ -2334,6 +2334,22 @@ public sealed class GameEngine : ObservableBase
         return settings.PrivateFee;
     }
 
+    /// <summary>
+    /// Which friendly fees a turn that rode public railroads and/or the rider's own pays. Unless
+    /// <see cref="GameSettings.ChargePublicAndOwnFeesSeparately"/> is on, riding both pays just the higher of the two.
+    /// </summary>
+    public static (bool UsesPublicFee, bool UsesPrivateFee) ResolveFriendlyFees(GameSettings settings, bool usesPublicFee, bool usesPrivateFee)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (settings.ChargePublicAndOwnFeesSeparately || !usesPublicFee || !usesPrivateFee)
+        {
+            return (usesPublicFee, usesPrivateFee);
+        }
+
+        return settings.PrivateFee > settings.PublicFee ? (false, true) : (true, false);
+    }
+
     public static int GetUnfriendlyFee(GameSettings settings, bool allRailroadsSold)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -3213,6 +3229,7 @@ public sealed class GameEngine : ObservableBase
             AddRailroadToFeeBucket(opponentBuckets, railroad, feeAmount);
         }
 
+        (usesPublicFee, usesPrivateFee) = ResolveFriendlyFees(_settings, usesPublicFee, usesPrivateFee);
         return new FeeCalculation(usesPublicFee, usesPrivateFee, opponentBuckets);
     }
 
@@ -3340,12 +3357,16 @@ public sealed class GameEngine : ObservableBase
         }
     }
 
-    private static int GetFeeGroup(Player player, Railroad railroad)
+    /// <summary>
+    /// The fee group riding <paramref name="railroad"/> pays into. Public and own railroads share one group unless
+    /// <see cref="GameSettings.ChargePublicAndOwnFeesSeparately"/> is on.
+    /// </summary>
+    private int GetFeeGroup(Player player, Railroad railroad)
     {
         return railroad.Owner switch
         {
             null => RouteFeeGroups.Public,
-            _ when railroad.Owner == player => RouteFeeGroups.Private,
+            _ when railroad.Owner == player => _settings.ChargePublicAndOwnFeesSeparately ? RouteFeeGroups.Private : RouteFeeGroups.Public,
             _ => RouteFeeGroups.ForOpponent(railroad.Owner.Index)
         };
     }

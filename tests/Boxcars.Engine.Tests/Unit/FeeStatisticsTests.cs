@@ -7,10 +7,14 @@ namespace Boxcars.Engine.Tests.Unit;
 
 public sealed class FeeStatisticsTests
 {
-    [Fact]
-    public void DeclinePurchase_WhenFeesResolveImmediately_TracksPaidAndCollectedAcrossFeeTypes()
+    [Theory]
+    // Public and own railroads in one turn pay a single friendly fee, or both with the setting on.
+    [InlineData(false, 6_000)]
+    [InlineData(true, 7_000)]
+    public void DeclinePurchase_WhenFeesResolveImmediately_TracksPaidAndCollectedAcrossFeeTypes(bool chargePublicAndOwnSeparately, int feesPaid)
     {
-        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        var (engine, _) = GameEngineFixture.CreateTestEngine(
+            Boxcars.Engine.Persistence.GameSettings.Default with { ChargePublicAndOwnFeesSeparately = chargePublicAndOwnSeparately });
         var rider = engine.Players[0];
         var owner = engine.Players[1];
         var privateRailroad = engine.Railroads.First(rr => rr.Index == 0);
@@ -36,9 +40,9 @@ public sealed class FeeStatisticsTests
         engine.DeclinePurchase();
 
         Assert.Equal(TurnPhase.EndTurn, engine.CurrentTurn.Phase);
-        Assert.Equal(riderCashBefore - 7_000, rider.Cash);
+        Assert.Equal(riderCashBefore - feesPaid, rider.Cash);
         Assert.Equal(ownerCashBefore + 5_000, owner.Cash);
-        Assert.Equal(7_000, rider.TotalFeesPaid);
+        Assert.Equal(feesPaid, rider.TotalFeesPaid);
         Assert.Equal(0, rider.TotalFeesCollected);
         Assert.Equal(5_000, rider.FeesPaidToPlayers[owner.Index]);
         Assert.Equal(0, owner.TotalFeesPaid);

@@ -58,6 +58,7 @@ public static class OperatingCapitalService
             ownerFees[ownerIndex.Value] = Math.Max(fee, ownerFees.GetValueOrDefault(ownerIndex.Value));
         }
 
+        (usesPublicFee, usesPrivateFee) = RailBaronGameEngine.ResolveFriendlyFees(settings, usesPublicFee, usesPrivateFee);
         return (usesPublicFee ? RailBaronGameEngine.GetPublicFee(settings) : 0)
             + (usesPrivateFee ? RailBaronGameEngine.GetPrivateFee(settings) : 0)
             + ownerFees.Values.Sum();

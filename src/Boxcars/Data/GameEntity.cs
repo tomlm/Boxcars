@@ -28,6 +28,7 @@ public class GameEntity : ITableEntity
     public int? RoverCash { get; set; }
     public int? PublicFee { get; set; }
     public int? PrivateFee { get; set; }
+    public bool? ChargePublicAndOwnFeesSeparately { get; set; }
     public int? UnfriendlyFee1 { get; set; }
     public int? UnfriendlyFee2 { get; set; }
     public bool? HomeSwapping { get; set; }

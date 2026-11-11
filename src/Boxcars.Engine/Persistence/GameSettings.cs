@@ -14,6 +14,11 @@ public sealed record GameSettings
     public int RoverCash { get; init; } = 50_000;
     public int PublicFee { get; init; } = 1_000;
     public int PrivateFee { get; init; } = 1_000;
+    /// <summary>
+    /// Riding public railroads and your own in the same turn pays both the public and the private fee. Off, it's one
+    /// friendly fee for the turn: the higher of the two.
+    /// </summary>
+    public bool ChargePublicAndOwnFeesSeparately { get; init; }
     public int UnfriendlyFee1 { get; init; } = 5_000;
     public int UnfriendlyFee2 { get; init; } = 10_000;
     public bool HomeSwapping { get; init; } = true;

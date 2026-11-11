@@ -1822,6 +1822,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             feeBuckets[ownerIndex.Value] = Math.Max(fee, feeBuckets.GetValueOrDefault(ownerIndex.Value));
         }
 
+        (usesPublicFee, usesPrivateFee) = RailBaronGameEngine.ResolveFriendlyFees(settings, usesPublicFee, usesPrivateFee);
         var transfers = feeBuckets
             .Select(bucket => new FeeTransferStatistic(rider.Name, bucket.Key, bucket.Value))
             .Where(transfer => transfer.Amount > 0)

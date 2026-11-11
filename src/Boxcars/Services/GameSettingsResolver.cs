@@ -135,6 +135,8 @@ public sealed class GameSettingsResolver
             RoverCash = ResolveInt(gameEntity.RoverCash, defaults.RoverCash, nameof(GameEntity.RoverCash)),
             PublicFee = ResolveInt(gameEntity.PublicFee, defaults.PublicFee, nameof(GameEntity.PublicFee)),
             PrivateFee = ResolveInt(gameEntity.PrivateFee, defaults.PrivateFee, nameof(GameEntity.PrivateFee)),
+            // Added after the others: a game saved before it isn't partially defaulted, it just plays the default.
+            ChargePublicAndOwnFeesSeparately = gameEntity.ChargePublicAndOwnFeesSeparately ?? defaults.ChargePublicAndOwnFeesSeparately,
             UnfriendlyFee1 = ResolveInt(gameEntity.UnfriendlyFee1, defaults.UnfriendlyFee1, nameof(GameEntity.UnfriendlyFee1)),
             UnfriendlyFee2 = ResolveInt(gameEntity.UnfriendlyFee2, defaults.UnfriendlyFee2, nameof(GameEntity.UnfriendlyFee2)),
             HomeSwapping = ResolveBool(gameEntity.HomeSwapping, defaults.HomeSwapping),
@@ -170,6 +172,7 @@ public sealed class GameSettingsResolver
         gameEntity.RoverCash = normalized.RoverCash;
         gameEntity.PublicFee = normalized.PublicFee;
         gameEntity.PrivateFee = normalized.PrivateFee;
+        gameEntity.ChargePublicAndOwnFeesSeparately = normalized.ChargePublicAndOwnFeesSeparately;
         gameEntity.UnfriendlyFee1 = normalized.UnfriendlyFee1;
         gameEntity.UnfriendlyFee2 = normalized.UnfriendlyFee2;
         gameEntity.HomeSwapping = normalized.HomeSwapping;
