@@ -48,9 +48,18 @@
 </div>
 
 @code {
+    // MudBlazor's dark grays at about half their brightness, so light text and controls stand out. Panels stay a
+    // shade lighter than the page.
     private static readonly MudTheme _darkTheme = new()
     {
-        PaletteDark = new PaletteDark()
+        PaletteDark = new PaletteDark
+        {
+            Background = "#18181d",
+            BackgroundGray = "#131317",
+            Surface = "#1e1e24",
+            AppbarBackground = "#131317",
+            DrawerBackground = "#131317"
+        }
     };
 
     [CascadingParameter]
