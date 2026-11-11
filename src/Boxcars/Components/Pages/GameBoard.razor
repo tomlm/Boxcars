@@ -885,10 +885,12 @@ else
         return true;
     }
 
-    // With automove on, MOVE shows once a move is plotted that automove won't make itself (see AutoMoveTakesMove).
+    // With automove on, MOVE shows once a move is plotted that automove won't make itself (see AutoMoveTakesMove). It
+    // stays hidden while automove hasn't yet considered the plotted move and while an update is in flight (such as the
+    // move automove just made), so it doesn't flash up before the move goes.
     private bool ShouldShowMoveButton => !AutoMove
         || !IsAuthenticatedUserActivePlayer
-        || (CurrentRouteMoveCount > 0 && !AutoMoveTakesMove);
+        || (CurrentRouteMoveCount > 0 && !_autoMovePending && !_awaitingAuthoritativeUpdate && !AutoMoveTakesMove);
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
