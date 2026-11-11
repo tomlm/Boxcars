@@ -13,8 +13,6 @@ public interface IGameEngine
 
     Task<RailBaronGameState> GetCurrentStateAsync(string gameId, CancellationToken cancellationToken = default);
 
-    Task SynchronizeStateAsync(string gameId, RailBaronGameState state, CancellationToken cancellationToken = default);
-
     /// <summary>
     /// The engine's suggested route for a player from where they are now: the same advice a bot follows. Plans to
     /// <paramref name="destinationNodeId"/> when given, otherwise to their destination (or a declared opponent to

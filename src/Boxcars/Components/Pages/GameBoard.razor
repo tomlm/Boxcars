@@ -1708,7 +1708,7 @@ else
             .WithAutomaticReconnect()
             .Build();
 
-        _gameHubConnection.On<GameStateUpdate>(GameHubEvents.StateUpdated, async update =>
+        _gameHubConnection.On<GameStateUpdate>(GameHubEvents.StateUpdated, update =>
         {
             Logger.LogDebug(
                 "[GameBoard:{GameId}] SignalR StateUpdated received replaceTimeline={ReplaceTimeline} phase={TurnPhase} activeIndex={ActivePlayerIndex}",
@@ -1716,7 +1716,6 @@ else
                 update.ReplaceTimeline,
                 update.State.Turn.Phase,
                 update.State.ActivePlayerIndex);
-            await SharedGameEngine.SynchronizeStateAsync(GameId, update.State, CancellationToken.None);
             OnSharedGameStateChanged(GameId, update);
         });
 
