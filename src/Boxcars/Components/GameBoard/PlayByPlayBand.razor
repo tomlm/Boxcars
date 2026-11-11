@@ -5,7 +5,7 @@
 
 @* Scrolls sideways by touch, scrollbar or mouse wheel. *@
 <div @ref="_band"
-     class="play-by-play-band d-flex align-center overflow-x-auto overflow-y-hidden px-3 cursor-pointer"
+     class="play-by-play-band d-flex align-center overflow-x-auto overflow-y-hidden px-3 py-1 cursor-pointer"
      title="Open history"
      @onclick="OnBandClicked">
     @foreach (var entry in _visible)
