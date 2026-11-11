@@ -4435,27 +4435,35 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
-    /// Each opponent's strength: their share of all opponents' cash plus their share of all opponents' network
-    /// access (both 0-1), so a player who is rich in cash or in railroads counts as strong.
+    /// Each opponent's strength: their earning power over the cash they still need to win (see
+    /// <see cref="CashToWinPerEarningPower"/>, inverted), so the opponent closest to winning is the strongest.
     /// </summary>
     private Dictionary<int, decimal> BuildOpponentStrengths(
         Player player,
         IReadOnlyList<RoutePlanningCityCoverageEntry> cityCoverage,
         Dictionary<int, RoutePlanningNetworkMetrics> networkMetricsByPlayerIndex)
     {
-        var opponents = Players
+        return Players
             .Where(opponent => opponent != player && !opponent.IsBankrupt)
-            .Select(opponent => (
-                opponent.Index,
-                Cash: (decimal)Math.Max(0, opponent.Cash),
-                Access: GetRoutePlanningNetworkMetrics(opponent.Index, cityCoverage, networkMetricsByPlayerIndex).AccessibleDestinationPercent))
-            .ToList();
-        var totalCash = opponents.Sum(opponent => opponent.Cash);
-        var totalAccess = opponents.Sum(opponent => opponent.Access);
+            .ToDictionary(
+                opponent => opponent.Index,
+                opponent => 1m / (1m + CashToWinPerEarningPower(opponent, cityCoverage, networkMetricsByPlayerIndex)));
+    }
 
-        return opponents.ToDictionary(
-            opponent => opponent.Index,
-            opponent => (totalCash > 0m ? opponent.Cash / totalCash : 0m) + (totalAccess > 0m ? opponent.Access / totalAccess : 0m));
+    /// <summary>
+    /// Roughly how far an opponent is from winning: the cash they still need to win, over how fast their railroads earn
+    /// it, so a cash-poor player with a far better network can be closer than a richer one. Earning power is access plus
+    /// twice monopoly: a monopoly city is one they never pay to reach and everyone else pays them to.
+    /// </summary>
+    private decimal CashToWinPerEarningPower(
+        Player opponent,
+        IReadOnlyList<RoutePlanningCityCoverageEntry> cityCoverage,
+        Dictionary<int, RoutePlanningNetworkMetrics> networkMetricsByPlayerIndex)
+    {
+        var metrics = GetRoutePlanningNetworkMetrics(opponent.Index, cityCoverage, networkMetricsByPlayerIndex);
+        var earningPower = metrics.AccessibleDestinationPercent + 2 * metrics.MonopolyDestinationPercent;
+        var cashToWin = Math.Max(0, _settings.WinningCash - Math.Max(0, opponent.Cash));
+        return cashToWin / Math.Max(1m, earningPower);
     }
 
     /// <summary>The opponent closest to winning, whom route planning avoids paying; see the overload.</summary>
@@ -4466,9 +4474,10 @@ public sealed class GameEngine : ObservableBase
 
     /// <summary>
     /// The opponent closest to winning. Once anyone has announcing cash only cash counts: it's the richest of them (the
-    /// bigger access plus monopoly breaks an exact tie). Before that it's the
-    /// opponent with the highest share of opponents' cash plus share of opponents' access plus monopoly, so a big lead
-    /// in cash outweighs a slightly better network; nobody when the top two are level. Null when there's none.
+    /// bigger access plus monopoly breaks an exact tie). Before that it's the opponent who needs the least cash to win
+    /// for their earning power (see <see cref="CashToWinPerEarningPower"/>), so a cash-poor player with a far better
+    /// network leads early and cash counts for more as players near winning; nobody when the top two are level. Null
+    /// when there's none.
     /// </summary>
     private int? FindFrontRunner(
         Player player,
@@ -4490,15 +4499,12 @@ public sealed class GameEngine : ObservableBase
         var announced = opponents.Where(opponent => opponent.Cash >= _settings.AnnouncingCash).ToList();
         if (announced.Count == 0)
         {
-            var totalCash = opponents.Sum(opponent => (decimal)Math.Max(0, opponent.Cash));
-            var totalNetwork = opponents.Sum(Network);
-            decimal Strength(Player opponent) =>
-                (totalCash > 0m ? Math.Max(0, opponent.Cash) / totalCash : 0m)
-                + (totalNetwork > 0m ? Network(opponent) / totalNetwork : 0m);
-
-            // Two opponents level on cash and network: nobody is out in front.
-            var ranked = opponents.Select(opponent => (opponent.Index, Strength: Strength(opponent))).OrderByDescending(entry => entry.Strength).ToList();
-            return ranked.Count > 1 && ranked[0].Strength == ranked[1].Strength ? null : ranked[0].Index;
+            // Two opponents equally far from winning: nobody is out in front.
+            var ranked = opponents
+                .Select(opponent => (opponent.Index, ToWin: CashToWinPerEarningPower(opponent, cityCoverage, networkMetricsByPlayerIndex)))
+                .OrderBy(entry => entry.ToWin)
+                .ToList();
+            return ranked.Count > 1 && ranked[0].ToWin == ranked[1].ToWin ? null : ranked[0].Index;
         }
 
         return announced
