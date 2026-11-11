@@ -27,6 +27,34 @@ public class GameServiceTests
     }
 
     [Fact]
+    public async Task GetGameEventPageAsync_PagesFromNewestToOldest()
+    {
+        var start = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Enumerable.Range(0, 5)
+            .Select(minute => new GameEventEntity
+            {
+                PartitionKey = "game-1",
+                RowKey = GameEventRows.CreateRowKey(start.AddMinutes(minute), minute),
+                GameId = "game-1",
+                EventKind = "Note",
+                ChangeSummary = $"event {minute}",
+                OccurredUtc = start.AddMinutes(minute)
+            })
+            .ToList();
+        var gamesTable = new FakeGamesTableClient([CreateGame("game-1", "Playing", "alice@example.com")], [], events);
+        var service = new GameService(gamesTable, new FakeUsersTableClient(), new FakeHubContext(), new FakeGameEngine());
+
+        var newest = await service.GetGameEventPageAsync("game-1", olderThanRowKey: null, maxEvents: 2, CancellationToken.None);
+        var middle = await service.GetGameEventPageAsync("game-1", newest.OlderThanRowKey, maxEvents: 2, CancellationToken.None);
+        var oldest = await service.GetGameEventPageAsync("game-1", middle.OlderThanRowKey, maxEvents: 2, CancellationToken.None);
+
+        Assert.Equal(["event 4", "event 3"], newest.Items.Select(item => item.Description).ToArray());
+        Assert.Equal(["event 2", "event 1"], middle.Items.Select(item => item.Description).ToArray());
+        Assert.Equal(["event 0"], oldest.Items.Select(item => item.Description).ToArray());
+        Assert.Null(oldest.OlderThanRowKey);
+    }
+
+    [Fact]
     public void ReplayTurnOrder_PoorestGoesFirstAndTheWinnerLast()
     {
         // Ann won with less cash than Bob ended with; Cy and Di tied.
@@ -299,8 +327,12 @@ public class GameServiceTests
 
             if (typeof(T) == typeof(GameEventEntity))
             {
+                // Like the table: in key order, honoring an "older than" bound (see GameEventRows.CreateFilterOlderThan).
+                var olderThan = filter is null ? null : ExtractQuoted(filter, "RowKey gt '");
                 var values = GameEvents
                     .Where(gameEvent => string.IsNullOrWhiteSpace(filter) || string.Equals(gameEvent.PartitionKey, ExtractPartitionKey(filter), StringComparison.Ordinal))
+                    .Where(gameEvent => olderThan is null || string.CompareOrdinal(gameEvent.RowKey, olderThan) > 0)
+                    .OrderBy(gameEvent => gameEvent.RowKey, StringComparer.Ordinal)
                     .Select(Clone)
                     .Cast<T>()
                     .ToList();
@@ -635,6 +667,19 @@ public class GameServiceTests
             CreatedBy = "system",
             ActingUserId = string.Empty
         };
+    }
+
+    private static string? ExtractQuoted(string filter, string marker)
+    {
+        var startIndex = filter.IndexOf(marker, StringComparison.Ordinal);
+        if (startIndex < 0)
+        {
+            return null;
+        }
+
+        startIndex += marker.Length;
+        var endIndex = filter.IndexOf('\'', startIndex);
+        return endIndex < 0 ? null : filter[startIndex..endIndex];
     }
 
     private static string ExtractPartitionKey(string filter)

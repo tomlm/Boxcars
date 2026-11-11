@@ -360,11 +360,18 @@ public class GameService
         return await GetGameEventsAsync(gameId, lastSeenEventRowKey: null, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<EventTimelineItem>> GetRecentGameEventsAsync(string gameId, int maxEvents, CancellationToken cancellationToken)
+    /// <summary>How many of a game's newest events a board loads to start with; older ones load a page at a time.</summary>
+    public const int RecentTimelineEventCount = 50;
+
+    /// <summary>
+    /// Up to <paramref name="maxEvents"/> of the game's events older than <paramref name="olderThanRowKey"/> (the newest
+    /// when null), as timeline items newest first, with the key to pass for the page after.
+    /// </summary>
+    public async Task<GameEventPage> GetGameEventPageAsync(string gameId, string? olderThanRowKey, int maxEvents, CancellationToken cancellationToken)
     {
         if (maxEvents <= 0)
         {
-            return [];
+            return new GameEventPage([], null);
         }
 
         var game = await GetGameAsync(gameId, cancellationToken);
@@ -372,31 +379,20 @@ public class GameService
             ? GameSettings.Default
             : _gameSettingsResolver.Resolve(game).Settings;
 
-        // An event's items need the event before it, which is the next one read, so each event is described once that
-        // one arrives. Stops as soon as there are enough items.
+        // An event is described against the one before it, so one more is read than is described.
+        var events = await (olderThanRowKey is null
+                ? _gamesTable.ReadNewestFirst(gameId, pageSize: maxEvents + 1, cancellationToken: cancellationToken)
+                : _gamesTable.ReadOlderThan(gameId, olderThanRowKey, pageSize: maxEvents + 1, cancellationToken: cancellationToken))
+            .Take(maxEvents + 1)
+            .ToListAsync(cancellationToken);
+        var hasOlder = events.Count > maxEvents;
         var items = new List<EventTimelineItem>();
-        GameEventEntity? newer = null;
-        await foreach (var gameEvent in _gamesTable.ReadNewestFirst(gameId, pageSize: maxEvents + 1, cancellationToken: cancellationToken))
+        for (var index = 0; index < Math.Min(events.Count, maxEvents); index++)
         {
-            if (newer is not null)
-            {
-                items.AddRange(BuildTimelineItems(newer, gameEvent, settings));
-                if (items.Count >= maxEvents)
-                {
-                    newer = null;
-                    break;
-                }
-            }
-
-            newer = gameEvent;
+            items.AddRange(BuildTimelineItems(events[index], index + 1 < events.Count ? events[index + 1] : null, settings));
         }
 
-        if (newer is not null)
-        {
-            items.AddRange(BuildTimelineItems(newer, previousGameEvent: null, settings));
-        }
-
-        return items.Take(maxEvents).ToList();
+        return new GameEventPage(items, hasOlder ? events[maxEvents - 1].RowKey : null);
     }
 
     public async Task<IReadOnlyList<EventTimelineItem>> GetGameEventsAsync(string gameId, string? lastSeenEventRowKey, CancellationToken cancellationToken)
@@ -1311,6 +1307,10 @@ public class GameActionResult
     public string? GameId { get; set; }
     public string? Reason { get; set; }
 }
+
+/// <summary>A page of a game's timeline, newest first.</summary>
+/// <param name="OlderThanRowKey">The key to pass for the next, older page; null when there are no older events.</param>
+public sealed record GameEventPage(IReadOnlyList<EventTimelineItem> Items, string? OlderThanRowKey);
 
 public sealed record GameUpdateResult
 {

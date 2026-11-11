@@ -223,7 +223,7 @@ else
                         else
                         {
                             <MudList T="NotificationHistoryEntry" Dense="true" Class="pa-0">
-                                @foreach (var item in NotificationHistoryItems)
+                                @foreach (var item in NotificationHistoryItems.Take(_historyVisibleCount))
                                 {
                                     <MudListItem T="NotificationHistoryEntry" Class="mb-2" Style="@ResolveNotificationHistoryItemStyle(item)">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mud-width-full">
@@ -248,6 +248,15 @@ else
                                     </MudListItem>
                                 }
                             </MudList>
+                        }
+                        @if (_notificationHistory.Count > _historyVisibleCount || _olderHistoryRowKey is not null)
+                        {
+                            <MudButton Variant="Variant.Text"
+                                       Color="MudBlazor.Color.Primary"
+                                       Disabled="_loadingRecentHistory"
+                                       OnClick="OnShowOlderHistoryAsync">
+                                Show older
+                            </MudButton>
                         }
                     </MudPaper>
                 }
@@ -499,6 +508,12 @@ else
     private int _currentUserPlayerIndex = -1;
     private bool _timelineInitialized;
     private bool _loadingRecentHistory;
+    // The timeline's loaded events are in the History tab's list; live ones are added as they arrive.
+    private bool _timelineMergedIntoHistory;
+    // Where the next page of older history starts; null when everything's loaded.
+    private string? _olderHistoryRowKey;
+    private const int HistoryPageSize = 100;
+    private int _historyVisibleCount = HistoryPageSize;
     private bool _pendingRestoredRouteSelection;
     private string? _lastAutoSuggestKey;
     // Start and destination of the last failed route suggestion, so the warning shows once per position.
@@ -1009,7 +1024,7 @@ else
     {
         if (_loadingRecentHistory
             || string.IsNullOrWhiteSpace(GameId)
-            || _notificationHistory.Count > 0)
+            || _timelineMergedIntoHistory)
         {
             return;
         }
@@ -1019,13 +1034,14 @@ else
         {
             if (_gameEngineEvents.Count == 0)
             {
-                var recentEvents = await GameService.GetRecentGameEventsAsync(GameId, 50, CancellationToken.None);
-                ReplaceTimelineItems(recentEvents);
+                var page = await GameService.GetGameEventPageAsync(GameId, olderThanRowKey: null, GameService.RecentTimelineEventCount, CancellationToken.None);
+                ReplaceTimelineItems(page.Items, page.OlderThanRowKey);
             }
             else
             {
                 RemoveTimelineHistoryEntries();
                 MergeTimelineNotifications();
+                _timelineMergedIntoHistory = true;
             }
         }
         finally
@@ -1823,7 +1839,8 @@ else
 
             if (update.ReplaceTimeline)
             {
-                ReplaceTimelineItems(update.TimelineItems);
+                // The server sends only the recent part; older history loads from the oldest event it sent.
+                ReplaceTimelineItems(update.TimelineItems, update.TimelineItems.Count > 0 ? GetTimelineEventBaseId(update.TimelineItems[^1]) : null);
                 ResetPlayByPlayBand();
             }
 
@@ -2327,9 +2344,16 @@ destinationPayoutIndex)
             ? GetTimelineEventBaseId(_gameEngineEvents[0])
             : null;
 
-        return waitForNewItems && !string.IsNullOrWhiteSpace(lastKnownEventRowKey)
-            ? await GameService.GetGameEventsAsync(GameId, lastKnownEventRowKey, CancellationToken.None)
-            : await GameService.GetGameEventsAsync(GameId, CancellationToken.None);
+        if (waitForNewItems && !string.IsNullOrWhiteSpace(lastKnownEventRowKey))
+        {
+            return await GameService.GetGameEventsAsync(GameId, lastKnownEventRowKey, CancellationToken.None);
+        }
+
+        // Only the recent part; the History tab loads older events a page at a time.
+        var page = await GameService.GetGameEventPageAsync(GameId, olderThanRowKey: null, GameService.RecentTimelineEventCount, CancellationToken.None);
+        _olderHistoryRowKey = page.OlderThanRowKey;
+        _timelineMergedIntoHistory = false;
+        return page.Items;
     }
 
     private void ApplyLiveTimelineItems(IReadOnlyList<EventTimelineItem> timelineItems)
@@ -2383,12 +2407,42 @@ destinationPayoutIndex)
         _gameMap.ShowMoveAnimation(moveItem.MovedSegmentKeys, playerColor);
     }
 
-    private void ReplaceTimelineItems(IReadOnlyList<EventTimelineItem> timelineItems)
+    private void ReplaceTimelineItems(IReadOnlyList<EventTimelineItem> timelineItems, string? olderThanRowKey)
     {
         _gameEngineEvents = timelineItems.ToList();
+        _olderHistoryRowKey = olderThanRowKey;
         RemoveTimelineHistoryEntries();
         MergeTimelineNotifications();
+        _timelineMergedIntoHistory = true;
         _timelineInitialized = true;
+    }
+
+    /// <summary>
+    /// Shows more of the History tab: what's already loaded first, then the next page of older events from the game's
+    /// saved history.
+    /// </summary>
+    private async Task OnShowOlderHistoryAsync()
+    {
+        if (_notificationHistory.Count <= _historyVisibleCount && _olderHistoryRowKey is { } olderThanRowKey && !_loadingRecentHistory)
+        {
+            _loadingRecentHistory = true;
+            try
+            {
+                var page = await GameService.GetGameEventPageAsync(GameId, olderThanRowKey, GameService.RecentTimelineEventCount, CancellationToken.None);
+                _gameEngineEvents.AddRange(page.Items);
+                _olderHistoryRowKey = page.OlderThanRowKey;
+                foreach (var item in page.Items.Where(item => !IsHiddenTimelineItem(item)))
+                {
+                    AddTimelineNotificationHistory(item);
+                }
+            }
+            finally
+            {
+                _loadingRecentHistory = false;
+            }
+        }
+
+        _historyVisibleCount += HistoryPageSize;
     }
 
     private string ResolvePlayerColor(GamePlayerSelection? selection, int index)
@@ -4747,16 +4801,21 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     {
         foreach (var item in _gameEngineEvents.Where(item => !IsHiddenTimelineItem(item)))
         {
-            AddNotificationHistory(
-                BuildTimelineNotificationKey(item),
-                BuildTimelineNotificationMessage(item),
-                ResolveTimelineSeverity(item),
-                ResolveTimelineSnackbarIcon(item),
-                ResolveTimelineSnackbarClass(item),
-                BuildTimelineNotificationDetail(item),
-                item.OccurredUtc,
-                GetTimelineEventBaseId(item));
+            AddTimelineNotificationHistory(item);
         }
+    }
+
+    private void AddTimelineNotificationHistory(EventTimelineItem item)
+    {
+        AddNotificationHistory(
+            BuildTimelineNotificationKey(item),
+            BuildTimelineNotificationMessage(item),
+            ResolveTimelineSeverity(item),
+            ResolveTimelineSnackbarIcon(item),
+            ResolveTimelineSnackbarClass(item),
+            BuildTimelineNotificationDetail(item),
+            item.OccurredUtc,
+            GetTimelineEventBaseId(item));
     }
 
     private string BuildTimelineNotificationMessage(EventTimelineItem item)
@@ -4994,7 +5053,7 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             return;
         }
 
-        _notificationHistory.Add(new NotificationHistoryEntry
+        var entry = new NotificationHistoryEntry
         {
             HistoryKey = historyKey,
             Message = message,
@@ -5004,13 +5063,18 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             AccentClass = snackbarClass,
             OccurredUtc = occurredUtc,
             EventBaseId = eventBaseId
-        });
+        };
 
-        _notificationHistory = _notificationHistory
-            .OrderByDescending(item => item.OccurredUtc)
-            .ThenBy(item => item.HistoryKey, StringComparer.Ordinal)
-            .ToList();
+        // Newest first; inserted in place rather than sorting the whole history again.
+        var index = _notificationHistory.BinarySearch(entry, NotificationHistoryOrder);
+        _notificationHistory.Insert(index < 0 ? ~index : index, entry);
     }
+
+    private static readonly Comparer<NotificationHistoryEntry> NotificationHistoryOrder = Comparer<NotificationHistoryEntry>.Create((left, right) =>
+    {
+        var byTime = right.OccurredUtc.CompareTo(left.OccurredUtc);
+        return byTime != 0 ? byTime : StringComparer.Ordinal.Compare(left.HistoryKey, right.HistoryKey);
+    });
 
     private void RemoveTimelineHistoryEntries()
     {
