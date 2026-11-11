@@ -23,8 +23,9 @@ public sealed class PurchaseRecommendationService
     // at least this much access.
     private const decimal StrongRailroadAccessGain = 10m;
     // Express gains little and its price doesn't count toward a Superchief, so it's only worth it when nothing better
-    // is on offer and a Superchief is a long way off.
-    private const int ExpressMaximumSpareCash = 25_000;
+    // is on offer and a Superchief is a long way off: less than this share of its price to spare. Closer than that,
+    // save for the Superchief.
+    private const decimal ExpressMaximumShareOfSuperchief = 2m / 3m;
 
     private static readonly NetworkCoverageService NetworkCoverage = new();
 
@@ -54,10 +55,11 @@ public sealed class PurchaseRecommendationService
     }
 
     /// <summary>
-    /// The best railroad to buy in each category for the buyer. Only railroads the buyer can safely afford count:
+    /// The best railroad for the buyer in each category, from every railroad for sale. One the buyer can't safely afford
+    /// yet is one to save for, with negative <see cref="PurchaseRecommendation.SpareCash"/> (how far short): to afford it,
     /// after paying for it and the fees owed, the buyer must still hold the operating reserve, less the fees opponents
-    /// are expected to pay soon (income can stand in for the reserve, but not for fees owed now). Categories with no railroad that helps are left out, and the same railroad can
-    /// win several.
+    /// are expected to pay soon (income can stand in for the reserve, but not for fees owed now). Categories with no
+    /// railroad that helps are left out, and the same railroad can win several.
     /// </summary>
     public static PurchaseRecommendationSet BuildRecommendations(
         MapDefinition mapDefinition,
@@ -78,7 +80,9 @@ public sealed class PurchaseRecommendationService
         var operatingReserve = finances.OperatingReserve;
         PurchaseRecommendationSet Result(IReadOnlyList<PurchaseRecommendation> recommendations, bool strongRailroadOnOffer) =>
             new(recommendations, finances.Cash, finances.FeesOwed, incomingFees, operatingReserve,
-                engine is null ? null : RecommendEngineUpgrade(engine, finances, incomingFees, strongRailroadOnOffer, recommendations.Count > 0));
+                engine is null
+                    ? EngineUpgradeRecommendation.None
+                    : RecommendEngineUpgrade(engine, finances, incomingFees, strongRailroadOnOffer, recommendations.Any(r => r.CanBuyNow)));
 
         if (candidates.Count == 0)
         {
@@ -121,13 +125,7 @@ public sealed class PurchaseRecommendationService
                     SpareCash: spareCash,
                     TollPayers: tollPayers);
             })
-            .Where(candidate => candidate.SpareCash >= 0)
             .ToList();
-
-        if (scored.Count == 0)
-        {
-            return Result([], strongRailroadOnOffer: false);
-        }
 
         var recommendations = new List<PurchaseRecommendation>();
         void Add(PurchaseRecommendationCategory category, ScoredCandidate? pick, string reason)
@@ -167,21 +165,24 @@ public sealed class PurchaseRecommendationService
         var tollBooth = Best(scored, scored.ToDictionary(c => c, c => (decimal)c.TollPayers.Count), c => c.TollPayers.Count > 0);
         Add(PurchaseRecommendationCategory.TollBooth, tollBooth, tollBooth is null ? string.Empty : DescribeTollPayers(tollBooth.TollPayers));
 
-        var strongRailroadOnOffer = scored.Any(c => c.TollPayers.Count > 0 || c.MonopolyGain > 0m || c.AccessGain >= StrongRailroadAccessGain);
+        // A Superchief is only the pick over railroads the buyer can buy now if none of them is this good.
+        var strongRailroadOnOffer = scored.Any(c => c.SpareCash >= 0
+            && (c.TollPayers.Count > 0 || c.MonopolyGain > 0m || c.AccessGain >= StrongRailroadAccessGain));
         return Result(recommendations, strongRailroadOnOffer);
     }
 
     /// <summary>
-    /// The engine to upgrade to, or null for none. Either must leave the operating reserve after fees owed (less fees
-    /// coming in, as for railroads), and a player who already has winning cash must keep it.
+    /// The engine upgrade to recommend. Buying one must leave the operating reserve after fees owed (less fees coming
+    /// in, as for railroads), and a player who already has winning cash must keep it.
     /// <list type="bullet">
-    /// <item>Superchief: once two thirds of the railroads are sold, or before that unless a railroad on offer is a toll
-    /// booth, adds a monopoly, or adds 10% access or more.</item>
-    /// <item>Express, from Freight: only with no railroad recommended and less than $25,000 to spare, so a Superchief
-    /// is a long way off.</item>
+    /// <item>A Superchief is the pick once two thirds of the railroads are sold, or before that unless a railroad on
+    /// offer is a toll booth, adds a monopoly, or adds 10% access or more.</item>
+    /// <item>When it's the pick but can't be afforded yet: Express, from Freight, if no railroad is recommended and less
+    /// than two thirds of the Superchief's price is to spare (a Superchief is a long way off); otherwise save for the
+    /// Superchief.</item>
     /// </list>
     /// </summary>
-    public static LocomotiveType? RecommendEngineUpgrade(
+    public static EngineUpgradeRecommendation RecommendEngineUpgrade(
         EngineUpgradeInputs engine,
         PurchaseFinances finances,
         int incomingFees,
@@ -198,22 +199,34 @@ public sealed class PurchaseRecommendationService
             && spareCash - price >= 0
             && (finances.Cash < engine.WinningCash || finances.Cash - finances.FeesOwed - price >= engine.WinningCash);
 
-        if (engine.CurrentEngine < LocomotiveType.Superchief
-            && Affordable(engine.SuperchiefPrice)
-            && (1m - engine.UnsoldShare >= SuperchiefAlwaysSoldShare || !strongRailroadOnOffer))
+        var superchiefIsThePick = engine.CurrentEngine < LocomotiveType.Superchief
+            && engine.SuperchiefPrice > 0
+            && (1m - engine.UnsoldShare >= SuperchiefAlwaysSoldShare || !strongRailroadOnOffer);
+        if (!superchiefIsThePick)
         {
-            return LocomotiveType.Superchief;
+            return EngineUpgradeRecommendation.None;
+        }
+
+        if (Affordable(engine.SuperchiefPrice))
+        {
+            return EngineUpgradeRecommendation.Superchief;
+        }
+
+        // With winning cash already, there's nothing to save for.
+        if (finances.Cash >= engine.WinningCash)
+        {
+            return EngineUpgradeRecommendation.None;
         }
 
         if (engine.CurrentEngine == LocomotiveType.Freight
             && !anyRailroadRecommended
-            && spareCash < ExpressMaximumSpareCash
+            && spareCash < engine.SuperchiefPrice * ExpressMaximumShareOfSuperchief
             && Affordable(engine.ExpressPrice))
         {
-            return LocomotiveType.Express;
+            return EngineUpgradeRecommendation.Express;
         }
 
-        return null;
+        return EngineUpgradeRecommendation.SaveForSuperchief;
     }
 
     private static Dictionary<ScoredCandidate, decimal> BlendedScores(List<ScoredCandidate> scored)

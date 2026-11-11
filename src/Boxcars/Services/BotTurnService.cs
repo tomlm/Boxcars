@@ -737,7 +737,13 @@ public sealed class BotTurnService
         var recommendationSet = PurchaseRecommendationService.BuildRecommendations(
             mapDefinition,
             ownedRailroadIndices,
-            affordableRailroads.Select(railroad => new PurchaseCandidate(railroad.Index, railroad.Name, railroad.PurchasePrice)).ToList(),
+            // Every railroad for sale, so one worth saving for can be recommended.
+            gameEngine.Railroads
+                .Where(railroad => railroad.Owner is null && !railroad.IsPublic)
+                .OrderByDescending(railroad => railroad.PurchasePrice)
+                .ThenBy(railroad => railroad.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(railroad => new PurchaseCandidate(railroad.Index, railroad.Name, railroad.PurchasePrice))
+                .ToList(),
             gameEngine.Players
                 .Where(opponent => opponent != player && !opponent.IsBankrupt)
                 .Select(opponent => new RecommendationOpponent(opponent.Name, opponent.Cash, opponent.OwnedRailroads.Select(railroad => railroad.Index).ToList(), opponent.Destination?.Name))
@@ -755,13 +761,22 @@ public sealed class BotTurnService
                 gameEngine.Railroads.Count == 0 ? 0m : (decimal)gameEngine.Railroads.Count(railroad => railroad.Owner is null) / gameEngine.Railroads.Count));
         var recommendations = recommendationSet.Recommendations;
         // Without the AI, a recommended Superchief comes first, then a toll booth (the only way into an opponent's
-        // destination), then the blended pick; a recommended Express is only ever recommended when no railroad is.
-        var recommendedEngine = recommendationSet.EngineUpgrade;
+        // destination), then the blended pick unless the advice is to save for a Superchief or a better railroad; a
+        // recommended Express is only ever recommended when no railroad is.
+        LocomotiveType? recommendedEngine = recommendationSet.EngineUpgrade switch
+        {
+            EngineUpgradeRecommendation.Express => LocomotiveType.Express,
+            EngineUpgradeRecommendation.Superchief => LocomotiveType.Superchief,
+            _ => null
+        };
+        var tollBooth = recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.TollBooth && recommendation.CanBuyNow);
+        var blended = recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.Blended);
+        var savingFor = recommendationSet.EngineUpgrade == EngineUpgradeRecommendation.SaveForSuperchief
+            ? "a Superchief"
+            : blended is { CanBuyNow: false } ? blended.RailroadName : null;
         var fallbackRailroadIndex = recommendedEngine == LocomotiveType.Superchief
             ? null
-            : (recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.TollBooth)
-                ?? recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.Blended))
-            ?.RailroadIndex;
+            : (tollBooth ?? (savingFor is null ? blended : null))?.RailroadIndex;
 
         foreach (var railroad in affordableRailroads)
         {
@@ -848,7 +863,7 @@ public sealed class BotTurnService
         {
             OptionId = declineOptionId,
             OptionType = "NoPurchase",
-            DisplayText = "Buy nothing",
+            DisplayText = savingFor is null ? "Buy nothing" : $"Buy nothing | Recommended: Save for {savingFor}",
             Payload = string.Empty
         });
         actionsByOptionId[declineOptionId] = new DeclinePurchaseAction

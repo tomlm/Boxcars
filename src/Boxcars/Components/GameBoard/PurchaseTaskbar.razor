@@ -44,7 +44,7 @@
                             <MudMenuItem OnClick="@(() => OnSelectedOptionChangedAsync(engineOptionKey))">
                                 <MudStack Spacing="0">
                                     <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">Engine Upgrade Recommendation</MudText>
-                                    <MudText Typo="Typo.body2">@SlangNames.Apply(Recommendations.EngineUpgrade.ToString()!, SlangMode)</MudText>
+                                    <MudText Typo="Typo.body2">@SlangNames.Apply(EngineUpgradeText, SlangMode)</MudText>
                                 </MudStack>
                             </MudMenuItem>
                         }
@@ -52,16 +52,27 @@
                         {
                             <MudStack Spacing="0" Class="px-4 py-2">
                                 <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">Engine Upgrade Recommendation</MudText>
-                                <MudText Typo="Typo.body2">None</MudText>
+                                <MudText Typo="Typo.body2">@SlangNames.Apply(EngineUpgradeText, SlangMode)</MudText>
                             </MudStack>
                         }
                         <MudDivider />
                         @if (Recommendations.Recommendations.Count == 0)
                         {
-                            <MudText Typo="Typo.body2" Class="px-4 py-2">Nothing fits your operating reserve.</MudText>
+                            <MudText Typo="Typo.body2" Class="px-4 py-2">No railroad recommendations.</MudText>
                         }
                         @foreach (var recommendation in Recommendations.Recommendations)
                         {
+                            if (!recommendation.CanBuyNow)
+                            {
+                                @* Can't be bought yet, so it isn't selectable. *@
+                                <MudStack Spacing="0" Class="px-4 py-2">
+                                    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">@recommendation.CategoryLabel</MudText>
+                                    <MudText Typo="Typo.body2" Style="white-space: nowrap">Save for @SlangNames.Apply(recommendation.RailroadName, SlangMode) (@FormatCurrency(recommendation.PurchasePrice))</MudText>
+                                    <MudText Typo="Typo.caption" Style="white-space: nowrap">@SlangNames.Apply(recommendation.Reason, SlangMode) · @FormatCurrency(-recommendation.SpareCash) short</MudText>
+                                </MudStack>
+                                continue;
+                            }
+
                             <MudMenuItem OnClick="@(() => OnSelectedOptionChangedAsync(recommendation.OptionKey))">
                                 <MudStack Spacing="0">
                                     <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">@recommendation.CategoryLabel</MudText>
@@ -121,6 +132,14 @@
     /// <summary>Best railroad per category and the budget behind it; picking one selects it.</summary>
     [Parameter]
     public PurchaseRecommendationsModel Recommendations { get; set; } = PurchaseRecommendationsModel.Empty;
+
+    private string EngineUpgradeText => Recommendations.EngineUpgrade switch
+    {
+        EngineUpgradeRecommendation.Express => "Express",
+        EngineUpgradeRecommendation.Superchief => "Superchief",
+        EngineUpgradeRecommendation.SaveForSuperchief => "Save for Superchief",
+        _ => "None"
+    };
 
     /// <summary>Only the player whose turn it is sees recommendations.</summary>
     [Parameter]

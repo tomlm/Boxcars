@@ -11,9 +11,9 @@ public class PurchaseRecommendationServiceTests
     // Railroad indices on the test map.
     private const int OwnedWest = 1, OwnedEast = 2, Bend = 3, Bridge = 4, BigCity = 5, Cheap = 6, LeaderLine = 7, FarCity = 8;
 
-    private static LocomotiveType? RecommendEngine(
+    private static EngineUpgradeRecommendation RecommendEngine(
         int cash,
-        decimal unsoldShare,
+        decimal unsoldShare = 0.25m,
         bool strongRailroad = false,
         bool railroadRecommended = false,
         LocomotiveType current = LocomotiveType.Freight,
@@ -30,49 +30,51 @@ public class PurchaseRecommendationServiceTests
 
     [Theory]
     // Two thirds or more sold: Superchief even with a strong railroad on offer.
-    [InlineData(0.25, true, LocomotiveType.Superchief)]
-    // Before that, a strong railroad (toll booth, monopoly, 10%+ access) beats it.
-    [InlineData(0.5, true, null)]
-    [InlineData(0.5, false, LocomotiveType.Superchief)]
-    public void RecommendEngineUpgrade_Superchief_WhenMostRailroadsAreSoldOrNoStrongRailroadIsOnOffer(double unsoldShare, bool strongRailroad, LocomotiveType? expected)
+    [InlineData(0.25, true, EngineUpgradeRecommendation.Superchief)]
+    // Before that, a strong railroad (toll booth, monopoly, 10%+ access) the buyer can afford beats it.
+    [InlineData(0.5, true, EngineUpgradeRecommendation.None)]
+    [InlineData(0.5, false, EngineUpgradeRecommendation.Superchief)]
+    public void RecommendEngineUpgrade_Superchief_WhenMostRailroadsAreSoldOrNoStrongRailroadIsOnOffer(double unsoldShare, bool strongRailroad, EngineUpgradeRecommendation expected)
     {
         Assert.Equal(expected, RecommendEngine(cash: 60_000, (decimal)unsoldShare, strongRailroad));
     }
 
     [Fact]
-    public void RecommendEngineUpgrade_Superchief_KeepsTheReserveAndFeesOwed()
+    public void RecommendEngineUpgrade_Superchief_KeepsTheReserveAndFeesOwed_OrIsSavedFor()
     {
-        // $40k + $10k reserve + $5k fees owed: $54,999 is a dollar short.
-        Assert.Null(RecommendEngine(cash: 54_999, unsoldShare: 0m, feesOwed: 5_000));
-        Assert.Equal(LocomotiveType.Superchief, RecommendEngine(cash: 55_000, unsoldShare: 0m, feesOwed: 5_000));
+        // $40k + $10k reserve + $5k fees owed: $54,999 is a dollar short, and close enough to save for.
+        Assert.Equal(EngineUpgradeRecommendation.SaveForSuperchief, RecommendEngine(cash: 54_999, feesOwed: 5_000));
+        Assert.Equal(EngineUpgradeRecommendation.Superchief, RecommendEngine(cash: 55_000, feesOwed: 5_000));
     }
 
     [Fact]
-    public void RecommendEngineUpgrade_Superchief_NotWhenItCostsTheWinningCash()
+    public void RecommendEngineUpgrade_WithWinningCash_OnlyASuperchiefThatKeepsIt()
     {
-        Assert.Null(RecommendEngine(cash: 320_000, unsoldShare: 0m));
-        Assert.Equal(LocomotiveType.Superchief, RecommendEngine(cash: 340_000, unsoldShare: 0m));
+        Assert.Equal(EngineUpgradeRecommendation.None, RecommendEngine(cash: 320_000));
+        Assert.Equal(EngineUpgradeRecommendation.Superchief, RecommendEngine(cash: 340_000));
     }
 
     [Fact]
     public void RecommendEngineUpgrade_AlreadySuperchief_IsNone()
     {
-        Assert.Null(RecommendEngine(cash: 200_000, unsoldShare: 0m, current: LocomotiveType.Superchief));
+        Assert.Equal(EngineUpgradeRecommendation.None, RecommendEngine(cash: 200_000, current: LocomotiveType.Superchief));
     }
 
     [Theory]
-    // Little to spare and nothing else recommended: Express, early or late.
-    [InlineData(20_000, 0.75, false, LocomotiveType.Freight, LocomotiveType.Express)]
-    [InlineData(21_500, 0.25, false, LocomotiveType.Freight, LocomotiveType.Express)]
-    // Not with a railroad recommended, with Superchief money close, or already Express.
-    [InlineData(20_000, 0.75, true, LocomotiveType.Freight, null)]
-    [InlineData(40_000, 0.75, false, LocomotiveType.Freight, null)]
-    [InlineData(20_000, 0.75, false, LocomotiveType.Express, null)]
-    // Can't keep the reserve after paying for it.
-    [InlineData(13_000, 0.75, false, LocomotiveType.Freight, null)]
-    public void RecommendEngineUpgrade_Express_WhenNothingElseIsRecommendedAndASuperchiefIsFarOff(int cash, double unsoldShare, bool railroadRecommended, LocomotiveType current, LocomotiveType? expected)
+    // Less than 2/3 of a Superchief ($26,667) to spare, nothing else recommended: Express, early or late. $21,500
+    // with $1,000 fees owed and a $5,000 reserve leaves $15,500.
+    [InlineData(20_000, 10_000, 1_000, false, LocomotiveType.Freight, EngineUpgradeRecommendation.Express)]
+    [InlineData(21_500, 5_000, 1_000, false, LocomotiveType.Freight, EngineUpgradeRecommendation.Express)]
+    // Otherwise save for the Superchief: a railroad is recommended, it's within 2/3, already Express, or Express
+    // wouldn't keep the reserve.
+    [InlineData(20_000, 10_000, 0, true, LocomotiveType.Freight, EngineUpgradeRecommendation.SaveForSuperchief)]
+    [InlineData(40_000, 10_000, 0, false, LocomotiveType.Freight, EngineUpgradeRecommendation.SaveForSuperchief)]
+    [InlineData(20_000, 10_000, 0, false, LocomotiveType.Express, EngineUpgradeRecommendation.SaveForSuperchief)]
+    [InlineData(13_000, 10_000, 0, false, LocomotiveType.Freight, EngineUpgradeRecommendation.SaveForSuperchief)]
+    public void RecommendEngineUpgrade_CantAffordASuperchief_ExpressWhenItsFarOff_OtherwiseSaveForIt(
+        int cash, int reserve, int feesOwed, bool railroadRecommended, LocomotiveType current, EngineUpgradeRecommendation expected)
     {
-        Assert.Equal(expected, RecommendEngine(cash, (decimal)unsoldShare, strongRailroad: true, railroadRecommended, current));
+        Assert.Equal(expected, RecommendEngine(cash, railroadRecommended: railroadRecommended, current: current, reserve: reserve, feesOwed: feesOwed));
     }
 
     [Fact]
@@ -154,16 +156,19 @@ public class PurchaseRecommendationServiceTests
     }
 
     [Fact]
-    public void BuildRecommendations_SkipsRailroadsThatWouldBreakTheOperatingReserve()
+    public void BuildRecommendations_ARailroadThatWouldBreakTheOperatingReserve_IsOneToSaveFor()
     {
-        // $35,000 can't cover the $30,000 big-city line and a $10,000 reserve.
+        // $35,000 can't cover the $30,000 big-city line and a $10,000 reserve, but it still adds the most access.
         var result = BuildSet(new PurchaseFinances(35_000, 0, 10_000, _ => 0));
 
         Assert.Equal(10_000, result.OperatingReserve);
-        Assert.DoesNotContain(result.Recommendations, r => r.RailroadIndex == BigCity);
         var access = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Access);
-        Assert.Equal(FarCity, access.RailroadIndex);
-        Assert.Equal(35_000 - 12_000 - 10_000, access.SpareCash);
+        Assert.Equal(BigCity, access.RailroadIndex);
+        Assert.False(access.CanBuyNow);
+        Assert.Equal(35_000 - 30_000 - 10_000, access.SpareCash);
+        // The cheapest line that adds access can be bought now.
+        var lowPrice = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.LowPrice);
+        Assert.True(lowPrice.CanBuyNow);
     }
 
     [Fact]
@@ -172,8 +177,9 @@ public class PurchaseRecommendationServiceTests
         var withoutFees = BuildSet(new PurchaseFinances(45_000, 0, 10_000, _ => 0));
         var withFees = BuildSet(new PurchaseFinances(45_000, 10_000, 10_000, _ => 0));
 
-        Assert.Contains(withoutFees.Recommendations, r => r.RailroadIndex == BigCity);
-        Assert.DoesNotContain(withFees.Recommendations, r => r.RailroadIndex == BigCity);
+        Assert.All(withoutFees.Recommendations.Where(r => r.RailroadIndex == BigCity), r => Assert.True(r.CanBuyNow));
+        Assert.All(withFees.Recommendations.Where(r => r.RailroadIndex == BigCity), r => Assert.False(r.CanBuyNow));
+        Assert.Contains(withFees.Recommendations, r => r.RailroadIndex == BigCity);
         Assert.Equal(10_000, withFees.FeesOwed);
     }
 
@@ -189,11 +195,12 @@ public class PurchaseRecommendationServiceTests
     }
 
     [Fact]
-    public void BuildRecommendations_NothingFits_ReportsTheBudgetWithoutRecommendations()
+    public void BuildRecommendations_NothingFits_ReportsTheBudget_AndRailroadsToSaveFor()
     {
         var result = BuildSet(new PurchaseFinances(5_000, 1_000, 10_000, _ => 0));
 
-        Assert.Empty(result.Recommendations);
+        Assert.NotEmpty(result.Recommendations);
+        Assert.All(result.Recommendations, r => Assert.False(r.CanBuyNow));
         Assert.Equal(5_000, result.Cash);
         Assert.Equal(1_000, result.FeesOwed);
         Assert.Equal(10_000, result.OperatingReserve);
