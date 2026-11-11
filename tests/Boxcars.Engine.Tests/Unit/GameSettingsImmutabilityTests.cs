@@ -63,49 +63,6 @@ public class GameSettingsImmutabilityTests
         Assert.Equal(6_000, gamesTable.GameEntity.ExpressPrice);
     }
 
-    [Fact]
-    public async Task SynchronizeStateAsync_StartedGame_DoesNotRewritePersistedGameSettings()
-    {
-        var settings = GameSettingsTestData.Create(
-            startingCash: 35_000,
-            announcingCash: 150_000,
-            winningCash: 325_000,
-            publicFee: 1_500,
-            privateFee: 500,
-            keepCashSecret: false,
-            startEngine: LocomotiveType.Express,
-            superchiefPrice: 45_000,
-            expressPrice: 6_000);
-        var gameEntity = GameSettingsTestData.CreatePersistedGameEntity("game-1", settings);
-        var gamesTable = new EngineImmutableSettingsGamesTableClient(gameEntity);
-        var presenceService = new GamePresenceService();
-        var service = new GameEngineService(
-            new TestWebHostEnvironment(),
-            gamesTable,
-            presenceService,
-            BotTurnServiceTestHarness.CreateService(presenceService),
-            new GameSettingsResolver(),
-            Options.Create(new BotOptions()),
-            NullLogger<GameEngineService>.Instance);
-
-        SetMapReady(service);
-        SetMapDefinition(service, Boxcars.Engine.Tests.Fixtures.GameEngineFixture.CreateTestMap());
-
-        var (engine, _) = Boxcars.Engine.Tests.Fixtures.GameEngineFixture.CreateTestEngine();
-
-        await service.SynchronizeStateAsync("game-1", engine.ToSnapshot(), CancellationToken.None);
-
-        Assert.Equal(0, gamesTable.GameEntityUpdateCount);
-        Assert.Equal(0, gamesTable.GameEntityAddCount);
-        Assert.Equal(35_000, gamesTable.GameEntity.StartingCash);
-        Assert.Equal(150_000, gamesTable.GameEntity.AnnouncingCash);
-        Assert.Equal(325_000, gamesTable.GameEntity.WinningCash);
-        Assert.Equal(1_500, gamesTable.GameEntity.PublicFee);
-        Assert.Equal(500, gamesTable.GameEntity.PrivateFee);
-        Assert.False(gamesTable.GameEntity.KeepCashSecret);
-        Assert.Equal("Express", gamesTable.GameEntity.StartEngine);
-    }
-
     private static void SetMapDefinition(GameEngineService service, Boxcars.Engine.Data.Maps.MapDefinition mapDefinition)
     {
         var field = typeof(GameEngineService).GetField("_mapDefinition", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
@@ -299,11 +256,6 @@ public class GameSettingsImmutabilityTests
         }
 
         public Task StartGameAsync(string gameId, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task SynchronizeStateAsync(string gameId, global::Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }

@@ -420,11 +420,6 @@ public class GameServiceTests
             throw new NotSupportedException();
         }
 
-        public Task SynchronizeStateAsync(string gameId, global::Boxcars.Engine.Persistence.GameState state, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
         public Task<Boxcars.Data.Maps.RouteSuggestionResult> SuggestRouteAsync(string gameId, int playerIndex, string? destinationNodeId, IReadOnlyCollection<int> playersNotToRover, CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
