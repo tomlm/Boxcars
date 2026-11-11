@@ -683,7 +683,7 @@ public class UseFeesTests
     }
 
     [Fact]
-    public void ToSnapshot_SavesPlannedDistanceToDestination()
+    public void ToSnapshot_SavesShortestDistanceForANewDestination()
     {
         var engine = CreateRoutePlanningEngine();
         var rider = engine.Players[0];
@@ -691,7 +691,7 @@ public class UseFeesTests
         rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
         rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
 
-        Assert.Equal(engine.SuggestRouteForPlayer(rider.Index).Segments.Count, engine.ToSnapshot().Players[rider.Index].DistanceToDestination);
+        Assert.Equal(2, engine.ToSnapshot().Players[rider.Index].DistanceToDestination);
         Assert.Equal(0, engine.ToSnapshot().Players[1].DistanceToDestination);
     }
 
@@ -716,7 +716,26 @@ public class UseFeesTests
 
         restored.Players[rider.Index].Destination = restored.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
         restored.Players[rider.Index].CurrentNodeId = "0:2";
-        Assert.Equal(restored.SuggestRouteForPlayer(rider.Index).Segments.Count, restored.ToSnapshot().Players[rider.Index].DistanceToDestination);
+        Assert.Equal(2, restored.ToSnapshot().Players[rider.Index].DistanceToDestination);
+    }
+
+    [Fact]
+    public void MoveAlongRoute_SetsShortestDistanceFromWhereThePlayerStops()
+    {
+        var engine = CreateRoutePlanningEngine();
+        var rider = engine.Players[0];
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementRemaining = 1;
+        engine.SaveRoute(engine.SuggestRouteForPlayer(rider.Index));
+
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal("0:1", rider.CurrentNodeId);
+        Assert.Equal(1, rider.DistanceToDestination);
     }
 
     [Fact]

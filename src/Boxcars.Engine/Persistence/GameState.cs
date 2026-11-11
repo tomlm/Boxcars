@@ -67,7 +67,7 @@ public sealed class PlayerState
     public List<GrandfatheredRailroadFeeState> GrandfatheredRailroadFees { get; set; } = new();
     public string? CurrentNodeId { get; set; }
     public int RouteProgressIndex { get; set; }
-    /// <summary>Dots in the player's planned route to their destination; null in games saved before it was kept.</summary>
+    /// <summary>Dots to the player's destination (see Player.DistanceToDestination); null in games saved before it was kept.</summary>
     public int? DistanceToDestination { get; set; }
 }
 

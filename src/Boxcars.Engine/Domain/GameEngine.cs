@@ -564,9 +564,15 @@ public sealed class GameEngine : ObservableBase
                 || string.Equals(player.CurrentCity.Name, player.Destination.Name, StringComparison.OrdinalIgnoreCase)
             );
 
+        if (!arrivedAtDestination)
+        {
+            player.DistanceToDestination = ShortestDistanceToDestination(player);
+            player.DistancePlannedTo = player.Destination?.Name;
+        }
+
         if (arrivedAtDestination)
         {
-            // The next trip plans its own distance, even to the same city.
+            // The next trip finds its own distance, even to the same city.
             player.DistanceToDestination = 0;
             player.DistancePlannedTo = null;
             if (!string.Equals(player.CurrentCity.Name, player.Destination!.Name, StringComparison.OrdinalIgnoreCase))
@@ -611,8 +617,8 @@ public sealed class GameEngine : ObservableBase
     }
 
     /// <summary>
-    /// The player's distance to their destination for saving: planned once when they get a new destination, then kept
-    /// as their moves report it (see <see cref="MoveAlongRoute(int, int?)"/>). 0 with no destination.
+    /// The player's distance to their destination for saving (see <see cref="Player.DistanceToDestination"/>): found
+    /// once for a new destination, then kept until their move is planned or they move. 0 with no destination.
     /// </summary>
     private int? GetDistanceToDestination(Player player)
     {
@@ -626,20 +632,20 @@ public sealed class GameEngine : ObservableBase
             return player.DistanceToDestination;
         }
 
-        // Saving the game shouldn't change the approach decision the last suggestion made.
-        var approachDecision = LastApproachDecision;
-        try
-        {
-            player.DistanceToDestination = SuggestRouteForPlayer(player.Index).Segments.Count;
-        }
-        catch (InvalidOperationException)
-        {
-            player.DistanceToDestination = null;
-        }
-
-        LastApproachDecision = approachDecision;
+        player.DistanceToDestination = ShortestDistanceToDestination(player);
         player.DistancePlannedTo = player.Destination.Name;
         return player.DistanceToDestination;
+    }
+
+    /// <summary>The fewest dots to the player's destination on track not yet ridden this trip, whatever it costs; null when there's no way.</summary>
+    private int? ShortestDistanceToDestination(Player player)
+    {
+        return player.CurrentNodeId is { } startNodeId
+            && player.Destination is { } destination
+            && FindCityNodeId(destination) is { } destNodeId
+            && FindShortestRoute(startNodeId, destNodeId, player) is { } route
+                ? route.Segments.Count
+                : null;
     }
 
     /// <summary>

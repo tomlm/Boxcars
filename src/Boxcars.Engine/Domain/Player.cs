@@ -123,8 +123,8 @@ public sealed class Player : ObservableBase
     }
 
     /// <summary>
-    /// Dots left in the player's planned route to their destination, as of the last time it was planned; it isn't
-    /// planned again just to keep it current (see <see cref="GameEngine.MoveAlongRoute(int, int?)"/>).
+    /// Dots to the player's destination: their planned route's length once their move is planned, and the shortest
+    /// way there after they move or get a new destination, which is cheap to find.
     /// </summary>
     public int? DistanceToDestination { get; internal set; }
 
