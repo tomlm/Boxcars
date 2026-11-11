@@ -11,6 +11,70 @@ public class PurchaseRecommendationServiceTests
     // Railroad indices on the test map.
     private const int OwnedWest = 1, OwnedEast = 2, Bend = 3, Bridge = 4, BigCity = 5, Cheap = 6, LeaderLine = 7, FarCity = 8;
 
+    private static LocomotiveType? RecommendEngine(
+        int cash,
+        decimal unsoldShare,
+        bool strongRailroad = false,
+        bool railroadRecommended = false,
+        LocomotiveType current = LocomotiveType.Freight,
+        int reserve = 10_000,
+        int feesOwed = 0)
+    {
+        return PurchaseRecommendationService.RecommendEngineUpgrade(
+            new EngineUpgradeInputs(current, ExpressPrice: 4_000, SuperchiefPrice: 40_000, WinningCash: 300_000, unsoldShare),
+            new PurchaseFinances(cash, feesOwed, reserve, _ => 0),
+            incomingFees: 0,
+            strongRailroad,
+            railroadRecommended);
+    }
+
+    [Theory]
+    // Two thirds or more sold: Superchief even with a strong railroad on offer.
+    [InlineData(0.25, true, LocomotiveType.Superchief)]
+    // Before that, a strong railroad (toll booth, monopoly, 10%+ access) beats it.
+    [InlineData(0.5, true, null)]
+    [InlineData(0.5, false, LocomotiveType.Superchief)]
+    public void RecommendEngineUpgrade_Superchief_WhenMostRailroadsAreSoldOrNoStrongRailroadIsOnOffer(double unsoldShare, bool strongRailroad, LocomotiveType? expected)
+    {
+        Assert.Equal(expected, RecommendEngine(cash: 60_000, (decimal)unsoldShare, strongRailroad));
+    }
+
+    [Fact]
+    public void RecommendEngineUpgrade_Superchief_KeepsTheReserveAndFeesOwed()
+    {
+        // $40k + $10k reserve + $5k fees owed: $54,999 is a dollar short.
+        Assert.Null(RecommendEngine(cash: 54_999, unsoldShare: 0m, feesOwed: 5_000));
+        Assert.Equal(LocomotiveType.Superchief, RecommendEngine(cash: 55_000, unsoldShare: 0m, feesOwed: 5_000));
+    }
+
+    [Fact]
+    public void RecommendEngineUpgrade_Superchief_NotWhenItCostsTheWinningCash()
+    {
+        Assert.Null(RecommendEngine(cash: 320_000, unsoldShare: 0m));
+        Assert.Equal(LocomotiveType.Superchief, RecommendEngine(cash: 340_000, unsoldShare: 0m));
+    }
+
+    [Fact]
+    public void RecommendEngineUpgrade_AlreadySuperchief_IsNone()
+    {
+        Assert.Null(RecommendEngine(cash: 200_000, unsoldShare: 0m, current: LocomotiveType.Superchief));
+    }
+
+    [Theory]
+    // Early, little to spare, nothing else recommended: Express.
+    [InlineData(20_000, 0.75, false, LocomotiveType.Freight, LocomotiveType.Express)]
+    // Not with a railroad recommended, past half sold, with Superchief money close, or already Express.
+    [InlineData(20_000, 0.75, true, LocomotiveType.Freight, null)]
+    [InlineData(20_000, 0.25, false, LocomotiveType.Freight, null)]
+    [InlineData(40_000, 0.75, false, LocomotiveType.Freight, null)]
+    [InlineData(20_000, 0.75, false, LocomotiveType.Express, null)]
+    // Can't keep the reserve after paying for it.
+    [InlineData(13_000, 0.75, false, LocomotiveType.Freight, null)]
+    public void RecommendEngineUpgrade_Express_OnlyEarlyWhenASuperchiefIsFarOff(int cash, double unsoldShare, bool railroadRecommended, LocomotiveType current, LocomotiveType? expected)
+    {
+        Assert.Equal(expected, RecommendEngine(cash, (decimal)unsoldShare, strongRailroad: true, railroadRecommended, current));
+    }
+
     [Fact]
     public void BuildRecommendations_PicksTheBestRailroadInEachCategory()
     {

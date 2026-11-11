@@ -780,7 +780,15 @@ public sealed class GameBoardStateMapper(
             .Select(entry => new RecommendationOpponent(entry.Player.Name, entry.Player.Cash, entry.Player.OwnedRailroadIndices, entry.Player.DestinationCityName))
             .ToList();
 
-        var result = PurchaseRecommendationService.BuildRecommendations(mapDefinition, buyer.OwnedRailroadIndices, candidates, opponents, finances);
+        var unsoldRailroadCount = mapDefinition.Railroads.Count(railroad => !state.RailroadOwnership.TryGetValue(railroad.Index, out var ownerIndex) || ownerIndex is null);
+        var engine = new EngineUpgradeInputs(
+            ParseLocomotiveType(buyer.LocomotiveType),
+            settings.ExpressPrice,
+            settings.SuperchiefPrice,
+            settings.WinningCash,
+            mapDefinition.Railroads.Count == 0 ? 0m : (decimal)unsoldRailroadCount / mapDefinition.Railroads.Count);
+
+        var result = PurchaseRecommendationService.BuildRecommendations(mapDefinition, buyer.OwnedRailroadIndices, candidates, opponents, finances, engine);
         return new PurchaseRecommendationsModel(
             result.Recommendations
                 .Select(recommendation => new PurchaseRecommendationModel(
@@ -794,7 +802,9 @@ public sealed class GameBoardStateMapper(
             result.Cash,
             result.FeesOwed,
             result.IncomingFees,
-            result.OperatingReserve);
+            result.OperatingReserve,
+            result.EngineUpgrade,
+            result.EngineUpgrade is { } engineUpgrade ? BuildEngineOptionKey(engineUpgrade) : null);
     }
 
     private static string GetRecommendationLabel(PurchaseRecommendationCategory category)

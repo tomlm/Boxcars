@@ -39,6 +39,23 @@
                             Cash @FormatCurrency(Recommendations.Cash) · Fees owed @FormatCurrency(Recommendations.FeesOwed) · Fees coming in @FormatCurrency(Recommendations.IncomingFees) · Reserve @FormatCurrency(Recommendations.OperatingReserve)
                         </MudText>
                         <MudDivider />
+                        @if (Recommendations.EngineUpgradeOptionKey is { } engineOptionKey)
+                        {
+                            <MudMenuItem OnClick="@(() => OnSelectedOptionChangedAsync(engineOptionKey))">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">Engine Upgrade Recommendation</MudText>
+                                    <MudText Typo="Typo.body2">@SlangNames.Apply(Recommendations.EngineUpgrade.ToString()!, SlangMode)</MudText>
+                                </MudStack>
+                            </MudMenuItem>
+                        }
+                        else
+                        {
+                            <MudStack Spacing="0" Class="px-4 py-2">
+                                <MudText Typo="Typo.caption" Color="MudBlazor.Color.Primary" Style="font-weight: 700">Engine Upgrade Recommendation</MudText>
+                                <MudText Typo="Typo.body2">None</MudText>
+                            </MudStack>
+                        }
+                        <MudDivider />
                         @if (Recommendations.Recommendations.Count == 0)
                         {
                             <MudText Typo="Typo.body2" Class="px-4 py-2">Nothing fits your operating reserve.</MudText>

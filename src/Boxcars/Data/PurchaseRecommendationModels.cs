@@ -1,3 +1,5 @@
+using Boxcars.Engine.Domain;
+
 namespace Boxcars.Data;
 
 /// <summary>Purchase suggestion categories, in the order they're shown.</summary>
@@ -26,12 +28,23 @@ public sealed record PurchaseRecommendation(
 
 /// <param name="IncomingFees">Fees opponents are expected to pay the buyer soon with their current railroads.</param>
 /// <param name="OperatingReserve">Reserve the buyer should keep with their current network (each pick uses its own).</param>
+/// <param name="EngineUpgrade">The engine to upgrade to, or null for none (see <c>PurchaseRecommendationService.RecommendEngineUpgrade</c>).</param>
 public sealed record PurchaseRecommendationSet(
     IReadOnlyList<PurchaseRecommendation> Recommendations,
     int Cash,
     int FeesOwed,
     int IncomingFees,
-    int OperatingReserve);
+    int OperatingReserve,
+    LocomotiveType? EngineUpgrade = null);
+
+/// <summary>What the engine upgrade recommendation needs beyond the buyer's finances.</summary>
+/// <param name="UnsoldShare">Share of the map's railroads still for sale (0-1).</param>
+public sealed record EngineUpgradeInputs(
+    LocomotiveType CurrentEngine,
+    int ExpressPrice,
+    int SuperchiefPrice,
+    int WinningCash,
+    decimal UnsoldShare);
 
 /// <summary>A railroad the buyer can afford.</summary>
 public sealed record PurchaseCandidate(int RailroadIndex, string RailroadName, int PurchasePrice);
@@ -58,12 +71,16 @@ public sealed record PurchaseRecommendationModel(
     int SpareCash);
 
 /// <summary>The buyer's budget and recommendations for the purchase bar.</summary>
+/// <param name="EngineUpgrade">The engine to upgrade to, or null for none.</param>
+/// <param name="EngineUpgradeOptionKey">The option key that selects <paramref name="EngineUpgrade"/>, or null for none.</param>
 public sealed record PurchaseRecommendationsModel(
     IReadOnlyList<PurchaseRecommendationModel> Recommendations,
     int Cash,
     int FeesOwed,
     int IncomingFees,
-    int OperatingReserve)
+    int OperatingReserve,
+    LocomotiveType? EngineUpgrade = null,
+    string? EngineUpgradeOptionKey = null)
 {
     public static PurchaseRecommendationsModel Empty { get; } = new([], 0, 0, 0, 0);
 }

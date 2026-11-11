@@ -734,7 +734,7 @@ public sealed class BotTurnService
             .OrderByDescending(railroad => railroad.PurchasePrice)
             .ThenBy(railroad => railroad.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var recommendations = PurchaseRecommendationService.BuildRecommendations(
+        var recommendationSet = PurchaseRecommendationService.BuildRecommendations(
             mapDefinition,
             ownedRailroadIndices,
             affordableRailroads.Select(railroad => new PurchaseCandidate(railroad.Index, railroad.Name, railroad.PurchasePrice)).ToList(),
@@ -746,10 +746,20 @@ public sealed class BotTurnService
                 player.Cash,
                 pendingFeeAmount,
                 operatingReserve.Amount,
-                EstimateIncomingFees))
-            .Recommendations;
-        // Without the AI, a toll booth (the only way into an opponent's destination) beats the blended pick.
-        var fallbackRailroadIndex = (recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.TollBooth)
+                EstimateIncomingFees),
+            new EngineUpgradeInputs(
+                player.LocomotiveType,
+                gameEngine.Settings.ExpressPrice,
+                gameEngine.Settings.SuperchiefPrice,
+                gameEngine.Settings.WinningCash,
+                gameEngine.Railroads.Count == 0 ? 0m : (decimal)gameEngine.Railroads.Count(railroad => railroad.Owner is null) / gameEngine.Railroads.Count));
+        var recommendations = recommendationSet.Recommendations;
+        // Without the AI, a recommended Superchief comes first, then a toll booth (the only way into an opponent's
+        // destination), then the blended pick; a recommended Express is only ever recommended when no railroad is.
+        var recommendedEngine = recommendationSet.EngineUpgrade;
+        var fallbackRailroadIndex = recommendedEngine == LocomotiveType.Superchief
+            ? null
+            : (recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.TollBooth)
                 ?? recommendations.FirstOrDefault(recommendation => recommendation.Category == PurchaseRecommendationCategory.Blended))
             ?.RailroadIndex;
 
@@ -817,8 +827,10 @@ public sealed class BotTurnService
                     pendingFeeAmount,
                     projectedFeeShortfall,
                     engineReserveTarget,
-                    reserveShortfall),
-                Payload = engineType.ToString()
+                    reserveShortfall)
+                    + (engineType == recommendedEngine ? " | Recommended: Engine upgrade" : string.Empty),
+                Payload = engineType.ToString(),
+                IsPreferredFallback = engineType == recommendedEngine
             });
 
             actionsByOptionId[optionId] = new BuyEngineAction
