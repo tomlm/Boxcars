@@ -48,9 +48,16 @@
 </div>
 
 @code {
+    // Black rather than MudBlazor's dark grays, so light text and controls stand out.
     private static readonly MudTheme _darkTheme = new()
     {
-        PaletteDark = new PaletteDark()
+        PaletteDark = new PaletteDark
+        {
+            Background = "#000000",
+            Surface = "#000000",
+            AppbarBackground = "#000000",
+            DrawerBackground = "#000000"
+        }
     };
 
     [CascadingParameter]
