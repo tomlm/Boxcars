@@ -3711,7 +3711,7 @@ public sealed class GameEngine : ObservableBase
                 var exhaustedTurnCapacity = !isFirstEdge && state.PointsLeftInCurrentTurn <= 0;
                 var startsNewTurn = isFirstEdge || exhaustedTurnCapacity;
                 var turnsAdded = startsNewTurn ? 1 : 0;
-                // Each fee group (public, the player's own railroads, each opponent) is paid at most once per turn,
+                // Each fee group (public, the player's own railroads, each opponent; see GetFeeGroup) is paid at most once per turn,
                 // however often the route leaves and rejoins it.
                 var feeGroupFlag = RouteFeeGroups.ToFlag(GetFeeGroup(player, railroad));
                 var fee = PlanTraversalFee(player, railroad, state, startsNewTurnFees: exhaustedTurnCapacity);
@@ -4837,8 +4837,8 @@ internal readonly record struct RoutePlanningFeeStep(
     int ReducedFee);
 
 /// <summary>
-/// Fees are charged once per turn per group: public railroads, the player's own railroads, and each opponent
-/// owner. Route planning charges a fee when a turn starts or when the route switches into a different group, so
+/// Fees are charged once per turn per group: public railroads, the player's own railroads (in the public group unless
+/// <see cref="GameSettings.ChargePublicAndOwnFeesSeparately"/> is on), and each opponent owner. Route planning charges a fee when a turn starts or when the route switches into a different group, so
 /// switching between railroads in the same group (e.g. two public railroads) is free. Returning to a group already
 /// used earlier in the turn is charged again; that over-estimate is rare and keeps the search state small.
 /// </summary>
