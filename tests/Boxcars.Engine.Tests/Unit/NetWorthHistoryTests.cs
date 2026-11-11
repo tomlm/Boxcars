@@ -1,5 +1,4 @@
 using Boxcars.Engine.Persistence;
-using Boxcars.Engine.Tests.Fixtures;
 using global::Boxcars.Services;
 
 namespace Boxcars.Engine.Tests.Unit;
@@ -7,22 +6,22 @@ namespace Boxcars.Engine.Tests.Unit;
 public class NetWorthHistoryTests
 {
     [Fact]
-    public void Build_CountsCashPlusRailroadPurchasePrices_AtTheEndOfEachRound()
+    public void Build_ShowsEachPlayersNetWorthByRound()
     {
-        const int price = 10_000;
-        var map = new global::Boxcars.Engine.Data.Maps.MapDefinition { Name = "Net Worth Test", Version = "1.0" };
-        var railroad = new global::Boxcars.Engine.Data.Maps.RailroadDefinition { Index = 3, Name = "Test Line", ShortName = "TL", PurchasePrice = price };
-        map.Railroads.Add(railroad);
+        var state = new GameState
+        {
+            Players = [new PlayerState { Name = "Alice" }, new PlayerState { Name = "Bob" }],
+            Statistics = new GameStatisticsState
+            {
+                NetWorth =
+                [
+                    new NetWorthRoundState { Round = 2, Values = [30_000, 19_000] },
+                    new NetWorthRoundState { Round = 1, Values = [25_000, 18_000] }
+                ]
+            }
+        };
 
-        var history = NetWorthHistory.Build(
-        [
-            // Round 1: turns 1 (Alice) and 2 (Bob). Only the last state in the round counts.
-            CreateState(turnNumber: 1, aliceCash: 20_000, bobCash: 20_000),
-            CreateState(turnNumber: 2, aliceCash: 25_000, bobCash: 18_000),
-            // Round 2: Alice has bought the railroad.
-            CreateState(turnNumber: 3, aliceCash: 25_000 - price, bobCash: 18_000, aliceRailroads: [railroad.Index]),
-            CreateState(turnNumber: 4, aliceCash: 30_000 - price, bobCash: 19_000, aliceRailroads: [railroad.Index])
-        ], map, GameSettings.Default);
+        var history = NetWorthHistory.Build(state);
 
         Assert.Equal([1, 2], history.RoundNumbers);
         var alice = history.Series.Single(series => series.PlayerName == "Alice");
@@ -34,44 +33,11 @@ public class NetWorthHistoryTests
     }
 
     [Fact]
-    public void Build_CountsEngineAtThisGamesPrice()
+    public void Build_GameSavedWithoutStatistics_IsEmpty()
     {
-        var settings = GameSettings.Default with { ExpressPrice = 5_000, SuperchiefPrice = 30_000 };
-        var map = new global::Boxcars.Engine.Data.Maps.MapDefinition { Name = "Net Worth Test", Version = "1.0" };
-
-        var history = NetWorthHistory.Build(
-        [
-            CreateState(turnNumber: 1, aliceCash: 20_000, bobCash: 20_000),
-            CreateState(turnNumber: 2, aliceCash: 20_000, bobCash: 20_000, aliceEngine: "Express"),
-            CreateState(turnNumber: 4, aliceCash: 20_000, bobCash: 20_000, aliceEngine: "Superchief")
-        ], map, settings);
-
-        var alice = history.Series.Single(series => series.PlayerName == "Alice");
-        var bob = history.Series.Single(series => series.PlayerName == "Bob");
-        Assert.Equal([25_000, 50_000], alice.Values);
-        // Bob still has the Freight he started with, which adds nothing.
-        Assert.Equal([20_000, 20_000], bob.Values);
-    }
-
-    [Fact]
-    public void Build_NoStates_IsEmpty()
-    {
-        var history = NetWorthHistory.Build([], GameEngineFixture.CreateTestMap(), GameSettings.Default);
+        var history = NetWorthHistory.Build(new GameState { Players = [new PlayerState { Name = "Alice" }] });
 
         Assert.Empty(history.RoundNumbers);
         Assert.Empty(history.Series);
-    }
-
-    private static GameState CreateState(int turnNumber, int aliceCash, int bobCash, List<int>? aliceRailroads = null, string aliceEngine = "Freight")
-    {
-        return new GameState
-        {
-            TurnNumber = turnNumber,
-            Players =
-            [
-                new PlayerState { Name = "Alice", Cash = aliceCash, OwnedRailroadIndices = aliceRailroads ?? [], LocomotiveType = aliceEngine },
-                new PlayerState { Name = "Bob", Cash = bobCash }
-            ]
-        };
     }
 }

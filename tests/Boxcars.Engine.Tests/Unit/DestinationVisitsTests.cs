@@ -7,18 +7,14 @@ namespace Boxcars.Engine.Tests.Unit;
 public class DestinationVisitsTests
 {
     [Fact]
-    public void Build_CountsEachNewDestinationOnce_AndComparesWithTheOdds()
+    public void Build_ShowsTheGamesDraws_AndComparesWithTheOdds()
     {
-        var visits = DestinationVisits.Build(
-        [
-            CreateState(aliceDestination: "Boston", bobDestination: null),
-            // The same destination across many saved states is one draw.
-            CreateState(aliceDestination: "Boston", bobDestination: "Miami"),
-            CreateState(aliceDestination: "Boston", bobDestination: "Miami"),
-            // Arriving clears it; the next one is a new draw, even for the same city.
-            CreateState(aliceDestination: null, bobDestination: "Miami"),
-            CreateState(aliceDestination: "Boston", bobDestination: "Miami")
-        ], CreateMap());
+        var state = new GameState
+        {
+            Statistics = new GameStatisticsState { DestinationDraws = new() { ["Boston"] = 2, ["Miami"] = 1 } }
+        };
+
+        var visits = DestinationVisits.Build(state, CreateMap());
 
         Assert.Equal(3, visits.TotalDraws);
         var boston = visits.Rows.Single(row => row.CityName == "Boston");
@@ -31,28 +27,12 @@ public class DestinationVisitsTests
     }
 
     [Fact]
-    public void Build_DeclaredPlayerHeadingHome_IsNotADraw_ButTheAlternateIs()
+    public void Build_GameSavedWithoutStatistics_HasNoDraws()
     {
-        var declared = CreateState(aliceDestination: "Albany", bobDestination: null);
-        declared.Players[0].HasDeclared = true;
-        declared.Players[0].AlternateDestinationCityName = "Miami";
+        var visits = DestinationVisits.Build(new GameState(), CreateMap());
 
-        var visits = DestinationVisits.Build([declared], CreateMap());
-
-        Assert.Equal(1, visits.TotalDraws);
-        Assert.Equal(1, visits.Rows.Single(row => row.CityName == "Miami").DrawCount);
-    }
-
-    private static GameState CreateState(string? aliceDestination, string? bobDestination)
-    {
-        return new GameState
-        {
-            Players =
-            [
-                new PlayerState { Name = "Alice", DestinationCityName = aliceDestination },
-                new PlayerState { Name = "Bob", DestinationCityName = bobDestination }
-            ]
-        };
+        Assert.Equal(0, visits.TotalDraws);
+        Assert.All(visits.Rows, row => Assert.Equal(0, row.DrawCount));
     }
 
     private static MapDefinition CreateMap()

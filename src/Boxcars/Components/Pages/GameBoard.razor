@@ -468,7 +468,6 @@ else
     private RailBaronGameState? _gameState;
     private MapDefinition? _playerBoardMapDefinition;
     private bool _isPlayerDrawerOpen = true;
-    private List<Boxcars.Engine.Persistence.GameState> _gameStateHistory = [];
     private NetWorthHistory _netWorthHistory = NetWorthHistory.Empty;
     private DestinationVisits _destinationVisits = DestinationVisits.Empty;
     private RailroadIncome _railroadIncome = RailroadIncome.Empty;
@@ -980,7 +979,7 @@ else
         if (tab == PurchaseExperienceTab.Stats)
         {
             await RefreshPlayerStatesAsync();
-            await LoadGameStateHistoryAsync();
+            RebuildStats();
         }
 
         if (tab == PurchaseExperienceTab.Advice)
@@ -991,46 +990,17 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task LoadGameStateHistoryAsync()
+    /// <summary>The Stats tab's tables and chart, from the statistics the engine keeps in the game's state.</summary>
+    private void RebuildStats()
     {
-        if (_playerBoardMapDefinition is null || string.IsNullOrWhiteSpace(GameId))
+        if (_playerBoardMapDefinition is null || _gameState is null)
         {
             return;
         }
 
-        // The history charts plot oldest to newest, and live states are appended to the end.
-        _gameStateHistory = (await GameService.GetGameStateHistoryAsync(GameId, CancellationToken.None)).Reverse().ToList();
-        RebuildGameHistoryStats();
-    }
-
-    private void RebuildGameHistoryStats()
-    {
-        if (_playerBoardMapDefinition is null)
-        {
-            return;
-        }
-
-        _netWorthHistory = NetWorthHistory.Build(
-            _gameStateHistory,
-            _playerBoardMapDefinition,
-            _game is null ? Boxcars.Engine.Persistence.GameSettings.Default : GameSettingsResolver.Resolve(_game).Settings);
-        _destinationVisits = DestinationVisits.Build(_gameStateHistory, _playerBoardMapDefinition);
-        _railroadIncome = RailroadIncome.Build(
-            _gameStateHistory,
-            _playerBoardMapDefinition,
-            _game is null ? Boxcars.Engine.Persistence.GameSettings.Default : GameSettingsResolver.Resolve(_game).Settings);
-    }
-
-    private void ExtendGameStateHistory(Boxcars.Engine.Persistence.GameState state)
-    {
-        // Live updates extend the loaded history rather than reloading every saved state.
-        if (!IsStatsPurchaseTabActive || _playerBoardMapDefinition is null || _gameStateHistory.Count == 0)
-        {
-            return;
-        }
-
-        _gameStateHistory.Add(state);
-        RebuildGameHistoryStats();
+        _netWorthHistory = NetWorthHistory.Build(_gameState);
+        _destinationVisits = DestinationVisits.Build(_gameState, _playerBoardMapDefinition);
+        _railroadIncome = RailroadIncome.Build(_gameState, _playerBoardMapDefinition);
     }
 
     private bool IsCashKeptSecret => _game is not null && GameSettingsResolver.Resolve(_game).Settings.KeepCashSecret && !IsGameCompleted;
@@ -1808,21 +1778,10 @@ else
             }
 
             ApplyGameState(state);
-            if (update.ReplaceTimeline)
+            // The statistics come with the state, an undone one included.
+            if (IsStatsPurchaseTabActive)
             {
-                // An undo rewound the game; the loaded history still has the undone states.
-                _gameStateHistory.Clear();
-                _netWorthHistory = NetWorthHistory.Empty;
-                _destinationVisits = DestinationVisits.Empty;
-                _railroadIncome = RailroadIncome.Empty;
-                if (IsStatsPurchaseTabActive)
-                {
-                    await LoadGameStateHistoryAsync();
-                }
-            }
-            else
-            {
-                ExtendGameStateHistory(state);
+                RebuildStats();
             }
 
             LogBoardDebug($"OnSharedGameStateChanged applied version={stateChangeVersion}");
