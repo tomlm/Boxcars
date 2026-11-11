@@ -498,6 +498,8 @@ else
     private IReadOnlyList<bool> _routeSuggestionUnfriendly = [];
     // A route suggestion arrived that automove hasn't considered yet.
     private bool _autoMovePending;
+    // The route, as plotted, that automove declined to move itself; MOVE shows for it.
+    private string? _autoMoveDeclinedRouteKey;
     // The player's turn started and its sound hasn't played yet; it plays once the board waits on them.
     private bool _turnSoundPending;
     private Dictionary<int, string?> _playerUserIdsByIndex = new();
@@ -885,10 +887,11 @@ else
         return true;
     }
 
-    // With automove on, MOVE shows once a move is plotted that automove won't make itself (see AutoMoveTakesMove).
+    // With automove on, MOVE shows only once automove has declined the route as plotted (see AutoMoveIfNeededAsync), so
+    // it never flashes up before a move automove makes itself.
     private bool ShouldShowMoveButton => !AutoMove
         || !IsAuthenticatedUserActivePlayer
-        || (CurrentRouteMoveCount > 0 && !AutoMoveTakesMove);
+        || (CurrentRouteMoveCount > 0 && AutoMoveDeclinedThisRoute);
 
     private string CommitMoveActionLabel => IsPendingBonusMove ? "MOVE BONUS" : "MOVE";
 
@@ -923,6 +926,7 @@ else
         if (autoMove)
         {
             _autoMovePending = _routeSuggestionKeys is not null;
+            _autoMoveDeclinedRouteKey = null;
         }
     }
 
@@ -4149,22 +4153,44 @@ _turnViewState.SelectedRoutePreview.MoveCount;
     }
 
     /// <summary>
-    /// With automove on, commits the player's own move as soon as a route suggestion is plotted and automove takes it
-    /// (see <see cref="AutoMoveTakesMove"/>). Each suggestion is considered once, after any update in flight lands.
+    /// With automove on, decides on the player's own plotted move after each render: commits it when automove takes it
+    /// (see <see cref="AutoMoveTakesMove"/>), otherwise declines it, which shows MOVE. It decides only once the fee
+    /// preview is for the route as plotted (the map sends the plotted route and its preview separately), and not while
+    /// an update is in flight. A route the player has edited by hand is always declined.
     /// </summary>
     private async Task AutoMoveIfNeededAsync()
     {
-        if (!_autoMovePending || _awaitingAuthoritativeUpdate)
+        if (!AutoMove
+            || !IsAuthenticatedUserActivePlayer
+            || _awaitingAuthoritativeUpdate
+            || !ShouldShowCommitMoveAction
+            || CurrentRouteMoveCount == 0
+            || AutoMoveDeclinedThisRoute
+            || !RoutePreviewIsCurrent)
         {
             return;
         }
 
         _autoMovePending = false;
-        if (AutoMoveTakesMove && CanCommitMoveAction)
+        if (SelectionFollowsSuggestion() && AutoMoveTakesMove && CanCommitMoveAction)
         {
             await CommitMovePhaseAsync();
+            return;
         }
+
+        _autoMoveDeclinedRouteKey = CurrentRouteKey;
+        StateHasChanged();
     }
+
+    // The route as plotted on the map.
+    private string CurrentRouteKey => string.Join(',', _gameMap?.GetSelectedRouteSegmentKeys() ?? []);
+
+    private bool AutoMoveDeclinedThisRoute => _autoMoveDeclinedRouteKey is not null
+        && string.Equals(_autoMoveDeclinedRouteKey, CurrentRouteKey, StringComparison.OrdinalIgnoreCase);
+
+    // The fee preview (unfriendly fees, rover cash) is for the route as plotted, not one from before.
+    private bool RoutePreviewIsCurrent => _gameMap is not null
+        && _turnViewState.SelectedRoutePreview.SegmentKeys.SequenceEqual(_gameMap.GetSelectedRouteSegmentKeys(), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Whether the plotted move's fees are more than the player can pay, so they'd have to sell a railroad. Arriving
