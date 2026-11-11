@@ -1,8 +1,11 @@
 @using Boxcars.Data
 @using MudBlazor
+@inject IJSRuntime JavaScriptRuntime
 @implements IDisposable
 
-<div class="play-by-play-band d-flex align-center overflow-hidden px-3 cursor-pointer"
+@* Scrolls sideways by touch, scrollbar or mouse wheel. *@
+<div @ref="_band"
+     class="play-by-play-band d-flex align-center overflow-x-auto overflow-y-hidden px-3 cursor-pointer"
      title="Open history"
      @onclick="OnBandClicked">
     @foreach (var entry in _visible)
@@ -24,15 +27,26 @@
     private readonly List<BandEntry> _visible = new();
     private readonly Queue<PlayByPlayMessage> _pending = new();
     private readonly CancellationTokenSource _disposeCancellation = new();
+    private ElementReference _band;
     private int _nextEntryId;
     private bool _running;
 
-    /// <summary>How many of the most recent messages stay in the band.</summary>
+    /// <summary>The game turn being played.</summary>
     [Parameter]
-    public int MaxVisible { get; set; } = 6;
+    public int CurrentTurnNumber { get; set; }
+
+    /// <summary>Players still in the game, so how many turns make a round.</summary>
+    [Parameter]
+    public int PlayerCount { get; set; }
 
     [Parameter]
     public EventCallback OnClick { get; set; }
+
+    /// <summary>
+    /// The oldest turn the band shows: the last two rounds, so the current turn and the turns since the current
+    /// player's previous one. When a player's turn starts, their messages from two turns ago drop off.
+    /// </summary>
+    private int OldestTurnShown => CurrentTurnNumber - (2 * Math.Max(1, PlayerCount)) + 1;
 
     public void Enqueue(PlayByPlayMessage message)
     {
@@ -44,20 +58,68 @@
     }
 
     /// <summary>
-    /// Replaces the band with the most recent of <paramref name="messages"/> (oldest first), without animating them
-    /// in. Used when the timeline is rewound, so the band no longer shows events that were undone.
+    /// Replaces the band with the last two rounds of <paramref name="messages"/> (oldest first), without animating
+    /// them in. Used when the timeline is rewound, so the band no longer shows events that were undone.
     /// </summary>
     public void Reset(IReadOnlyList<PlayByPlayMessage> messages)
     {
         _pending.Clear();
         _visible.Clear();
         // Newest on the left.
-        foreach (var message in messages.TakeLast(MaxVisible).Reverse())
+        foreach (var message in messages.Where(message => message.TurnNumber >= OldestTurnShown).Reverse())
         {
             _visible.Add(new BandEntry(_nextEntryId++, message));
         }
 
         StateHasChanged();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // A new turn: messages now more than two rounds old fade out.
+        if (!_running && MarkOldEntriesLeaving())
+        {
+            _ = RemoveLeavingAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JavaScriptRuntime.InvokeVoidAsync("horizontalScroll.attach", _band);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+
+    private bool MarkOldEntriesLeaving()
+    {
+        var any = false;
+        foreach (var entry in _visible.Where(entry => !entry.Leaving && entry.Message.TurnNumber < OldestTurnShown))
+        {
+            entry.Leaving = true;
+            any = true;
+        }
+
+        return any;
+    }
+
+    private async Task RemoveLeavingAsync()
+    {
+        try
+        {
+            await Task.Delay(StepMs, _disposeCancellation.Token);
+            _visible.RemoveAll(entry => entry.Leaving);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task RunAsync()
@@ -66,16 +128,16 @@
         try
         {
             // One message per step so a burst of events still reads as individual arrivals. The newest goes on the
-            // left and pushes the rest right, so on a narrow screen the latest stays in view.
+            // left and pushes the rest right, so on a narrow screen the latest stays in view. Messages more than two
+            // rounds old fade out as they go.
             while (_pending.TryDequeue(out var message))
             {
-                var current = _visible.Where(entry => !entry.Leaving).ToList();
-                if (current.Count >= MaxVisible)
+                MarkOldEntriesLeaving();
+                if (message.TurnNumber >= OldestTurnShown)
                 {
-                    current[^1].Leaving = true;
+                    _visible.Insert(0, new BandEntry(_nextEntryId++, message));
                 }
 
-                _visible.Insert(0, new BandEntry(_nextEntryId++, message));
                 StateHasChanged();
 
                 await Task.Delay(StepMs, _disposeCancellation.Token);

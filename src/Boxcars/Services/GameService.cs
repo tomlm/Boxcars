@@ -464,6 +464,8 @@ public class GameService
         }
 
         var previousSnapshot = TryDeserializeSnapshot(previousGameEvent?.SerializedGameState ?? string.Empty);
+        // The turn the action was taken in: ending a turn leaves the state on the next one.
+        var turnNumber = previousSnapshot?.TurnNumber ?? snapshot.TurnNumber;
         var playerAction = GameEventSerialization.DeserializePlayerAction(gameEvent.EventKind, gameEvent.EventData);
         var timelineItems = new List<EventTimelineItem>();
         var actingPlayer = ResolveActingPlayer(snapshot, gameEvent.ActingPlayerIndex);
@@ -712,7 +714,8 @@ public class GameService
                 playerAction,
                 isPlayByPlay: true));
         }
-        return timelineItems;
+
+        return timelineItems.Select(item => item with { TurnNumber = turnNumber }).ToList();
     }
 
     private static bool MatchesEventKind(string? eventKind, string expectedKind)

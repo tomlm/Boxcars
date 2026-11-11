@@ -15,4 +15,7 @@ public sealed record PlayByPlayMessage
 
     /// <summary>Hex color of the acting player, or null for a neutral message.</summary>
     public string? AccentColorHex { get; init; }
+
+    /// <summary>The game turn it happened in; the band keeps the last two rounds of turns.</summary>
+    public int TurnNumber { get; init; }
 }
