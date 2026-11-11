@@ -29,7 +29,8 @@ else
                      Groupable="true"
                      GroupExpanded="true"
                      Bordered="false"
-                     Striped="false">
+                     Striped="false"
+                     RowStyleFunc="BuildRowStyle">
             <Columns>
                 <PropertyColumn Property="x => x.GroupLabel"
                                 Title="Group"
@@ -39,11 +40,11 @@ else
                                 Sortable="false"
                                 Filterable="false">
                     <GroupTemplate>
-                        <MudText Typo="Typo.subtitle2">@context.Grouping.Key</MudText>
+                        <MudText Typo="Typo.h6">@context.Grouping.Key</MudText>
                     </GroupTemplate>
                 </PropertyColumn>
 
-                <TemplateColumn Title="Stat" Sortable="false" Filterable="false" Groupable="false">
+                <TemplateColumn T="PlayerStatisticRow" Title="Stat" Sortable="false" Filterable="false" Groupable="false" CellStyleFunc="BuildCellStyle">
                     <CellTemplate>
                         <span style="@BuildLabelStyle(context.Item)">@SlangNames.Apply(context.Item.Label, SlangMode)</span>
                     </CellTemplate>
@@ -51,7 +52,7 @@ else
 
                 @foreach (var player in PlayerColumns)
                 {
-                    <TemplateColumn Title="@player.DisplayName" Sortable="false" Filterable="false" Groupable="false">
+                    <TemplateColumn T="PlayerStatisticRow" Title="@player.DisplayName" Sortable="false" Filterable="false" Groupable="false" CellStyleFunc="BuildCellStyle" HeaderStyle="@BuildPlayerColorStyle(player.SeatIndex)">
                         <HeaderTemplate>
                             <MudStack Spacing="0" Style="min-width: 7.5rem">
                                 <MudText Typo="Typo.subtitle2">@player.DisplayName</MudText>
@@ -59,7 +60,14 @@ else
                             </MudStack>
                         </HeaderTemplate>
                         <CellTemplate>
-                            @context.Item.GetValue(player.PlayerState, player.SeatIndex)
+                            @if (context.Item.ShowsDestinations)
+                            {
+                                @DestinationList(player.PlayerState)
+                            }
+                            else
+                            {
+                                @context.Item.GetValue(player.PlayerState, player.SeatIndex)
+                            }
                         </CellTemplate>
                     </TemplateColumn>
                 }
@@ -112,7 +120,8 @@ else
             (_, seatIndex) => seatIndex == playerColumn.SeatIndex
                 ? string.Empty
                 : FormatCurrency(ResolveFeesPaidToPlayer(playerColumn.PlayerState, seatIndex)),
-            IsChildRow: true)),
+            IsChildRow: true,
+            PayerSeatIndex: playerColumn.SeatIndex)),
         new("Railroads", "Railroad Face Value Bought", (state, _) => FormatCurrency(state.TotalRailroadFaceValuePurchased)),
         new("Railroads", "Railroad Amount Paid", (state, _) => FormatCurrency(state.TotalRailroadAmountPaid)),
         new("Railroads", "Auction Wins", (state, _) => FormatCount(state.AuctionWins)),
@@ -120,7 +129,8 @@ else
         new("Railroads", "Railroads Purchased", (state, _) => FormatCount(state.RailroadsPurchasedCount)),
         new("Railroads", "Railroads Auctioned", (state, _) => FormatCount(state.RailroadsAuctionedCount)),
         new("Railroads", "Railroads Sold To Bank", (state, _) => FormatCount(state.RailroadsSoldToBankCount)),
-        new("Destinations", "Destinations", (state, _) => FormatDestinationLog(state)),
+        new("Destinations", "Destination Total", (state, _) => FormatCount(state.DestinationLogEntries.Count)),
+        new("Destinations", "Destinations", (_, _) => string.Empty, ShowsDestinations: true),
         new("Destinations", "% Unfriendly", (state, _) => FormatPercentage(state.UnfriendlyDestinationCount, state.DestinationCount))
     ];
 
@@ -153,13 +163,17 @@ else
             : ((decimal)total / count).ToString("0.0");
     }
 
-    private static string FormatDestinationLog(PlayerState state)
+    /// <summary>The player's destinations so far, one a line; unfriendly ones (logged with a trailing *) in red.</summary>
+    private RenderFragment DestinationList(PlayerState state) => __builder =>
     {
-        var entries = state.DestinationLogEntries;
-        return entries.Count == 0
-            ? "None"
-            : string.Join(", ", entries);
-    }
+        <MudStack Spacing="0">
+            @foreach (var entry in state.DestinationLogEntries)
+            {
+                var isUnfriendly = entry.EndsWith('*');
+                <MudText Typo="Typo.body2" Color="@(isUnfriendly ? Color.Error : Color.Default)">@SlangNames.Apply(entry.TrimEnd('*'), SlangMode)</MudText>
+            }
+        </MudStack>
+    };
 
     private static string FormatPercentage(int value, int total)
     {
@@ -183,6 +197,27 @@ else
         return "white-space: nowrap; font-weight: 600";
     }
 
+    /// <summary>A payer's row in the player's own color, so it's easy to see who paid whom.</summary>
+    private string BuildRowStyle(PlayerStatisticRow row, int rowIndex)
+    {
+        return row.PayerSeatIndex is int seatIndex ? BuildPlayerColorStyle(seatIndex) : string.Empty;
+    }
+
+    /// <summary>The player's color, with text that reads on it; nothing for a seat with no player.</summary>
+    private string BuildPlayerColorStyle(int seatIndex)
+    {
+        var player = Players.FirstOrDefault(candidate => candidate.Index == seatIndex);
+        return player is null
+            ? string.Empty
+            : $"background-color: {PlayerColorOptions.GetHex(player.Color)}; color: {PlayerColorOptions.GetContrastHex(player.Color)}";
+    }
+
+    // A payer's row sets its text color; its cells take it rather than the table's.
+    private static string BuildCellStyle(PlayerStatisticRow row)
+    {
+        return row.PayerSeatIndex is null ? string.Empty : "color: inherit";
+    }
+
     private static int ResolveFeesPaidToPlayer(PlayerState state, int playerIndex)
     {
         return state.FeesPaidToPlayers
@@ -197,5 +232,7 @@ else
         string Label,
         Func<PlayerState, int, string> GetValue,
         bool IsSubsectionHeader = false,
-        bool IsChildRow = false);
+        bool IsChildRow = false,
+        bool ShowsDestinations = false,
+        int? PayerSeatIndex = null);
 }

@@ -57,6 +57,23 @@ public static class PlayerColorOptions
         };
     }
 
+    /// <summary>A text color that reads on the color, as the player board uses on it.</summary>
+    public static string GetContrastHex(string? color)
+    {
+        return NormalizeToken(color) switch
+        {
+            "darkblue" or "blue" or "cyan" => "#f8fbff",
+            "red" or "darkred" => "#fff7f7",
+            "orange" => "#fff7ed",
+            "purple" => "#faf5ff",
+            "green" or "darkgreen" => "#f7fff9",
+            "black" => "#f9fafb",
+            "hotpink" => "#fff0f7",
+            "yellow" or "white" or "lavender" => "#1f2937",
+            _ => "#ffffff"
+        };
+    }
+
     public static string ToLabel(string color)
     {
         return NormalizeToken(color) switch

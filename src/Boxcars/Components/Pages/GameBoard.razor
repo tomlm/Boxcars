@@ -192,7 +192,8 @@ else
                 else if (IsStatsPurchaseTabActive)
                 {
                     <MudTabs Elevation="0" Outlined="true" Class="flex-grow-1 d-flex flex-column overflow-hidden" PanelClass="pa-2 flex-grow-1 d-flex flex-column overflow-auto">
-                        <MudTabPanel Text="Player Stats">
+                        @* The table fills the panel and scrolls its own rows, so its header stays put. *@
+                        <MudTabPanel Text="Player Stats" Class="flex-grow-1 d-flex flex-column overflow-hidden">
                             <PlayerStatsTable Players="_players" PlayerStates="@(_gameState?.Players ?? [])" />
                         </MudTabPanel>
                         <MudTabPanel Text="Net Worth">
@@ -200,7 +201,7 @@ else
                                            PlayerColors="@(_players.OrderBy(player => player.Index).Select(player => player.Color).ToList())"
                                            HideValues="@IsCashKeptSecret" />
                         </MudTabPanel>
-                        <MudTabPanel Text="Visits">
+                        <MudTabPanel Text="Visits" Class="flex-grow-1 d-flex flex-column overflow-hidden">
                             <DestinationVisitsTable Visits="_destinationVisits" />
                         </MudTabPanel>
                         <MudTabPanel Text="Railroads">
