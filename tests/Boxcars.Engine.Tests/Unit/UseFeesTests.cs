@@ -682,6 +682,23 @@ public class UseFeesTests
         Assert.Equal(5_000, route.TotalCost);
     }
 
+    [Fact]
+    public void SuggestRoute_StaysOnPublicRailroadThatReachesDestination()
+    {
+        // Start -A- 1 -A- 2 -A- 3 -A- Finish, or Start -A- 1 -B- 5 -B- Finish. Both are one public fee, but hopping onto
+        // B a dot sooner gives up being established on A: someone buying B before the rider gets on it charges them
+        // the full rate.
+        var engine = CreateRoutePlanningEngine(CreateEstablishedRoutePlanningMap());
+        var rider = engine.Players[0];
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+
+        var route = engine.SuggestRouteForPlayer(rider.Index);
+
+        Assert.Equal([0, 0, 0, 0], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
+    }
+
     private static GE CreateRoutePlanningEngine(MapDefinition? map = null)
     {
         var random = new FixedRandomProvider();
@@ -732,6 +749,45 @@ public class UseFeesTests
         map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 0, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 2 });
         map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 3 });
         map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 3, EndRegionIndex = 0, EndDotIndex = 2 });
+
+        return map;
+    }
+
+    private static MapDefinition CreateEstablishedRoutePlanningMap()
+    {
+        var map = new MapDefinition
+        {
+            Name = "EstablishedRoutePlanningMap",
+            Version = "1.0"
+        };
+
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "Region", Code = "RG", Probability = 1.0 });
+
+        map.Cities.Add(new CityDefinition { Name = "Start", RegionCode = "RG", Probability = 0.5, PayoutIndex = 0, MapDotIndex = 0 });
+        map.Cities.Add(new CityDefinition { Name = "Finish", RegionCode = "RG", Probability = 0.5, PayoutIndex = 1, MapDotIndex = 4 });
+
+        map.Railroads.Add(new RailroadDefinition { Index = 0, Name = "Long Line", ShortName = "A" });
+        map.Railroads.Add(new RailroadDefinition { Index = 1, Name = "Cutoff Line", ShortName = "B" });
+
+        for (var dot = 0; dot < 6; dot++)
+        {
+            map.TrainDots.Add(new TrainDot
+            {
+                Id = $"0:{dot}",
+                RegionIndex = 0,
+                DotIndex = dot,
+                X = dot * 10,
+                Y = dot * 10
+            });
+        }
+
+        for (var dot = 0; dot < 4; dot++)
+        {
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 0, StartRegionIndex = 0, StartDotIndex = dot, EndRegionIndex = 0, EndDotIndex = dot + 1 });
+        }
+
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 1, EndRegionIndex = 0, EndDotIndex = 5 });
+        map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition { RailroadIndex = 1, StartRegionIndex = 0, StartDotIndex = 5, EndRegionIndex = 0, EndDotIndex = 4 });
 
         return map;
     }
