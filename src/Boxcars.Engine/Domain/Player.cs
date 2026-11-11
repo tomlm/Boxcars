@@ -122,6 +122,15 @@ public sealed class Player : ObservableBase
         internal set => SetField(ref _pendingImmediateArrival, value);
     }
 
+    /// <summary>
+    /// Dots to the player's destination: their planned route's length once their move is planned, and the shortest
+    /// way there after they move or get a new destination, which is cheap to find.
+    /// </summary>
+    public int? DistanceToDestination { get; internal set; }
+
+    /// <summary>The destination <see cref="DistanceToDestination"/> was planned to.</summary>
+    internal string? DistancePlannedTo { get; set; }
+
     public int TurnsTaken { get; set; }
     public int FreightTurnCount { get; set; }
     public int FreightRollTotal { get; set; }

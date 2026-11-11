@@ -699,6 +699,95 @@ public class UseFeesTests
         Assert.Equal([0, 0, 0, 0], route.Segments.Select(segment => segment.RailroadIndex).ToArray());
     }
 
+    [Fact]
+    public void ToSnapshot_SavesShortestDistanceForANewDestination()
+    {
+        var engine = CreateRoutePlanningEngine();
+        var rider = engine.Players[0];
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+
+        Assert.Equal(2, engine.ToSnapshot().Players[rider.Index].DistanceToDestination);
+        Assert.Equal(0, engine.ToSnapshot().Players[1].DistanceToDestination);
+    }
+
+    [Fact]
+    public void FromSnapshot_KeepsSavedDistanceUntilANewDestination()
+    {
+        var engine = CreateRoutePlanningEngine();
+        var rider = engine.Players[0];
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        var snapshot = engine.ToSnapshot();
+
+        // A saved distance the planner wouldn't give shows it's read back, not planned again: not even when a railroad
+        // changes hands, since it's only planned again when the player next plans their route.
+        snapshot.Players[rider.Index].DistanceToDestination = 99;
+        var restored = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+        var railroad = restored.Railroads.First(rr => rr.Index == 1);
+        railroad.Owner = restored.Players[1];
+        restored.Players[1].OwnedRailroads.Add(railroad);
+        Assert.Equal(99, restored.ToSnapshot().Players[rider.Index].DistanceToDestination);
+
+        restored.Players[rider.Index].Destination = restored.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        restored.Players[rider.Index].CurrentNodeId = "0:2";
+        Assert.Equal(2, restored.ToSnapshot().Players[rider.Index].DistanceToDestination);
+    }
+
+    [Fact]
+    public void MoveAlongRoute_SetsShortestDistanceFromWhereThePlayerStops()
+    {
+        var engine = CreateRoutePlanningEngine();
+        var rider = engine.Players[0];
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementRemaining = 1;
+        engine.SaveRoute(engine.SuggestRouteForPlayer(rider.Index));
+
+        engine.MoveAlongRoute(1);
+
+        Assert.Equal("0:1", rider.CurrentNodeId);
+        Assert.Equal(1, rider.DistanceToDestination);
+    }
+
+    [Fact]
+    public void ToSnapshot_PlansTheMoveOnceAndCopiesUseThatPlan()
+    {
+        var engine = CreateRoutePlanningEngine();
+        var rider = engine.Players[0];
+        rider.CurrentNodeId = "0:0";
+        rider.CurrentCity = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Start", StringComparison.Ordinal));
+        rider.Destination = engine.MapDefinition.Cities.First(city => string.Equals(city.Name, "Finish", StringComparison.Ordinal));
+        engine.CurrentTurn.ActivePlayer = rider;
+        engine.CurrentTurn.Phase = TurnPhase.Move;
+        engine.CurrentTurn.MovementRemaining = 1;
+
+        var snapshot = engine.ToSnapshot();
+
+        Assert.NotNull(snapshot.Turn.PlannedRoute);
+        Assert.Equal(snapshot.Turn.PlannedRoute!.Segments.Count, snapshot.Players[rider.Index].DistanceToDestination);
+
+        // A saved plan the planner wouldn't make shows a copy uses it rather than planning again.
+        snapshot.Turn.PlannedRoute.NodeIds = ["0:0", "0:1", "0:3", "0:2"];
+        snapshot.Turn.PlannedRoute.Segments =
+        [
+            new RouteSegmentState { FromNodeId = "0:0", ToNodeId = "0:1", RailroadIndex = 0 },
+            new RouteSegmentState { FromNodeId = "0:1", ToNodeId = "0:3", RailroadIndex = 1 },
+            new RouteSegmentState { FromNodeId = "0:3", ToNodeId = "0:2", RailroadIndex = 1 }
+        ];
+        var copy = GE.FromSnapshot(snapshot, engine.MapDefinition, new FixedRandomProvider());
+        Assert.Equal(["0:0", "0:1", "0:3", "0:2"], copy.SuggestRouteForPlayer(rider.Index).NodeIds);
+
+        // Once the move changes (here, less movement left), it's planned again.
+        copy.CurrentTurn.MovementRemaining = 2;
+        Assert.Equal(["0:0", "0:1", "0:2"], copy.SuggestRouteForPlayer(rider.Index).NodeIds);
+    }
+
     private static GE CreateRoutePlanningEngine(MapDefinition? map = null)
     {
         var random = new FixedRandomProvider();
