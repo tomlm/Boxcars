@@ -117,7 +117,7 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0">
                             @if (player.IsCurrentUser)
                             {
-                                <MediaToggles Size="Size.Small" Style="padding: 2px; min-width: 0; min-height: 0" />
+                                <MediaToggles Size="Size.Small" StateColors="false" Style="padding: 2px; min-width: 0; min-height: 0" />
                             }
                             else if (FindRoomPeer(player.UserId) is not null)
                             {
@@ -127,7 +127,7 @@
                                 <MudTooltip Text="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")">
                                     <MudIconButton Icon="@(muted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)"
                                                    Size="Size.Small"
-                                                   Color="@(muted ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
+                                                   Color="MudBlazor.Color.Inherit"
                                                    Style="padding: 2px; min-width: 0; min-height: 0"
                                                    aria-label="@(muted ? $"Unmute {player.Name}" : $"Mute {player.Name}")"
                                                    OnClick="@(() => OnToggleMuted.InvokeAsync(player.UserId))" />
@@ -135,7 +135,7 @@
                                 <MudTooltip Text="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")">
                                     <MudIconButton Icon="@(videoHidden ? Icons.Material.Filled.VideocamOff : Icons.Material.Filled.Videocam)"
                                                    Size="Size.Small"
-                                                   Color="@(videoHidden ? MudBlazor.Color.Error : MudBlazor.Color.Success)"
+                                                   Color="MudBlazor.Color.Inherit"
                                                    Style="padding: 2px; min-width: 0; min-height: 0"
                                                    aria-label="@(videoHidden ? $"Show {player.Name}'s video" : $"Hide {player.Name}'s video")"
                                                    OnClick="@(() => OnToggleVideoHidden.InvokeAsync(player.UserId))" />
