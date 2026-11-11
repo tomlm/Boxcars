@@ -206,7 +206,7 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_LevelCash_HasTheMostAccessPlusMonopoly()
+    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_LevelCash_HasTheMostEarningPower()
     {
         // thermous and El Cheapo own 8 railroads each, Balenco 5. With cash level, the network decides.
         var engine = CreateEngine(StandardGameOwners);
@@ -218,7 +218,7 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
 
         var frontRunner = engine.FindFrontRunner(pooper);
 
-        var expected = engine.Players.Where(candidate => candidate != pooper).MaxBy(candidate => NetworkScore(engine, candidate))!;
+        var expected = engine.Players.Where(candidate => candidate != pooper).MaxBy(candidate => EarningPower(engine, candidate))!;
         Assert.Equal(expected.Index, frontRunner);
         Assert.NotEqual("Balenco", expected.Name);
     }
@@ -237,9 +237,37 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         }
 
         balenco.Cash = 240_000;
-        Assert.True(engine.Players.Where(candidate => candidate != pooper && candidate != balenco).All(candidate => NetworkScore(engine, candidate) > NetworkScore(engine, balenco)));
+        Assert.True(engine.Players.Where(candidate => candidate != pooper && candidate != balenco).All(candidate => EarningPower(engine, candidate) > EarningPower(engine, balenco)));
 
         Assert.Equal(balenco.Index, engine.FindFrontRunner(pooper));
+    }
+
+    [Fact]
+    public void FrontRunner_BeforeAnyoneHasAnnouncingCash_ACashPoorPlayerWithAFarBetterNetworkLeads()
+    {
+        // Issue #146: B'John has $3,500 but by far the best network (60% access against B'Jerr's 39% and B'umpus's 35%),
+        // having spent his cash building it. He's the one closest to winning, though the others have more cash.
+        int[] owners = [-1, 0, -1, -1, 0, -1, -1, 1, -1, 1, -1, 1, 3, 2, 0, -1, -1, 3, -1, 2, 2, 3, 3, 0, 2, 0, 1, 2, 0];
+        var map = MapDefinition.Parse(File.ReadAllText(FindStandardMapPath())).Definition
+            ?? throw new InvalidOperationException("The standard map could not be parsed.");
+        var engine = new Boxcars.Engine.Domain.GameEngine(
+            map,
+            ["B'John", "Thermous", "B'Jerr", "B'umpus"],
+            new FixedRandomProvider(),
+            GameSettings.Default with { HomeCityChoice = false, HomeSwapping = false });
+        foreach (var railroad in engine.Railroads.Where(railroad => owners[railroad.Index] >= 0))
+        {
+            railroad.Owner = engine.Players[owners[railroad.Index]];
+            railroad.Owner.OwnedRailroads.Add(railroad);
+        }
+
+        int[] cash = [3_500, 33_500, 11_500, 14_000];
+        foreach (var candidate in engine.Players)
+        {
+            candidate.Cash = cash[candidate.Index];
+        }
+
+        Assert.Equal(0, engine.FindFrontRunner(engine.Players[1]));
     }
 
     [Fact]
@@ -264,17 +292,17 @@ public class RouteSuggestionRealMapTests(ITestOutputHelper output)
         var balenco = engine.Players.First(candidate => candidate.Name == "Balenco");
         balenco.Cash = 270_000;
         thermous.Cash = 255_000;
-        Assert.True(NetworkScore(engine, thermous) > NetworkScore(engine, balenco));
+        Assert.True(EarningPower(engine, thermous) > EarningPower(engine, balenco));
 
         Assert.Equal(balenco.Index, engine.FindFrontRunner(pooper));
     }
 
-    private static decimal NetworkScore(Boxcars.Engine.Domain.GameEngine engine, Player player)
+    private static decimal EarningPower(Boxcars.Engine.Domain.GameEngine engine, Player player)
     {
         var owned = player.OwnedRailroads.Select(railroad => railroad.Index).ToHashSet();
         var coverage = engine.RoutePlanningCityCoverage;
         return coverage.Where(entry => entry.ServingRailroads.Overlaps(owned)).Sum(entry => entry.GlobalAccessPercentage)
-            + coverage.Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(owned.Contains)).Sum(entry => entry.GlobalAccessPercentage);
+            + 2 * coverage.Where(entry => entry.ServingRailroads.Count > 0 && entry.ServingRailroads.All(owned.Contains)).Sum(entry => entry.GlobalAccessPercentage);
     }
 
     // Railroad owners by index (player index) in game 3ccd9ee8, from issue #130 (all railroads sold). Index 0 is unused.
