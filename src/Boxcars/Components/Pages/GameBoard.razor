@@ -73,7 +73,7 @@ else
                      OnToggleNetworkHighlight="OnToggleNetworkHighlight"
                      OnLocatePlayer="OnLocatePlayerAsync"
                      AutoMove="@AutoMove"
-                     AutoMoveChanged="OnAutoMoveChangedAsync"
+                     AutoMoveChanged="OnCardAutoMoveChangedAsync"
                      MutedUserIds="_mutedUserIds"
                      HiddenVideoUserIds="_hiddenVideoUserIds"
                      OnToggleMuted="@(userId => ToggleUserId(_mutedUserIds, userId))"
@@ -903,6 +903,26 @@ else
         if (!arrives)
         {
             await OnAutoMoveChangedAsync(true);
+        }
+    }
+
+    /// <summary>
+    /// Automove toggled on the player's own card. While MOVE and AUTOMOVE are offered, turning it on is the same as
+    /// clicking AUTOMOVE. Otherwise it's just the setting, and the plotted suggestion is considered again so automove
+    /// can take it.
+    /// </summary>
+    private async Task OnCardAutoMoveChangedAsync(bool autoMove)
+    {
+        if (autoMove && ShouldShowCommitMoveAction && ShouldShowMoveButton && ShouldShowAutoMoveButton && CanCommitMoveAction)
+        {
+            await OnAutoMoveActionAsync();
+            return;
+        }
+
+        await OnAutoMoveChangedAsync(autoMove);
+        if (autoMove)
+        {
+            _autoMovePending = _routeSuggestionKeys is not null;
         }
     }
 
