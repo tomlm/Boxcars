@@ -56,6 +56,20 @@ public class GameSoundsTests
     }
 
     [Fact]
+    public void Detect_LastRailroadSold_PlaysPurchaseThenAllRailroadsSold()
+    {
+        var soldOut = CreateState();
+        soldOut.Players[0].OwnedRailroadIndices.Add(4);
+        soldOut.AllRailroadsSold = true;
+        var later = CreateState();
+        later.Players[0].OwnedRailroadIndices.Add(4);
+        later.AllRailroadsSold = true;
+
+        Assert.Equal([GameSound.RailroadPurchase, GameSound.AllRailroadsSold], Detect(CreateState(), soldOut));
+        Assert.Empty(Detect(soldOut, later));
+    }
+
+    [Fact]
     public void Detect_OtherRoll_PlaysNothing()
     {
         var rolled = CreateState();

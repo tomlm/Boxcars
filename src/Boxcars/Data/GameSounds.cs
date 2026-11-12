@@ -9,6 +9,7 @@ public enum GameSound
     Boxcars,
     Caboose,
     RailroadPurchase,
+    AllRailroadsSold,
     ExpressPurchase,
     SuperchiefPurchase,
     ChaChing,
@@ -50,6 +51,7 @@ public static class GameSounds
             GameSound.Boxcars => "sounds/boxcars.wav",
             GameSound.Caboose => "sounds/caboose.wav",
             GameSound.RailroadPurchase => "sounds/railroad-purchase.wav",
+            GameSound.AllRailroadsSold => "sounds/all-railroads-sold.wav",
             GameSound.ExpressPurchase => "sounds/express-purchase.wav",
             GameSound.SuperchiefPurchase => "sounds/superchief-purchase.wav",
             GameSound.ChaChing => "sounds/cha-ching.wav",
@@ -101,6 +103,11 @@ public static class GameSounds
         if (players.Any(player => player.After.OwnedRailroadIndices.Except(player.Before.OwnedRailroadIndices).Any()))
         {
             sounds.Add(GameSound.RailroadPurchase);
+        }
+
+        if (!prior.AllRailroadsSold && current.AllRailroadsSold)
+        {
+            sounds.Add(GameSound.AllRailroadsSold);
         }
 
         if (players.Any(player => BoughtEngine(player.Before, player.After, "Express")))
