@@ -76,6 +76,21 @@ public class DiceRollDescriptionsTests
         Assert.DoesNotContain(items, item => item.EventId.EndsWith(":bonus-roll", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void BuildTimelineItems_TagsEachItemWithTheTurnItHappenedIn()
+    {
+        // A move that ends the turn leaves the state on the next turn; its items belong to the turn it was made in.
+        var beforeMove = CreateSnapshot(new DiceResultState { WhiteDice = [6, 6] }, bonusRollAvailable: true);
+        beforeMove.TurnNumber = 5;
+        var afterMove = CreateSnapshot(new DiceResultState { WhiteDice = [0, 0], RedDie = 6 }, bonusRollAvailable: false);
+        afterMove.TurnNumber = 6;
+
+        var items = BuildTimelineItems(beforeMove, afterMove);
+
+        Assert.NotEmpty(items);
+        Assert.All(items, item => Assert.Equal(5, item.TurnNumber));
+    }
+
     private static GameState CreateSnapshot(DiceResultState diceResult, bool bonusRollAvailable)
     {
         return new GameState

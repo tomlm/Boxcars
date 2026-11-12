@@ -65,7 +65,7 @@ else
                Anchor="Anchor.Start" Elevation="1" Width="250px">
         @* The players scroll, with the logo (a link back to the dashboard) after them. The spacer keeps the logo in
            the rail's lower-left corner when the players fit, and gives the players its room when they don't. *@
-        <MudStack Spacing="2" Class="pa-2 flex-grow-1 overflow-y-auto">
+        <MudStack Spacing="2" Class="pa-2 flex-grow-1 overflow-y-auto autohide-scrollbar">
             <PlayerBoard Players="_players"
                      OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
                      OnFocusPlayer="OnFocusPlayerAsync"
@@ -106,7 +106,7 @@ else
         @if (ShouldShowPurchaseExperienceTabs)
         {
             @* When the tabs don't fit they scroll sideways: swipe on touch, or the scrollbar or Shift+wheel with a mouse. *@
-            <MudStack Row="true" Class="flex-grow-1 overflow-x-auto">
+            <MudStack Row="true" Class="flex-grow-1 overflow-x-auto autohide-scrollbar">
             <MudToggleGroup T="PurchaseExperienceTab" Value="_selectedPurchaseTab" ValueChanged="OnPurchaseTabSelected"
                            Color="MudBlazor.Color.Primary" Size="Size.Small"
                            Class="flex-grow-1 flex-shrink-0">
@@ -294,7 +294,10 @@ else
             </MudStack>
         }
 
-        <PlayByPlayBand @ref="_playByPlayBand" OnClick="OnPlayByPlayBandClickedAsync" />
+        <PlayByPlayBand @ref="_playByPlayBand"
+                        CurrentTurnNumber="@(_gameState?.TurnNumber ?? 0)"
+                        PlayerCount="@(_gameState?.Players.Count(player => !player.IsBankrupt) ?? 0)"
+                        OnClick="OnPlayByPlayBandClickedAsync" />
 
         @* ── Status strip: turn state center, zoom right ── *@
         @* Clicking the bar's background toggles it; clicks inside the panels stay put. MudBlazor buttons
@@ -4840,7 +4843,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 snackbarClass: ResolveTimelineSnackbarClass(item),
                 detail: BuildTimelineNotificationDetail(item),
                 occurredUtc: item.OccurredUtc,
-                eventBaseId: GetTimelineEventBaseId(item));
+                eventBaseId: GetTimelineEventBaseId(item),
+                turnNumber: item.TurnNumber);
         }
     }
 
@@ -5039,7 +5043,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
         string? snackbarClass = null,
         string? detail = null,
         DateTimeOffset? occurredUtc = null,
-        string? eventBaseId = null)
+        string? eventBaseId = null,
+        int? turnNumber = null)
     {
         AddNotificationHistory(
             historyKey ?? $"notification:{Guid.NewGuid():N}",
@@ -5051,17 +5056,19 @@ _turnViewState.SelectedRoutePreview.MoveCount;
             occurredUtc ?? DateTimeOffset.UtcNow,
             eventBaseId);
 
-        _playByPlayBand?.Enqueue(BuildPlayByPlayMessage(message, severity, icon, snackbarClass));
+        // A message from the board itself (someone connecting, say) belongs to the turn being played.
+        _playByPlayBand?.Enqueue(BuildPlayByPlayMessage(message, severity, icon, snackbarClass, turnNumber ?? _gameState?.TurnNumber ?? 0));
     }
 
-    private PlayByPlayMessage BuildPlayByPlayMessage(string message, Severity severity, string? icon, string? snackbarClass)
+    private PlayByPlayMessage BuildPlayByPlayMessage(string message, Severity severity, string? icon, string? snackbarClass, int turnNumber)
     {
         return new PlayByPlayMessage
         {
             Text = message,
             Icon = string.IsNullOrWhiteSpace(icon) ? ResolveSeverityIcon(severity) : icon,
             IconColor = ResolveSeverityIconColor(severity),
-            AccentColorHex = string.IsNullOrWhiteSpace(snackbarClass) ? null : ResolveSnackbarAccentHexColor(snackbarClass)
+            AccentColorHex = string.IsNullOrWhiteSpace(snackbarClass) ? null : ResolveSnackbarAccentHexColor(snackbarClass),
+            TurnNumber = turnNumber
         };
     }
 
@@ -5075,7 +5082,8 @@ _turnViewState.SelectedRoutePreview.MoveCount;
                 BuildTimelineNotificationMessage(item),
                 ResolveTimelineSeverity(item),
                 ResolveTimelineSnackbarIcon(item),
-                ResolveTimelineSnackbarClass(item)))
+                ResolveTimelineSnackbarClass(item),
+                item.TurnNumber))
             .ToList();
         _playByPlayBand?.Reset(messages);
     }

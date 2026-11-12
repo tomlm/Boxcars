@@ -1,6 +1,5 @@
-/* Fixed height so the map doesn't shift as messages come and go. */
+/* Sized to one line of messages plus a thin scrollbar. */
 .play-by-play-band {
-    height: 2.5rem;
     flex-shrink: 0;
 }
 

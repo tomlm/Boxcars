@@ -114,6 +114,8 @@ public sealed record EventTimelineItem
     public bool IsAiAction { get; init; }
     /// <summary>True when the event is shown in the game board's play-by-play band; everything else is history only.</summary>
     public bool IsPlayByPlay { get; init; }
+    /// <summary>The game turn the event happened in (the turn before the event, so a turn's last action counts in it).</summary>
+    public int TurnNumber { get; init; }
     public bool IsBotPlayer { get; init; }
     public string BotDefinitionId { get; init; } = string.Empty;
     public string BotName { get; init; } = string.Empty;

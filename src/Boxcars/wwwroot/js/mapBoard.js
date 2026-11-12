@@ -463,4 +463,23 @@
         startHeartbeat,
         stopHeartbeat
     };
+
+    // Lets a mouse wheel scroll a sideways-scrolling strip (touch and the scrollbar already do).
+    window.horizontalScroll = {
+        attach(element) {
+            if (!element || element.dataset.horizontalScroll) {
+                return;
+            }
+
+            element.dataset.horizontalScroll = "true";
+            element.addEventListener("wheel", event => {
+                if (event.deltaY === 0 || element.scrollWidth <= element.clientWidth) {
+                    return;
+                }
+
+                element.scrollLeft += event.deltaY;
+                event.preventDefault();
+            }, { passive: false });
+        }
+    };
 })();

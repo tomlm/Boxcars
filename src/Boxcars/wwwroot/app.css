@@ -134,3 +134,14 @@ h1:focus {
         }
     }
 }
+
+/* A thin scrollbar that only shows with the mouse over the element. It keeps its space while hidden, so nothing
+   shifts when it appears; touch screens show their own while swiping. */
+.autohide-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.autohide-scrollbar:hover {
+    scrollbar-color: var(--mud-palette-action-disabled) transparent;
+}

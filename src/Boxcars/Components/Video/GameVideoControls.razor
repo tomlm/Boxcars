@@ -6,9 +6,8 @@
 
 @*
     Joins the game's video room while the current user is seated, and warns when the camera or microphone won't
-    start. The mic and camera toggles live on the player's own card (and here too on small screens, where the
-    player list is a drawer). Each player's audio plays through hidden elements here, so it keeps playing when
-    their video is hidden or the player drawer is closed.
+    start. The mic and camera toggles live on the player's own card. Each player's audio plays through hidden
+    elements here, so it keeps playing when their video is hidden or the player drawer is closed.
 *@
 @if (IsSeated)
 {
@@ -23,10 +22,6 @@
                            OnClick="RetryMediaAsync" />
         </MudTooltip>
     }
-    <MudHidden Breakpoint="Breakpoint.SmAndDown" Invert="true">
-        <MediaToggles />
-    </MudHidden>
-
     @foreach (var peer in Peers.Where(peer => !MutedUserIds.Contains(peer.UserId)))
     {
         <HollerAudio @key="peer.Key" Peer="peer" />
