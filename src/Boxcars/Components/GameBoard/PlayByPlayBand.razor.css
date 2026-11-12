@@ -2,6 +2,12 @@
 .play-by-play-band {
     flex-shrink: 0;
     scrollbar-width: thin;
+    /* The scrollbar keeps its space but only shows with the mouse over the band, so nothing shifts. */
+    scrollbar-color: transparent transparent;
+}
+
+.play-by-play-band:hover {
+    scrollbar-color: var(--mud-palette-action-disabled) transparent;
 }
 
 /* No wrapping, so a message opening or closing keeps to one line. */
