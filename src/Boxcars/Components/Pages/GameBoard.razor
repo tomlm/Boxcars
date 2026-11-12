@@ -65,7 +65,7 @@ else
                Anchor="Anchor.Start" Elevation="1" Width="250px">
         @* The players scroll, with the logo (a link back to the dashboard) after them. The spacer keeps the logo in
            the rail's lower-left corner when the players fit, and gives the players its room when they don't. *@
-        <MudStack Spacing="2" Class="pa-2 flex-grow-1 overflow-y-auto">
+        <MudStack Spacing="2" Class="pa-2 flex-grow-1 overflow-y-auto autohide-scrollbar">
             <PlayerBoard Players="_players"
                      OnSetDisconnectedSeatControl="OnSetDisconnectedSeatControlAsync"
                      OnFocusPlayer="OnFocusPlayerAsync"
@@ -106,7 +106,7 @@ else
         @if (ShouldShowPurchaseExperienceTabs)
         {
             @* When the tabs don't fit they scroll sideways: swipe on touch, or the scrollbar or Shift+wheel with a mouse. *@
-            <MudStack Row="true" Class="flex-grow-1 overflow-x-auto">
+            <MudStack Row="true" Class="flex-grow-1 overflow-x-auto autohide-scrollbar">
             <MudToggleGroup T="PurchaseExperienceTab" Value="_selectedPurchaseTab" ValueChanged="OnPurchaseTabSelected"
                            Color="MudBlazor.Color.Primary" Size="Size.Small"
                            Class="flex-grow-1 flex-shrink-0">
