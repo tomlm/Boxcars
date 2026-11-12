@@ -1,4 +1,5 @@
 using Boxcars.Engine.Persistence;
+using Boxcars.Services;
 
 namespace Boxcars.Data;
 
@@ -6,7 +7,9 @@ namespace Boxcars.Data;
 public enum GameSound
 {
     Boxcars,
+    Caboose,
     RailroadPurchase,
+    AllRailroadsSold,
     ExpressPurchase,
     SuperchiefPurchase,
     ChaChing,
@@ -46,7 +49,9 @@ public static class GameSounds
         return sound switch
         {
             GameSound.Boxcars => "sounds/boxcars.wav",
+            GameSound.Caboose => "sounds/caboose.wav",
             GameSound.RailroadPurchase => "sounds/railroad-purchase.wav",
+            GameSound.AllRailroadsSold => "sounds/all-railroads-sold.wav",
             GameSound.ExpressPurchase => "sounds/express-purchase.wav",
             GameSound.SuperchiefPurchase => "sounds/superchief-purchase.wav",
             GameSound.ChaChing => "sounds/cha-ching.wav",
@@ -78,6 +83,18 @@ public static class GameSounds
         if (IsNewRoll(prior, current) && current.Turn.DiceResult!.WhiteDice is [6, 6])
         {
             sounds.Add(GameSound.Boxcars);
+            // A Superchief rolls its red die with the white dice: boxcars and the caboose.
+            if (current.Turn.DiceResult.RedDie == 6)
+            {
+                sounds.Add(GameSound.Caboose);
+            }
+        }
+        else if (DiceRollDescriptions.TryGetBonusRoll(prior, current, out var bonusRoll)
+            && bonusRoll == 6
+            && prior.Turn.DiceResult!.WhiteDice is [6, 6])
+        {
+            // A 6 bonus after boxcars bonuses the caboose; boxcars played with the roll.
+            sounds.Add(GameSound.Caboose);
         }
 
         var playerCount = Math.Min(prior.Players.Count, current.Players.Count);
@@ -86,6 +103,11 @@ public static class GameSounds
         if (players.Any(player => player.After.OwnedRailroadIndices.Except(player.Before.OwnedRailroadIndices).Any()))
         {
             sounds.Add(GameSound.RailroadPurchase);
+        }
+
+        if (!prior.AllRailroadsSold && current.AllRailroadsSold)
+        {
+            sounds.Add(GameSound.AllRailroadsSold);
         }
 
         if (players.Any(player => BoughtEngine(player.Before, player.After, "Express")))

@@ -23,6 +23,53 @@ public class GameSoundsTests
     }
 
     [Fact]
+    public void Detect_SuperchiefBoxcarsAndTheCaboose_PlaysBoxcarsThenCaboose()
+    {
+        var rolled = CreateState();
+        rolled.Turn.DiceResult = new DiceResultState { WhiteDice = [6, 6], RedDie = 6 };
+
+        Assert.Equal([GameSound.Boxcars, GameSound.Caboose], Detect(CreateState(), rolled));
+    }
+
+    [Fact]
+    public void Detect_BonusSixAfterBoxcars_PlaysCaboose()
+    {
+        var rolled = CreateState();
+        rolled.Turn.DiceResult = new DiceResultState { WhiteDice = [6, 6] };
+        rolled.Turn.BonusRollAvailable = true;
+        var bonused = CreateState();
+        bonused.Turn.DiceResult = new DiceResultState { WhiteDice = [0, 0], RedDie = 6 };
+
+        Assert.Equal([GameSound.Caboose], Detect(rolled, bonused));
+    }
+
+    [Fact]
+    public void Detect_BonusSixAfterOtherDoubles_PlaysNothing()
+    {
+        var rolled = CreateState();
+        rolled.Turn.DiceResult = new DiceResultState { WhiteDice = [4, 4] };
+        rolled.Turn.BonusRollAvailable = true;
+        var bonused = CreateState();
+        bonused.Turn.DiceResult = new DiceResultState { WhiteDice = [0, 0], RedDie = 6 };
+
+        Assert.Empty(Detect(rolled, bonused));
+    }
+
+    [Fact]
+    public void Detect_LastRailroadSold_PlaysPurchaseThenAllRailroadsSold()
+    {
+        var soldOut = CreateState();
+        soldOut.Players[0].OwnedRailroadIndices.Add(4);
+        soldOut.AllRailroadsSold = true;
+        var later = CreateState();
+        later.Players[0].OwnedRailroadIndices.Add(4);
+        later.AllRailroadsSold = true;
+
+        Assert.Equal([GameSound.RailroadPurchase, GameSound.AllRailroadsSold], Detect(CreateState(), soldOut));
+        Assert.Empty(Detect(soldOut, later));
+    }
+
+    [Fact]
     public void Detect_OtherRoll_PlaysNothing()
     {
         var rolled = CreateState();
