@@ -158,17 +158,33 @@ public class PurchaseRecommendationServiceTests
     [Fact]
     public void BuildRecommendations_ARailroadThatWouldBreakTheOperatingReserve_IsOneToSaveFor()
     {
-        // $35,000 can't cover the $30,000 big-city line and a $10,000 reserve, but it still adds the most access.
-        var result = BuildSet(new PurchaseFinances(35_000, 0, 10_000, _ => 0));
+        // $21,000 can't cover the $30,000 big-city line and a $10,000 reserve, and the best line it can cover (Bend,
+        // +10% access) adds under half of the big-city line's +40%.
+        var result = BuildSet(new PurchaseFinances(21_000, 0, 10_000, _ => 0));
 
         Assert.Equal(10_000, result.OperatingReserve);
         var access = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Access);
         Assert.Equal(BigCity, access.RailroadIndex);
         Assert.False(access.CanBuyNow);
-        Assert.Equal(35_000 - 30_000 - 10_000, access.SpareCash);
+        Assert.Equal(21_000 - 30_000 - 10_000, access.SpareCash);
         // The cheapest line that adds access can be bought now.
         var lowPrice = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.LowPrice);
         Assert.True(lowPrice.CanBuyNow);
+    }
+
+    [Fact]
+    public void BuildRecommendations_ARailroadWorthAtLeastHalfTheBestCanBeBoughtNow_IsRecommendedOverSaving()
+    {
+        // $35,000 still can't cover the big-city line (+40% access), but it covers the far-city line (+25%).
+        var result = BuildSet(new PurchaseFinances(35_000, 0, 10_000, _ => 0));
+
+        var access = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Access);
+        Assert.Equal(FarCity, access.RailroadIndex);
+        Assert.True(access.CanBuyNow);
+        // Overall it's still worth far more (monopoly, and denying the leader), so blended says to save for it.
+        var blended = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Blended);
+        Assert.Equal(BigCity, blended.RailroadIndex);
+        Assert.False(blended.CanBuyNow);
     }
 
     [Fact]
