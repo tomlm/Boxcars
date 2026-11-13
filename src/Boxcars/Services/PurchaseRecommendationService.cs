@@ -27,6 +27,10 @@ public sealed class PurchaseRecommendationService
     // save for the Superchief.
     private const decimal ExpressMaximumShareOfSuperchief = 2m / 3m;
 
+    // A railroad the buyer can't afford yet is only worth saving for when the best one they can buy now is worth less
+    // than this share of it in the category; otherwise buying now beats waiting.
+    private const decimal SaveForMinimumAdvantageShare = 0.5m;
+
     private static readonly NetworkCoverageService NetworkCoverage = new();
 
     public RecommendationInputSet BuildInputSet(
@@ -55,11 +59,12 @@ public sealed class PurchaseRecommendationService
     }
 
     /// <summary>
-    /// The best railroad for the buyer in each category, from every railroad for sale. One the buyer can't safely afford
-    /// yet is one to save for, with negative <see cref="PurchaseRecommendation.SpareCash"/> (how far short): to afford it,
-    /// after paying for it and the fees owed, the buyer must still hold the operating reserve, less the fees opponents
-    /// are expected to pay soon (income can stand in for the reserve, but not for fees owed now). Categories with no
-    /// railroad that helps are left out, and the same railroad can win several.
+    /// The railroad to recommend to the buyer in each category, from every railroad for sale: the best one they can
+    /// safely afford, unless it's worth less than half of the best one for sale, which is then one to save for, with
+    /// negative <see cref="PurchaseRecommendation.SpareCash"/> (how far short). To afford a railroad, after paying for it
+    /// and the fees owed, the buyer must still hold the operating reserve, less the fees opponents are expected to pay
+    /// soon (income can stand in for the reserve, but not for fees owed now). Categories with no railroad that helps
+    /// are left out, and the same railroad can win several.
     /// </summary>
     public static PurchaseRecommendationSet BuildRecommendations(
         MapDefinition mapDefinition,
@@ -137,7 +142,9 @@ public sealed class PurchaseRecommendationService
         }
 
         // Price alone never makes a railroad worth buying, so blended needs some gain.
-        var blended = Best(scored, BlendedScores(scored), c => c.AccessGain > 0m || c.MonopolyGain > 0m || c.LeaderAccessGain > 0m);
+        // Whether to save is judged on gains alone: being cheap doesn't make a railroad worth buying instead.
+        var blended = Best(scored, BlendedScores(scored), c => c.AccessGain > 0m || c.MonopolyGain > 0m || c.LeaderAccessGain > 0m,
+            BlendedScores(scored, includePrice: false));
         Add(PurchaseRecommendationCategory.Blended, blended, blended is null ? string.Empty : Describe(blended));
 
         var access = Best(scored, scored.ToDictionary(c => c, c => c.AccessGain), c => c.AccessGain > 0m);
@@ -154,10 +161,12 @@ public sealed class PurchaseRecommendationService
             ? string.Empty
             : $"Denies {leader.Value.Opponent.Name} +{FormatPercent(strategy.LeaderAccessGain)} access");
 
-        // Cheapest railroad that still adds access; the bigger gain breaks a price tie.
+        // Cheapest railroad that still adds access; the bigger gain breaks a price tie. It's only one to save for when
+        // no railroad that adds access can be bought now.
         var lowPrice = scored
             .Where(c => c.AccessGain > 0m)
-            .OrderBy(c => c.Candidate.PurchasePrice)
+            .OrderBy(c => c.SpareCash < 0)
+            .ThenBy(c => c.Candidate.PurchasePrice)
             .ThenByDescending(c => c.AccessGain)
             .FirstOrDefault();
         Add(PurchaseRecommendationCategory.LowPrice, lowPrice, lowPrice is null ? string.Empty : $"+{FormatPercent(lowPrice.AccessGain)} access");
@@ -229,7 +238,7 @@ public sealed class PurchaseRecommendationService
         return EngineUpgradeRecommendation.SaveForSuperchief;
     }
 
-    private static Dictionary<ScoredCandidate, decimal> BlendedScores(List<ScoredCandidate> scored)
+    private static Dictionary<ScoredCandidate, decimal> BlendedScores(List<ScoredCandidate> scored, bool includePrice = true)
     {
         decimal Scale(decimal value, decimal max) => max > 0m && value > 0m ? value / max : 0m;
         var maxAccess = scored.Max(c => c.AccessGain);
@@ -244,17 +253,34 @@ public sealed class PurchaseRecommendationService
             + (BlendedMonopolyWeight * Scale(c.MonopolyGain, maxMonopoly))
             + (BlendedConnectivityWeight * Scale(c.Connectivity, maxConnectivity))
             + (BlendedStrategyWeight * Scale(c.LeaderAccessGain, maxLeader))
-            + (BlendedPriceWeight * (maxPrice > minPrice ? (decimal)(maxPrice - c.Candidate.PurchasePrice) / (maxPrice - minPrice) : 1m)));
+            + (includePrice
+                ? BlendedPriceWeight * (maxPrice > minPrice ? (decimal)(maxPrice - c.Candidate.PurchasePrice) / (maxPrice - minPrice) : 1m)
+                : 0m));
     }
 
-    /// <summary>Highest score among eligible candidates; the cheaper railroad breaks a tie.</summary>
-    private static ScoredCandidate? Best(List<ScoredCandidate> scored, Dictionary<ScoredCandidate, decimal> scores, Func<ScoredCandidate, bool> eligible)
+    /// <summary>
+    /// Highest score among eligible candidates; the cheaper railroad breaks a tie. When the buyer can't afford that one
+    /// yet, the best one they can afford wins instead, unless its value is under
+    /// <see cref="SaveForMinimumAdvantageShare"/> of the top one's: only then is the top one worth saving for.
+    /// </summary>
+    /// <param name="values">What each candidate is worth when weighing buying now against saving; defaults to <paramref name="scores"/>.</param>
+    private static ScoredCandidate? Best(
+        List<ScoredCandidate> scored,
+        Dictionary<ScoredCandidate, decimal> scores,
+        Func<ScoredCandidate, bool> eligible,
+        Dictionary<ScoredCandidate, decimal>? values = null)
     {
-        return scored
+        values ??= scores;
+        var ranked = scored
             .Where(eligible)
             .OrderByDescending(c => scores[c])
             .ThenBy(c => c.Candidate.PurchasePrice)
-            .FirstOrDefault();
+            .ToList();
+        var top = ranked.FirstOrDefault();
+        var buyable = ranked.FirstOrDefault(c => c.SpareCash >= 0);
+        return top is null || buyable is null || values[buyable] >= values[top] * SaveForMinimumAdvantageShare
+            ? buyable ?? top
+            : top;
     }
 
     private static string Describe(ScoredCandidate candidate)
