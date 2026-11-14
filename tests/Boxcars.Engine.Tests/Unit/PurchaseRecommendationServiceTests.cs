@@ -156,35 +156,108 @@ public class PurchaseRecommendationServiceTests
     }
 
     [Fact]
-    public void BuildRecommendations_ARailroadThatWouldBreakTheOperatingReserve_IsOneToSaveFor()
+    public void BuildRecommendations_TheOnlyRailroadThatReachesWinningAccess_IsOneToSaveFor()
     {
-        // $21,000 can't cover the $30,000 big-city line and a $10,000 reserve, and the best line it can cover (Bend,
-        // +10% access) adds under half of the big-city line's +40%.
-        var result = BuildSet(new PurchaseFinances(21_000, 0, 10_000, _ => 0));
+        // $31,000 is $9,000 short of the $30,000 big-city line and a $10,000 reserve. It's the only line that takes
+        // the buyer past 55% access (20% to 60%); the best line they can cover (Bend) gets them to 30%.
+        var result = BuildSet(new PurchaseFinances(31_000, 0, 10_000, _ => 0), [Bend, BigCity, Cheap]);
 
         Assert.Equal(10_000, result.OperatingReserve);
         var access = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Access);
         Assert.Equal(BigCity, access.RailroadIndex);
         Assert.False(access.CanBuyNow);
-        Assert.Equal(21_000 - 30_000 - 10_000, access.SpareCash);
-        // The cheapest line that adds access can be bought now.
-        var lowPrice = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.LowPrice);
-        Assert.True(lowPrice.CanBuyNow);
+        Assert.Equal(31_000 - 30_000 - 10_000, access.SpareCash);
+        Assert.Equal("Takes you to 60% access", access.Reason);
+        // Blended says to save for it too.
+        var blended = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Blended);
+        Assert.Equal(BigCity, blended.RailroadIndex);
+        Assert.Equal(access.Reason, blended.Reason);
+        // Being worth more isn't a reason to save: the other categories recommend lines that can be bought now.
+        Assert.All(
+            result.Recommendations.Where(r => r.Category is not (PurchaseRecommendationCategory.Access or PurchaseRecommendationCategory.Blended)),
+            r => Assert.True(r.CanBuyNow));
     }
 
     [Fact]
-    public void BuildRecommendations_ARailroadWorthAtLeastHalfTheBestCanBeBoughtNow_IsRecommendedOverSaving()
+    public void BuildRecommendations_TheNeededRailroadIsFarOutOfReach_RecommendsOnesThatCanBeBoughtNow()
     {
-        // $35,000 still can't cover the big-city line (+40% access), but it covers the far-city line (+25%).
-        var result = BuildSet(new PurchaseFinances(35_000, 0, 10_000, _ => 0));
+        // $21,000 is $19,000 short of the big-city line, more than a third of its price: too far off to save for.
+        var result = BuildSet(new PurchaseFinances(21_000, 0, 10_000, _ => 0), [Bend, BigCity, Cheap]);
 
         var access = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Access);
-        Assert.Equal(FarCity, access.RailroadIndex);
-        Assert.True(access.CanBuyNow);
-        // Overall it's still worth far more (monopoly, and denying the leader), so blended says to save for it.
+        Assert.Equal(Bend, access.RailroadIndex);
+        Assert.Equal("+10% access", access.Reason);
+        Assert.All(result.Recommendations, r => Assert.True(r.CanBuyNow));
+    }
+
+    [Fact]
+    public void BuildRecommendations_TheOnlyRailroadThatJoinsTheBuyersNetworks_IsOneToSaveFor()
+    {
+        // $6,000 is $2,000 short of the bridge, the only line that joins the buyer's two networks.
+        var result = BuildSet(new PurchaseFinances(6_000, 0, 0, _ => 0), [Bridge, Cheap]);
+
+        var connectivity = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Connectivity);
+        Assert.Equal(Bridge, connectivity.RailroadIndex);
+        Assert.False(connectivity.CanBuyNow);
         var blended = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Blended);
-        Assert.Equal(BigCity, blended.RailroadIndex);
-        Assert.False(blended.CanBuyNow);
+        Assert.Equal(Bridge, blended.RailroadIndex);
+        Assert.Equal("Joins 2 of your networks", blended.Reason);
+        Assert.True(result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.LowPrice).CanBuyNow);
+    }
+
+    [Theory]
+    // $8,000 is $2,000 short of the gate, the last line for sale into the East: one to save for.
+    [InlineData(8_000, false, true)]
+    [InlineData(10_000, false, false)]
+    // With a second line into the East for sale there's no rush, so nothing to save for.
+    [InlineData(8_000, true, null)]
+    public void BuildRecommendations_TheLastRailroadIntoARegionTheBuyerCantReach_IsRecommended_OrSavedFor(int cash, bool secondWayIn, bool? expectSaveFor)
+    {
+        const int Owned = 1, Gate = 2, Local = 3, OtherGate = 4;
+        var map = new MapDefinition { Name = "Region Test Map", Version = "1.0" };
+        map.Regions.Add(new RegionDefinition { Index = 0, Name = "West", Code = "W", Probability = 50d });
+        map.Regions.Add(new RegionDefinition { Index = 1, Name = "East", Code = "E", Probability = 50d });
+        foreach (var (name, regionCode, dot, probability) in new[] { ("Home", "W", 0, 50d), ("Town", "W", 2, 50d), ("Port", "E", 0, 20d), ("Capital", "E", 1, 80d) })
+        {
+            map.Cities.Add(new CityDefinition { Name = name, RegionCode = regionCode, Probability = probability, PayoutIndex = dot, MapDotIndex = dot });
+        }
+
+        // The buyer's line runs Home to a junction; Local goes on to Town; each gate crosses to Port.
+        foreach (var (railroad, startRegion, start, endRegion, end) in new[] { (Owned, 0, 0, 0, 1), (Local, 0, 1, 0, 2), (Gate, 0, 1, 1, 0), (OtherGate, 0, 3, 1, 0) })
+        {
+            map.Railroads.Add(new RailroadDefinition { Index = railroad, Name = $"Line {railroad}", ShortName = $"L{railroad}" });
+            map.RailroadRouteSegments.Add(new RailroadRouteSegmentDefinition
+            {
+                RailroadIndex = railroad,
+                StartRegionIndex = startRegion,
+                StartDotIndex = start,
+                EndRegionIndex = endRegion,
+                EndDotIndex = end
+            });
+        }
+
+        List<PurchaseCandidate> candidates = [new(Gate, "Gate", 10_000), new(Local, "Local", 2_000)];
+        if (secondWayIn)
+        {
+            candidates.Add(new(OtherGate, "Other Gate", 10_000));
+        }
+
+        var result = PurchaseRecommendationService.BuildRecommendations(map, [Owned], candidates, [], new PurchaseFinances(cash, 0, 0, _ => 0));
+
+        var region = result.Recommendations.SingleOrDefault(r => r.Category == PurchaseRecommendationCategory.Region);
+        var blended = result.Recommendations.Single(r => r.Category == PurchaseRecommendationCategory.Blended);
+        if (expectSaveFor is null)
+        {
+            Assert.Null(region);
+            Assert.True(blended.CanBuyNow);
+            return;
+        }
+
+        Assert.Equal(Gate, region!.RailroadIndex);
+        Assert.Equal("Last railroad into East", region.Reason);
+        Assert.Equal(!expectSaveFor.Value, region.CanBuyNow);
+        // Blended only follows it when it has to be saved for.
+        Assert.Equal(expectSaveFor.Value, blended.RailroadIndex == Gate && blended.Reason == region.Reason);
     }
 
     [Fact]

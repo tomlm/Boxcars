@@ -825,7 +825,8 @@ public sealed class GameBoardStateMapper(
             PurchaseRecommendationCategory.Strategy => "Block the leader",
             PurchaseRecommendationCategory.LowPrice => "Best low price",
             PurchaseRecommendationCategory.TollBooth => "Toll booth",
-            _ => category.ToString()
+            PurchaseRecommendationCategory.Region => "Region access",
+            _ =>category.ToString()
         };
     }
 
