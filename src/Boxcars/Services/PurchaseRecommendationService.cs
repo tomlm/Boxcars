@@ -27,9 +27,13 @@ public sealed class PurchaseRecommendationService
     // save for the Superchief.
     private const decimal ExpressMaximumShareOfSuperchief = 2m / 3m;
 
-    // A railroad the buyer can't afford yet is only worth saving for when the best one they can buy now is worth less
-    // than this share of it in the category; otherwise buying now beats waiting.
-    private const decimal SaveForMinimumAdvantageShare = 0.5m;
+    // A railroad the buyer can't afford yet is only worth saving for when it does something no railroad they can buy
+    // now does: takes them past this much access (what it takes to win), joins their separate networks, or is the last
+    // one for sale into a region they can't reach. Being worth more isn't enough; otherwise buying now beats waiting.
+    private const decimal WinningAccessPercent = 55m;
+    // And only when it's close: the buyer is short by no more than this share of its price. Further off than that,
+    // it takes too many trips to get there, and cheaper railroads bought now earn in the meantime.
+    private const decimal SaveForMaximumShortfallShare = 1m / 3m;
 
     private static readonly NetworkCoverageService NetworkCoverage = new();
 
@@ -60,8 +64,16 @@ public sealed class PurchaseRecommendationService
 
     /// <summary>
     /// The railroad to recommend to the buyer in each category, from every railroad for sale: the best one they can
-    /// safely afford, unless it's worth less than half of the best one for sale, which is then one to save for, with
-    /// negative <see cref="PurchaseRecommendation.SpareCash"/> (how far short). To afford a railroad, after paying for it
+    /// safely afford. A railroad they can't afford yet is recommended instead, as one to save for with negative
+    /// <see cref="PurchaseRecommendation.SpareCash"/> (how far short), only when it's within a third of its price of
+    /// being affordable and it does what no affordable one does:
+    /// <list type="bullet">
+    /// <item>Access: takes the buyer past <see cref="WinningAccessPercent"/> access.</item>
+    /// <item>Connectivity: joins the buyer's separate networks.</item>
+    /// <item>Region: is the last railroad for sale into a region the buyer can't reach.</item>
+    /// </list>
+    /// Blended then says to save for it too. With nothing affordable in a category, its best railroad is shown as one
+    /// to save for. To afford a railroad, after paying for it
     /// and the fees owed, the buyer must still hold the operating reserve, less the fees opponents are expected to pay
     /// soon (income can stand in for the reserve, but not for fees owed now). Categories with no railroad that helps
     /// are left out, and the same railroad can win several.
@@ -99,6 +111,10 @@ public sealed class PurchaseRecommendationService
         var leader = FindStrongestOpponent(mapDefinition, opponents);
         var destinationNodes = BuildOpponentDestinationNodes(mapDefinition, opponents, nodesByRailroad);
         var monopolyNodes = NetworkCoverageService.FindMonopolyCityNodes(mapDefinition, buyerOwnedRailroadIndices);
+        var unreachedRegionCodes = currentCoverage.RegionAccess
+            .Where(region => region.AccessibleDestinationPercent <= 0m)
+            .Select(region => region.RegionCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var scored = candidates
             .Select(candidate =>
@@ -122,6 +138,11 @@ public sealed class PurchaseRecommendationService
                     .ToList();
                 return new ScoredCandidate(
                     candidate,
+                    ProjectedAccess: projected.AccessibleDestinationPercent,
+                    RegionsOpened: projected.RegionAccess
+                        .Where(region => region.AccessibleDestinationPercent > 0m && unreachedRegionCodes.Contains(region.RegionCode))
+                        .Select(region => region.RegionCode)
+                        .ToList(),
                     AccessGain: projected.AccessibleDestinationPercent - currentCoverage.AccessibleDestinationPercent,
                     MonopolyGain: projected.MonopolyDestinationPercent - currentCoverage.MonopolyDestinationPercent,
                     // With no railroads yet, connectivity is how many other lines it links to.
@@ -141,22 +162,45 @@ public sealed class PurchaseRecommendationService
             }
         }
 
-        // Price alone never makes a railroad worth buying, so blended needs some gain.
-        // Whether to save is judged on gains alone: being cheap doesn't make a railroad worth buying instead.
-        var blended = Best(scored, BlendedScores(scored), c => c.AccessGain > 0m || c.MonopolyGain > 0m || c.LeaderAccessGain > 0m,
-            BlendedScores(scored, includePrice: false));
-        Add(PurchaseRecommendationCategory.Blended, blended, blended is null ? string.Empty : Describe(blended));
+        // The three reasons to save (see WinningAccessPercent), each with the railroad that's needed.
+        var (access, saveForAccess) = Best(scored, scored.ToDictionary(c => c, c => c.AccessGain), c => c.AccessGain > 0m,
+            neededToSaveFor: c => c.ProjectedAccess > WinningAccessPercent);
+        var accessReason = access is null
+            ? string.Empty
+            : saveForAccess ? $"Takes you to {FormatPercent(access.ProjectedAccess)} access" : $"+{FormatPercent(access.AccessGain)} access";
 
-        var access = Best(scored, scored.ToDictionary(c => c, c => c.AccessGain), c => c.AccessGain > 0m);
-        Add(PurchaseRecommendationCategory.Access, access, access is null ? string.Empty : $"+{FormatPercent(access.AccessGain)} access");
+        var (connectivity, saveForConnectivity) = Best(scored, scored.ToDictionary(c => c, c => c.Connectivity + (c.AccessGain / 1000m)), c => c.Connectivity > 0,
+            neededToSaveFor: c => buyerOwnedRailroadIndices.Count > 0 && c.Connectivity >= 2);
+        var connectivityReason = connectivity is null ? string.Empty : DescribeConnectivity(connectivity, buyerOwnedRailroadIndices.Count);
 
-        var connectivity = Best(scored, scored.ToDictionary(c => c, c => c.Connectivity + (c.AccessGain / 1000m)), c => c.Connectivity > 0);
-        Add(PurchaseRecommendationCategory.Connectivity, connectivity, connectivity is null ? string.Empty : DescribeConnectivity(connectivity, buyerOwnedRailroadIndices.Count));
+        // The last railroad for sale into a region the buyer can't reach: once it's gone they're locked out.
+        var lastWayIn = unreachedRegionCodes
+            .Select(code => (Code: code, Openers: scored.Where(c => c.RegionsOpened.Contains(code, StringComparer.OrdinalIgnoreCase)).ToList()))
+            .Where(entry => entry.Openers.Count == 1 && (entry.Openers[0].SpareCash >= 0 || IsWithinReach(entry.Openers[0])))
+            .OrderByDescending(entry => entry.Openers[0].AccessGain)
+            .Select(entry => (entry.Code, Railroad: entry.Openers[0]))
+            .FirstOrDefault();
+        ScoredCandidate? region = lastWayIn.Railroad;
+        var regionReason = region is null
+            ? string.Empty
+            : $"Last railroad into {mapDefinition.Regions.FirstOrDefault(r => string.Equals(r.Code, lastWayIn.Code, StringComparison.OrdinalIgnoreCase))?.Name ?? lastWayIn.Code}";
 
-        var monopoly = Best(scored, scored.ToDictionary(c => c, c => c.MonopolyGain), c => c.MonopolyGain > 0m);
+        // Blended saves for a railroad that's needed; otherwise it's the best one that can be bought now.
+        // Price alone never makes a railroad worth buying, so that needs some gain.
+        var (neededRailroad, neededReason) = saveForAccess ? (access, accessReason)
+            : saveForConnectivity ? (connectivity, connectivityReason)
+            : region is { SpareCash: < 0 } ? (region, regionReason)
+            : (null, string.Empty);
+        var blended = neededRailroad
+            ?? Best(scored, BlendedScores(scored), c => c.AccessGain > 0m || c.MonopolyGain > 0m || c.LeaderAccessGain > 0m).Pick;
+        Add(PurchaseRecommendationCategory.Blended, blended, neededRailroad is not null ? neededReason : blended is null ? string.Empty : Describe(blended));
+        Add(PurchaseRecommendationCategory.Access, access, accessReason);
+        Add(PurchaseRecommendationCategory.Connectivity, connectivity, connectivityReason);
+
+        var monopoly = Best(scored, scored.ToDictionary(c => c, c => c.MonopolyGain), c => c.MonopolyGain > 0m).Pick;
         Add(PurchaseRecommendationCategory.Monopoly, monopoly, monopoly is null ? string.Empty : $"+{FormatPercent(monopoly.MonopolyGain)} monopoly");
 
-        var strategy = Best(scored, scored.ToDictionary(c => c, c => c.LeaderAccessGain), c => c.LeaderAccessGain > 0m);
+        var strategy = Best(scored, scored.ToDictionary(c => c, c => c.LeaderAccessGain), c => c.LeaderAccessGain > 0m).Pick;
         Add(PurchaseRecommendationCategory.Strategy, strategy, strategy is null || leader is null
             ? string.Empty
             : $"Denies {leader.Value.Opponent.Name} +{FormatPercent(strategy.LeaderAccessGain)} access");
@@ -171,8 +215,9 @@ public sealed class PurchaseRecommendationService
             .FirstOrDefault();
         Add(PurchaseRecommendationCategory.LowPrice, lowPrice, lowPrice is null ? string.Empty : $"+{FormatPercent(lowPrice.AccessGain)} access");
 
-        var tollBooth = Best(scored, scored.ToDictionary(c => c, c => (decimal)c.TollPayers.Count), c => c.TollPayers.Count > 0);
+        var tollBooth = Best(scored, scored.ToDictionary(c => c, c => (decimal)c.TollPayers.Count), c => c.TollPayers.Count > 0).Pick;
         Add(PurchaseRecommendationCategory.TollBooth, tollBooth, tollBooth is null ? string.Empty : DescribeTollPayers(tollBooth.TollPayers));
+        Add(PurchaseRecommendationCategory.Region, region, regionReason);
 
         // A Superchief is only the pick over railroads the buyer can buy now if none of them is this good.
         var strongRailroadOnOffer = scored.Any(c => c.SpareCash >= 0
@@ -238,7 +283,7 @@ public sealed class PurchaseRecommendationService
         return EngineUpgradeRecommendation.SaveForSuperchief;
     }
 
-    private static Dictionary<ScoredCandidate, decimal> BlendedScores(List<ScoredCandidate> scored, bool includePrice = true)
+    private static Dictionary<ScoredCandidate, decimal> BlendedScores(List<ScoredCandidate> scored)
     {
         decimal Scale(decimal value, decimal max) => max > 0m && value > 0m ? value / max : 0m;
         var maxAccess = scored.Max(c => c.AccessGain);
@@ -253,24 +298,22 @@ public sealed class PurchaseRecommendationService
             + (BlendedMonopolyWeight * Scale(c.MonopolyGain, maxMonopoly))
             + (BlendedConnectivityWeight * Scale(c.Connectivity, maxConnectivity))
             + (BlendedStrategyWeight * Scale(c.LeaderAccessGain, maxLeader))
-            + (includePrice
-                ? BlendedPriceWeight * (maxPrice > minPrice ? (decimal)(maxPrice - c.Candidate.PurchasePrice) / (maxPrice - minPrice) : 1m)
-                : 0m));
+            + (BlendedPriceWeight * (maxPrice > minPrice ? (decimal)(maxPrice - c.Candidate.PurchasePrice) / (maxPrice - minPrice) : 1m)));
     }
 
     /// <summary>
     /// Highest score among eligible candidates; the cheaper railroad breaks a tie. When the buyer can't afford that one
-    /// yet, the best one they can afford wins instead, unless its value is under
-    /// <see cref="SaveForMinimumAdvantageShare"/> of the top one's: only then is the top one worth saving for.
+    /// yet, the best one they can afford wins instead, unless the top one is needed: it's close
+    /// (<see cref="IsWithinReach"/>) and passes <paramref name="neededToSaveFor"/> where the affordable one doesn't.
+    /// With no affordable one, the top one is the pick either way.
     /// </summary>
-    /// <param name="values">What each candidate is worth when weighing buying now against saving; defaults to <paramref name="scores"/>.</param>
-    private static ScoredCandidate? Best(
+    /// <returns>The pick, and whether it's one that's needed and so worth saving for over buying another now.</returns>
+    private static (ScoredCandidate? Pick, bool SaveFor) Best(
         List<ScoredCandidate> scored,
         Dictionary<ScoredCandidate, decimal> scores,
         Func<ScoredCandidate, bool> eligible,
-        Dictionary<ScoredCandidate, decimal>? values = null)
+        Func<ScoredCandidate, bool>? neededToSaveFor = null)
     {
-        values ??= scores;
         var ranked = scored
             .Where(eligible)
             .OrderByDescending(c => scores[c])
@@ -278,9 +321,18 @@ public sealed class PurchaseRecommendationService
             .ToList();
         var top = ranked.FirstOrDefault();
         var buyable = ranked.FirstOrDefault(c => c.SpareCash >= 0);
-        return top is null || buyable is null || values[buyable] >= values[top] * SaveForMinimumAdvantageShare
-            ? buyable ?? top
-            : top;
+        var saveFor = top is { SpareCash: < 0 }
+            && neededToSaveFor is not null
+            && neededToSaveFor(top)
+            && IsWithinReach(top)
+            && (buyable is null || !neededToSaveFor(buyable));
+        return (saveFor ? top : buyable ?? top, saveFor);
+    }
+
+    /// <summary>Whether the buyer is short of the railroad by no more than <see cref="SaveForMaximumShortfallShare"/> of its price.</summary>
+    private static bool IsWithinReach(ScoredCandidate candidate)
+    {
+        return -candidate.SpareCash <= candidate.Candidate.PurchasePrice * SaveForMaximumShortfallShare;
     }
 
     private static string Describe(ScoredCandidate candidate)
@@ -400,8 +452,12 @@ public sealed class PurchaseRecommendationService
         return nodesByRailroad;
     }
 
+    /// <param name="ProjectedAccess">The buyer's access after buying it.</param>
+    /// <param name="RegionsOpened">Regions the buyer can't reach now and could with it.</param>
     private sealed record ScoredCandidate(
         PurchaseCandidate Candidate,
+        decimal ProjectedAccess,
+        IReadOnlyList<string> RegionsOpened,
         decimal AccessGain,
         decimal MonopolyGain,
         int Connectivity,

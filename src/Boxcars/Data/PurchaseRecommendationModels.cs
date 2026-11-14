@@ -13,7 +13,10 @@ public enum PurchaseRecommendationCategory
     LowPrice,
 
     /// <summary>Buying it leaves an opponent's destination reachable only on the buyer's railroads.</summary>
-    TollBooth
+    TollBooth,
+
+    /// <summary>The last railroad for sale into a region the buyer can't reach.</summary>
+    Region
 }
 
 /// <summary>The engine upgrade recommendation shown on the purchase bar.</summary>
