@@ -290,6 +290,42 @@ public class GameEngineServiceAiHistoryTests
     }
 
     [Fact]
+    public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationAtHomeWithWinningCash_Declares()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.OtherPlayerUserId, isConnected: true);
+
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.DrawDestination;
+
+        // Already home, so there is no route to plan: declaring wins on the spot.
+        var activePlayer = engine.CurrentTurn.ActivePlayer;
+        activePlayer.Cash = engine.Settings.WinningCash;
+        Assert.Equal(activePlayer.HomeCity.Name, activePlayer.CurrentCity.Name);
+
+        SetMapDefinition(service, engine.MapDefinition);
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1"
+        };
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                BotTurnServiceTestHarness.ActivePlayerUserId,
+                BotTurnServiceTestHarness.OtherPlayerUserId),
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            "bot-1");
+
+        var action = await InvokeCreateAutomaticTurnActionAsync(service, gameEntity, playerStates, engine);
+
+        Assert.IsType<DeclareAction>(action);
+    }
+
+    [Fact]
     public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationWithoutBuffer_PicksDestination()
     {
         var presenceService = new GamePresenceService();

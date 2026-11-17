@@ -2477,6 +2477,12 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             return false;
         }
 
+        // Already home: there is no trip to weigh, and declaring wins on the spot.
+        if (string.Equals(activePlayer.CurrentCity.Name, activePlayer.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         var currentNodeId = TryGetCityNodeId(mapDefinition, activePlayer.CurrentCity);
         if (string.IsNullOrWhiteSpace(currentNodeId))
         {
