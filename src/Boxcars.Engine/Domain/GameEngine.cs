@@ -2698,6 +2698,9 @@ public sealed class GameEngine : ObservableBase
     /// A player at home wins only with the winning cash left after paying this turn's fees. When they have it, the
     /// fees are paid and the game ends; otherwise nothing changes and the turn goes on (fees are paid at its end).
     /// </summary>
+    /// <summary>The fees the active player has run up so far this turn, paid when it ends.</summary>
+    public int ActivePlayerFeesOwedThisTurn => CalculatePendingFeeAmount(CurrentTurn.ActivePlayer);
+
     private bool TryWinAtHomeAfterFees(Player player)
     {
         var pendingFees = CalculatePendingFeeAmount(player);

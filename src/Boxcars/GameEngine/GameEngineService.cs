@@ -2472,9 +2472,17 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
 
     private static bool ShouldAiDeclareForHome(RailBaronGameEngine gameEngine, MapDefinition mapDefinition, Player activePlayer)
     {
-        if (activePlayer.Cash < gameEngine.Settings.WinningCash)
+        // Winning takes the winning cash after this turn's fees are paid, so fees already owed count against it.
+        var cashAfterFeesOwed = activePlayer.Cash - gameEngine.ActivePlayerFeesOwedThisTurn;
+        if (cashAfterFeesOwed < gameEngine.Settings.WinningCash)
         {
             return false;
+        }
+
+        // Already home: there is no trip to weigh, and declaring wins on the spot.
+        if (string.Equals(activePlayer.CurrentCity.Name, activePlayer.HomeCity.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
         }
 
         var currentNodeId = TryGetCityNodeId(mapDefinition, activePlayer.CurrentCity);
@@ -2500,7 +2508,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
         var cheapestRoute = gameEngine.SuggestRouteForPlayer(activePlayer.Index, new RouteSuggestionOptions { DestinationNodeId = homeNodeId });
 
         return cheapestRoute.Segments.Count > 0
-            && activePlayer.Cash - cheapestRoute.TotalCost >= gameEngine.Settings.WinningCash;
+            && cashAfterFeesOwed - cheapestRoute.TotalCost >= gameEngine.Settings.WinningCash;
     }
 
     private static string? TryGetCityNodeId(MapDefinition mapDefinition, CityDefinition city)
