@@ -326,6 +326,44 @@ public class GameEngineServiceAiHistoryTests
     }
 
     [Fact]
+    public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationAtHomeWinningCashOnlyBeforeFees_PicksDestination()
+    {
+        var presenceService = new GamePresenceService();
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.ActivePlayerUserId, isConnected: false);
+        presenceService.SetMockConnectionState("game-1", BotTurnServiceTestHarness.OtherPlayerUserId, isConnected: true);
+
+        var service = CreateGameEngineServiceForTests(presenceService);
+        var (engine, _) = GameEngineFixture.CreateTestEngine();
+        engine.CurrentTurn.Phase = TurnPhase.DrawDestination;
+
+        // Home with exactly the winning cash, but a railroad ridden earlier this turn is still owed: paying it
+        // leaves the bot short, so declaring would not win.
+        var activePlayer = engine.CurrentTurn.ActivePlayer;
+        activePlayer.Cash = engine.Settings.WinningCash;
+        Assert.Equal(activePlayer.HomeCity.Name, activePlayer.CurrentCity.Name);
+        engine.CurrentTurn.RailroadsRiddenThisTurn.Add(engine.Railroads.First(railroad => railroad.Owner is null).Index);
+
+        SetMapDefinition(service, engine.MapDefinition);
+
+        var gameEntity = new GameEntity
+        {
+            PartitionKey = "game-1",
+            RowKey = "GAME",
+            GameId = "game-1"
+        };
+        var playerStates = BotTurnServiceTestHarness.CreateDedicatedBotSeatPlayerStates(
+            BotTurnServiceTestHarness.CreateSelections(
+                BotTurnServiceTestHarness.ActivePlayerUserId,
+                BotTurnServiceTestHarness.OtherPlayerUserId),
+            BotTurnServiceTestHarness.ActivePlayerUserId,
+            "bot-1");
+
+        var action = await InvokeCreateAutomaticTurnActionAsync(service, gameEntity, playerStates, engine);
+
+        Assert.IsType<PickDestinationAction>(action);
+    }
+
+    [Fact]
     public async Task CreateAutomaticTurnActionAsync_AiDrawDestinationWithoutBuffer_PicksDestination()
     {
         var presenceService = new GamePresenceService();
