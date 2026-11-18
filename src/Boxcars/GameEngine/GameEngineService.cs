@@ -203,6 +203,7 @@ public sealed class GameEngineService : BackgroundService, IGameEngine
             CreatedAt = DateTimeOffset.UtcNow,
             CityProbabilityOverrides = request.CityProbabilityOverrides,
             RailroadPriceOverrides = request.RailroadPriceOverrides,
+            ReplayOfGameId = request.ReplayOfGameId,
             Seats = request.Players
                 .Select((player, seatIndex) => new GameSeatDefinition
                 {

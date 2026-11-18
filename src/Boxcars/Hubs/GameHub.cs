@@ -67,4 +67,7 @@ public static class GameHubEvents
     public const string PresenceUpdated = "PresenceUpdated";
     public const string JoinGame = "JoinGame";
     public const string LeaveGame = "LeaveGame";
+
+    /// <summary>Sent to a finished game's group with the id of its rematch, so everyone there moves to it.</summary>
+    public const string NextGameCreated = "NextGameCreated";
 }

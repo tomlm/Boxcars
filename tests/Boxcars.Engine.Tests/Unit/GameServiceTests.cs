@@ -21,7 +21,17 @@ public class GameServiceTests
     [InlineData("Game 3/1/25 9", "Game 3/1/25 10")]
     public void BuildReplayName_IncrementsTrailingReplayCounter(string currentName, string expectedReplayName)
     {
-        var replayName = ReplayGameNaming.BuildReplayName(currentName);
+        var replayName = ReplayGameNaming.BuildReplayName(currentName, isReplay: true);
+
+        Assert.Equal(expectedReplayName, replayName);
+    }
+
+    [Theory]
+    [InlineData("Game night", "Game night 2")]
+    [InlineData("Game Nov 17", "Game Nov 17 2")]
+    public void BuildReplayName_KeepsANumberThatIsPartOfAnOriginalGamesName(string currentName, string expectedReplayName)
+    {
+        var replayName = ReplayGameNaming.BuildReplayName(currentName, isReplay: false);
 
         Assert.Equal(expectedReplayName, replayName);
     }
