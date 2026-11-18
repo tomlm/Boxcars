@@ -40,11 +40,17 @@ public sealed record CreateGameRequest
     public IReadOnlyList<CityProbabilityOverride> CityProbabilityOverrides { get; init; } = [];
     public IReadOnlyList<RailroadPriceOverride> RailroadPriceOverrides { get; init; } = [];
 
+    /// <summary>The finished game this is a rematch of; its players move to the new game once it's created.</summary>
+    public string? ReplayOfGameId { get; init; }
+
     public int MaxPlayers => Players.Count;
 }
 
 public sealed record ReplayGamePreset
 {
+    /// <summary>The finished game Play Again was clicked in.</summary>
+    public string? ReplayOfGameId { get; init; }
+
     public string Name { get; init; } = string.Empty;
     public DateTimeOffset? GameDate { get; init; }
     public string MapFileName { get; init; } = "U21MAP.RB3";
@@ -247,14 +253,20 @@ public static class ReplayTurnOrder
 
 public static class ReplayGameNaming
 {
-    public static string BuildReplayName(string? gameName)
+    /// <summary>
+    /// The name of a rematch: "Game night" becomes "Game night 2", then "Game night 3". Only a game that is itself a
+    /// rematch has its trailing number counted up, so a number that is part of the name ("Game Nov 17") is kept and
+    /// gets " 2" after it.
+    /// </summary>
+    public static string BuildReplayName(string? gameName, bool isReplay)
     {
         var trimmedName = string.IsNullOrWhiteSpace(gameName)
             ? "Game"
             : gameName.Trim();
         var lastSpaceIndex = trimmedName.LastIndexOf(' ');
 
-        if (lastSpaceIndex > 0
+        if (isReplay
+            && lastSpaceIndex > 0
             && int.TryParse(trimmedName[(lastSpaceIndex + 1)..], out var replayNumber)
             && replayNumber >= 2)
         {

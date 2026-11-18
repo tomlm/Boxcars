@@ -43,6 +43,12 @@ public class GameEntity : ITableEntity
     public string CityProbabilityOverridesJson { get; set; } = "[]";
     public string RailroadPriceOverridesJson { get; set; } = "[]";
 
+    /// <summary>The finished game this one is a rematch of, when it was made with Play Again.</summary>
+    public string? ReplayOfGameId { get; set; }
+
+    /// <summary>The rematch made from this game with Play Again, which everyone still at this game moves to.</summary>
+    public string? NextGameId { get; set; }
+
     [IgnoreDataMember]
     [JsonIgnore]
     public IReadOnlyList<GameSeatDefinition> Seats

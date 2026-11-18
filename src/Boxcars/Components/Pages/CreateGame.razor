@@ -281,6 +281,8 @@
     private string _gameName = string.Empty;
     private DateTime? _gameDate = DateTime.Today;
     private string? _appliedPresetPayload;
+    // The finished game a Play Again preset came from; its players move to the game created here.
+    private string? _replayOfGameId;
     private IReadOnlyList<CityProbabilityOverride> _cityProbabilityOverrides = [];
     private IReadOnlyList<RailroadPriceOverride> _railroadPriceOverrides = [];
     // The map randomized cities were generated for, so prices can be recomputed when the minimum price changes.
@@ -452,6 +454,7 @@
                 Settings = _settings,
                 CityProbabilityOverrides = _cityProbabilityOverrides,
                 RailroadPriceOverrides = _railroadPriceOverrides,
+                ReplayOfGameId = _replayOfGameId,
                 Players = _playerSlots.Select(slot => new GamePlayerSelection
                 {
                     UserId = slot.UserId,
@@ -654,6 +657,7 @@
         }
 
         _playerCount = presetPlayers.Count;
+        _replayOfGameId = replayPreset.ReplayOfGameId;
         _gameName = string.IsNullOrWhiteSpace(replayPreset.Name) ? _gameName : replayPreset.Name;
         _gameDate = replayPreset.GameDate?.LocalDateTime.Date ?? _gameDate;
         _settings = replayPreset.Settings;

@@ -19,6 +19,24 @@ public class GameService
     private readonly IHubContext<DashboardHub> _hubContext;
     private readonly IGameEngine _gameEngine;
     private readonly GameSettingsResolver _gameSettingsResolver;
+    // Tells everyone still at a finished game that its rematch is ready; absent where there's no game hub (tests).
+    private readonly IHubContext<GameHub>? _gameHubContext;
+
+    public GameService(
+        TableServiceClient tableServiceClient,
+        IHubContext<DashboardHub> hubContext,
+        IGameEngine gameEngine,
+        GameSettingsResolver gameSettingsResolver,
+        IHubContext<GameHub> gameHubContext)
+        : this(
+            tableServiceClient.GetTableClient(TableNames.GamesTable),
+            tableServiceClient.GetTableClient(TableNames.UsersTable),
+            hubContext,
+            gameEngine,
+            gameSettingsResolver)
+    {
+        _gameHubContext = gameHubContext;
+    }
 
     public GameService(TableServiceClient tableServiceClient, IHubContext<DashboardHub> hubContext, IGameEngine gameEngine, GameSettingsResolver gameSettingsResolver)
         : this(
@@ -147,6 +165,11 @@ public class GameService
                 cancellationToken);
             await _gameEngine.StartGameAsync(createdGameId, cancellationToken);
 
+            if (!string.IsNullOrWhiteSpace(request.ReplayOfGameId))
+            {
+                await LinkRematchAsync(request.ReplayOfGameId, createdGameId, cancellationToken);
+            }
+
             await _hubContext.Clients.All.SendAsync("DashboardStateRefreshed", cancellationToken);
 
             return new GameActionResult { Success = true, GameId = createdGameId };
@@ -154,6 +177,29 @@ public class GameService
         catch (Exception exception)
         {
             return new GameActionResult { Success = false, Reason = exception.Message };
+        }
+    }
+
+    /// <summary>
+    /// Records the rematch on the finished game, so Play Again there goes to it rather than making another, and moves
+    /// everyone still at the finished game to it.
+    /// </summary>
+    private async Task LinkRematchAsync(string finishedGameId, string rematchGameId, CancellationToken cancellationToken)
+    {
+        var link = new TableEntity(finishedGameId, "GAME") { [nameof(GameEntity.NextGameId)] = rematchGameId };
+        try
+        {
+            await _gamesTable.UpdateEntityAsync(link, ETag.All, TableUpdateMode.Merge, cancellationToken);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return;
+        }
+
+        if (_gameHubContext is not null)
+        {
+            await _gameHubContext.Clients.Group(finishedGameId)
+                .SendAsync(GameHubEvents.NextGameCreated, rematchGameId, cancellationToken);
         }
     }
 

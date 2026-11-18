@@ -407,16 +407,16 @@ else
                                         @if (ShouldShowMoveButton)
                                         {
                                             <MudStack Row="true" Spacing="2" Class="flex-shrink-0 flex-grow-0">
-                                                <MudButton Variant="Variant.Filled"
-                                                           Color="MudBlazor.Color.Primary"
+                                                <MudButton Variant="@(RecommendAutoMove ? Variant.Outlined : Variant.Filled)"
+                                                           Color="@(RecommendAutoMove ? MudBlazor.Color.Primary : MudBlazor.Color.Success)"
                                                            Disabled="@(!CanCommitMoveAction)"
                                                            OnClick="OnCommitMoveActionAsync">
                                                     @CommitMoveActionLabel
                                                 </MudButton>
                                                 @if (ShouldShowAutoMoveButton)
                                                 {
-                                                    <MudButton Variant="Variant.Outlined"
-                                                               Color="MudBlazor.Color.Primary"
+                                                    <MudButton Variant="@(RecommendAutoMove ? Variant.Filled : Variant.Outlined)"
+                                                               Color="@(RecommendAutoMove ? MudBlazor.Color.Success : MudBlazor.Color.Primary)"
                                                                Disabled="@(!CanCommitMoveAction)"
                                                                OnClick="OnAutoMoveActionAsync">
                                                         AUTOMOVE
@@ -828,10 +828,17 @@ else
             return;
         }
 
-        var gameEntity = _game ?? await GameService.GetGameAsync(GameId, CancellationToken.None);
+        // Read fresh: someone else may already have made the rematch, and then this goes to it instead of making another.
+        var gameEntity = await GameService.GetGameAsync(GameId, CancellationToken.None) ?? _game;
         if (gameEntity is null)
         {
             ShowNotification("Unable to prepare replay: game settings were not found.", Severity.Error);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(gameEntity.NextGameId))
+        {
+            GoToNextGame(gameEntity.NextGameId);
             return;
         }
 
@@ -848,7 +855,8 @@ else
         {
             var presetPayload = ReplayGamePresetSerialization.Serialize(new ReplayGamePreset
             {
-                Name = ReplayGameNaming.BuildReplayName(gameEntity.Name),
+                ReplayOfGameId = GameId,
+                Name = ReplayGameNaming.BuildReplayName(gameEntity.Name, isReplay: !string.IsNullOrWhiteSpace(gameEntity.ReplayOfGameId)),
                 GameDate = gameEntity.GameDate,
                 MapFileName = gameEntity.MapFileName,
                 Settings = GameSettingsResolver.Resolve(gameEntity).Settings,
@@ -867,6 +875,15 @@ else
         {
             _startingReplayGame = false;
         }
+    }
+
+    /// <summary>
+    /// Moves to the rematch. A full load, because the board sets itself up for one game when it first opens and
+    /// doesn't start over when only the game id in the address changes.
+    /// </summary>
+    private void GoToNextGame(string nextGameId)
+    {
+        Navigation.NavigateTo($"/game/{nextGameId}", forceLoad: true);
     }
 
     private bool IsLobbyGame => string.Equals(_game?.State, PersistedGameStates.Lobby, StringComparison.OrdinalIgnoreCase);
@@ -900,6 +917,34 @@ else
 
     // AUTOMOVE beside MOVE turns automove on for the rest of the trip.
     private bool ShouldShowAutoMoveButton => !AutoMove && IsAuthenticatedUserActivePlayer;
+
+    /// <summary>
+    /// Whether AUTOMOVE is the recommended button (shown green) rather than MOVE: the plotted move follows the suggested
+    /// route and that route is friendly all the way to the destination, with no opponent's railroad on it. Otherwise
+    /// MOVE is recommended, since the player may want to choose where to stop. Read from the map's own suggestion, which
+    /// the map updates before it plots the route, so the colour is right from the moment the buttons can be clicked
+    /// rather than switching when the suggestion reaches the board afterwards.
+    /// </summary>
+    private bool RecommendAutoMove
+    {
+        get
+        {
+            if (!ShouldShowAutoMoveButton
+                || _gameMap?.RouteSuggestion is not { Status: RouteSuggestionStatus.Success, Segments.Count: > 0 } suggestion
+                || suggestion.Segments.Any(segment => segment.OwnershipCategory == RailroadOwnershipCategory.Unfriendly))
+            {
+                return false;
+            }
+
+            var suggestionKeys = suggestion.Segments
+                .Select(segment => string.Join('|', segment.FromNodeId, segment.ToNodeId, segment.RailroadIndex.ToString(CultureInfo.InvariantCulture)))
+                .ToList();
+            var selectedKeys = _gameMap.GetSelectedRouteSegmentKeys();
+            return selectedKeys.Count > 0
+                && selectedKeys.Count <= suggestionKeys.Count
+                && selectedKeys.SequenceEqual(suggestionKeys.Take(selectedKeys.Count), StringComparer.OrdinalIgnoreCase);
+        }
+    }
 
     // On a move that arrives it's just MOVE: arriving ends the trip, so automove stays off.
     private async Task OnAutoMoveActionAsync()
@@ -1731,6 +1776,17 @@ else
                 update.State.Turn.Phase,
                 update.State.ActivePlayerIndex);
             OnSharedGameStateChanged(GameId, update);
+        });
+
+        // Someone made the rematch with Play Again: everyone at this finished game moves to it.
+        _gameHubConnection.On<string>(GameHubEvents.NextGameCreated, nextGameId =>
+        {
+            LogBoardDebug($"SignalR NextGameCreated received next={nextGameId}");
+            if (!string.IsNullOrWhiteSpace(nextGameId)
+                && !string.Equals(nextGameId, GameId, StringComparison.OrdinalIgnoreCase))
+            {
+                _ = InvokeAsync(() => GoToNextGame(nextGameId));
+            }
         });
 
         _gameHubConnection.On(GameHubEvents.PresenceUpdated, () =>
